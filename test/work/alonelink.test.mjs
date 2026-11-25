@@ -10,6 +10,7 @@ import http from 'node:http';
 import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
+import { closedGateways } from '../seal.mjs';
 import { tempWork } from './helpers.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -34,6 +35,8 @@ fs.writeFileSync(tool, `#!/bin/sh\nexec "${process.execPath}" "${FAKE}" "$@"\n`,
 fs.mkdirSync(path.join(B, 'config'), { recursive: true });
 fs.writeFileSync(path.join(B, 'config', 'config.json'), JSON.stringify({
   claudeBin: tool,
+  // No gateway of its own: its port is one nothing listens on, never the default a person's own gateway may have.
+  addons: closedGateways(),
   work: { place: 'project', project: 'shop', path: 'docs/plans' },
   server: { machineLabel: 'Box B', tokens: [{ id: 'aaaaaaaaaaaa', name: 'box a', hash: crypto.createHash('sha256').update(token).digest('hex'), created: Date.now() }] },
 }));

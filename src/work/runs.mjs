@@ -439,6 +439,12 @@ export function listRuns(place, { item = null, max = LIST_MAX } = {}) {
   return out;
 }
 
+/**
+ * A run that ends by itself (alone.mjs): it works on a branch of its own and has no chat. A Do it run on a branch of
+ * its own (doit.mjs) has a branch too, and its chat's session once the chat opened: that one is Do it's to settle.
+ */
+export const endsByItself = (r) => !!r && !!r.branch && !r.session;
+
 /** A run as the page and the command get it: everything but the writer's id. */
 export function viewRun(r, me = null) {
   const { writer, ...rest } = r;

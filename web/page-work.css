@@ -160,6 +160,18 @@
 .wk-run { display: grid; gap: 8px; padding: 12px 14px; border-radius: var(--r-lg); background: var(--surface); border: 1px solid var(--border); min-width: 0; }
 .wk-run-head { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; font-size: var(--fs-sm); color: var(--muted); }
 .wk-run-title { color: var(--text); font-size: var(--fs); overflow-wrap: anywhere; flex-basis: 100%; order: -1; }
+/* Who did what (Lead model): the chat page's rows (chat/rail.css), under a heading that opens and closes them. */
+.wk-run-parts { min-width: 0; padding: 8px 10px; border-radius: var(--r-sm); background: var(--surface-2); }
+.wk-run-parts > summary { cursor: pointer; font-size: var(--fs-sm); font-weight: 600; color: var(--text-2); }
+.wk-run-parts[open] > summary { margin-bottom: 6px; }
+.wk-run-use { margin: 0; overflow-wrap: anywhere; }
+.wk-use-sum { display: grid; gap: 4px; margin-bottom: 12px; }
+.wk-use-sum .wk-use-line { margin: 0; font-size: var(--fs-sm); overflow-wrap: anywhere; }
+.wk-use-sum .hint { margin: 4px 0 0; }
+.wk-note-card.wk-plan-parts { padding: 12px 18px; }
+.wk-plan-models { display: grid; gap: 4px; margin: 8px 0 0; padding: 0; list-style: none; font-size: var(--fs-xs); color: var(--text-2); }
+.wk-plan-models li { overflow-wrap: anywhere; }
+.wk-plan-models strong { color: var(--text); font-weight: 600; }
 .wk-run-reason { display: flex; align-items: flex-start; gap: 6px; margin: 0; font-size: var(--fs-sm); color: var(--text-2); overflow-wrap: anywhere; }
 .wk-run-warn { color: var(--warn); }
 .wk-run-warn .icon { flex: none; margin-top: 2px; }
@@ -182,7 +194,6 @@
 .wk-review-bar > span { flex: 1 1 220px; }
 
 /* ---------- Activity ---------- */
-.wk-activity { display: grid; gap: 10px; }
 .wk-trio { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px 14px; }
 .wk-trio > .fieldrow { margin-top: 0; min-width: 0; }
 /* The model's list says a line about itself (and may take an exact name): it gets the whole row, the others keep their height. */
@@ -364,4 +375,23 @@ button.row.wk-repeat { width: 100%; text-align: left; font: inherit; color: inhe
   /* a token's or a webhook's row: its button under the text, so an address keeps the whole width */
   .wk-token { flex-wrap: wrap; }
   .wk-token .wk-main { flex-basis: 100%; }
+}
+
+/* ---------- Activity: the one history (workhistory.js) ---------- */
+.wk-hist-list { display: grid; }
+.wk-hist { align-items: flex-start; gap: 10px; text-align: left; }
+.wk-hist .row-main { min-width: 0; display: grid; gap: 2px; }
+.wk-hist-text { overflow-wrap: anywhere; }
+.wk-hist-sub { overflow-wrap: anywhere; white-space: normal; }
+.wk-hist-kind { flex: none; display: inline-flex; align-items: center; gap: 4px; min-width: 92px; padding: 2px 8px; border-radius: 999px; font-size: var(--fs-xs); font-weight: 600; background: var(--surface-3); color: var(--text-2); }
+.wk-hist-kind .icon { flex: none; }
+.wk-hist-error { background: var(--danger-soft); color: var(--danger); }
+.wk-hist-save { background: var(--accent-soft); color: var(--accent-soft-text); }
+.wk-hist-none { margin-top: 12px; }
+.wk-hist-foot { margin-top: 12px; }
+.wk-filters .wk-filter:last-child select.field { min-width: 130px; }
+@media (max-width: 520px) {
+  .wk-hist { flex-wrap: wrap; gap: 4px 8px; }
+  .wk-hist-kind { min-width: 0; }
+  .wk-hist .row-main { flex: 1 1 100%; }
 }

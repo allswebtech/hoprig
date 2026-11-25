@@ -19,9 +19,9 @@ You want "Claude Code from my phone" without renting a server, opening ports on 
 ## What Hoprig does
 
 1. Install Hoprig on the PC. In setup, the second question is who may open the dashboard; "devices on my network" is the default: your phone on the same Wi-Fi reaches it over plain http, behind its password.
-2. Scan the QR code at the end of setup with your phone's camera. The phone is signed in; no password to type. Later, `hop link` makes a new one-time link and QR code.
+2. Scan the QR code at the end of setup with your phone's camera. The phone is signed in; no password to type. Later, open **Settings → Security and sign-in** and press **Show a sign-in code** under "Sign in another device": it shows a new one-time link and QR code. In a terminal (the window where you type commands): `hop link`.
 3. On the phone, **New session**, pick the project: a chat opens. Replies appear as they are written, each change as a diff, with **Allow**, **Allow in this session** and **Do not allow** (and **Always allow in this project** where Claude Code offers it). The real terminal is one tap away.
-4. From anywhere: **Settings → Public link → On**, or `hop public on`. *Temporary* gives a new https address at each start, with nothing to set up. *Custom* keeps your own address, on a domain in a free Cloudflare account. It turns on only with a strong dashboard password, and a visitor sees only the sign-in page.
+4. From anywhere: **Settings → Public link → On**, or in a terminal `hop public on`. *Temporary* gives a new https address at each start, with nothing to set up. *Custom* keeps your own address, on a domain in a free Cloudflare account. It turns on only with a strong dashboard password, and a visitor sees only the sign-in page.
 5. Turn on **Notifications**: a push to your phone when a session waits for you, needs your OK or reaches a limit.
 
 <p align="center"><img src="/screenshots/chat-phone-light.webp" alt="A chat on a phone: the OK card with its answers and the message box with its chips" width="250"> <img src="/screenshots/session-phone-light.webp" alt="A terminal session on a phone: the real terminal, a key bar and a message box" width="250"></p>

@@ -23,7 +23,7 @@ import {
   add, ago, api, at, btn, speedWords, confirmSheet, copyText, fill, h, insecure, isPaid, kindLabel, link, machine, openSheet, profileState, promptSheet,
   servesClaude, startOrder, subscriptionsNote, toast, toolsText, until,
 } from './lib.js';
-import { gatewaysPanel, programFacts } from './gateways.js';
+import { gatewayPageLink, gatewaysPanel, programFacts } from './gateways.js';
 import { ownBackupPanel, ownEndpointPanel, ownNote } from './ownendpoint.js';
 import { providerHealth } from './providerhealth.js';
 import { registerPage } from './registry.js';
@@ -746,8 +746,11 @@ function addWizard(data, done, { signIn = null, start = null } = {}) {
       const known = gateways().find((x) => x.id === id);
       fill(panel, back(), busy(`Checking ${known ? known.title : 'the gateway'} on the computer…`));
       let g;
+      let signedIn = [];
       try {
-        g = ((await api(A(''))).gateways || []).find((x) => x.id === id);
+        const d = await api(A(''));
+        g = (d.gateways || []).find((x) => x.id === id);
+        signedIn = Array.isArray(d.signedIn) ? d.signedIn : [];
       } catch (e) {
         return fill(panel, back(), errorBox(e));
       }
@@ -811,15 +814,17 @@ function addWizard(data, done, { signIn = null, start = null } = {}) {
           btn('primary block', { icon: 'play', label: `Start ${g.title}`, onclick: (e) => { e.currentTarget.disabled = true; run('start', again); } }),
           job);
       }
-      // Its own page as seen from this browser: the PC's own name instead of "localhost" when the page is remote.
-      const pcUrl = g.page ? g.page.replace('localhost', ['localhost', '127.0.0.1'].includes(location.hostname) ? 'localhost' : location.hostname) : null;
+      // Its own page as this browser can open it: a link on a loopback name, else one sentence of where it opens.
+      const gp = gatewayPageLink(g.page, { title: g.title, pageHost: location.hostname, signedIn, other: Boolean(machine.current) });
+      const pcUrl = gp && gp.href;
       apiForm({
         via: g.id,
         gw: g,
         intro: h('div',
           steps(
             [h('p', g.words.add),
-              pcUrl ? h('div.btnrow', h('a.btn.secondary', { href: pcUrl, target: '_blank', rel: 'noopener noreferrer' }, icon('external', { size: 18 }), h('span', `Open ${g.title}`)), h('span.hint.mono', pcUrl)) : null],
+              pcUrl ? h('div.btnrow', h('a.btn.secondary', { href: pcUrl, target: '_blank', rel: 'noopener noreferrer' }, icon('external', { size: 18 }), h('span', `Open ${g.title}`)), h('span.hint.mono', pcUrl)) : null,
+              gp && gp.text ? h('p.hint', gp.text) : null],
             [h('p', g.words.key)],
             [h('p', 'Come back and paste the key below.')]),
           h('p.hint', `${g.title} starts by itself whenever a session on this provider needs it.`)),

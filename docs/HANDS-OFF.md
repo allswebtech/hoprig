@@ -133,9 +133,10 @@ Hands-off has two parts, and they are not the same:
   tells it: `git remote set-head origin -a`.
 - A **mission's** run (`src/work/alone.mjs`) stands beside the wall, not under it: it is always started in the coding
   tool's restricted mode with the file tools only, and, for a work or fix run on a computer whose box says yes, the
-  one tool `run_tests`, which runs the project's own test command in the box and no command of its own. It has no
-  shell, no git and nothing that reaches the network, so it can run none of the commands the wall holds, and the wall
-  never meets one.
+  box's tools of its role's list: `run_tests`, which runs the project's own test command in the box and no command of its own, and, where the role file's `runs` names them, `run_build` (your build command for the project) and `run_script` (one script of the project's package.json, by its name). It has no
+  shell, no git and nothing that reaches the network. The dashboard builds each command of the box as a list of
+  words and reads it with the wall first, a script also by what it runs: a held one is not run, and the session is
+  told why in one line.
 
 Some words of the shell are used below. A script is a file of commands that a program runs. An interpreter is a
 program that runs a script's text (Python, Node). A variable is a name that stands for a value filled in when the

@@ -40,13 +40,14 @@ import { commandHandle, doRoutes, dropCommandToken, writeCommandToken } from './
 import { fromHerDoor } from '../server/herdoor.mjs';
 import { planRunner } from './planai.mjs';
 import { planRoutes } from './planfeature.mjs';
+import { historyRoutes } from './historyfeature.mjs';
 import { withWaits } from './planview.mjs';
 import { listPlans } from './plans.mjs';
 import { ID_RE, todayIn } from './model.mjs';
 import { RUN_ID_RE } from './runs.mjs';
 import { schedPart } from './schedfeature.mjs';
 import { missionPart } from '../mission/feature.mjs';
-import { partsByRun, readProgress, sinceOf } from './pulse.mjs';
+import { partsByItem, partsByRun, readProgress, sinceOf } from './pulse.mjs';
 import { teller } from './tell.mjs';
 import { reachableUrl } from '../addons/reach.mjs';
 import { tiaWorder } from './tellwire.mjs';
@@ -206,7 +207,18 @@ export function workFeature(sctx, opts = {}) {
       keys(b, ['at', 'status']);
       if (typeof b.status !== 'string') throw fail(400, 'give the status');
       await resume(place());
-      return store().status(refOf(m, b.at), b.status);
+      const out = await store().status(refOf(m, b.at), b.status);
+      // A task dropped by the owner himself: the branch of its Do it runs goes too, by that removal's own rules (a commit
+      // only there keeps it). A drop through Tia's door removes nothing: her card does not say it.
+      if (runs && b.status === 'dropped' && !fromHerDoor(sctx, req)) {
+        try {
+          const br = await runs.removeBranch(out.item.id);
+          if (br) out.branch = br;
+        } catch (e) {
+          out.branch = { removed: false, why: e.message };
+        }
+      }
+      return out;
     }],
     ['POST', /^\/api\/work\/items\/([^/]+)\/remove$/, async (req, m) => {
       ownerOnly(req);
@@ -339,7 +351,8 @@ export function workFeature(sctx, opts = {}) {
   const hooks = workHooks({ place, log: (s2) => log('webhooks', s2), ...(opts.hooks || {}) });
   const tokens = tokenDoor({ place, store, readJson: (req) => sctx.readJson(req), resume: () => resume(place()), log, clientIp: (req) => (sctx.clientIp ? sctx.clientIp(req) : 'unknown'), ...(opts.now ? { now: () => opts.now().getTime() } : {}) });
   routes.push(...accessRoutes({ sctx, readJson: (req) => sctx.readJson(req), ownerOnly, hooks, ...(opts.hooks && opts.hooks.lookup ? { lookup: opts.hooks.lookup } : {}) }));
-  routes.push(...planRoutes({ place, store, ctx: planCtx, planner: missions.planner, readJson: (req) => sctx.readJson(req), refOf, ownerOnly, resume: () => resume(place()), corrected }));
+  routes.push(...planRoutes({ place, store, ctx: planCtx, planner: missions.planner, readJson: (req) => sctx.readJson(req), refOf, ownerOnly, resume: () => resume(place()), corrected, partsByItem: () => partsByItem({ place: place(), cfg: cfg(), since: Date.now() - 30 * 24 * 3_600_000 }) }));
+  routes.push(...historyRoutes({ ownerOnly, cfg, places, place, runs, partsByRun: () => partsByRun({ place: place(), cfg: cfg(), since: Date.now() - 8 * 24 * 3_600_000 }) })); // Work → Activity: the one history (historyfeature.mjs)
   // What Work tells the owner by itself (tell.mjs): off until he turns an item on; then through the push address.
   const tell = teller({
     cfg, place, items: () => store().list().items,

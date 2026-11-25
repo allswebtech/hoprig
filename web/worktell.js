@@ -9,8 +9,8 @@ const ITEMS = [
   ['finished', 'Something finished and waits for your look', 'A session did a task: look at it and accept it.'],
   ['live', 'Something you accepted is done', 'Once, when you accept a task a session did here.'],
   ['failed', 'Something failed or stopped', 'With the reason in the coding tool\'s own words, cut short.'],
-  ['waits', 'A session waits for your answer', 'When it has waited longer than the minutes below. Not held back by the gap.'],
-  ['digest', 'A digest while work runs', 'What finished, what runs and when it will be done, what waits for you, what it used. Never one with nothing new.'],
+  ['waits', 'A session waits for your answer', { line: 'When it has waited longer than the minutes below.', more: 'Not held back by the gap.' }],
+  ['digest', 'A digest while work runs', { line: 'What finished, what runs and when it will be done, what waits for you, what it used.', more: 'Never one with nothing new.' }],
 ];
 
 /**
@@ -65,6 +65,7 @@ export function workTellPanel(st, save, { status = null } = {}) {
     toggle('Tia writes my digest', w().tiaWords, (v) => {
       set('tiaWords', v);
       return now();
-    }, 'Tia writes the digest in the language you write to her in, with one short call on her provider (it costs a little). On a provider billed by use she words it only inside your daily limit for paid use (Settings → Tia); with no limit set, or none left today, the plain digest goes. Every number and name in it is put in by the dashboard, never by her. Off: plain English, and no provider is asked.'),
+    }, { line: 'Tia writes the digest in your language, with one short call on her provider (it costs a little).',
+      more: 'She uses the language you write to her in. On a provider billed by use she words it only inside your daily limit for paid use (Settings → Tia); with no limit set, or none left today, the plain digest goes. Every number and name in it is put in by the dashboard, never by her. Off: plain English, and no provider is asked.' }),
     h('div.savebar', saveBar('Save', () => save())));
 }

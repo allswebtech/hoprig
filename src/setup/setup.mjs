@@ -145,7 +145,7 @@ function rememberPath(ui, sys, file) {
 export async function stepLogin(ui, sys) {
   const s = await claudeLoginStatus({ env: sys.env, remember: !ui.dryRun });
   if (s.loggedIn) ui.line('ok', 'Claude account logged in');
-  else if (s.loggedIn === false) yours(ui, 'warn', 'No Claude account logged in', 'claude', { alone: 'No Claude account logged in: run "claude" once, type /login, then run setup again.' });
+  else if (s.loggedIn === false) yours(ui, 'warn', 'No Claude account logged in', 'claude', { alone: 'No Claude account logged in: sign in on the dashboard, Home → Get started → Sign in to Claude (or, in a terminal: run "claude" once and type /login).' });
   else ui.line('warn', `Claude login unknown (${s.reason}).`);
   return !!s.loggedIn;
 }
@@ -565,6 +565,11 @@ export async function loginLink(baseUrl) {
   }
 }
 
+// The summary's last lines: the dashboard's press first, in the page's own names (web/accounts.js Add provider,
+// web/pc.js Health tab), the command only as the other way, so nothing of a first day is a command alone.
+const addLine = () => `  Add another provider: on the dashboard, Providers → Add provider (or: ${bold(`${APP} add`)})`;
+const checkLine = () => `  Check everything: on the dashboard, Computers → this computer → Health (or: ${bold(`${APP} doctor`)})`;
+
 export async function stepSummary(ui, state, sys = {}) {
   const cfg = loadConfig();
   const host = cfg.server.host || DEFAULT_HOST;
@@ -605,7 +610,8 @@ export async function stepSummary(ui, state, sys = {}) {
     // The command alone on its line, so it can be copied without the words around it.
     ui.out(`        ${forwardLine(port, { sshPort: state.server.sshPort, ...sys, workUser: state.workUser || null })}`);
     if (state.passwordFile) ui.out(`  Password, if asked: in ${tilde(state.passwordFile)}`);
-    ui.out(`  Add another provider: ${bold(`${APP} add`)}     Check everything: ${bold(`${APP} doctor`)}`);
+    ui.out(addLine());
+    ui.out(checkLine());
     return;
   }
   const link = phoneBase && !ui.dryRun ? await loginLink(phoneBase) : null;
@@ -633,10 +639,11 @@ export async function stepSummary(ui, state, sys = {}) {
     } catch {
       ui.out(`  Connect each of your computers to it: on this main computer run ${bold(`${APP} machines invite`)}, then on the other computer ${bold(`${APP} join ${base} <code>`)}`);
     }
-    ui.out(`  Check everything: ${bold(`${APP} doctor`)}`);
+    ui.out(checkLine());
     return;
   }
-  ui.out(`  Add another provider: ${bold(`${APP} add`)}     Check everything: ${bold(`${APP} doctor`)}`);
+  ui.out(addLine());
+  ui.out(checkLine());
 }
 
 /** Run every step. Returns 0 when the dashboard can work, 1 when something needed is missing, 2 on bad options. */

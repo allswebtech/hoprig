@@ -81,7 +81,9 @@ test('"Use other providers": shown only while Lead is on; its ticks right under 
   const sw = n.querySelectorAll('input').find((x) => x.getAttribute('data-key') === 'lead-others');
   // The ticks sit right under the switch, in no fold to open (the stand-in DOM keeps no class toggle: the tree is read).
   const tags = (x) => [x.tag, ...(x.children || []).flatMap((c) => (c && c.tag ? tags(c) : []))];
-  assert.ok(!tags(n).includes('details'), 'no fold');
+  // The only fold is Lead model's "More" of its help: the ticks are in none.
+  const folds = [n, ...n.querySelectorAll('details')].filter((x) => x.tag === 'details');
+  assert.ok(folds.every((f) => f.className.includes('help-more') && !byClass(f, 'lead-ticks').length && !tags(f).includes('input')), 'no fold');
   assert.equal(byClass(n, 'lead-ticks').length, 1);
   sw.checked = true;
   sw.listeners.change({ target: sw });
@@ -163,6 +165,20 @@ test('under Lead: one line of what it costs, true to what was measured; under Us
   await settle();
   const all = texts(n).join(' ');
   assert.ok(all.includes(L.LEAD_COST), 'the cost line is shown where he switches it on');
+  // One line under the switch (the cost in it, never folded away); how it works under a closed "More".
+  const row = byClass(n, 'switchrow')[0];
+  const visibleHints = byClass(row, 'hint').filter((x) => !byClass(row, 'help-more').some((f) => byClass(f, 'hint').includes(x)));
+  assert.deepEqual(visibleHints.map((x) => texts(x).join('')), [L.LEAD_HELP], 'one line of help');
+  assert.ok(L.LEAD_HELP.includes(L.LEAD_COST) && !/[.!?]\s+\S/.test(L.LEAD_HELP), 'one sentence, with the cost');
+  const fold = byClass(row, 'help-more')[0];
+  assert.ok(fold && fold.open !== true, 'a closed More');
+  assert.deepEqual(texts(byClass(fold, 'help-more-body')[0]), [L.LEAD_MORE]);
+  assert.match(L.LEAD_MORE, /plans the work/);
+  // Use other providers: one line, and the mode parts run in as a line of its own, never folded.
+  const others = byClass(n, 'switchrow')[1];
+  assert.deepEqual(byClass(others, 'hint').map((x) => texts(x).join('')), [L.OTHERS_HELP]);
+  assert.equal(byClass(others, 'help-more').length, 0);
+  assert.equal(byClass(n, 'lead-mode').length, 1);
   assert.ok(all.includes('Parts run in this session\'s mode: now bypass permissions.'), all);
   // Bypass not offered on that computer now: the line says what a part really gets.
   assert.equal(L.partModeLine('bypassPermissions', ['manual', 'acceptEdits']), 'Parts run in this session\'s mode: now manual.');

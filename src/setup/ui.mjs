@@ -90,15 +90,20 @@ export function makeUi({ yes = false, dryRun = false, interactive, write, askLin
 // run ("Still yours to do"). A step names it when it happens with its mark only (yours); outside set-up (hoprig pc
 // setup, hoprig workspace git on their own) the step says its next step on the same line, as before.
 export const TODO = {
-  identity: { label: 'Your name and e-mail for commits', step: 'git config --global user.name "Your Name" && git config --global user.email you@example.com' },
-  github: { label: 'Sign in to GitHub', step: 'gh auth login' },
-  claude: { label: 'Sign in to Claude Code', step: 'run claude, then type /login' },
-  linger: { label: 'Keep the dashboard running after you log out (lingering)', step: 'sudo loginctl enable-linger <you>' },
+  // Get started's Git and GitHub step (web/getstarted.js actionLabel, web/gitsetup.js openGitSetup) signs in to GitHub
+  // and sets the name and e-mail on the page.
+  identity: { label: 'Your name and e-mail for commits', page: 'Home → Get started → Set up git and GitHub', step: 'git config --global user.name "Your Name" && git config --global user.email you@example.com' },
+  github: { label: 'Sign in to GitHub', page: 'Home → Get started → Set up git and GitHub', step: 'gh auth login' },
+  // The page way first (web/getstarted.js runs the sign-in in the page, src/server/claudelogin.mjs): no terminal needed.
+  claude: { label: 'Sign in to Claude Code', page: 'Home → Get started → Sign in to Claude', step: 'run claude, then type /login' },
+  // Health's Gateways part turns it on with one press (web/health.js, POST /api/gatewayhost/linger, sudo -n). Where
+  // this computer has no sudo the press cannot work: linger.mjs then gives no page way (page: null).
+  linger: { label: 'Keep the dashboard running after you log out (lingering)', page: 'Computers → this computer → Health → Let them start after a restart', step: 'sudo loginctl enable-linger <you>' },
   // `page`: the way on the dashboard, named first as it really is (web/getstarted.js withGitStep; only its brain row's
   // Keep on GitHub makes the first commit, with a GitHub sign-in, into a new private repository); the command after it
   // is the way that stays on this computer.
   brainCommit: { label: 'The AI brain\'s first commit, once git knows your name and e-mail', page: 'Home → Get started → Git and GitHub set up, then Keep on GitHub (with a GitHub account: it also keeps the brain in a new private GitHub repository)', step: 'git -C <workspace>/ai_brain init -b main && git -C <workspace>/ai_brain add -A && git -C <workspace>/ai_brain commit -m \'Start the AI brain\'' },
-  brain: { label: 'Your AI brain on a git server (its first commit there)', step: 'hoprig workspace git' },
+  brain: { label: 'Your AI brain on a git server (its first commit there)', page: 'Home → Get started → Set up git and GitHub', step: 'hoprig workspace git' },
   restart: { label: 'Restart the dashboard, so it runs this version and its settings', step: 'hoprig service install' },
   terminal: { label: 'A new terminal, so every new program and the hoprig command are found', step: 'open a new terminal (or log in again)' },
 };
@@ -107,6 +112,7 @@ const TODO_ORDER = Object.keys(TODO);
 /** Set-up's closing list: from now on `yours` collects into it. */
 export function collectTodo(ui) {
   ui.todos = new Map();
+  ui.todoPages = new Map(); // a run's own page way for a key, when TODO's does not hold there (null: none)
   ui.todo = (key, step) => {
     if (!ui.todos.has(key)) ui.todos.set(key, step || TODO[key].step);
   };
@@ -117,8 +123,9 @@ export function collectTodo(ui) {
  * Something left for the person: `text` with its mark now, and `key`'s next step (or `step`) in the closing list.
  * Outside set-up the line says it at once: `alone` when given, else `text: step`.
  */
-export function yours(ui, status, text, key, { step = null, alone = null } = {}) {
+export function yours(ui, status, text, key, { step = null, alone = null, page } = {}) {
   if (ui.todo) {
+    if (page !== undefined && ui.todoPages) ui.todoPages.set(key, page);
     // Marked once in a run: a later step that finds it again says nothing, and only a next step of its own (a better
     // one: GitHub's no-reply address) replaces the one kept.
     if (ui.todos.has(key)) {
@@ -137,7 +144,8 @@ export function closingList(ui) {
   ui.out(`  ${bold('Still yours to do:')}`);
   for (const key of TODO_ORDER) {
     if (!ui.todos.has(key)) continue;
-    const { label, page } = TODO[key];
+    const { label } = TODO[key];
+    const page = ui.todoPages && ui.todoPages.has(key) ? ui.todoPages.get(key) : TODO[key].page;
     ui.out(`    · ${label}: ${page ? `On the dashboard: ${page}. Or only here, on this computer: ${ui.todos.get(key)}` : ui.todos.get(key)}`);
   }
 }

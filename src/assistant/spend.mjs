@@ -1,11 +1,13 @@
-// What Tia spends on providers billed by use, against the daily cap the owner set (Settings → Tia → Daily spending
-// cap). The contract's one exception to "money waits for his tap": paid usage inside a cap he set himself. Without a
-// cap, or once it is reached, a paid act of hers is a card, and her own turn on a paid provider is refused.
+// What Tia spends on providers billed by use, against the daily limit for paid use the owner set (Settings → Tia →
+// Daily limit for paid use (US $)). The contract's one exception to "money waits for his tap": paid usage inside a
+// limit he set himself. Without that limit, or once it is reached, a paid act of hers is a card, and her own turn on a
+// paid provider is refused.
 //
 // The ledger is one JSON line per entry in <stateDir>/assistant/spend.jsonl, so a restart keeps the day's sum:
 //   { at, kind: "hold" }            a paid act of hers ran without a card: HOLD_USD counted at once, before it spends
 //   { at, kind: "spent", usd, what } what such work cost when its turn ended (her own turn)
-//   { at, kind: "hold", id, owner: true }  a paid act ran from his tap on a card: counted, never checked against the cap
+//   { at, kind: "hold", id, owner: true }  a paid act ran from his tap on a card: counted, never checked against the daily
+//                                   limit for paid use
 //   { at, kind: "hold", id, usd }  a part's budget (partdoor.mjs, chat/feature.mjs): while its process runs it counts the
 //                                   larger of usd and what its chat was measured to cost; settled ({ kind: "spent", hold })
 //                                   when its process ends, it counts what it cost
@@ -16,8 +18,10 @@
 //   { at, kind: "bind", hold, session, base, message? }  that act went into a chat she started ("<computer>|chat:<id>");
 //                                   base: the chat's running cost (its costTotal) before it; message: the chat's id of the
 //                                   message the act sent (send_to_chat's text; none for a new chat's first message or a part)
-//   { at, kind: "measured", session, usd, working }  what that chat has cost since its first bind of the day, as its
-//                                   coding tool reported it; working: a turn of it runs now (its cost not reported yet)
+//   { at, kind: "measured", session, usd, raw, working, conv? }  what that chat has cost since its first bind of the
+//                                   day, as its coding tool reported it (never lower than the figure before: a new
+//                                   conversation's running cost adds to it); raw: the running cost itself; working: a
+//                                   turn of it runs now (its cost not reported yet); conv: the conversation it is of
 //   { at, kind: "ended", hold, message, cost, back? }  how the message of a bind with a message id ended, as its chat
 //                                   told (measureChats, once per hold): cost, what the turn that ran it reported (null:
 //                                   none, a crash or a stop); back: it never ran (taken back, or lost with the process)
@@ -37,7 +41,7 @@
 // another computer and a chat on an earlier conversation are not measured: their acts count HOLD_USD each for the day.
 // A measured cost takes the place of its own act's hold (by id); a hold nobody settles counts for the rest of the day
 // (the safe side: what a session or chat she started costs is not measured, so it counts HOLD_USD per paid act).
-// Her own turn is also given what is left of the cap as its budget (--max-budget-usd), so one turn cannot run past it. The check and the
+// Her own turn is also given what is left of the daily limit for paid use as its budget (--max-budget-usd), so one turn cannot run past it. The check and the
 // hold happen in one synchronous step (take), so two calls at the same moment cannot both pass the last free amount;
 // across processes (two dashboards on one state folder) that step, and every other write, runs under a lock file
 // beside the ledger.
@@ -48,6 +52,47 @@ import path from 'node:path';
 import { stateDir } from '../paths.mjs';
 
 export const HOLD_USD = 0.5;
+// This process's mark on the budget holds it writes ("<pid>-<random>-<start>"): a hold of a dashboard that no longer
+// runs is a part whose end this one never saw (its process was that dashboard's child), said as such, never as running.
+// <start> is when the process started (Linux: field 22 of /proc/<pid>/stat, clock ticks since boot), so a pid that
+// now belongs to another process is not taken for that dashboard. Where it cannot be read (macOS, Windows, no /proc),
+// the mark has no <start> and only the pid is asked: a dead dashboard's pid taken by a live process reads as running
+// there. A mark written before the start time was (no <start>) is read by its pid as before.
+const startOf = (pid) => {
+  if (process.platform !== 'linux') return '';
+  try {
+    const stat = fs.readFileSync(`/proc/${pid}/stat`, 'utf8');
+    const field = stat.slice(stat.lastIndexOf(')') + 2).split(' ')[19]; // fields from the 3rd on, after "(name)"
+    return /^\d+$/.test(field || '') ? field : '';
+  } catch {
+    return '';
+  }
+};
+// Made when the first budget hold is written, not at load: a dashboard that holds nothing reads no file for it.
+const TAG = `${process.pid}-${crypto.randomBytes(4).toString('hex')}`;
+let RUN = null;
+const runMark = () => {
+  if (RUN === null) {
+    const start = startOf(process.pid);
+    RUN = `${TAG}${start ? `-${start}` : ''}`;
+  }
+  return RUN;
+};
+/** Whether the dashboard that wrote mark `run` still runs (this one, or another on the same state folder). */
+const runLives = (run) => {
+  if (run === TAG || run.startsWith(`${TAG}-`)) return true; // this dashboard's own mark
+  const pid = Number.parseInt(run, 10);
+  if (!Number.isInteger(pid) || pid <= 0 || pid === process.pid) return false;
+  try {
+    process.kill(pid, 0);
+  } catch (e) {
+    if (e.code !== 'EPERM') return false;
+  }
+  const start = run.split('-')[2];
+  if (!start) return true;
+  const now = startOf(pid);
+  return !now || now === start;
+};
 export const CAP_MAX_USD = 10_000;
 // The smallest budget a part is given (Claude Code's --max-budget-usd takes any amount above 0; the figures here are
 // cents, so a cent is the least there is). A part whose share is less does not start.
@@ -83,23 +128,28 @@ const midnight = (now) => {
   d.setHours(0, 0, 0, 0);
   return d.getTime();
 };
-// A short synchronous wait between tries for the lock (take stays one synchronous step in this process). The whole
-// wait is short: the lock is held for one read and one line, and the dashboard's one thread waits with it.
+/** The midnight before the one at `from` (a day of 23 or 25 hours too). */
+const dayBefore = (from) => {
+  const d = new Date(from);
+  d.setDate(d.getDate() - 1);
+  return d.getTime();
+};
+// A short synchronous wait between tries for the lock (take stays one synchronous step in this process). The
+// dashboard's one thread waits with it: take() waits briefly, a write until it has the lock (#append).
 const WAIT = new Int32Array(new SharedArrayBuffer(4));
 const LOCK_WAIT_MS = 150;
 const STALE_MS = 5000;
-const WRITE_WAIT_MS = 1000;
-/** A lock file's identity (one instance of it: made with 'wx', never written to), or null when there is none. */
-const lockSeen = (lock) => {
-  try {
-    const s = fs.statSync(lock);
-    return { ino: s.ino, dev: s.dev, mtimeMs: s.mtimeMs };
-  } catch {
-    return null;
-  }
-};
-const sameLock = (a, b) => !!(a && b && a.ino === b.ino && a.dev === b.dev && a.mtimeMs === b.mtimeMs);
-/** take()'s answer when another dashboard holds the lock: nothing was held; the cap was not checked. */
+// The most a write waits for the lock. A dead holder's lock is stale after STALE_MS. A live holder keeps its lock
+// fresh between the steps of its rewrite (#shrink) and gives it up when one step took more than half of STALE_MS, so
+// it never holds one lock for long. This end is reached only when a lock cannot be taken over at all (its folder
+// cannot be written) or other writers keep taking it in turn: the write is then an error, and nothing is written.
+const WRITE_WAIT_MS = 6 * STALE_MS;
+// A lock (or its break file) untouched for STALE_MS is left over from a process that ended in it. One dated more than
+// a minute ahead is too: the clock was set back since it was made, and it would otherwise never grow old. A few
+// seconds ahead is not (a state folder on another computer's disk may run its clock a little ahead): the safe side.
+const AHEAD_MS = 60_000;
+const stale = (mtimeMs) => Date.now() - mtimeMs > STALE_MS || mtimeMs - Date.now() > AHEAD_MS;
+/** take()'s answer when another dashboard holds the lock: nothing was held; the daily limit for paid use was not checked. */
 export const BUSY = 'another dashboard is writing the spending record just now; try again in a moment';
 const money = (v) => `$${(Math.round(v * 100) / 100).toFixed(2)}`;
 
@@ -110,9 +160,6 @@ export class SpendLedger {
     this.now = now;
     this.memory = [];
   }
-
-  /** A lock that kept a write waiting its whole wait (see #append), or null. */
-  #stuck = null;
 
   #entries() {
     if (!this.file) return this.memory;
@@ -132,49 +179,63 @@ export class SpendLedger {
 
   /**
    * Write one entry. Every write of the ledger runs under the lock file that take() uses, so the rewrite below never
-   * drops a line another dashboard on the same state folder appended in between. A write waits for the lock longer
-   * than take() does: a line appended without the lock while a live holder rewrites the file goes into the file the
-   * rewrite replaces, and is lost. A holder keeps it for one read and one line, or one rewrite.
-   * When one lock stays the same file for the whole wait, its holder ended inside it (not old enough to take over
-   * yet): the line is appended without the lock and without the rewrite, and that lock is remembered, so the writes
-   * after it append at once while it is still there and not stale. The dashboard's one thread waits once per such
-   * lock, not a second for every line (measureChats writes one per chat).
+   * drops a line another dashboard on the same state folder appended in between: a line appended without the lock
+   * while a live holder rewrites the file goes into the file the rewrite replaces, and is lost. So a line is never
+   * written without the lock: a write waits until it has the lock, or until the lock is stale and it takes it over.
+   * The price: when a dashboard died inside the lock, the first write after it keeps this dashboard's one thread
+   * waiting until that lock is stale (up to five seconds), once; the writes after it find no lock. A write that gave
+   * its lock up (one step of its rewrite took more than half of STALE_MS) or lost it wrote nothing, and asks again for
+   * its line only. The wait has an end (WRITE_WAIT_MS, which a live holder does not reach): a lock still held then
+   * is an error, and nothing is written.
    */
   #append(entry) {
     if (!this.file) return void this.memory.push(entry);
-    const lock = `${this.file}.lock`;
-    const before = lockSeen(lock);
-    if (sameLock(before, this.#stuck) && Date.now() - before.mtimeMs <= STALE_MS) return void this.#write(entry, { rewrite: false });
-    if (this.#locked(() => this.#write(entry), WRITE_WAIT_MS) !== undefined) return;
-    // Held all the time by one lock (not one of many a busy peer took in turn): remembered as left behind.
-    const after = lockSeen(lock);
-    this.#stuck = sameLock(before, after) ? after : null;
-    this.#write(entry, { rewrite: false });
+    const until = Date.now() + WRITE_WAIT_MS;
+    for (let again = false; ; again = true) {
+      // Again, the line only: the rewrite is left to a later write, so a slow one cannot keep giving the lock up.
+      const done = this.#locked((keep) => this.#write(entry, keep, !again), Math.max(0, until - Date.now()));
+      if (done) return;
+      // false: the lock was given up or taken over while this write held it (nothing was written): asked again.
+      if (done === undefined || Date.now() >= until) throw new Error(`the spending record stayed locked by another dashboard for ${WRITE_WAIT_MS / 1000} seconds; this entry was not written`);
+      Atomics.wait(WAIT, 0, 0, 5);
+    }
   }
 
-  /** The write itself; the caller holds the lock (or, with rewrite false, appends only). */
-  #write(entry, { rewrite = true } = {}) {
-    if (!this.file) return void this.memory.push(entry);
+  /**
+   * The write itself, under the lock; keep(): the lock is still this write's (and kept fresh); shrink: the rewrite
+   * first (#shrink). false: nothing was written.
+   */
+  #write(entry, keep, shrink = true) {
+    if (!this.file) {
+      this.memory.push(entry);
+      return true;
+    }
     fs.mkdirSync(path.dirname(this.file), { recursive: true, mode: 0o700 });
-    if (rewrite) this.#shrink();
+    if (shrink) this.#shrink(keep);
+    if (!keep()) return false;
     fs.appendFileSync(this.file, JSON.stringify(entry) + '\n', { mode: 0o600 });
     return true;
   }
 
   /**
-   * Only today matters: a file past a few hundred KB that holds entries of an earlier day is rewritten with today's
-   * (a day whose own entries are that big has nothing to drop, and is left as it is). Written beside it and renamed
-   * over it, so a reader sees the old file or the new one, never half of one.
+   * Only today and yesterday matter (yesterday for its acts still counted at midnight, #carried): a file past a few
+   * hundred KB that holds entries of an earlier day is rewritten with those two days' (two days whose own entries are
+   * that big have nothing to drop, and are left as they are). Written beside it and renamed over it, so a reader sees
+   * the old file or the new one, never half of one. keep() before each long step keeps the lock fresh, so a slow
+   * rewrite is not taken for a dead one; a lock that is no longer this one's is never renamed over.
    */
-  #shrink() {
+  #shrink(keep) {
     try {
       if (fs.statSync(this.file).size <= 256 * 1024) return;
-      const from = midnight(this.now());
+      const from = dayBefore(midnight(this.now()));
+      if (!keep()) return;
       const all = this.#entries();
       if (!all.some((e) => e.at < from)) return;
       const tmp = `${this.file}.${process.pid}.${crypto.randomBytes(4).toString('hex')}.tmp`;
       try {
+        if (!keep()) return;
         fs.writeFileSync(tmp, all.filter((e) => e.at >= from).map((e) => JSON.stringify(e) + '\n').join(''), { mode: 0o600 });
+        if (!keep()) return;
         fs.renameSync(tmp, this.file);
       } finally {
         fs.rmSync(tmp, { force: true });
@@ -190,6 +251,65 @@ export class SpendLedger {
   }
 
   /**
+   * Yesterday's binds whose act was still counted at midnight (its $0.50 or a part's budget) and whose turn may still
+   * run after it, as binds of today at the chat's last running cost seen yesterday, so what that chat costs after
+   * midnight is measured and counts today (yesterday counted the act's hold, not that cost). One day only: a carried
+   * bind is not written, so the day after it carries nothing.
+   * A turn may still run: a part's, while its budget is not settled (its process may run on); a message's, until its
+   * end is written (one that ended without a cost, a crash or a stop, runs no more); any other act's, unless after it
+   * its chat was last seen idle once a turn that began after the act was seen running, or idle at a figure higher than
+   * the idle one before (a turn too short to be seen working ended). Idle at the act's own figure: its message has not
+   * run yet, so it may still run (the safe side). An act whose turn ended before midnight keeps its $0.50 on the day
+   * before, and the chat's next day is not counted for it: that cost is his own.
+   */
+  #carried() {
+    const from = midnight(this.now());
+    const prev = dayBefore(from);
+    const before = this.#entries().filter((e) => e.at >= prev && e.at < from);
+    if (!before.some((e) => e.kind === 'bind')) return [];
+    const still = new Set();
+    this.#sum(before, null, still);
+    const ended = new Set(before.filter((e) => e.kind === 'ended' && e.hold).map((e) => e.hold));
+    const parts = new Set(before.filter((e) => e.kind === 'hold' && e.id && Number.isFinite(e.usd)).map((e) => e.id));
+    const mayRun = (e, i) => {
+      if (parts.has(e.hold)) return true;
+      if (typeof e.message === 'string' && e.message) return !ended.has(e.hold);
+      const looks = [...before.entries()].filter(([, x]) => x.kind === 'measured' && x.session === e.session && Number.isFinite(x.usd));
+      const at = looks.filter(([j]) => j < i).at(-1);
+      let idle = !at || !at[1].working; // no turn of it runs at the act
+      let from = at ? at[1].usd : 0;
+      let own = false; // a turn that began after the act runs
+      let done = false;
+      for (const [j, m] of looks) {
+        if (j < i) continue;
+        if (m.working) {
+          if (idle) own = true;
+          idle = false;
+          done = false; // a turn runs again: it may be the act's own (its message waited)
+        } else {
+          if (own || (idle && m.usd > from + 1e-9)) done = true;
+          own = false;
+          idle = true;
+          from = m.usd;
+        }
+      }
+      return !done;
+    };
+    const firstBase = new Map();
+    for (const e of before) if (e.kind === 'bind' && !firstBase.has(e.session)) firstBase.set(e.session, Number.isFinite(e.base) ? e.base : 0);
+    const out = [];
+    const seen = new Set();
+    for (const [i, e] of before.entries()) {
+      if (e.kind !== 'bind' || !e.hold || !still.has(e.hold) || seen.has(e.session) || !mayRun(e, i)) continue;
+      seen.add(e.session);
+      const m = before.filter((x) => x.kind === 'measured' && x.session === e.session && Number.isFinite(x.usd)).at(-1);
+      const base = m ? (Number.isFinite(m.raw) ? m.raw : m.usd + firstBase.get(e.session)) : Number.isFinite(e.base) ? e.base : 0;
+      out.push({ at: from, kind: 'bind', hold: e.hold, session: e.session, base, carried: true });
+    }
+    return out;
+  }
+
+  /**
    * Today's sum, in parts: spent (measured: her own turns and the chats she started), held (HOLD_USD for each act whose
    * cost is not measured, and for each such chat while a turn of it runs), unmeasured (how many acts count HOLD_USD
    * because their cost is not known: a terminal session, a chat that reported nothing yet) and tapped (paid acts that
@@ -198,7 +318,11 @@ export class SpendLedger {
    * the rest of their budgets, which is in held: counted for the day as what could not be measured).
    */
   detail(rests = null) {
-    const day = this.#day();
+    return this.#sum([...this.#carried(), ...this.#day()], rests);
+  }
+
+  /** The sum of entries `day` (detail()); `still` (a Set, optional) gets the ids of the holds it still counts. */
+  #sum(day, rests = null, still = null) {
     let spent = day.filter((e) => e.kind === 'spent').reduce((n, e) => n + (Number.isFinite(e.usd) && e.usd > 0 ? e.usd : 0), 0);
     const latest = new Map(); // session → its newest measure (its cost so far)
     const looks = new Map(); // session → its measures, with their place in the day's entries
@@ -285,6 +409,7 @@ export class SpendLedger {
       }
       held += e.cut;
     }
+    const lives = new Map(); // a hold's run mark → whether that dashboard still runs (asked once per sum)
     for (const [i, e] of day.entries()) {
       if (e.kind !== 'hold') continue;
       if (e.owner) tapped++;
@@ -296,7 +421,18 @@ export class SpendLedger {
         const chat = e.id ? boundTo.get(e.id) : null;
         const rest = Math.max(0, e.usd - (chat ? costSince(chat, i) : 0));
         if (rests) rests.set(e.id, rest);
+        if (still && e.id && rest > 0) still.add(e.id);
         held += rest;
+        // Written by a dashboard that no longer runs: its part's process was that dashboard's, and its end was never
+        // seen. The rest stays counted (its budget bounds what a turn of it cost), said as a part whose end Hoprig did
+        // not see, never as one that runs now (it takes no place beside a new part: partShare, tooLittle).
+        if (typeof e.run === 'string' && !(lives.has(e.run) ? lives.get(e.run) : lives.set(e.run, runLives(e.run)).get(e.run))) {
+          if (rest > 0) {
+            unseen++;
+            unseenHeld += rest;
+          }
+          continue;
+        }
         partsHeld += rest;
         parts++;
         continue;
@@ -305,6 +441,7 @@ export class SpendLedger {
         // Settled by its own message: its turn ended and reported (the chat's measured cost holds it), or it never ran.
         const end = endOf.get(e.id);
         if ((end && (end.back === true || Number.isFinite(end.cost))) || ids.has(e.id)) continue;
+        if (still) still.add(e.id);
         held += HOLD_USD;
         unmeasured++;
         continue;
@@ -315,6 +452,7 @@ export class SpendLedger {
         if (!e.id) settled--;
         continue;
       }
+      if (still && e.id) still.add(e.id);
       held += HOLD_USD;
       unmeasured++;
     }
@@ -328,7 +466,7 @@ export class SpendLedger {
     return { spent, held };
   }
 
-  /** A paid act ran from his tap on a card: counted in today's sum at once, never checked against the cap. */
+  /** A paid act ran from his tap on a card: counted in today's sum at once, never checked against the daily limit for paid use. */
   tapped(id) {
     this.#append({ at: this.now(), kind: 'hold', id: String(id).slice(0, 40), owner: true });
   }
@@ -365,17 +503,69 @@ export class SpendLedger {
   /** The chats today's paid acts went into: session → the running cost before the first of them (its base). */
   bound() {
     const out = new Map();
-    for (const e of this.#day()) if (e.kind === 'bind' && !out.has(e.session)) out.set(e.session, Number.isFinite(e.base) ? e.base : 0);
+    for (const e of [...this.#carried(), ...this.#day()]) if (e.kind === 'bind' && !out.has(e.session)) out.set(e.session, Number.isFinite(e.base) ? e.base : 0);
     return out;
   }
 
-  /** What chat `session` has cost since its base; written only when it changed. */
-  measure(session, usd, working = false) {
-    if (!Number.isFinite(usd) || usd < 0) return;
-    const v = Math.round(usd * 1_000_000) / 1_000_000;
-    const last = this.#day().filter((e) => e.kind === 'measured' && e.session === session).at(-1);
-    if (last && last.usd === v && !!last.working === !!working) return;
-    this.#append({ at: this.now(), kind: 'measured', session: String(session).slice(0, 80), usd: v, working: !!working });
+  /**
+   * What chat `session` has cost since its base: `usd` is its running cost less that base (`raw`, the running cost
+   * itself, when the caller has it; `conversation`, the chat's conversation it is of, when the caller knows it). The
+   * figure written never goes down: a new conversation in the chat starts its running cost again at nothing
+   * (src/chat/run.mjs; a rewind, src/chat/chat.mjs #forkAt), so its running cost adds whole to what was measured before
+   * it, and a rise in the same conversation adds what it rose by. A new conversation is told by its id (another one than
+   * the last measure named), else by a running cost below the one last seen: one first seen above the old figure (a
+   * rewind's first turn, or one that ended between two looks) is new all the same. Written only when it changed.
+   */
+  measure(session, usd, working = false, raw = null, conversation = null) {
+    const key = String(session).slice(0, 80);
+    const base = this.bound().get(key) || 0;
+    const r6 = (v) => Math.round(v * 1_000_000) / 1_000_000;
+    const now = r6(Number.isFinite(raw) ? raw : usd + base);
+    if (!Number.isFinite(now) || now < 0) return;
+    const conv = typeof conversation === 'string' && conversation ? conversation.slice(0, 80) : null;
+    const mine = this.#day().filter((e) => e.kind === 'measured' && e.session === key);
+    const last = mine.at(-1);
+    // The conversation the chat was last measured in (the newest measure that names one).
+    const seenConv = mine.findLast((e) => typeof e.conv === 'string')?.conv || null;
+    let v;
+    if (!last) v = now + 1e-9 >= base ? now - base : now; // below the base at the first look: a new conversation since
+    else {
+      const before = Number.isFinite(last.raw) ? last.raw : last.usd + base;
+      const other = conv && seenConv && conv !== seenConv;
+      v = last.usd + (!other && now + 1e-9 >= before ? now - before : now);
+    }
+    v = r6(Math.max(0, v));
+    if (last && last.usd === v && !!last.working === !!working && (!Number.isFinite(last.raw) || last.raw === now) && (!conv || conv === seenConv)) return;
+    this.#append({ at: this.now(), kind: 'measured', session: key, usd: v, raw: now, working: !!working, ...(conv ? { conv } : {}) });
+  }
+
+  /**
+   * Whether act `hold`'s chat went on in a new conversation after the one that act's message went into: a measure
+   * after the act names another conversation than the act's, or has a running cost below the one before it (from the
+   * chat's running cost at the act, its bind's base). The act's conversation is the one its chat was last measured in
+   * before it, unless the chat's running cost at the act was lower than that measure (a new conversation began between
+   * them): then it is the first one named after the act. measureChats then settles no end of that act's message.
+   */
+  newConversationSince(hold) {
+    const day = this.#day();
+    const at = day.findIndex((e) => e.kind === 'bind' && e.hold === hold);
+    if (at < 0) return false;
+    const bind = day[at];
+    const base = Number.isFinite(bind.base) ? bind.base : 0;
+    const of = (e) => e.kind === 'measured' && e.session === bind.session && Number.isFinite(e.raw);
+    const before = day.slice(0, at).findLast(of);
+    let conv = before && base + 1e-9 >= before.raw && typeof before.conv === 'string' ? before.conv : null;
+    let raw = base;
+    for (const e of day.slice(at + 1)) {
+      if (!of(e)) continue;
+      if (typeof e.conv === 'string') {
+        if (conv && e.conv !== conv) return true;
+        conv = e.conv;
+      }
+      if (e.raw < raw - 1e-9) return true;
+      raw = e.raw;
+    }
+    return false;
   }
 
   /**
@@ -388,13 +578,13 @@ export class SpendLedger {
     if (!Number.isFinite(cap) || cap <= 0) return 'no daily limit for paid use is set (Settings → Tia)';
     // Two dashboards on one state folder share this ledger: the check and the hold happen under one lock file, so
     // two takers at the same moment in two processes never pass the last free amount together.
-    const why = this.#locked(() => {
+    const why = this.#locked((keep) => {
       const t = this.detail();
+      // A hold not written (the lock was taken over meanwhile) is refused as busy: nothing was held.
       if (amount !== null) {
         const usd = typeof amount === 'function' ? amount(t) : amount;
         if (!(Number.isFinite(usd) && usd + 1e-9 >= PART_MIN_USD) || t.spent + t.held + usd > cap + 1e-9) return tooLittle(cap, t);
-        this.#write({ at: this.now(), kind: 'hold', ...(id ? { id: String(id).slice(0, 40) } : {}), usd: Math.round(usd * 1_000_000) / 1_000_000 });
-        return null;
+        return this.#write({ at: this.now(), kind: 'hold', ...(id ? { id: String(id).slice(0, 40) } : {}), usd: Math.round(usd * 1_000_000) / 1_000_000, run: runMark() }, keep) ? null : undefined;
       }
       if (t.spent + t.held + HOLD_USD > cap + 1e-9) {
         const used = t.spent + t.held;
@@ -404,25 +594,25 @@ export class SpendLedger {
         const uh = t.unseenHeld || 0;
         const other = Math.round((t.held - ph - ch - uh) * 100) / 100;
         const parts = `${money(t.spent)} spent${ph > 0 ? `, ${money(ph)} held by ${t.parts === 1 ? 'a part that runs now' : `${t.parts} parts that run now`}` : ''}${ch > 0 ? `, ${money(ch)} counted for ${cutWords(t.cuts)}` : ''}${uh > 0 ? `, ${money(uh)} counted for ${unseenWords(t.unseen)}` : ''}${other > 0 ? `, and ${money(other)} counted for ${unmeasuredWords(t.unmeasured)}` : ''}`;
-        // "Reached" only when it is: a cap with less than one hold of room left says how much of it is used.
+        // "Reached" only when it is: a limit with less than one hold of room left says how much of it is used.
         return used + 1e-9 >= cap
           ? `today's daily limit for paid use of ${money(cap)} is reached (${parts}); raise the limit, or wait for tomorrow`
           : `today's daily limit for paid use of ${money(cap)} has no room for another ${money(HOLD_USD)} (${money(used)} of ${money(cap)} used: ${parts}); raise the limit, or wait for tomorrow`;
       }
-      this.#write({ at: this.now(), kind: 'hold', ...(id ? { id: String(id).slice(0, 40) } : {}) });
-      return null;
+      return this.#write({ at: this.now(), kind: 'hold', ...(id ? { id: String(id).slice(0, 40) } : {}) }, keep) ? null : undefined;
     });
     // The lock stayed taken: refused, the safe side (nothing was held).
     return why === undefined ? BUSY : why;
   }
 
   /**
-   * fn() while the lock file beside the ledger is held: its value, or undefined when the lock stayed taken for `wait`
-   * ms (take's is short, LOCK_WAIT_MS: this runs on the dashboard's only thread, so every page and terminal waits with it).
-   * A lock older than STALE_MS is left over from a process that ended in it, and is taken over (#breakStale).
+   * fn(keep) while the lock file beside the ledger is held: its value, or undefined when the lock stayed taken for
+   * `wait` ms (take's is short, LOCK_WAIT_MS: this runs on the dashboard's only thread, so every page and terminal waits
+   * with it). A lock older than STALE_MS is left over from a process that ended in it, and is taken over (#breakStale).
+   * keep(): whether the lock is still this one (not taken over meanwhile), and if so it is made fresh again.
    */
   #locked(fn, wait = LOCK_WAIT_MS) {
-    if (!this.file) return fn();
+    if (!this.file) return fn(() => true);
     const lock = `${this.file}.lock`;
     fs.mkdirSync(path.dirname(this.file), { recursive: true, mode: 0o700 });
     const until = Date.now() + wait;
@@ -434,7 +624,7 @@ export class SpendLedger {
         if (e.code !== 'EEXIST') throw e;
         try {
           const seen = fs.statSync(lock);
-          if (Date.now() - seen.mtimeMs > STALE_MS) this.#breakStale(lock, seen);
+          if (stale(seen.mtimeMs)) this.#breakStale(lock, seen);
         } catch {
           /* gone meanwhile */
         }
@@ -443,15 +633,48 @@ export class SpendLedger {
         Atomics.wait(WAIT, 0, 0, Math.min(5, left));
         continue;
       }
+      // Dated by this process's clock, as keep() dates it, not by the disk's (one on another computer may run off).
+      try {
+        const t = new Date();
+        fs.futimesSync(fd, t, t);
+      } catch {
+        /* the disk's own date stands */
+      }
       const mine = fs.fstatSync(fd);
       fs.closeSync(fd);
+      // Still this one: the same file, with the time this holder gave it last (a lock made in its place after a
+      // takeover may have the same inode number). One that went half the stale time without being kept is given up
+      // (false), never made fresh again: another may be about to take it over, and its look and its removal are two
+      // steps. The step it was kept for then does nothing, and the write asks again (#append). That time is measured
+      // by this process's own clock, never against the file's date (a disk whose clock is off keeps working); a lock
+      // that cannot be dated again stays this one's for half the stale time after it was last dated.
+      let at = mine.mtimeMs;
+      let kept = Date.now();
+      const keep = () => {
+        if (Date.now() - kept > STALE_MS / 2) return false;
+        try {
+          const now = fs.statSync(lock);
+          if (now.ino !== mine.ino || now.dev !== mine.dev || now.mtimeMs !== at) return false;
+        } catch {
+          return false;
+        }
+        try {
+          const t = new Date();
+          fs.utimesSync(lock, t, t);
+          at = fs.statSync(lock).mtimeMs;
+          kept = Date.now();
+        } catch {
+          /* not dated again: still this one's until half the stale time since it was */
+        }
+        return true;
+      };
       try {
-        return fn();
+        return fn(keep);
       } finally {
         // Removed only while it is still this one: a lock taken over meanwhile is another's and stays.
         try {
           const now = fs.statSync(lock);
-          if (now.ino === mine.ino && now.dev === mine.dev) fs.rmSync(lock, { force: true });
+          if (now.ino === mine.ino && now.dev === mine.dev && now.mtimeMs === at) fs.rmSync(lock, { force: true });
         } catch {
           /* gone already */
         }
@@ -475,7 +698,7 @@ export class SpendLedger {
       if (e.code !== 'EEXIST') throw e;
       // Held for a moment only: one this old is from a process that ended inside it.
       try {
-        if (Date.now() - fs.statSync(brk).mtimeMs > STALE_MS) fs.rmSync(brk, { force: true });
+        if (stale(fs.statSync(brk).mtimeMs)) fs.rmSync(brk, { force: true });
       } catch {
         /* gone meanwhile */
       }
@@ -484,7 +707,7 @@ export class SpendLedger {
     fs.closeSync(fd);
     try {
       const now = fs.statSync(lock);
-      if (now.ino === seen.ino && now.dev === seen.dev && now.mtimeMs === seen.mtimeMs && Date.now() - now.mtimeMs > STALE_MS) fs.rmSync(lock, { force: true });
+      if (now.ino === seen.ino && now.dev === seen.dev && now.mtimeMs === seen.mtimeMs && stale(now.mtimeMs)) fs.rmSync(lock, { force: true });
     } catch {
       /* gone meanwhile */
     } finally {
@@ -492,7 +715,7 @@ export class SpendLedger {
     }
   }
 
-  /** What is left of today's cap, the hold of the act under way (`id`) counted back in: a turn's budget. */
+  /** What is left of today's daily limit for paid use, the hold of the act under way (`id`) counted back in: a turn's budget. */
   left(cap, id = null) {
     if (!Number.isFinite(cap) || cap <= 0) return 0;
     const t = this.today();
@@ -587,7 +810,8 @@ export const capWords = (cap) => (Number.isFinite(cap) && cap > 0 ? `${money(cap
  * One look at the chats today's paid acts went into (`cards`: this computer's session cards, as a tick has them): what
  * each has cost since its first act of the day, as its coding tool reported it (costTotal). Writes only when a figure
  * changed, and nothing at all when no paid act of hers went into a chat today. A chat whose running cost went below
- * its base (a new conversation in it) is not measured further: its later acts count HOLD_USD.
+ * the one last seen (a new conversation in it) goes on being measured: what it cost before stays, and the new running
+ * cost adds to it (measure), so its figure never goes down.
  * `messageEnd(chatId, messageId)` (the chat feature's; optional): after measuring, each open act bound with a message
  * id asks how its message ended (null | { ended, cost, total } | { back: true }). An end with a cost is written only
  * once this look's card holds it (its costTotal reached the chat's total after that turn), so the act's hold never
@@ -603,8 +827,8 @@ export function measureChats(ledger, cards, messageEnd = null) {
   };
   for (const [key, base] of bound) {
     const c = cardOf(key);
-    if (!c || !Number.isFinite(c.costTotal) || c.costTotal < base) continue;
-    ledger.measure(key, c.costTotal - base, c.status === 'working');
+    if (!c || !Number.isFinite(c.costTotal) || c.costTotal < 0) continue;
+    ledger.measure(key, c.costTotal - base, c.status === 'working', c.costTotal, c.sessionId);
   }
   if (typeof messageEnd !== 'function') return;
   for (const a of ledger.open()) {
@@ -627,15 +851,18 @@ export function measureChats(ledger, cards, messageEnd = null) {
       ledger.ended(a.hold, a.message, { cost: null }); // ended without a reported cost: its hold stays for the day
       continue;
     }
-    const c = cardOf(a.session);
-    const base = bound.get(a.session) || 0;
-    if (Number.isFinite(end.total) && end.total - end.cost < base - 1e-9) {
-      // That turn began below the chat's base (a new conversation restarted its running cost): the measured figure
-      // does not hold its whole cost, so its hold stays for the day.
+    // A turn that ran below the chat's base (in a new conversation, its running cost started again) is in the measured
+    // figure all the same: a new conversation's running cost adds whole to it (measure). So its own end settles it, as
+    // any other, once this look's card holds the chat's total after it; never before. That total is of the
+    // conversation her turn ran in: when the chat was seen in a new conversation since the act (a clear or a rewind,
+    // maybe before a look saw her turn end), the card's figure says nothing of it, so its hold stays for the day
+    // (counted twice at most, never less than what ran).
+    if (ledger.newConversationSince(a.hold)) {
       ledger.ended(a.hold, a.message, { cost: null });
       continue;
     }
-    if (!c ||!Number.isFinite(c.costTotal) || c.costTotal < base || !Number.isFinite(end.total) || c.costTotal < end.total - 1e-9) continue;
+    const c = cardOf(a.session);
+    if (!c || !Number.isFinite(c.costTotal) || !Number.isFinite(end.total) || c.costTotal < end.total - 1e-9) continue;
     ledger.ended(a.hold, a.message, { cost: end.cost });
   }
 }

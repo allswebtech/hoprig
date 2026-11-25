@@ -16,6 +16,7 @@ your projects, each with its sessions.
 ├── development/           toolchains and SDKs installed for you (node, flutter, android, …)
 ├── git/                   your own git material (mirrors, shared hooks)
 ├── database/postgresql/   local database data
+├── database/mysql/        local MySQL or MariaDB data and dumps (only you can open it); the PHP kit makes it with MariaDB
 └── backups/
 ```
 
@@ -31,6 +32,8 @@ hoprig workspace setup [--dry-run] [--yes] # create only what is missing
 hoprig workspace link [--dry-run] [--yes]  # let every coding tool that is on read its rules, skills and memory from the brain
 hoprig workspace map [--dry-run]           # write the map of every git repository (ai_brain/workspace.json)
 hoprig workspace map --upgrade [--yes]     # the map to version 2, needed for groups (asks once)
+hoprig workspace map --undo                # the old map back after an upgrade here, while the map has not changed
+hoprig workspace map --fix-case [--undo]   # a folder that differs from the map only in letter case gets the map's name
 hoprig workspace group add <dir> [--repo <address>] [--holds name:group,name]   # a folder of projects of your own
 hoprig workspace group remove <dir>        # out of the map, when no project of the map is in it (nothing deleted)
 hoprig workspace restore <brain address> [--with-projects]   # a fresh computer: the brain, credentials, groups and
@@ -127,6 +130,18 @@ tell) or files changed within the hour. A file git shows as changed whose conten
 reader as the dashboard's (no index refresh, no program the folder names). A private folder (`no-ai`, `ignore`,
 `ai-ignore-dir`) is counted, never entered, and nothing in it is named.
 
+**Find the projects on this computer** (the button above the folders on that page, `POST /api/adopt/home`) is the same
+Look over your home folder, on your press only: nothing starts it by itself. It goes at most 4 levels down, reads at
+most 20,000 folders and stops after 20 seconds, whichever comes first, and says which one ended it; a project it did
+not reach is found when you name its folder by hand. It reads only folder names and whether a folder holds `.git` or
+one of the signs above: it opens no file, runs no git and no program, and does not go into a project it found. It never
+enters a hidden folder (`.config`, `.local`, `.cache`, the coding tools' own folders), the dependency and build folders
+above, a private folder (counted, never named), your workspace (its projects are counted as already there), Hoprig's
+settings and state folders, or the system's own folders in a home (Linux: `snap`, `Music`, `Pictures`, `Videos`; macOS:
+`Library`, `Applications`, `Movies`, `Music`, `Pictures`, `Public`; everywhere: `go/pkg`, `miniconda3`, `anaconda3`). A
+link is named and never followed; a folder it cannot read is counted. What it finds is then looked at exactly as a
+folder you name, and each project's plan and arrange are your press, as above. Only one such look runs at a time.
+
 A project counts as **already in the layout** only by Hoprig's own marks: a repository with a git folder of its own in
 `code/`, and either a `project.json` that Hoprig's own reader takes with no key it does not know, or the template's
 `AGENTS.md` and `code/.gitignore`. A `project.json` of another tool (an Nx app) or an `AGENTS.md` beside a submodule
@@ -187,13 +202,22 @@ to go on. A run that is still going is named as such.
 Never automatic, in any of these: a commit of your work, a fetch, a push or a new repository on a server, a choice
 between two accounts, the AI brain on a server, a change to an original. **retire** is its own command: it checks
 that nothing in the original changed since its copy (by content), lists what would go and what stays (a private
-folder is never removed: it was never looked into), and needs the project's name typed. Without a terminal it is
-refused; the dashboard does not offer it. Then, **before it removes anything, it compares every original with its
+folder is never removed: it was never looked into), and needs the project's name typed. Without a terminal or the
+page's sheet it is refused. Then, **before it removes anything, it compares every original with its
 copy again itself**, trusting nothing that was said before (not the plan, not apply's proof): it finds the
 repositories in the original folder again and checks that the copy holds HEAD, every branch, tag and other ref (or a
 newer commit that has it as an ancestor), each stash entry, every worktree, and every working file with the same
 content. What is missing stops it with one line that counts each kind (`1 branch, 1 stash entry, 1 working file`),
 and nothing is removed. Another project's clone in the same place that borrows objects from an original (`--shared`) stops it too; for such a clone anywhere else retire can only warn, since it never looks at the whole disk.
+
+**Remove the old folders** (on a project's card after Arrange, and on Arrange's result) is the same retire from the
+page. Its sheet shows retire's own lines (what goes, what stays and why), says "There is no undo: nothing can bring
+these folders back from Hoprig. The copy in your workspace stays as it is." before the press, and goes ahead only when
+you type the project's name into an empty field (the server compares it). The sheet is bound to what retire found when
+it opened (the original's fingerprint as retire reads it, what goes and what stays) for ten minutes and is used once:
+when anything of that changed, nothing is asked or removed ("This changed since you looked: look again."). Then
+retire checks everything again, as above. Only your own page can do it: never Tia, a token of another computer or a
+paired script. The routes: `POST /api/adopt/retire/check { name }` and `POST /api/adopt/retire { ticket, typed }`.
 
 ### Example
 
@@ -243,7 +267,13 @@ tree), it names it in its own `project.json` instead of copying it in:
 - **Nothing comes by itself.** `hoprig get shop` names each need that is not on this computer, and each need of a
   need with whose it is, in one question (`shop also needs, to read: kits/parts; and kits/parts needs tools`). Only a
   yes, or `--with-needs`, brings them, each by the normal get. Without a terminal, with `--yes` or `--dry-run` nothing
-  more comes and the command is said; `--json` gives `needs`, `missingNeeds` and `needsCommand`. Restore, the upkeep
+  more comes and the command is said; `--json` gives `needs`, `missingNeeds` and `needsCommand`. On the page, **Get an
+  existing project** shows the same lines and question under its result once the project is here, with **Get them
+  too** (each need by the same get, and the same yes that lets the sessions read them; a need's own setup questions
+  are never answered, as `--yes` never answers them) and **Not now** (`POST /api/pcsetup/project/needs`: its dry run
+  is the offer, the press sends back the offer's id and is refused with "This changed since you looked: look again."
+  when the offer made now differs). What a need just got names in its turn is offered again, never got without
+  another press. Restore, the upkeep
   and a session's start never fetch a need. `workspace status` (and `--json`, key `needs`) names each project's needs
   that are not here.
 - **A session reads its needs, once you allow them on this computer.** A `project.json` can come from anyone (a
@@ -376,7 +406,9 @@ Everything above can be done on the Workspace page, without a terminal. A projec
 computer** under Advanced. It opens a sheet that is the terminal's drop, question for question:
 
 - first the check, in the same words `hoprig drop <name> --check` prints: what exists only on this computer;
-- then exactly the terminal's questions. Work not committed: a box, unticked, to commit it on a `wip/` branch and push
+- then exactly the terminal's questions. Another project here names it in "needs": first "blog needs shop: it names
+  it in "needs" and its sessions read it." with a box, unticked, **Drop shop all the same?**; only your tick of it lets
+  the drop go on, and a need added or taken away after the sheet opened counts as a change. Work not committed: a box, unticked, to commit it on a `wip/` branch and push
   that branch. Commits on a default branch: three answers, none chosen for you; only "push them" pushes that branch.
   Files that cannot be made again: you type the project's name into an empty field (no paste, no suggestion); the
   computer compares what you typed;
@@ -404,6 +436,57 @@ a password, and revoke a main computer you no longer use (`hoprig tokens revoke 
 
 The commits a drop makes hold exactly the bytes its check showed. They are made without running the repository's own commit hooks and are not signed, also where `commit.gpgSign` is set: a hook could change what was shown.
 
+## Before you format this computer
+
+One check of the whole computer names everything that exists only here, each line with where it is, what it is,
+its size and what to do (with the command to run). It looks at:
+
+- **branches**: commits on no git server, or a local branch with no copy there (a default branch too: its push stays your own step);
+- **work**: changes that are not committed, and files git does not know yet;
+- **stashes**: work put aside with `git stash`;
+- **repositories with no git server**;
+- **folders in no git**: a folder of the workspace (or of `--also`) that is in no repository;
+- **the described folders**: something in `backups/` or `database/` that exists nowhere else;
+- **memory folders**: a coding tool's memory that is a real folder, not a link into a repository;
+- **rules and skills folders** that are not linked to the brain;
+- **keys**: a private SSH key with no identical copy in the credentials folder;
+- **the Android debug keystore**, by the same rule;
+- **the credentials folder**, when it is in no git or has work not on its git server;
+- **databases**: an engine runs here and `database/<engine>/` has no dump newer than its newest change;
+- **Hoprig's own providers and settings**, named by folder and size only;
+- **other programs' folders in your home**: each one is asked about once, "keep (you back it up)" or "ignore".
+
+It never fetches, writes, pushes, moves or deletes anything, and it never opens a database. A key is compared in
+memory only; no file inside the credentials folder is named. Your marks (keep, ignore, outside, test data) are the
+only thing it writes, and only when you give them. A folder the check must look at cannot be marked outside: the
+workspace, its places, a project or repository of it, the brain, the credentials, `~/.ssh`, `~/.android`, Hoprig's
+own settings and state and the coding tool's folder.
+
+```sh
+hoprig pc leave --check                  # what exists only here; exit 0 nothing, 1 something, 2 a wrong command
+hoprig pc leave --check --also ~/Old     # also an older folder: each repository in it, and each folder in no git
+hoprig pc leave --check --json           # the same report as JSON, for a script or an AI
+hoprig pc leave --outside ~/Desktop/old  # a folder you back up your own way: named, not counted
+hoprig pc leave --keep ~/.toolx          # a program's folder you back up yourself
+hoprig pc leave --ignore ~/.toolx        # a program's folder that may be lost
+hoprig pc leave --test-data postgresql   # this engine holds test data only
+hoprig pc leave --unmark ~/.toolx        # check it again
+```
+
+The report ends in exactly one of `Nothing is only here: this computer can be formatted.` or
+`<n> things exist only on this computer (above).`
+
+**On the dashboard**: Computers, **Before you format this computer**. **Look now** runs the whole check in the
+background (it only reads) and shows the same groups; each command is shown with a copy button and never run by the
+page. **Keep (I back it up)** and **Ignore** answer a folder's question; **Check it again** takes a folder back
+into the look. **Push my other branches** pushes the committed work of every branch that is not the default
+branch, in every repository of the map, through the same gates as the upkeep's push; it never pushes a default
+branch. Only your own page may press it, and two presses never run at once.
+
+The routes: `GET /api/workspace/leave` (starts the whole check, or polls it with `?run=<id>`),
+`POST /api/workspace/onlyhere/push` (the press, your own page only) and `POST /api/workspace/leave/mark`
+(keep, ignore, outside, test data, or check it again; your own page only).
+
 ## Each computer's own file
 
 `ai_brain/computers/<label>.json` is written by that computer only, so two computers never conflict in it:
@@ -419,7 +502,9 @@ The commits a drop makes hold exactly the bytes its check showed. They are made 
 
 - **The label** is your own short name for the computer (lower-case letters, digits, `-` and `_`), asked once at
   set-up; the host name is only offered as a suggestion and is never stored without your word. `hoprig workspace
-  label <name>` gives it later, and Settings → Workspace → **Your computers** in the dashboard.
+  label <name>` gives it later, and Settings → Workspace → **Your computers** in the dashboard. There, a name another
+  computer's file holds asks "Is this computer <name>, set up again?", and **Yes, this is <name>** is the page's
+  `--again`. After **Bring my workspace from git**, a computer with no name yet gets one line that leads there.
 - **The id** is made once, at random. A label whose file holds another id (in the brain here or on its git server)
   belongs to another computer: set-up refuses it, unless you say this computer IS that one, set up again after a
   format (`--again`, which takes that file over); its file then starts again with an empty list of what is here. Two
@@ -428,7 +513,8 @@ The commits a drop makes hold exactly the bytes its check showed. They are made 
   versions of its file it wrote, so a version it never wrote under its own id is noticed, that computer stops writing
   the file and is told to take an id and a label of its own (`hoprig workspace label <name> --new-id`).
 - **What is in it:** the map's entries checked out here, the Hoprig version (the upgrade of the map reads it), and the
-  four folders that are not in git described in names and counts. Never a path of this computer, a host name, an
+  four folders that are not in git described in names and counts (`database` one level down, so `postgresql` and
+  `mysql` both show under it, as an older Hoprig reads it). Never a path of this computer, a host name, an
   address, a token or a password: a name that is not plain, looks like a secret or a key, or holds the host name is
   counted (`unnamed`), not named.
 - `workspace map`, restore, `get` and the upkeep write it when something in it changed; a computer without a label
@@ -617,6 +703,31 @@ reported an older one, and always that a computer that never reported cannot be 
 "no" as the default. It keeps the content as it is and drops entries whose folder here is a linked worktree (a
 second checkout an older map took for a repository).
 
+**The map's old form, on the page.** Settings → Workspace says "Your workspace map is in the old form" while the map
+is version 1, with **See what the upgrade changes**: a sheet with the entries that leave the map, that nothing on
+disk changes, the same lines about the computers as the command, and what undo can and cannot do. **Upgrade the map**
+does it (`POST /api/workspace/map/upgrade`, the owner's own page only); when the map changed since the sheet was
+opened it says "This changed since you looked: look again." and changes nothing. Before the upgrade, the page and
+`--upgrade` keep the old map's exact text in Hoprig's state folder (never in the brain). **Undo the upgrade**
+(`hoprig workspace map --undo`) puts it back while the map is still exactly what the upgrade wrote, and removes the
+kept copy; once the new map is saved in the brain's history and shared, your other computers have the new form, and
+undo here does not reach them. The button stands under the line "The map was upgraded on this computer. Undo puts the
+old form back while the map has not changed since."
+
+**A folder that differs only in letter case.** A folder `Shop` for the map's entry `shop` is named by
+`hoprig workspace status` and on the page: "The folder Shop is shop in the map". On a disk that ignores letter case
+(macOS and Windows by default) it is one folder that other computers spell another way; on one that keeps letter case
+the entry looks missing. `hoprig workspace map --fix-case [--dry-run] [--yes] [--json]` and the page's **Give it the
+map's name** (`POST /api/workspace/map/case`) rename it through a temporary name in the same folder
+(`Shop` → `.hoprig-case-shop` → `shop`), because a direct rename may do nothing on such a disk. Nothing is renamed
+when the map's name is there as another folder, when two folders differ from it only in letter case, when the folder
+is a link or not really inside its place, or when a program works in it (asked of the system on Linux; elsewhere the
+sheet says to close any session there first). A rename cut off between its two steps is named ("halfway through its
+rename") and finished by the next one. `--fix-case --undo` and **Undo the rename** (under "A folder was given its name in the map on this computer.") give
+the old names back. Which kind
+of disk it is, is asked of the disk with a file made and removed at once. This was tested on Linux only, with the
+disk's answer given by the tests; no Mac ran it.
+
 ### A naming rule per place, and the look-up on the hosting site
 
 The map is the union of what your computers have seen. A project that is only on the hosting site can be fetched by
@@ -656,6 +767,18 @@ one word when its place says how its repositories are named. A place whose proje
   memory (in Claude Code's own folder); a parent that does not ignore `code/` is said, not changed. A project another
   tool made in such a place is seen by the next scan and written into the map. In a plain group without a rule a get
   still writes a `project.json` after asking.
+- **On the page: "Look on the git server".** In **Settings → Workspace**, the map's part lists each place with a
+  naming rule under **On the git server**, with a button **Look on the git server**. It shows what the command lists:
+  each project with its parent repository, its code repositories, its folder and what the rule leaves out; what is in
+  the map already (and whether it is on this computer); and what does not fit the rule, never guessed. Without the
+  GitHub sign-in it says so and offers the GitHub sign-in this dashboard already has; a place without a rule and a
+  look where nothing fits say that too. **Add these to the map** first shows which entries go in ("Nothing is cloned")
+  and adds exactly those on your yes; when the map changed since you looked, the yes is refused with "This changed
+  since you looked: look again." **Take them out again** right after takes out exactly the entries that add wrote,
+  and leaves one that changed since. **Get** on one project first shows where it lands and what is cloned, then
+  fetches it as `hoprig get <owner/name> --in <place>` does, as the page's background job (one at a time). A clone is
+  not undone from there; Drop on the project's page puts it away again. Each of these is your own press on this
+  computer's page (or a main computer's of yours): Tia, a script's token and another site are refused.
 
 ### A group's own command
 
@@ -684,6 +807,16 @@ the folder is not on your PATH you get the line to add. No shell start file is e
 command itself. Restore, the upkeep and `workspace status` say the truth about each command: made, waiting for your
 yes, or why it would not start; status also names the programs of `needs` this computer lacks, and the kit that
 installs one where Hoprig has it.
+
+On the **Workspace** page, under **Groups**, **Commands of your groups** shows each group's command: the file it
+starts, that every argument is passed on unchanged and that Hoprig never runs it by itself, the programs this computer
+lacks for it, and its state here (waits for your yes, allowed here, asks again because the map changed it, would not
+start, with why). **Allow on this computer** first shows what the yes makes (the group's address, the name, the file
+and where the small command goes) and makes it only when you press **Allow on this computer** in that sheet (**Not
+now** makes nothing); when the file changed after the sheet opened, it says "This changed since you looked: look
+again." and makes nothing. **Remove the command from this computer** is the undo. These are your own presses: Tia,
+a script's token and another computer's request without your page's mark are refused. The page calls the same
+functions as `hoprig workspace tool allow` and `remove`.
 
 ### Your workspace, for coding sessions
 
@@ -750,7 +883,7 @@ question, and in the places that hold projects it neither clones, fetches, fast-
 | `memory` | off | The memory folders of the brain (`claude-memory/`) and of each group's own repository are committed, and only them. Any other uncommitted change is never committed silently. With `commitMap` and `push` on, the brain's memory commit is carried over by the map's rule too (below). |
 | `sync` | off | The brain, the credentials repository, each group's own repository and the other repositories are fetched and fast-forwarded, as `workspace sync` does (tools left alone). Never a project: a project here with commits to push, or to pull as of its last fetch, is only told. |
 | `push` | off | Uploads what is purely ahead: sync's pushes, and the brain. With `commitMap` on, the brain is fetched every round and brought in step by the map's own rule (below). |
-| `pushBranches` | none | One switch per place that holds projects (`projects` for the projects folder, else the group's or held folder's name): committed work on a branch that is not the repository's default branch is pushed (to its upstream, or under its own name); a default branch never is, nor a branch whose upstream is another branch on this computer. Nothing is ever forced: every push is a plain push, which git refuses when it is not a fast-forward, and a branch behind or rewritten here is only said. A push of a branch without an upstream sets it (its first push, or one already on the server from a push without `-u`), so once its branch on the server is removed and a fetch here prunes it, it shows as gone and is never pushed back. When the last fetch did not prune, the server is asked once per repository which branches it has (`git ls-remote --heads`): a branch removed there, or moved there from elsewhere, is said and not pushed; when the server cannot be asked, nothing of that repository is pushed in that round. |
+| `pushBranches` | none | One switch per place that holds projects (`projects` for the projects folder, else the group's or held folder's name): committed work on a branch that is not the repository's default branch is pushed (to its upstream, or under its own name); a default branch never is, nor a branch whose upstream is another branch on this computer. Nothing is ever forced: every push is a plain push, which git refuses when it is not a fast-forward, and a branch behind or rewritten here is only said. A push of a branch without an upstream sets it (its first push, or one already on the server from a push without `-u`), so once its branch on the server is removed and a fetch here prunes it, it shows as gone and is never pushed back. When the last fetch did not prune, the server is asked once per repository which branches it has and which one it calls its default (`git ls-remote --symref`): a branch removed there, or moved there from elsewhere, is said and not pushed; when the server cannot be asked, or calls another branch its default than this computer knows, nothing of that repository is pushed in that round (the second with `git remote set-head origin --auto`). A branch that follows another git server than `origin` is said, never pushed. |
 | `credentials` | off | A change in the credentials repository the map names is committed ("Update credentials", with that folder's own git name and e-mail) and pushed to that address only; a GitHub address only when `gh` says it is private in that round. Public, or a visibility `gh` cannot give: nothing is pushed, and you are told once. Without this switch a change there is never committed. |
 | `everyHours` | 6 | How often (1 to 168). |
 
@@ -857,6 +990,22 @@ repository's name (the last part of the address). No option skips this, and with
   `credentials` (off) commits and pushes a change by itself.
 - Nothing from it leaves through Hoprig: no value, no file name inside it and no diff of it in any output, log,
   activity line, notification, the map or the dashboard. What is said is counts ("1 changed file").
+- **On the Workspace page** (Settings → Workspace, under Workspace folders) the credentials line says where they are
+  kept: on this computer only, or in a private repository of yours with its address (never a file in it). For a
+  plain folder, **Make it a private repository** offers the same two choices as the command: a new private repository
+  on GitHub, or the address of a repository you made yourself. The sheet shows the plan first (the cost sentence
+  above, the steps, what GitHub says of its visibility), says "There is no undo: Hoprig does not take a push to a git
+  server back. The folder on this computer stays as it is.", and goes ahead only when you type the repository's name
+  (for another server you also tick that it is private). The server compares the name as the command does, refuses a
+  plan that changed since you looked ("This changed since you looked: look again."), asks the visibility again right
+  before the push and runs the step as the page's background job. Only your own page can do it, never Tia. With a
+  map of version 1 the line says to upgrade the map first.
+- **The upkeep's switch on the Workspace page.** Settings → Workspace, By itself, shows **Save and upload the
+  credentials by itself** beside the other switches, only when the credentials folder is a repository, and off until
+  you turn it on. Its sentence: "At each look of the upkeep, every change in the credentials folder is saved and
+  uploaded to its repository, by itself, only while that repository is private. Whoever can read that repository
+  reads every key in it." It sets the same setting as `hoprig workspace auto --credentials on|off`, through the route
+  the other switches use, with the same checks. Tia cannot turn it on.
 - **Every computer that keeps this brain in step needs a Hoprig as new as this computer's before you run
   `workspace credentials`.** Some older builds that also call themselves 0.3.3 already sync the credentials repository the map names, and
   with `sync --push` (or the upkeep's push) it pushes a commit made there without asking whether it is private or
@@ -1001,14 +1150,17 @@ text (`.md`, `.txt`). Text that looks like a secret is masked before it leaves t
 
 Routes (behind the login; another computer's through the main computer): `GET /api/workspace`, `POST /api/workspace/setup`,
 `GET /api/brain`, `GET /api/brain/item?id=<id>`, `GET|POST /api/workspace/link`, `GET|POST /api/workspace/map`,
-`POST /api/workspace/map/commit`, `POST /api/workspace/restore`,
+`POST /api/workspace/map/commit`, `POST /api/workspace/map/upgrade`, `POST /api/workspace/map/case`, `POST /api/workspace/restore`,
 `POST /api/workspace/sync`, `GET /api/workspace/job`, `POST /api/workspace/settings`, `POST /api/workspace/forget`,
 `GET /api/workspace/git`, `POST /api/workspace/git/identity`, `GET|POST /api/workspace/git/signin`,
 `POST /api/workspace/git/signin/cancel`, `GET /api/workspace/git/brains`, `GET|POST /api/workspace/git/brain`,
 `GET /api/workspace/computers`, `POST /api/workspace/label`, `GET /api/workspace/whohas`,
-`GET /api/workspace/find?in=<place>`, `POST /api/workspace/drop/check`, `POST /api/workspace/drop`,
-`POST /api/workspace/group`, `POST /api/workspace/group/remove`, `GET|POST /api/workspace/rules`, `POST /api/workspace/mylink`,
-`POST /api/workspace/git/brain/moveout` (the list with what each takes is at the top of
+`GET /api/workspace/find?in=<place>`, `POST /api/workspace/find/add`, `POST /api/workspace/find/undo`, `POST /api/workspace/find/get`, `POST /api/workspace/drop/check`, `POST /api/workspace/drop`,
+`POST /api/workspace/group`, `POST /api/workspace/group/remove`,
+`GET /api/workspace/tools`, `POST /api/workspace/tools/allow`, `POST /api/workspace/tools/remove`,
+`GET|POST /api/workspace/rules`, `POST /api/workspace/mylink`,
+`POST /api/workspace/git/brain/moveout`,
+`GET|POST /api/workspace/credentials` (the list with what each takes is at the top of
 `src/workspace/feature.mjs`).
 
 ## What changes when you update from 0.3

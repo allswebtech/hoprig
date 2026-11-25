@@ -10,6 +10,7 @@ model-unknown: opus/high
 allow: Read,Glob,Grep,Edit,Write
 deny: NotebookEdit,Bash,WebFetch,WebSearch,Task
 never: change code, push, merge, publish, send anything out, ask the owner directly
+runs: 
 check: file
 readonly: no
 ---

@@ -19,16 +19,22 @@
 // dashboard offers its session, not a second start (another computer's running run is only said: this one cannot
 // settle it, and it must not block the task here). Nothing here pushes, merges or publishes: the session's own rules decide what it
 // changes in its folder.
+import fs from 'node:fs';
+import path from 'node:path';
+import { stateDir } from '../paths.mjs';
 import { listProfiles, publicProfile } from '../profiles.mjs';
+import { realOr, resolveRoots, within } from '../server/folders.mjs';
 import { chatTool, chatToolList, choicesOf, modelOk, modelRefusal, serves } from '../chat/tools.mjs';
 import { capture } from '../setup/system.mjs';
 import { projectsIn, workspaceDir } from '../workspace/layout.mjs';
+import { branchOf } from './alone.mjs';
+import { dropRunBranch, keptTree, repoTop, treeFor } from './alonegit.mjs';
 import { dirtyOf, folderChoices, folderOf, headsOf, leftIn, projectsByName, reposOf } from './folders.mjs';
 import { withLock } from './lock.mjs';
 import { BRIEF_MAX, CLOSED, FROM_FENCE, briefOf, checkBrief, fencedFrom, findItem, fromOf, setBrief, setStatus, statusOf, todayIn } from './model.mjs';
 import { WAIT_OVER } from './planview.mjs';
 import { resolvePlace } from './place.mjs';
-import { chatFacts, cleanFolder, cleanText, dropStart, keepStart, listRuns, newRunId, pathsOf, readRun, readStart, viewRun, writeRun, writerId } from './runs.mjs';
+import { chatFacts, cleanFolder, cleanText, dropStart, endsByItself, keepStart, listRuns, newRunId, pathsOf, readRun, readStart, viewRun, writeRun, writerId } from './runs.mjs';
 import { afterClose, changeHeld, readDoc } from './store.mjs';
 
 // What every brief ends with: the run's answer is the session's last message, so it is asked to be a report.
@@ -75,12 +81,38 @@ export function workRuns(o) {
   const settling = new Set(); // run ids being settled now
   let timer = null;
 
-  const projectDir = (name) => {
+  const projectFolder = (name) => {
     const dir = projectsByName(projectsDir()).get(name);
     if (!dir) throw fail(400, `"${String(name).slice(0, 100)}" is not a project of the workspace`);
     return dir;
   };
-  const words = (s, max) => cleanText(s, max, pathsOf({ projectsDir: projectsDir(), workspace: workspace() }));
+  // tree: a run's worktree, named as its folder (".") in what the session said.
+  const words = (s, max, tree = null) => cleanText(s, max, [...(tree ? [[`${tree}/`, ''], [tree, '.']] : []), ...pathsOf({ projectsDir: projectsDir(), workspace: workspace() })]);
+
+  /**
+   * Where a run of item `id` in the folder `dir` works on a branch of its own (alonegit.mjs: a linked worktree in
+   * Hoprig's state folder, the branch work/<id>): { top, asked (the branch asked for), kept (its worktree from an
+   * earlier run, or null) }, or { why } when it cannot: 'not-git' (the folder is no git repository) or 'outside' (the
+   * state folder is not inside the allowed folders, where a session may open).
+   */
+  async function branchPlace(id, dir) {
+    const top = await repoTop(dir, run);
+    if (!top) return { why: 'not-git' };
+    const base = realOr(path.join(stateDir(), 'work-trees'));
+    if (!resolveRoots((cfg().server || {}).roots).some((r) => within(base, r))) return { why: 'outside' };
+    const asked = branchOf(id);
+    return { top, asked, kept: keptTree(top, asked) };
+  }
+  /** The repositories a run reads what it left from: its worktree's (a run on a branch), else its folder's. */
+  async function runRepos(r) {
+    const pdir = projectFolder(r.project);
+    if (!r.branch) return { repos: reposOf(pdir, r.folder), tree: null };
+    const fdir = folderOf(pdir, r.folder);
+    const top = await repoTop(fdir, run);
+    const tree = top ? keptTree(top, branchOf(r.item)) : null;
+    if (!tree) return { repos: [], tree: null };
+    return { repos: [{ repo: r.folder, dir: path.join(tree, path.relative(top, fdir)) }], tree };
+  }
   const where = (r) => (r.folder === '.' ? r.project : `${r.project}/${r.folder}`);
 
   /** The item `ref` names, read fresh, with its place in the list. */
@@ -99,6 +131,14 @@ export function workRuns(o) {
     return (name) => m.get(name) || name;
   };
   const shown = (r, label) => ({ ...viewRun(r, me()), providerLabel: label(r.provider) });
+  /** A provider's kind and whether it is billed by use straight to the API ({ kind, paid }), by its name; null for Auto mode or one gone (runuse.mjs: its cost and money saving are then not measured). */
+  const billings = () => {
+    const m = new Map(listProfiles().map((p) => {
+      const v = publicProfile(p);
+      return [p.name, { kind: v.kind || null, paid: v.paid === true }];
+    }));
+    return (name) => m.get(name) || null;
+  };
 
   /** The providers a session of `tool` may run on: [{ name, label, kind }] (Auto mode while it is on, for Claude Code). */
   function providersFor(tool) {
@@ -136,6 +176,14 @@ export function workRuns(o) {
     if (project) provider = await o.defaultProvider(folderOf(all.get(project), folder), null, tool);
     const ch = choicesOf(tool, provider, models);
     const d = cfg().sessionDefaults || {};
+    // Where Start runs: on a branch of its own when the folder is a git repository (the default), else in the folder.
+    let branch = null;
+    let branchWhy = null;
+    if (project) {
+      const bp = await branchPlace(item.id, folderOf(all.get(project), folder));
+      if (bp.why) branchWhy = bp.why;
+      else branch = { name: (listRuns(place(), { item: item.id }).find((r) => r.branch) || {}).branch || bp.asked, again: !!bp.kept };
+    }
     // Only this dashboard's own running run is one session already at work here; a running run of another computer
     // (brought in by a save, or one whose writer is gone) is said, and does not stop a start here.
     const all0 = listRuns(place(), { item: item.id }).filter((r) => r.state === 'running');
@@ -156,11 +204,13 @@ export function workRuns(o) {
       providers, provider, models: ch.models, efforts: ch.efforts,
       model: tool === 'claude' && d.model && ch.models.includes(d.model) ? d.model : null, effort: d.effort && ch.efforts.includes(d.effort) ? d.effort : null,
       running: running ? shown(running, labels()) : null, elsewhere: elsewhere ? shown(elsewhere, labels()) : null,
+      branch, branchWhy,
     };
   }
 
   /**
-   * Start a run of item `ref`. c: { brief?, seen?, project?, folder?, tool?, provider?, model?, effort? } (left out:
+   * Start a run of item `ref`. c: { brief?, seen?, project?, folder?, tool?, provider?, model?, effort?, inFolder? }
+   * (inFolder: in the project's folder itself, not on a branch of its own; left out:
    * the task's own and the defaults; seen: the task's brief as it was shown, refused when it differs now). → { run,
    * existing? } (existing: the item has a running run: its session is offered), or { dryRun, would } with `dryRun`.
    */
@@ -176,8 +226,10 @@ export function workRuns(o) {
     const { p, raw } = itemOf(ref);
     const id = raw.id;
     const status = statusOf(raw);
-    const running = listRuns(p, { item: id }).find((r) => r.state === 'running' && r.writer === me());
+    const running = listRuns(p, { item: id }).find((r) => r.state === 'running' && r.writer === me() && !endsByItself(r));
     if (running) return { run: viewRun(running, me()), existing: true };
+    // A run that ends by itself (a mission's, a schedule's) works on the task's branch now: never a second session there.
+    if (listRuns(p, { item: id }).some((r) => r.state === 'running' && endsByItself(r))) throw fail(409, `a run that ends by itself works on "${id}" now: wait until it has ended`, 'running-alone');
     if (CLOSED.has(status)) throw fail(409, `"${id}" is ${status}: open it again first`, 'closed');
     // A task in review waits for Accept or Send back: a new run would leave that answer unanswered.
     if (status === 'review') throw fail(409, `"${id}" waits for your review: Accept it or Send it back first`, 'review');
@@ -187,7 +239,7 @@ export function workRuns(o) {
     if (waits.length) throw fail(409, `"${id}" waits for ${waits.slice(0, 3).map((a) => `"${String(a).slice(0, 60)}"`).join(', ')} to be done first`, 'waits');
     const name = c.project !== undefined && c.project !== null ? c.project : raw.project;
     if (typeof name !== 'string' || !name) throw fail(400, 'this task has no project: choose the project a session works in', 'no-project');
-    const pdir = projectDir(name);
+    const pdir = projectFolder(name);
     const folder = c.folder === undefined || c.folder === null ? '.' : cleanFolder(c.folder);
     if (!folder) throw fail(400, 'choose the project\'s own folder or one of its code repositories');
     const dir = folderOf(pdir, folder);
@@ -203,15 +255,27 @@ export function workRuns(o) {
     const ch = choicesOf(tool, provider, models);
     if (c.model !== undefined && c.model !== null && !modelOk(tool, c.model, ch)) throw fail(400, modelRefusal(c.model, ch));
     if (c.effort !== undefined && c.effort !== null && !ch.efforts.includes(c.effort)) throw fail(400, `the effort must be one of: ${ch.efforts.join(', ')}`);
-    const would = { item: id, project: name, folder, tool, provider, model: c.model ?? null, effort: c.effort ?? null, brief };
+    // A git repository's run works on a branch of its own, never in the owner's checkout (unless he chose that).
+    const bp = c.inFolder === true ? null : await branchPlace(id, dir);
+    const onBranch = bp && !bp.why ? bp : null;
+    const would = { item: id, project: name, folder, tool, provider, model: c.model ?? null, effort: c.effort ?? null, brief, branch: onBranch ? onBranch.asked : null };
     if (dryRun) return { dryRun: true, would };
 
-    const repos = reposOf(pdir, folder);
+    let repos = reposOf(pdir, folder);
+    let sdir = dir; // where the session works
+    let tree = null;
+    if (onBranch) {
+      // Kept from an earlier run of this task (after Send back), else made now from the checkout's HEAD.
+      tree = await treeFor(onBranch.top, onBranch.asked, { run });
+      sdir = path.join(tree.dir, path.relative(onBranch.top, fs.realpathSync(dir)));
+      repos = [{ repo: folder, dir: sdir }];
+    }
     const r = {
       v: 1, id: newRunId(now()), item: id, title: words(raw.title || id, 200).replace(/\s+/g, ' '), writer: me(), by: 'owner',
       startedAt: now().toISOString(), endedAt: null, project: name, folder, tool, provider, model: c.model ?? null, effort: c.effort ?? null,
       session: null, conversation: null, message: null, brief: words(brief, 4000), state: 'running', reason: null, answer: '',
       commits: [], changed: [], more: 0, was: status === 'waiting' ? 'waiting' : 'open', statusError: null,
+      ...(tree ? { branch: tree.branch } : {}),
     };
     // What the session starts from stays on this computer (runs.mjs keepStart): only this dashboard settles the run.
     keepStart(r.id, { start: await headsOf(repos, run), ...(await dirtyOf(repos, { run, skip: [p.folder] })) });
@@ -224,7 +288,7 @@ export function workRuns(o) {
     let opened;
     try {
       // The chat is named after the task (its first message, the brief with the report sentence, would name it).
-      opened = await o.chat.open({ dir, tool, profile: provider, title: r.title, ...(c.model ? { model: c.model } : {}), ...(c.effort ? { effort: c.effort } : {}), text: `${fromOf(raw) && !brief.includes(FROM_FENCE) ? `${brief}\n\n${fencedFrom(raw)}` : brief}\n\n${REPORT_ASK}`, defaults: true, ...(hers ? { hers: true } : {}) });
+      opened = await o.chat.open({ dir: sdir, tool, profile: provider, title: r.title, ...(c.model ? { model: c.model } : {}), ...(c.effort ? { effort: c.effort } : {}), text: `${fromOf(raw) && !brief.includes(FROM_FENCE) ? `${brief}\n\n${fencedFrom(raw)}` : brief}\n\n${REPORT_ASK}`, defaults: true, ...(hers ? { hers: true } : {}) });
     } catch (e) {
       return { run: await settle(r, { state: 'failed', reason: `${REASONS.never}: ${words(e.message, 300)}`, answer: '' }) };
     }
@@ -295,9 +359,14 @@ export function workRuns(o) {
       const p = place();
       let left = { commits: [], changed: [], more: 0 };
       const from = readStart(r.id);
+      let treeDir = null;
       try {
         // Without what it started from (a lost state folder) nothing can be told apart: nothing is listed.
-        if (from) left = await leftIn(reposOf(projectDir(r.project), r.folder), from.start, { run, skip: [p.folder], before: from.before, beforeCut: from.beforeCut, since: Date.parse(r.startedAt) });
+        if (from) {
+          const { repos, tree } = await runRepos(r);
+          treeDir = tree;
+          left = await leftIn(repos, from.start, { run, skip: [p.folder], before: from.before, beforeCut: from.beforeCut, since: Date.parse(r.startedAt) });
+        }
       } catch (e) {
         log(`a run could not read its folder's git state: ${e.message}`);
       }
@@ -307,7 +376,7 @@ export function workRuns(o) {
         const cur = readRun(p, r.id);
         over = !!cur && cur.state !== 'running';
         if (!cur || cur.state !== 'running' || cur.writer !== me()) return;
-        const fin = { ...cur, ...pick(r), state, reason: reason ? words(reason, 400) : null, answer: words(answer, 4000), endedAt: now().toISOString(), commits: left.commits.map((c) => ({ ...c, subject: words(c.subject, 200) })), changed: left.changed, more: left.more };
+        const fin = { ...cur, ...pick(r), state, reason: reason ? words(reason, 400, treeDir) : null, answer: words(answer, 4000, treeDir), endedAt: now().toISOString(), commits: left.commits.map((c) => ({ ...c, subject: words(c.subject, 200, treeDir) })), changed: left.changed, more: left.more };
         // The task's status first, then the final record. A stop in between leaves the run running, and the next look
         // (settleRunning) settles it again, with the status set already; the other way round, a finished run would
         // leave its task doing, and nothing looks at a finished run again.
@@ -358,8 +427,8 @@ export function workRuns(o) {
       return;
     }
     for (const r of listRuns(p)) {
-      // A run that ends by itself (alone.mjs: it has a branch) has no chat: its own runner settles it.
-      if (r.state !== 'running' || r.writer !== me() || r.branch || followed.has(r.id) || settling.has(r.id) || starting.size) continue;
+      // A run that ends by itself (alone.mjs: a branch and no chat) is settled by its own runner.
+      if (r.state !== 'running' || r.writer !== me() || endsByItself(r) || followed.has(r.id) || settling.has(r.id) || starting.size) continue;
       if (!r.session) {
         settleFrom(r, null);
         continue;
@@ -418,6 +487,22 @@ export function workRuns(o) {
   }
 
   /**
+   * "Remove the branch" of a task's Do it runs (a press of his, or the task dropped): its worktree and its branch go
+   * by alonegit.mjs dropRunBranch's own rules, so a branch with a commit no other branch holds, or a worktree with
+   * files changed, is kept and the answer says why. → { removed, why?, branch } | null (no such branch of this computer).
+   */
+  async function removeBranch(itemId) {
+    const p = place();
+    const mine = listRuns(p, { item: itemId }).filter((r) => r.branch && !endsByItself(r) && r.writer === me());
+    if (!mine.length) return null;
+    if (mine.some((r) => r.state === 'running')) throw fail(409, 'a session works on that branch now: it stays until the session has ended', 'running');
+    const r = mine[0];
+    const top = await repoTop(folderOf(projectFolder(r.project), r.folder), run);
+    if (!top) return { removed: false, why: `${r.project} is not a git repository any more`, branch: r.branch };
+    return { ...(await dropRunBranch(top, branchOf(r.item), { run })), branch: r.branch };
+  }
+
+  /**
    * The runs, newest first, as the page and the command get them. f: { item, project, day (YYYY-MM-DD in Work's time
    * zone), id (that one run, read by its file alone: also one older than the newest a list reads) }.
    */
@@ -425,6 +510,7 @@ export function workRuns(o) {
     const p = place();
     const tz = p.settings.timeZone;
     const label = labels();
+    const billing = billings();
     const one = f.id ? readRun(p, f.id) : null;
     // A task another program added (a Work token): its runs carry the token's name, so Activity never shows its words
     // as the owner's. Only a run that started after the task came in (a task of his that once had this id is another).
@@ -446,7 +532,7 @@ export function workRuns(o) {
     return (f.id ? (one ? [one] : []) : listRuns(p, f.item ? { item: f.item } : {}))
       .filter((r) => r.by !== 'look' && (!f.item || r.item === f.item))
       .filter((r) => (!f.project || r.project === f.project) && (!f.day || todayIn(tz, new Date(r.startedAt)) === f.day))
-      .map((r) => ({ ...shown(r, label), day: todayIn(tz, new Date(r.startedAt)), where: where(r), ...fromOfRun(r) }));
+      .map((r) => ({ ...shown(r, label), billing: billing(r.provider), day: todayIn(tz, new Date(r.startedAt)), where: where(r), ...fromOfRun(r) }));
   }
 
   /** The newest run of each item: { [item id]: { id, state, session, startedAt, endedAt, reason, here, answer } }. */
@@ -466,7 +552,7 @@ export function workRuns(o) {
   }
 
   return {
-    plan, start, accept, sendBack, list, latest, settleRunning,
+    plan, start, accept, sendBack, removeBranch, list, latest, settleRunning,
     /** Settle what a restart left, and look at running runs now and then. */
     begin() {
       setTimeout(() => settleRunning(), 0).unref?.();

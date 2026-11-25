@@ -57,8 +57,32 @@ suggestion, read it, **Install**.
 so a repository that moved without touching the skill is "up to date". An update shows what changed (files added,
 removed, changed, and the changed lines), the scan again with new findings marked, and waits for a yes per skill.
 A skill you edited is never replaced silently: the update says what you changed and needs `--overwrite-local`
-(the edited version is kept for undo). The dashboard can check once a week (**Skills → Advanced**, "Check for updates once a week"; off at first). It only
+(the edited version is kept for undo). The dashboard can check once a week (**Skills → Advanced**, "Look for updates and new skills once a week"; off at first). It only
 tells you, with a notification where you set one up in **Settings → Notifications**; it never installs.
+
+## Skills that fit a new project's technology
+
+**New project** in the dashboard has the box **Add skills that fit its technology: text-only skills from your own and
+from the reviewed catalog go in by themselves, with Undo; anything else waits for you.**, ticked at first. Ticked,
+Hoprig looks when the project is made and once more when it first has code (the skills page's hourly look; it reads
+the project's manifests, no AI). The order is "find before create":
+
+1. A skill of your own (in every project) whose name holds the project's technology is listed as **Already yours**:
+   nothing is copied.
+2. A catalog skill that fits, at the version the catalog reviewed, goes into the project by itself only when it is
+   low-risk: every file is text (`.md` or `.txt`), none can be run, none is a link, its `SKILL.md` asks for no tool
+   (`allowed-tools`, `tools`, `hooks`), the catalog names no tool for it, the scan finds nothing, and it is at most 50
+   files and 512 KB. It goes through the same quarantine, scan, install and record as a press of yours, and is listed
+   as **Added by itself** with **Undo** (kept for undo: **Put back** brings it again).
+3. Everything else is **Waiting for you**, with the reason it was not added; **Review** shows every file before you
+   install it. A skill from outside the catalog (skills.sh, or any other public source) never goes in by itself.
+
+Nothing is made for a technology by a model. The choice is kept per project in Hoprig's state
+(`<state>/skillhub/fit.json`), never in the project; the project's **Skills** page shows it as **Fits its technology**,
+with the switch **Add skills that fit this project's technology** to turn it off or on.
+
+Routes, behind the owner's login (Tia's token is refused): `GET /api/skillhub/fit?project=<dir>` (the choice and the
+three lists) and `POST /api/skillhub/fit/choice` (`{ project, fit }`).
 
 ## Skills learned from your work
 
@@ -110,6 +134,12 @@ and lines it keeps as they were are shown, and do not block it.
   offered again, also under another name or with a few words changed (80% of the words the same), and for a new
   skill also when only its steps are nearly the same (another name and description for the same steps).
 
+The `hoprig` skill itself is made by Hoprig and is never changed by a look. A lesson about using Hoprig (its pages,
+its `hop` commands) becomes a draft for a skill of its own, `hoprig-learned`, beside it in your skills: a new skill
+the first time, and after that a change that adds one lesson below the ones there, by every rule above (off until
+you turn learning on, your **Install**, **Undo**, the scan, at most three drafts a week). The `hoprig` skill tells
+your coding tool to read `hoprig-learned` too when it is there.
+
 ## The catalog
 
 `src/skillhub/catalog.json` lists skills that were opened and read before they were listed, each pinned to the
@@ -130,9 +160,99 @@ mobile, assistant, testing, docs) only when its applies table marks them `full` 
 code, and its list of what `project new` makes to what a real run makes. To add an entry: read the skill at a
 commit, add the entry with that full commit id, and run the tests (they validate the catalog).
 
+## Proposals for Tia
+
+A proposal is one file in Hoprig's state folder, `proposals/<id>.json`, left there by an improvement loop. Its shape
+comes first:
+
+- `format`: 1; `id`: `<YYYYMMDD>-<HHMMSS>-<kind>-<name>`, the file's own name without `.json`.
+- `target`: `{ kind, name }`. `kind` is `skill` (a skill's name), `tool` (a tool's name) or `prompt` (a section of
+  her system prompt, by its id: `opening`, `providers`, `out-of-scope`, `getting-work-done`, `work`, `style`). The
+  sections that hold her safety rules (`untrusted-text`, `how-far`, `owner-only`) are never a target: a file or an
+  eval candidate that names one is refused whole.
+- `before`: the text it was measured against; `after`: the proposed text (a tool's description 40 to 1024
+  characters, a prompt section at most 16 KiB).
+- `why`, `numbers` (`whole`, `heldout`, `tokens_per_turn`, `fresh`, `cost`), `gates`, `created`, and an optional
+  `issue`: a text for a coding session when the change is to code. It is shown, never applied.
+
+Settings → Skills → Proposals shows each one with what would change and the numbers, compared here, never taken from
+the file. **Accept** for a skill puts its new text in Tia's own skills folder. For a tool's description or a prompt
+section it writes the text into `<state>/assistant/accepted/` (`tools/<tool>.description.txt` or
+`prompt/<section>.md`, each with a `.json` record of the hash of Hoprig's own text it was measured against). Tia
+reads these at her start and checks each again (the size, the threat scan, the protected sections, a name she
+has). An accepted text applies only while Hoprig's own text still has that hash: after an update changes it, the
+page says "no longer applies: Hoprig's own text changed since it was measured", with **Remove**. **Undo** takes an
+accepted text back. Code is never changed by a proposal.
+
+The eval's `--candidate <folder>` takes the same targets for one run: `skills/<name>/SKILL.md`,
+`tools/<tool>.description.txt` and `prompt/<section>.md`; `--text prompt/<section>` prints a section's shipped text.
+
+## Skill collections and the weekly look
+
+`src/skillhub/hubs.json` names the skill collections: public repositories with many skills, read as data like the
+catalog (the Skills page says `the reviewed hubs`). Today it has one, Hermes Agent
+(`https://github.com/NousResearch/hermes-agent`, its folders `skills` and `optional-skills`; Review shows its licence). An entry
+with an unknown key, a bad repository name or an address that is not its repository is refused on its own; the
+others are still used.
+
+When **Look for updates and new skills once a week** is on (**Skills → Advanced**, off at first), the weekly look
+also reads each collection at its newest commit: plain git, one commit, only the tree and the `SKILL.md` files of
+its skill folders (nothing is checked out or run). It keeps each skill's name, description and tags (Hermes writes
+them under `metadata.hermes.tags`) in Hoprig's state folder, with the commit they were read from. A skill fits a
+project when one of its tags or a word of its name is one of the project's technology words (its dependencies and
+stacks, the same reading as the suggestions; no AI), and the reason says so: "because shop's package.json has
+next". The skills that fit show as **Worth adding** at the top of the Skills page, each with where it comes from,
+the reason and **Review**. A collection that cannot be read is one line there; the look goes on. The search (Find)
+also lists the skills the last look read.
+
+Nothing from a collection is added by itself. **Review** fetches the skill at the commit the look read into
+quarantine and shows every file, the scan, the skill's own licence and the collection's licence; **Install** is your
+press. A skill without a licence of its own gets a `NOTICE` file with the collection's licence and notice, recorded
+with its other files. Only skills are taken: Hermes Agent's tools are Python functions of its own runtime and are
+not carried over.
+
+## Improving Tia
+
+Settings → Tia → **Improve Tia** starts a round by your press: Hoprig tries rewordings of Tia's skills, tool
+descriptions and instructions, measures each with her tests, and shows you only the ones that do measurably better.
+Nothing changes until you accept one, and every change has Undo.
+
+- **What a round does.** It runs her eval once as it is (the baseline), picks a text from the cases that fail (a
+  tool's description, one of her built-in skills, or a section of her instructions), and asks the model once for a
+  rewording. The failing cases go to the model as data inside fences, never as instructions. Its answer is checked
+  (its size, the threat scan, that it is the text asked for). The rewording is then tried on the failing cases, a
+  held-out set of passing cases and every injection case, and, if it holds there, on the whole eval. At most three
+  texts are tried in a round.
+- **Measurably better** means: more cases pass than the baseline, no category passes fewer, and every injection
+  case passes. Only such a version is written as a proposal file into `<state>/proposals/`, the same folder an
+  outside improvement loop uses, so it shows in Skills → Proposals with its numbers and is accepted or undone there.
+- **Never changed by a round:** her code, and the sections of her instructions that hold her safety rules
+  (untrusted text, how far she may go, what only you do). A proposal for one of those is refused.
+- **What it costs.** The page shows the estimate before the press: the runs of her test cases and the model calls,
+  at the cost per case the last round measured on the same provider, or else the shipped eval's (measured on Claude
+  Haiku) times the list price of the model the provider sends those requests to. When that model's price is not
+  known, or the provider is a gateway, the page says the round can cost more. On a provider billed by use a round
+  counts against your daily limit for paid use (none set: it does not start); before every eval run and the model
+  call it holds an amount within that limit, refused when the limit would be passed, settled by what was measured.
+  That amount is also the most the step may spend: the eval starts a case only with what is left of it, and the
+  model call is given it as its limit, so a step that costs more than the estimate stops (the next estimate starts
+  from what it cost) instead of spending past the hold. It stops at the cap you set for the round. On a
+  subscription it uses that subscription's limits. The eval ends with the dashboard, also when the dashboard is
+  killed, so nothing runs on unseen.
+- **Its gates.** Only your press on your own page starts, stops or sets it: Tia's token and another dashboard are
+  refused. One round runs at a time. **Stop** ends the eval's process. A round that was running when the dashboard
+  stopped is marked stopped at its next start. **Run a round every week** is off until you switch it on; its words
+  name the provider, the estimate and the limit.
+- **What leaves the computer:** the eval's cases and the model call go to the provider you chose for the round.
+- Tia's eval ships with Hoprig (`test/assistant/eval/`, its fake dashboard), so a round runs from an installed copy.
+
 ## What leaves the computer
 
 - `git ls-remote` / `git fetch` to the skill's host (GitHub for catalog entries).
+- The weekly look, when it is on: `git ls-remote` and a fetch of one commit's tree and `SKILL.md` files to each skill
+  collection.
+- Skills that fit a project's technology: the same `git fetch` of a catalog entry that fits, at its reviewed commit,
+  when the project is made and once when it first has code (only when its choice is on).
 - `find`: the words to `https://skills.sh/api/search` (the same search the `skills` CLI uses; `SKILLS_API_URL`
   changes it), and the repository names of the results to `api.github.com` for their license.
 - Tools: the package name to the npm registry (`npm view <package> version`).
@@ -140,6 +260,24 @@ commit, add the entry with that full commit id, and run the tests (they validate
 The `skills` CLI (`npx skills`) itself is not used: it needs Node 22.20+, links skills from `~/.agents`, sends
 telemetry unless turned off, and has no quarantine review. Skills it installed are listed with the source from
 its lock file.
+
+## Skills from the shared core
+
+For maintainers of Hoprig. Some of the built-in skills in `skills/` can come from the shared core, a separate
+repository of skills that several products use. Hoprig never needs that repository to run: what it takes from it
+is copied into `skills/` and loaded like every other skill there. `core.json` at the repository's top names the
+core and the version taken; while it says `null`, no core is pinned and Hoprig's own copy is used.
+
+- `node tools/core-sync.mjs --from <export folder>` shows what a version of the core would change, file by file
+  (new, changed with its lines, unchanged, removed, changed locally), and writes nothing.
+- `--write` takes it: the skills of the packs marked public go into `skills/<skill>/`, each text gets the line
+  "Generated from the shared core <version>: change it there.", and `core.json` records the version and each
+  file's sha256. A file that differs from its record, or a skill of Hoprig's own with the same name, is never
+  overwritten: it is listed, and nothing is written.
+- `--check` exits 1 and names every taken file that changed or went.
+- An export folder holds `core-export.json` (`name`, `version`, `packs`: each `{ name, public }`) and
+  `skills/<pack>/<skill>/SKILL.md` with the skill's other files. One that holds a link, an absolute path or `..`
+  is refused whole. Nothing is fetched from a network.
 
 ## For the guided first run
 

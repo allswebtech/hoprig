@@ -25,6 +25,7 @@ import { repoInfo } from '../pcsetup/workspace.mjs';
 import { demoOpenCode, seedCart } from './coding.mjs';
 import { demoDesktop } from './desktop.mjs';
 import { GATEWAY, HOPRIG, KITS, TOOLS, newer } from './versions.mjs';
+import { demoWork } from './work.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const SESSION = path.join(HERE, 'session.mjs');
@@ -413,6 +414,14 @@ function demoWorkspaceMore(home, secondary) {
     },
     // Set-up's one path: the owner's brain on GitHub, with a map in it.
     brainCandidates: async () => [{ owner: 'demo-user', name: 'ai_brain', url: at('ai_brain'), private: true, hasMap: true }],
+    // "Look on the git server" (a place with a naming rule): the sample account's repositories, no program is started.
+    gh: async (argv) => {
+      const a = argv.slice(1).join(' ');
+      if (a.startsWith('api user/orgs')) return { ok: true, code: 0, stdout: '', stderr: '' };
+      if (a.startsWith('api user ')) return { ok: true, code: 0, stdout: 'demo-user\n', stderr: '' };
+      if (a.startsWith('repo list demo-user ')) return { ok: true, code: 0, stdout: JSON.stringify(['shop-project', 'shop-api', 'shop-web', 'blog-project', 'blog-app', 'blog-old-api', 'wiki-app', 'notes'].map((name) => ({ name }))), stderr: '' };
+      return { ok: false, code: 1, stdout: '', stderr: '(demo) not answered' };
+    },
     // One thing to decide (both sides changed), one to upload unless uploading was chosen; invoices is only in the map.
     sync: async ({ memory = false, push = false, onLine = () => {} } = {}) => {
       const repos = [
@@ -853,11 +862,13 @@ export async function main(args = [], hooks = {}) {
       chat: { command: { command: process.execPath, args: [CHAT] }, resolveEnv: async () => ({ ...process.env }), engineOpts: { served: { ensure: async () => ({ ok: false, why: 'OpenCode does not run in the demo. On your own computer it runs as Claude Code does here.' }) } } },
       // Learning skills talks to no model in the demo: a look answers with one sample draft, a test request with a line.
       learn: { turn: demoLearnTurn },
+      improve: { demo: 'In the demo a round does not run: it would call a model. On your own computer it starts from here.' }, // Improve Tia: never the eval or a model
       assistant: {
         claudecode: async () => ({ claudeInfo: async () => CLAUDE_INFO }),
         engine: { command: { command: process.execPath, args: [TIA] }, resolveEnv: async () => ({ ...process.env }) },
       },
     });
+    if (!o.secondary) await demoWork(projects).catch(() => {}); // a plan and a Lead run with helpers (Work's "Who did what")
     const addr = await app.listen(o.port || 0, '127.0.0.1');
     const base = `http://127.0.0.1:${addr.port}`;
     const api = await client(base, password);
@@ -893,6 +904,7 @@ export async function main(args = [], hooks = {}) {
         schedule: { label: 'Evening test run', when: { kind: 'weekly', time: '18:00', days: [1, 2, 3, 4, 5] }, action: { type: 'send', session: 'data-pipeline', text: 'Run the full test suite and sum up what fails' } },
       }).catch(() => {});
       await demoActivity();
+      await (await import('./history.mjs')).demoHistory({ projects, brain: path.join(home, 'Workspace', 'ai_brain') }); // Work → Activity's made-up history
 
       await api('/api/codetools/opencode', { on: true }).catch(() => {});
       // ---- a chat: it changes a file and waits for the OK to run the tests ----
@@ -1010,7 +1022,7 @@ function demoWorkspace(home, secondary = false) {
     fs.mkdirSync(path.dirname(path.join(brain, rel)), { recursive: true });
     fs.writeFileSync(path.join(brain, rel), text);
   }
-  for (const d of ['development', 'git', 'database/postgresql', 'backups']) fs.mkdirSync(path.join(ws, d), { recursive: true });
+  for (const d of ['development', 'git', 'database/postgresql', 'database/mysql', 'backups']) fs.mkdirSync(path.join(ws, d), { recursive: true });
   fs.mkdirSync(path.join(ws, 'credentials'), { recursive: true, mode: 0o700 });
   fs.writeFileSync(path.join(ws, 'credentials', 'README.md'), '# Credentials\n\nKeys for local work. Never in git.\n');
   gitInit(brain);

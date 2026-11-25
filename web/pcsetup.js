@@ -12,7 +12,7 @@ import { claudeLoginButton } from './claudelogin.js';
 
 const MARK = { ok: '✓', fail: '✗', warn: '!', info: '·' };
 const STATE = { ok: '✓', missing: '✗', old: '!' };
-const GROUP_TITLES = { system: 'This computer', 'kit:basics': 'Basics', 'kit:node': 'Node.js', 'kit:python': 'Python', 'kit:github': 'GitHub', 'kit:extras': 'Terminal extras', 'kit:docker': 'Docker', 'kit:php': 'PHP + database', 'kit:fvm': 'Flutter versions (fvm)', java: 'Java', claude: 'Claude Code', codetools: 'Coding tools', projects: 'Projects' };
+export const GROUP_TITLES = { system: 'This computer', 'kit:basics': 'Basics', 'kit:node': 'Node.js', 'kit:python': 'Python', 'kit:github': 'GitHub', 'kit:extras': 'Terminal extras', 'kit:docker': 'Docker', 'kit:php': 'PHP + database', 'kit:fvm': 'Flutter versions (fvm)', 'kit:flutter': 'Flutter', java: 'Java', claude: 'Claude Code', codetools: 'Coding tools', projects: 'Projects' };
 async function post(path, body) {
   try {
     return await api(path, body);
@@ -20,6 +20,31 @@ async function post(path, body) {
     toast(e, { kind: 'error', ms: 6000 });
     return null;
   }
+}
+
+/** The kits Hoprig does not set up on Windows, as one sentence: "A, B and C: not covered on Windows, …". */
+export const notCoveredWords = (titles) => `${titles.length > 1 ? `${titles.slice(0, -1).join(', ')} and ${titles.at(-1)}` : titles.join('')}: not covered on Windows, so ${titles.length > 1 ? 'they are' : 'it is'} not offered here.`;
+
+const cap = (s) => (s ? s[0].toUpperCase() + s.slice(1) : s);
+
+/**
+ * What a toolchain kit (such as Flutter) says in its row before the one yes, from /api/pcsetup/kits
+ * (src/pcsetup/kitinfo.mjs): what was found and is used where it is, what it downloads and from which host, about how
+ * big, what it changes, and the owner's own steps. → [{ kind, text, code? }] (`code`: lines shown as they are); [] for a
+ * kit that has none of these.
+ */
+export function kitFacts(k) {
+  const out = [];
+  for (const f of k.found || []) out.push({ kind: 'found', text: `${f.name}${f.version ? ` ${f.version}` : ''} ${f.text}` });
+  for (const d of k.downloads || []) out.push({ kind: 'downloads', text: `Downloads ${d.text}` });
+  if (k.size && k.size.text) out.push({ kind: 'size', text: cap(k.size.text) });
+  for (const c of k.changes || []) {
+    // The shell lines are shown as they will stand in the start files, one per line (each ends with "  # <key>").
+    const m = /^(.+? shell start files): (.+)$/.exec(c);
+    out.push(m ? { kind: 'changes', text: `Changes: ${m[1]}:`, code: m[2].split(/(?<= {2}# [\w-]+); /).join('\n') } : { kind: 'changes', text: `Changes: ${c}` });
+  }
+  for (const y of k.yours || []) out.push({ kind: 'yours', text: `Yours to do, Hoprig does not run it: ${y.text}`, ...(y.command ? { code: y.command } : {}) });
+  return out;
 }
 
 /** "Set up this computer": kits with checkboxes, the exact commands, ONE confirmation, then the job on this page. */
@@ -35,7 +60,7 @@ async function setupSheet(started, only = null) {
   const chosen = new Set(only ? d.kits.filter((k) => k.id === only).map((k) => k.id) : d.kits.filter((k) => k.defaultOn && k.items.some((i) => i.state === 'missing')).map((k) => k.id));
   const kits = await openSheet({ title: 'Set up this computer', subtitle: 'Choose what to install. What is already there is left alone.', wide: true }, (close) => {
     const cmds = h('div');
-    const pre = (lines) => h('pre', { style: { fontSize: '12px', whiteSpace: 'pre-wrap', wordBreak: 'break-all', background: 'var(--surface-2)', padding: '8px 10px', borderRadius: '8px' } }, lines.join('\n'));
+    const pre = (lines) => h('pre', { style: { fontSize: '12px', whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', background: 'var(--surface-2)', padding: '8px 10px', borderRadius: '8px' } }, lines.join('\n'));
     const paint = () => {
       const picked = d.kits.filter((k) => chosen.has(k.id));
       const list = picked.flatMap((k) => k.commands);
@@ -48,6 +73,7 @@ async function setupSheet(started, only = null) {
         // What a chosen kit cannot install here, and a service it leaves for you to start: said before the one yes.
         ...picked.flatMap((k) => (k.cannot || []).map((c) => h('p.hint', `${k.title}: ${c}`))),
         ...picked.filter((k) => k.commands.length && (k.start || []).length).flatMap((k) => [h('p.hint', `${k.title}: ${k.after}`), pre(k.start)]),
+        ...picked.filter((k) => k.commands.length && (k.folder || []).length).map((k) => h('p.hint', `${k.title}: ${k.folder.join(' ')}`)),
         ...picked.filter((k) => k.commands.length && k.after && !(k.start || []).length && k.id === 'php').map((k) => h('p.hint', `${k.title}: ${k.after}`)));
     };
     paint();
@@ -59,6 +85,9 @@ async function setupSheet(started, only = null) {
             h('span.row-title', k.title, k.defaultOn ? null : h('span.badge.soft', 'optional')),
             h('span.row-sub', { style: { whiteSpace: 'normal' } }, k.summary),
             h('span.row-sub', { style: { whiteSpace: 'normal' } }, k.items.map((i) => `${STATE[i.state] || '·'} ${i.name}${i.version ? ` ${i.version}` : ''}`).join('   ')),
+            // A toolchain kit: what it downloads, how big, what it changes, what was found, what stays yours.
+            ...kitFacts(k).map((f) => h(`span.row-sub.sj-fact.${f.kind}`, { style: { whiteSpace: 'normal', overflowWrap: 'anywhere' } }, f.text,
+              f.code ? h('code.mono', { style: { display: 'block', whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', fontSize: '12px', marginTop: '4px', background: 'var(--surface-2)', padding: '6px 8px', borderRadius: '6px' } }, f.code) : null)),
             // Why a project here would use this optional kit; it stays unticked until you tick it.
             (k.suggested || []).length ? h('span.row-sub.sj-suggested', { style: { whiteSpace: 'normal' } }, `Suggested: ${k.suggested.join('; ')}`) : null,
             ...(k.notes || []).map((n) => h(`span.row-sub.sj-note.${n.verdict}`, { style: { whiteSpace: 'normal' } }, n.text)))))),
@@ -70,7 +99,7 @@ async function setupSheet(started, only = null) {
           ...(d.java.state === 'ok' ? d.java.broken || [] : []).map((b) => h('span.row-sub', { style: { whiteSpace: 'normal' } }, `Found but not working: ${b.place} (${b.why})`)),
           d.java.javaHome ? h('span.row-sub', { style: { whiteSpace: 'normal' } }, d.java.javaHomeHint, h('code.mono', { style: { display: 'block', wordBreak: 'break-all' } }, d.java.javaHome)) : d.java.javaHomeHint ? h('span.row-sub', { style: { whiteSpace: 'normal' } }, d.java.javaHomeHint) : null))) : null,
       d.leftOut ? h('p.hint', d.leftOut) : null,
-      (d.notCovered || []).length ? h('p.hint', `${d.notCovered.join(' and ')}: not covered on Windows, so they are not offered here.`) : null,
+      (d.notCovered || []).length ? h('p.hint', notCoveredWords(d.notCovered)) : null,
       cmds,
       h('div.sheet-actions',
         h('button.btn.secondary', { type: 'button', onclick: () => close(null) }, 'Cancel'),

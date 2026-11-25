@@ -24,6 +24,8 @@ import { canDeleteConversation, deleteConversation } from './chat/deletes.js';
 import { registeredSessionActions } from './registry.js';
 import { answeredLines, exactCard, handsOffBar, heldActCard, openConsentSheet, uncoveredLine, waitWords } from './handsoff.js';
 import { isStarting, markStarting, startingPill } from './newsession.js';
+// A terminal whose start was stopped before the coding tool ran (the card's startStopped).
+export const START_STOPPED = 'The start was stopped before the coding tool ran. The conversation is free again: continue it in the App or start it again.';
 import { forgetHere, named, wayBack, windowWay } from './trail.js';
 import { extrasLine, rootRefusedNext } from './sessionitem.js';
 import { CTRL_V, KEY_BAR, KEY_HELP, backToLive, inOrder, inputMessages, keyBarTarget, mayConnect, pageTitle, pasteKey, reconnectWait, stickyCtrl, termKey } from './termkeys.js';
@@ -751,7 +753,7 @@ export function openSession(app, name) {
     fill(statusSlot, starting ? startingPill(s) : statusPill(s, { time: false }), liveBasic(s), extrasLine(s, 'span.card-extras.sess-extras'));
     fill(toolSlot, toolChip(s));
     const before = needSlot.offsetHeight;
-    fill(needSlot, limitBox(s, profiles, moved) || (stateOf(s).key === 'attention' ? needsOk(s) : stateOf(s).key === 'failed' ? didNotStart(s) : null), answeredLines(s.handsOffDone, { askAt: stateOf(s).key === 'attention' ? s.askAt : 0, onToggle: () => refit() }), handsBar(s), s.handsOff && s.handsOff.uncovered ? uncoveredLine([name], { linked: false }) : null, allowedNote(s), bgCommandNote(s) ? h('p.sess-ok-text.sess-bg-note', bgCommandNote(s)) : null);
+    fill(needSlot, limitBox(s, profiles, moved) || (stateOf(s).key === 'attention' ? needsOk(s) : stateOf(s).key === 'failed' ? didNotStart(s) : null), answeredLines(s.handsOffDone, { askAt: stateOf(s).key === 'attention' ? s.askAt : 0, onToggle: () => refit() }), handsBar(s), s.handsOff && s.handsOff.uncovered ? uncoveredLine([name], { linked: false }) : null, allowedNote(s), bgCommandNote(s) ? h('p.sess-ok-text.sess-bg-note', bgCommandNote(s)) : null, startStoppedNote(s));
     if (needSlot.offsetHeight !== before) refit();
   });
 
@@ -839,6 +841,11 @@ export function openSession(app, name) {
       if (on === true) openConsentSheet(); // the first time any switch is turned on, this browser sees the sheet once
       return r;
     }, () => store.refresh());
+  }
+
+  // The start was stopped before the terminal's shell read its line (Ctrl+C: src/server/deck.mjs #stopped).
+  function startStoppedNote(s) {
+    return s.startStopped ? h('p.sess-allowed.sess-stopped', START_STOPPED) : null;
   }
 
   // ---------- what Hoprig allowed by itself in bypass mode (the run record's `allowed`, src/hook.mjs) ----------

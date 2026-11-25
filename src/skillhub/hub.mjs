@@ -13,6 +13,7 @@ import { bundledDir, catalogEntry, loadCatalog, packageVersion, searchCatalog, s
 import { detectProject } from './detect.mjs';
 import { diffText, folderDiff } from './diff.mjs';
 import { guessLicense, oneLine, parseFrontMatter } from './frontmatter.mjs';
+import { addHubNotice, hubOfReview } from './hubs.mjs';
 import { scanSkill } from './scan.mjs';
 import { SourceError, checkoutFolder, chooseFolder, fetchCommit, latestCommit, parseSpec, showFile, treeOf } from './source.mjs';
 import { StoreError, hashFolder, hubDir, listInstalled, localEdits, placeSkill, readManifest, removeSkill, safeName, scopeOf, sha256, skillPath, undoSkill } from './store.mjs';
@@ -77,8 +78,8 @@ function textMap(root, files) {
 
 /**
  * Fetch a skill into quarantine and build its review. `spec`: a catalog id, owner/repo[/path], owner/repo@skill
- * or a git URL. `opts`: { project, commit, update: { name } (internal), allowed }. Returns the review (also saved
- * next to the files, so a later approve can check nothing changed).
+ * or a git URL. `opts`: { project, commit, update: { name } (internal), allowed, hub (the skill hub it is from) }.
+ * Returns the review (also saved next to the files, so a later approve can check nothing changed).
  */
 export async function prepare(spec, opts = {}) {
   sweepQuarantine();
@@ -126,6 +127,11 @@ export async function prepare(spec, opts = {}) {
       catalog: entry ? { id: entry.id, for: entry.for, license: entry.license, notes: entry.notes || null, tool: entry.tool || null } : null,
       skillMd, folder, files: scan.files, total: scan.total, findings: scan.findings, counts: scan.counts,
     };
+    // A skill from a hub: the review names the hub, its licence and notice, and the skill's own licence (if any).
+    if (opts.hub) {
+      review.hub = hubOfReview(opts.hub, fm, folder);
+      source.hub = { id: opts.hub.id, name: opts.hub.name, url: opts.hub.url, license: opts.hub.license, notice: opts.hub.notice };
+    }
     if (name && !opts.update) {
       const target = skillPath(scope, name);
       const rec = readManifest(scope.dir).skills[name];
@@ -188,7 +194,8 @@ export function approve(id, { overwriteLocal = false } = {}) {
   const scope = { kind: review.scope.kind, root: review.scope.project, dir: review.scope.dir };
   const record = { source: review.source, license: review.license };
   try {
-    placeSkill(scope, review.name, review.folder, review.files, record);
+    // A hub skill without a licence of its own gets the hub's notice as a file beside it (recorded like the others).
+    placeSkill(scope, review.name, review.folder, addHubNotice(review), record);
   } catch (e) {
     if (e instanceof StoreError) throw new HubError(e.message, e.status);
     throw e;
@@ -253,7 +260,7 @@ export async function prepareUpdate(name, scopeOpts = {}, { allowed = null } = {
   const s = rec.source;
   if (s.type === 'bundled') return prepare(s.catalogId, { project: scope.root, forceProject: scope.kind === 'project', update: { name }, allowed });
   const spec = s.repo ? `${s.repo}/${s.path}`.replace(/\/$/, '') : `${s.url}#${s.path}`;
-  return prepare(spec, { project: scope.root, update: { name }, allowed, commit: await latestCommit(s.url, s.ref) });
+  return prepare(spec, { project: scope.root, update: { name }, allowed, commit: await latestCommit(s.url, s.ref), ...(s.hub ? { hub: s.hub } : {}) });
 }
 
 export function remove(name, scopeOpts = {}, { allowed = null } = {}) {

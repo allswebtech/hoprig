@@ -3,7 +3,8 @@
 // strictly on every write and every read (a file that does not pass is not a mission: it is named and left alone).
 //
 // { v: 1, id, writer, goal, project, proposal (the Plan with AI record while it plans), plan (the accepted plan's id),
-//   state, why, createdAt, endedAt, tasks: [task], line: [{ at, task, words }] }
+//   state, why, createdAt, endedAt, tasks: [task], line: [{ at, task, words }], auto? (true: Tia started it by herself,
+//   Auto per project, auto.mjs: one ready task, no plan) }
 // state: planning | running | done | waits (for him) | failed | stopped (by him, or Tia OFF)
 // task: { id (the Work task), title, role (null: a task the plan gives to him, never a session's), provider, model, effort, state, why, branch, base (the commit of the
 //   default branch it was made from), run: { id, kind, budget, before? } | null (the run working now: work, review or fix,
@@ -53,7 +54,8 @@ const SELF_ENDS = ['passed', 'failed', 'timeout'];
 
 /** Check a mission strictly. Throws with what is wrong. */
 export function checkMission(m) {
-  keys(m, TOP, 'the mission');
+  keys(m, TOP, 'the mission', ['auto']);
+  if (m.auto !== undefined && !(m.auto === true && m.plan === null && m.proposal === null && Array.isArray(m.tasks) && m.tasks.length === 1)) throw bad('has a bad Auto mark');
   if (m.v !== 1 || !MISSION_ID_RE.test(m.id) || !/^[0-9a-f]{16}$/.test(m.writer)) throw bad('has a bad id, version or writer');
   if (!text(m.goal, 4000) || !m.goal.trim() || !PROJECT_RE.test(m.project)) throw bad('has a bad goal or project');
   if (m.proposal !== null && !RUN_ID_RE.test(m.proposal)) throw bad('has a bad proposal');

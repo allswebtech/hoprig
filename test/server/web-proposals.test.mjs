@@ -169,13 +169,17 @@ test('a proposal that gained nothing, with a worse held-out part, is marked and 
   assert.equal(find(good, (x) => x.classList.contains('pp-down')), undefined, 'no number is marked worse');
 });
 
-test('a done tool proposal says so, without Undo; a changed tool description is not told it "cannot be accepted"', async () => {
+// A tool's description is now accepted with a tap (into Hoprig's state): one measured against an older text cannot be
+// accepted, as for a skill, and the card says so. Before, a tool's card had no Accept and was not told so.
+test('a done tool proposal says so, without Undo; a changed tool description cannot be accepted and says why', async () => {
   const done = await paint(list({ accepted: [card('20261119-100000-tool-manage_project', { kind: 'tool', name: 'manage_project', done: true, state: 'waiting' })] }));
   assert.match(text(done), /Done: the description in the code is now this text\./);
   assert.equal(byLabel(done, 'Undo the new text of manage_project'), undefined);
   const stale = await paint(list({ waiting: [card('20261119-100100-tool-manage_project', { kind: 'tool', name: 'manage_project', stale: true, issue: 'Change it.' })] }));
-  assert.match(text(stale), /this issue text may no longer fit/);
-  assert.doesNotMatch(text(stale), /cannot be accepted/);
+  assert.match(text(stale), /This text was changed after the proposal was measured, so it cannot be accepted\./);
+  const accept = byLabel(stale, 'Accept the new text of manage_project');
+  assert.ok(accept && ('disabled' in accept.attrs || accept.disabled === true), 'Accept is disabled');
+  assert.match(text(stale), /An issue text for a coding session/, 'its issue text is still shown');
 });
 
 test('put-away proposals are listed with Show again; the unreadable note shows alone too, with each file and why', async () => {

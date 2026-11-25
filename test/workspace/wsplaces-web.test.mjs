@@ -95,6 +95,27 @@ test('Your computers: a refused file and a label conflict are shown; a group\'s 
   assert.doesNotMatch(t, /shop-api|tool-core/);
 });
 
+test('another project needs it: the sheet asks the terminal\'s question, unticked; only his press sends needed: true', async () => {
+  const fs = await import('node:fs');
+  const q = { ask: 'needed', by: ['blog'], words: 'Drop shop all the same?', why: 'blog needs shop: it names it in "needs" and its sessions read it.', later: 'Without it here, a session there cannot read it until  hoprig get shop  brings it back.' };
+  let said = null;
+  const el = W.neededQuestion(q, (e) => (said = e.target.checked));
+  const t = text(el);
+  assert.match(t, /blog needs shop: it names it in "needs" and its sessions read it\./);
+  assert.match(t, /until {2}hoprig get shop {2}brings it back/);
+  assert.match(t, /Drop shop all the same\?/);
+  const find = (n, tag) => (n instanceof FakeElement ? (n.tag === tag ? n : n.children.map((c) => find(c, tag)).find(Boolean)) : null);
+  const box = find(el, 'input');
+  assert.equal(box.attrs.type || box.type, 'checkbox');
+  assert.notEqual(box.checked, true, 'nothing is answered for him');
+  assert.equal(said, null);
+  // The sheet draws it as its own question (never as the typed-name one) and sends needed only from that answer.
+  const src = fs.readFileSync(new URL('../../web/wsplaces.js', import.meta.url), 'utf8');
+  assert.match(src, /q\.ask === 'needed'\) \{\s*qs\.push\(neededQuestion\(q, \(e\) => \(answers\.needed = e\.target\.checked\)\)\)/);
+  assert.match(src, /needed: false, work: false/);
+  assert.match(src, /\.\.\.\(answers\.needed \? \{ needed: true \} : \{\}\)/);
+});
+
 test('the drop sheet opened for another computer names it in its title', () => {
   assert.equal(W.dropTitle('blog', 'Build box'), 'Drop blog from Build box');
   assert.equal(W.dropTitle('shop'), 'Drop shop from this computer');

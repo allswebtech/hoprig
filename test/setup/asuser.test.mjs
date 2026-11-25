@@ -41,6 +41,12 @@ test("the user's own Node: the newest nvm version, by number, not by name", () =
   assert.equal(A.userNodeBin('/home/hoprig', { readdir: () => ['v22.9.0', 'v22.10.0'] }), '/home/hoprig/.nvm/versions/node/v22.10.0/bin');
   assert.equal(A.userNodeBin('/home/hoprig', { readdir: () => { throw new Error('ENOENT'); } }), '');
   assert.equal(A.userNodeBin('/home/hoprig', { readdir: () => [] }), '');
+  // No ~/.nvm: the nvm pc setup puts into the workspace's development/nodejs/nvm.
+  const wsOnly = (d) => {
+    if (d === '/home/hoprig/Workspace/development/nodejs/nvm/versions/node') return ['v24.11.0'];
+    throw new Error('ENOENT');
+  };
+  assert.equal(A.userNodeBin('/home/hoprig', { readdir: wsOnly }), '/home/hoprig/Workspace/development/nodejs/nvm/versions/node/v24.11.0/bin');
 });
 
 test('a stand-in runuser is asked once, with the argv as an array, and the step gets the address of the user manager', { skip: process.platform === 'win32' && 'runuser is Linux' }, async () => {

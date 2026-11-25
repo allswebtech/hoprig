@@ -17,12 +17,17 @@
 //   GET  /api/skillhub/tools                    tools catalog skills need: installed / latest / command
 //   POST /api/skillhub/tools/<id>/update        run that command (the page asked the owner first)
 //   POST /api/skillhub/settings { weekly }      the weekly update check (it only tells; it never installs)
+//   GET  /api/skillhub/worth                    "Worth adding": hub skills the weekly look found for your projects
+//                                               (review: { hub, path, commit, project? }; find also lists hub skills)
+//   GET  /api/skillhub/fit?project=<dir>  POST /api/skillhub/fit/choice { project, fit }   skills that fit its technology (fit.mjs)
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { recentFolders, resolveRoots, within } from '../server/folders.mjs';
+import * as fitting from './fit.mjs';
 import * as hub from './hub.mjs';
 import { hubDir } from './store.mjs';
+import * as hubs from './hubs.mjs';
 import { catalogTools, checkTool, updateTool } from './tools.mjs';
 
 const WEEK = 7 * 24 * 3600_000;
@@ -95,6 +100,14 @@ export function skillhubFeature(sctx, opts = {}) {
       const r = await hub.checkUpdates(sc, { allowed }).catch(() => []);
       for (const u of r) if (u.state === 'update') found.push({ name: u.name, project: sc.project || null });
     }
+    // The scout: new skills from the hubs that fit the projects, only offered ("Worth adding"); a failure is a line.
+    const hubList = opts.hubs || hubs.loadHubs().hubs;
+    const worth = await hubs.scout({ hubs: hubList, projects: recentFolders([], roots(), 30), now: () => now, ...(opts.hubListing ? { list: opts.hubListing } : {}) })
+      .catch((e) => ({ at: now, results: [], lines: [String(e.message)] }));
+    hubs.saveWorth(worth);
+    if (worth.results.length) {
+      await Promise.resolve(sctx.notify({ title: `Skills worth adding: ${worth.results.length}`, message: `${worth.results.slice(0, 5).map((w) => w.name).join(', ')}. Nothing was added; see them on the Skills page.`, status: 'automation', session: '', url: '' })).catch(() => {});
+    }
     writeSettings({ lastCheck: now, lastResult: found });
     if (found.length) {
       await Promise.resolve(sctx.notify({ title: `Skill updates: ${found.length}`, message: `${found.map((f) => f.name).join(', ')}. Review them on the Skills page.`, status: 'automation', session: '', url: '' })).catch(() => {});
@@ -122,11 +135,18 @@ export function skillhubFeature(sctx, opts = {}) {
     }],
     ['GET', /^\/api\/skillhub\/find$/, async (req, m, q) => {
       ownerOnly(req);
-      return hub.find(String(q.get('q') || ''), opts.fetch ? { fetchImpl: opts.fetch } : {});
+      const r = await hub.find(String(q.get('q') || ''), opts.fetch ? { fetchImpl: opts.fetch } : {});
+      return { ...r, hubs: hubs.findInHubs(r.query, opts.hubs || hubs.loadHubs().hubs) }; // the hub skills the last look read
     }],
     ['POST', /^\/api\/skillhub\/review$/, async (req) => {
       ownerOnly(req);
       const b = await sctx.readJson(req);
+      if (b.hub !== undefined) {
+        // A hub skill: the address comes from the hub list, the commit is the one the weekly look read.
+        const hs = hubs.hubReviewSpec(b, opts.hubs || hubs.loadHubs().hubs);
+        const hsc = scopeOpts(b);
+        return forPage(await hub.prepare(hs.spec, { project: hsc.project || null, forceProject: Boolean(hsc.project), commit: hs.commit, hub: hs.hub, allowed }));
+      }
       if (typeof b.spec !== 'string' || !b.spec.trim() || b.spec.length > 500) throw fail(400, 'name a skill');
       const sc = scopeOpts(b);
       return forPage(await hub.prepare(b.spec.trim(), { project: sc.project || null, forceProject: Boolean(sc.project) && b.scope === 'project', allowed }));
@@ -184,19 +204,49 @@ export function skillhubFeature(sctx, opts = {}) {
       if (typeof b.weekly !== 'boolean') throw fail(400, 'weekly is true or false');
       return writeSettings({ weekly: b.weekly });
     }],
+    ['GET', /^\/api\/skillhub\/worth$/, async (req) => {
+      ownerOnly(req);
+      return hubs.worthNow({ allowed });
+    }],
+    // Skills that fit a project's technology (fit.mjs): its three lists and its choice, kept in Hoprig's state.
+    ['GET', /^\/api\/skillhub\/fit$/, async (req, m, q) => {
+      ownerOnly(req);
+      const project = projectOf(q.get('project'));
+      if (!project) throw fail(400, 'name a project');
+      return fitting.fitLists(project, { allowed });
+    }],
+    ['POST', /^\/api\/skillhub\/fit\/choice$/, async (req) => {
+      ownerOnly(req);
+      const b = await sctx.readJson(req);
+      const project = projectOf(b.project);
+      if (!project) throw fail(400, 'name a project');
+      if (typeof b.fit !== 'boolean') throw fail(400, 'fit is true or false');
+      const at = hub.installed({ project }, { allowed }).root; // inside the dashboard's folders, or refused
+      fitting.setFitChoice(at, b.fit);
+      return fitting.fitLists(at, { allowed });
+    }],
   ];
+
+  // The first-code fit (fit.mjs): projects whose choice is on get their fit once they first have code.
+  let fitTimer = null;
+  const firstCodeFit = () => fitting.firstCodeFits({ allowed, ...(opts.fit ? { fit: opts.fit } : {}) });
 
   return {
     name: 'skillhub',
     routes,
     weeklyCheck,
+    firstCodeFit,
     start() {
       // Hourly look; the real check runs once a week and only when the owner turned it on.
       timer = setInterval(() => weeklyCheck().catch(() => {}), opts.checkEveryMs || 3600_000);
       timer.unref?.();
+      // Hourly too: the first-code fit of the projects whose choice is on (it changes nothing in a project without code).
+      fitTimer = setInterval(() => firstCodeFit().catch(() => {}), opts.checkEveryMs || 3600_000);
+      fitTimer.unref?.();
     },
     close() {
       clearInterval(timer);
+      clearInterval(fitTimer);
     },
   };
 }

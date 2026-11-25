@@ -56,6 +56,10 @@ curl -fsSL https://raw.githubusercontent.com/allswebtech/hoprig/main/install.sh 
   stuck session only in a project where you ticked **Tia may end a stuck session in this project** on the project's
   page ([docs/OPERATOR.md](docs/OPERATOR.md)).
   Typing into a session that runs on a provider billed by use, the nudge too, is money: **Tia decides** does it only at **Hands off** and within that limit, and it counts against it. Off until you turn her on.
+- **Improve Tia** (Settings → Tia): Hoprig tries rewordings of Tia's skills, tool descriptions and instructions,
+  measures each with her tests, and shows you only the ones that do measurably better. Nothing changes until you
+  accept one, and every change has Undo. It starts only by your press and counts against your daily limit for paid
+  use; a weekly round is off until you switch it on.
 - **Hands-off** lets Hoprig answer some of a coding tool's questions by itself while you are away — the option
   the tool marked as recommended, or your note for the project — so a session does not wait for you, while still
   holding, as your card, anything that is yours alone: a push to the main branch, a release, a pull request, admin
@@ -64,12 +68,17 @@ curl -fsSL https://raw.githubusercontent.com/allswebtech/hoprig/main/install.sh 
   sessions that need an OK or reached a usage limit. The list is one file in a git repository of your workspace (the AI
   brain by default); Save commits only that file, brings another computer's changes in task by task, and either
   reaches the server or leaves your change in the file; a save that was interrupted is finished the next time.
-  **Do it** on a task starts a coding session with the task as its brief; what it did (its answer, commits and
-  changed files) comes back onto the task for **Accept** or **Send back**. **Plans** hold a goal, milestones and
+  **Do it** on a task starts a coding session with the task as its brief; on a git project it works on a branch of
+  its own (`work/<task>`) in its own copy of the project, so your folder is not changed. What it did (its answer,
+  commits and changed files) comes back onto the task for **Accept** or **Send back**; Accept leaves the branch for
+  Go live, and nothing is merged or pushed. **Plans** hold a goal, milestones and
   dated tasks with what waits for what, on a timeline; **Plan with AI** has a session research a goal and propose a
-  plan, and nothing is written before you accept it. **Another program** adds a task with a Work token (made in
+  plan, and nothing is written before you accept it. **Auto**, a switch per project on Work → Team (off at first),
+  lets Tia start that project's ready tasks by herself, one at a time, each one in Activity and stopped by **End**. **Another program** adds a task with a Work token (made in
   Settings → Work, shown once, good for Work only) and hears its result through a signed webhook; such a task starts
-  only when you start it. [docs/WORK.md](docs/WORK.md)
+  only when you start it. **Missions** (off at first, on Work → Team) let Tia do a goal with roles: a developer,
+  tester or ops session may run only the project's tests, its build and its scripts, each in a box with no network.
+  [docs/WORK.md](docs/WORK.md)
 - **Operator**: one page with what stopped or is about to, from everything Hoprig watches (a session at its limit,
   an OK that waits, a disk 85% full, a run that stopped), with one recommended step for each; nothing happens until you tap it, unless you
   switched on one of Tia's rules, **Tia decides** or **Tia looks into what nobody can explain** (all are off at first; [docs/OPERATOR.md](docs/OPERATOR.md)).
@@ -93,6 +102,26 @@ Three things together: it sets up the computer; it keeps one workspace that come
 with an AI memory per project; and a session goes on with another provider or account when one reaches its limit.
 Each case below has its own page with the steps, what you need and what it does not do.
 
+What you get, each answered on the page and section it links to:
+
+- [Can the AI write the code for me?](https://hoprig.com/use-cases/review-ai-changes/#what-hoprig-does): Yes, in a chat: you say what you want in plain words, and you see each change and allow it before it is made.
+- [How do I keep an AI-built project in order from day one?](https://hoprig.com/use-cases/messy-ai-project/#what-hoprig-does): Every project gets the same folder from the first day: the rules for the AI, its memory, the docs and the code, all in git.
+- [Who sets up my computer for coding with AI?](https://hoprig.com/use-cases/not-a-developer/#what-hoprig-does): Hoprig does: one line installs it, and its setup installs and checks what is missing, after asking you once.
+- [Can I code on several computers?](https://hoprig.com/use-cases/team-machines/#what-hoprig-does): Yes: each computer set up the same way from one recipe, and all of them on one page of the dashboard.
+- [Can I code on my own computer from my phone?](https://hoprig.com/use-cases/code-from-your-phone/#what-hoprig-does): Yes: the dashboard opens in your phone's browser, with a chat per project and the real terminal, and no server of anyone else's.
+- [Can AI-built code be ready for real use?](https://hoprig.com/use-cases/production-ready/#what-hoprig-does): Hoprig adds working rules that make the coding tool prove its work, and suggests reviewed skills for security, performance and tests.
+- [Does it come with skills and tools?](https://hoprig.com/use-cases/production-ready/#easy-safe-fast-and-ready-to-grow): Yes: skills that fit what your project is made of, each with a scan of its risky lines before you add it, and a skill that sets up a new project from your brief.
+- [What happens when my project grows large?](https://hoprig.com/use-cases/messy-ai-project/#when-the-project-grows): It stays in order: each part has one place, every repository is in one map, and plans are kept in Work. The AI's work still needs your review.
+- [Does the AI brain learn?](https://hoprig.com/use-cases/messy-ai-project/#your-ai-brain-and-what-it-learns): There is one memory per project and one main brain, in git. Once you turn it on, it drafts skills from work you corrected or kept, at most three a week, and installs none without you.
+- [Is it easy, safe and fast?](https://hoprig.com/use-cases/production-ready/#easy-safe-fast-and-ready-to-grow): The set-up is done for you, the working rules keep secrets out of the code, and skills for security and speed are suggested. It does not measure load for you.
+- [Can I move my work to another computer?](https://hoprig.com/use-cases/new-computer/#what-hoprig-does): Yes: your AI brain lists every repository, so another computer gets the same projects, rules and memory.
+- [Does everything come back from git?](https://hoprig.com/use-cases/new-computer/#what-hoprig-does): Yes: install Hoprig, sign in to git, and your AI brain, its map and your projects come back where they were.
+- [Do my computers stay in step?](https://hoprig.com/use-cases/two-computers-one-workspace/#what-hoprig-does): Yes: the same rules, skills and memory through git, every repository brought up to date, and every computer's sessions on one page.
+- [Can I run an AI team under one assistant?](https://hoprig.com/use-cases/ai-team/#what-exists-today): In part, today: Tia takes a goal, and sessions with six roles (developer, tester, reviewer, researcher, writer, ops) do its tasks, each checked before it comes back to you.
+- [Coming: one dashboard for a whole business?](https://hoprig.com/use-cases/ai-team/#coming): Coming, not built yet: roles beyond code such as sales, posts sent only after your approval, and one dashboard for a whole business.
+
+The cases:
+
 - [I am not a developer. How do I start building with AI on my own computer?](https://hoprig.com/use-cases/not-a-developer/): The set-up is the wall. Hoprig installs and checks everything, then you build in a chat.
 - [My AI-built project became a mess after a few weeks. How do I keep it in order?](https://hoprig.com/use-cases/messy-ai-project/): A structure from day one: a project's own rules and memory, one AI brain, skills and checks.
 - [How do I code on my own PC from my phone with Claude Code?](https://hoprig.com/use-cases/code-from-your-phone/): The dashboard from anywhere, no server: a chat per project, the OKs and the real terminal.
@@ -111,7 +140,7 @@ Each case below has its own page with the steps, what you need and what it does 
 - [How do I put a new server to work from my dashboard?](https://hoprig.com/use-cases/server-from-the-dashboard/): Add it by SSH from the Computers page, let the page install Hoprig there, then set it up and start sessions on it.
 - [How do I review and comment on Claude Code's changes before they go on?](https://hoprig.com/use-cases/review-ai-changes/): The changed files beside the chat, comments on any line sent as one message, rewind, branch and your own checks.
 - [How do I see on one page what needs me?](https://hoprig.com/use-cases/what-needs-you/): One page lists what needs you, most urgent first, with one button for the recommended step; while Tia's switches are off, nothing happens until you tap.
-- **Coming:** [Can I run an AI team under one assistant?](https://hoprig.com/use-cases/ai-team/): development, research, content and posts under one assistant, with you approving what goes out.
+- [Can I run an AI team under one assistant?](https://hoprig.com/use-cases/ai-team/): Give Tia a goal; sessions with roles (developer, tester, reviewer and more) do its tasks, each checked before it comes back to you. Roles beyond code are coming.
 
 ## Install
 
@@ -119,6 +148,7 @@ Each case below has its own page with the steps, what you need and what it does 
 curl -fsSL https://raw.githubusercontent.com/allswebtech/hoprig/main/install.sh | sh
 ```
 
+The line fetches Hoprig's installer from GitHub and runs it on your computer.
 It installs what is missing (Node.js 22.11 or newer when it is missing or older, and on Linux the build tools, with sudo),
 after asking once, then Hoprig itself from the main branch of this repository, then runs `hoprig setup`. Setup asks
 before it installs Claude Code, sets up the rest step by step, and ends with a QR code (on a server: how to reach it
@@ -136,8 +166,9 @@ the network ([docs/INSTALL.md](docs/INSTALL.md#a-server-with-only-a-root-login))
 
 Just want to look? `hoprig demo` opens the dashboard with sample data: no coding tool and no account needed.
 On Windows, the PowerShell line and what was tried there are in [docs/INSTALL.md](docs/INSTALL.md) (the line
-above does not run in PowerShell). Everything else: [docs/INSTALL.md](docs/INSTALL.md). Check a computer at any time with `hoprig doctor`. The
-command is `hoprig`, or `hop` for short.
+above does not run in PowerShell). Everything else: [docs/INSTALL.md](docs/INSTALL.md).
+Check a computer at any time on its **Health** tab (**Computers** → the computer → **Health**), where a problem that
+one press can fix has a **Fix** button (or, in a terminal, `hoprig doctor`). The command is `hoprig`, or `hop` for short.
 
 ## Code in a chat
 
@@ -241,8 +272,8 @@ out). It pays on work with parts that can be done apart; on a small task it cost
 in our tests), and the line under the switch says so. **Who did what** in the chat's side rail (and in the chat's ⋮
 menu at any width) shows each part with its model and its tokens (new, written and read from the cache, apart), and
 one total per tier, read from Claude Code's own records; a Work run that had helpers shows the same under it, in a
-task's runs and in Activity. A Lead chip under the message box says whether Lead is on. With the switch off a session
-starts exactly as before. Another coding tool shows the switch off.
+task's runs and in Activity, and a plan shows its tasks' runs per tier. A Lead chip under the message box says whether
+Lead is on. With the switch off a session starts exactly as before. Another coding tool shows the switch off.
 A terminal session shows the switch off: Hoprig cannot see what each part of a terminal session costs, so it cannot
 show or count its money in the daily limit for paid use as it does in the App.
 
@@ -256,7 +287,7 @@ Hoprig checks every part itself: only a ticked provider (where Tia leads, only o
 too. A part on a provider billed by use starts only where you allowed pay-per-use for work that goes on by itself, or
 after a card in the lead's chat that names the provider and the part: No, or no answer, and the lead does that part
 itself. Where Tia leads, a part on a provider billed by use starts by itself only at **Hands off** and only within the daily
-limit for paid use (Settings → Tia); with no limit set, or not enough of it left today, it is that card. Parts that run at once share what is left of that limit; each holds its share while it runs. A part that starts by your yes on that card is counted in what Settings → Tia shows for today, but is never checked against the limit: it counts $0.50 until its chat reports what its turn cost, and when that turn ends without a reported cost, the $0.50 stays counted until the day ends. When the dashboard stopped while a part ran, Hoprig did not see the part end and could not measure what it cost, so the rest of its budget stays counted until the day ends. A later start of a part (after it stopped for being idle, or after a restart) with no limit set any more, or no room left in it, starts nothing and holds nothing; when you send it a message, its chat says that Claude Code could not start, and why. No key or address is ever in what a model is given; a chat's part token and its file go when the chat ends. The switches and the ticks are kept with the chat, the
+limit for paid use (Settings → Tia); with no limit set, or not enough of it left today, it is that card. Parts that run at once share what is left of that limit; each holds its share while it runs. A part that starts by your yes on that card is counted in what Settings → Tia shows for today, but is never checked against the limit: it counts $0.50 until its chat reports what its turn cost, and when that turn ends without a reported cost, the $0.50 stays counted until the day ends. When the dashboard stopped while a part ran, Hoprig did not see the part end and could not measure what it cost, so the rest of its budget stays counted until the day ends. After the restart, Settings → Tia says it is counted for a part whose end Hoprig did not see, not for a part that runs now. A later start of a part (after it stopped for being idle, or after a restart) with no limit set any more, or no room left in it, starts nothing and holds nothing; when you send it a message, its chat says that Claude Code could not start, and why. No key or address is ever in what a model is given; a chat's part token and its file go when the chat ends. The switches and the ticks are kept with the chat, the
 plan and Tia's settings; a choice made for one session wins over the default.
 
 ### Two coding tools: Claude Code and OpenCode
@@ -500,13 +531,29 @@ computer**, a check's **Fix**, a recipe, the commit name, the GitHub sign-in (wi
 Code's own sign-in. When a step needs the administrator password, the page asks for it once; it goes to `sudo`
 only, is never saved, and is masked in the output.
 
+On **Health**, each problem has its press under it: **Fix** where Hoprig can do it, a link to the page that does it,
+or **Sign in** for Claude Code. A step that needs administrator rights and that no Fix does says why ("It needs
+administrator rights, so the computer asks for your password, which only you type."), shows the one line, and
+**Open a terminal with this line** opens a new terminal session with the line typed: you press Enter yourself, and
+nothing else (not Tia, not an automation, not another computer) types into that session.
+
 - **Projects**: one folder holds the rules (`AGENTS.md`, and `CLAUDE.md` for Claude Code), the AI memory and the
   docs, with the code repositories under `code/`. The memory lives in the project's git repository, so it follows
   you to every computer. The projects are under **Workspace**, each with its own page: its sessions, repositories
   and skills. Guide: [docs/PC-SETUP.md](docs/PC-SETUP.md).
+- **New project's skills**: every new project gets the New Project skill (**Add the New Project skill**, ticked;
+  `--no-skill` leaves it out), and **Add skills that fit its technology** adds text-only skills from your own and
+  from the reviewed catalog by themselves, with Undo; anything else waits for you. Guide: [docs/SKILLS.md](docs/SKILLS.md).
 - **Skills**: suggestions come from what the project is made of. Before anything is installed you see every file
   and a scan for risky lines; updates show the difference. Guide: [docs/SKILLS.md](docs/SKILLS.md).
+- **Skills worth adding**: once a week, when you turn it on, new skills from the reviewed skill collections (Hermes
+  Agent) that fit your projects are offered with the reason; nothing is added without you.
 - **Working rules**: a starting set, such as the right model and effort for the task and "done means proven".
+- **Kits**: Basics, Node.js, Python, GitHub and Terminal extras are set up by default; Docker, PHP + database,
+  Flutter versions (fvm) and Flutter are optional, off until you choose them. Flutter goes into the workspace's
+  `development/` folder, downloaded only from Google's own host and checked against Flutter's own release list; one
+  you already have is used where it is. The sheet says what it downloads, how big it is and what it changes before
+  the one yes.
 
 <p align="center">
   <img src="docs/screenshots/projects-desktop-light.webp" alt="The Workspace page: every project, each with its sessions under it" width="760">
@@ -522,13 +569,14 @@ One folder tree, the same on every computer:
 ├── projects/<project>/    one project: its rules, its AI memory and docs, and code/<repo>/ for each repository
 ├── credentials/           keys and passwords for local work: never in git
 ├── development/           toolchains and SDKs
-├── git/   database/postgresql/   backups/
+├── git/   database/postgresql/   database/mysql/   backups/
 ```
 
 ```sh
 hop workspace status        # every folder: there or not, and what it is for
 hop workspace setup         # create only what is missing; nothing that exists is changed
 hop workspace link          # let your coding tools read the same rules, skills and memory from the brain
+hop pc leave --check        # before a format: what exists only on this computer (Computers → Before you format this computer)
 ```
 
 **A fresh computer gets all of it from git.** `hop workspace map` writes one file in the brain that lists every git
@@ -637,7 +685,10 @@ What she can do, through the dashboard's own routes (the list is `ALLOW` in
   change it, mark it done or open again, and take her last change back; have a session do a task ("do the cart fix in
   the shop project"): she finds the project, writes the brief and picks the model and effort by the kind of work, and
   one card shows you all of it before anything starts. When the session's turn ends she reads its result and tells
-  you in two lines; accepting it, sending it back, dropping and removing a task are cards, never hers alone;
+  you in two lines; accepting it, sending it back, dropping and removing a task are cards, never hers alone; read
+  your plans, and put a task into a plan, move it in one or change what it waits for, at once only when your own
+  message names the plan or the task (else a card); making a plan or changing its own title, goal and milestones stay
+  yours;
 - projects: list them, start a new one, get one from GitHub, add a code repository, sync, create the missing
   workspace folders; read the AI brain;
 - computers: their state, setup check and coding tools; run a fix, set one up, check for updates, update or
@@ -667,6 +718,10 @@ its screen against a list of risky things, which is best effort.
 
 She answers the OKs of a chat or a terminal only when she opened it on a new conversation: one she opens on an
 earlier conversation is not hers to answer.
+A Work run she started for you is yours: its OKs come to you, unless you turn on **She answers the OKs of her Work
+runs** (Settings → Tia, off at first). Then she answers its OKs by the rules above while she follows it, never at
+**Ask me** and on a provider billed by use only at **Hands off**; text typed into it, "do not ask again" and a stop
+stay your card, and each answer is a line in her Activity.
 She stops answering a chat's OKs as soon as you type into it, when its conversation went on in a terminal, and when it
 went on elsewhere while the dashboard was stopped (it is checked again at the start). What she reads from a chat, a
 terminal, a page, a file or another computer (a name, a title, an error) is data to her, never an instruction; secrets
@@ -775,8 +830,9 @@ Said plainly, so nothing here is a surprise:
   **Allow** in a terminal session looks for was checked against screens recorded from real Claude Code 2.1.326; a
   later Claude Code that draws its permission dialog another way gets no answer from the page (it sends you to the
   terminal).
-- **Work, what is not there yet**: **Do it** starts its session in the project's own folder, not on a branch of its
-  own. A run that ends by itself (a task run by AI at a set time, or a schedule's AI run) gets a branch of its own.
+- **Work, what is not there yet**: Tia does not carry a Work run of hers on to another provider after a usage limit
+  by herself, and she does not answer the OKs of a session of hers that no job follows. Hoprig does not write a note
+  into a session to take the option it recommends.
   The sessions that need an OK are shown on the dashboard (Today, Home, the Operator), not in `hoprig tasks`.
 - **What Hoprig's folder check cannot see** (Hoprig stays inside each entry's own folder of the workspace): a folder
   that a program already running on this computer swaps for a link in the instant between the check and the act, and
@@ -804,10 +860,10 @@ Said plainly, so nothing here is a surprise:
   change. How Hoprig tells that a
   process is still the one it started (a process id can belong to another program after a restart of the computer)
   is exact on Linux; on macOS and Windows it is written and tested with recorded answers of the system only.
-- **Two gaps around one process per conversation**: pressing Ctrl+C in a new terminal session before its shell has
-  read the start line leaves the conversation shown as running there until you choose **Continue here** or that
-  terminal ends (its unused start file is removed after ten minutes). A `hop` launcher that is killed hard while its
-  coding tool goes on leaves that coding tool unseen by Hoprig.
+- **A `hop` launcher that is killed hard while its coding tool goes on**: Hoprig keeps a terminal session's record
+  while its launcher runs, so after a `kill -9` of the launcher that terminal reads as a plain terminal, what the
+  coding tool does and asks is not shown, and its conversation counts as free: Hoprig does not stop the App or another
+  terminal from starting a second process on it.
 - **On Windows**, a second temporary address of the public link whose file names no process identity (one an earlier
   version started) cannot be stopped by Hoprig: it says so, and that helper is ended by hand.
 - **Not proven on real devices**: a phone's on-screen keyboard in the editor and the chat; changing the Claude

@@ -21,6 +21,7 @@ test('dry run: says what it would create, creates nothing; the doctor line says 
   const u = ui({ dryRun: true });
   await runWorkspaceStep(u);
   assert.match(u.text, /Creates ~\/Workspace with ai_brain\//);
+  assert.match(u.text, /development\/, git\/, database\/postgresql\/, database\/mysql\/ \(only you can open it\) and backups\/; nothing else is changed\./);
   assert.equal(fs.existsSync(t.ws), false);
   assert.deepEqual(workspaceLine(workspaceStatus()), { status: 'info', detail: '~/Workspace not set up yet', fix: 'hoprig workspace setup' });
 });

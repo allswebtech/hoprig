@@ -118,10 +118,10 @@ test('New project: a preview first (nothing made), then a background job that ne
   assert.equal(pv.exists, false);
   assert.equal(pv.template, 'built-in');
   assert.ok(pv.files.includes('AGENTS.md') && pv.files.includes('code/.gitignore'));
-  assert.ok(!pv.files.some((f) => f.startsWith('.claude/skills/') || f === 'docs/brief.md'), 'without a brief: no skill and no brief');
+  assert.ok(pv.files.includes('.claude/skills/new-project/SKILL.md') && !pv.files.includes('docs/brief.md'), 'without a brief: the skill (on by default), and no brief');
   const withBrief = (await call('GET', '/api/pcsetup/project/preview?name=shop&brief=1')).files;
   for (const f of ['.claude/skills/new-project/SKILL.md', '.claude/skills/.hoprig-skills.json', 'docs/brief.md']) assert.ok(withBrief.includes(f), `with a brief: ${f}`);
-  assert.equal(withBrief.length, pv.files.length + withBrief.filter((f) => f.startsWith('.claude/skills/')).length + 1);
+  assert.equal(withBrief.length, pv.files.length + 1, 'a brief adds docs/brief.md');
   assert.equal(pv.github.signedIn, false);
   assert.equal(fs.existsSync(pv.dir), false, 'the preview makes nothing');
   assert.equal((await call('GET', '/api/pcsetup/project/preview?name=taken')).exists, true);
@@ -182,6 +182,45 @@ test('New project with a brief: the brief is checked before the job, then given 
     [{ name: 'x5', scope: 'setup' }, /go with a brief/],
   ]) await assert.rejects(call('POST', '/api/pcsetup/project/new', body), re, JSON.stringify(body));
   assert.equal(seen.length, 1, 'a refused brief, kind or scope starts no job');
+});
+
+test('New project: "Add the New Project skill" unticked reaches the command as --no-skill; with a brief it is refused', async () => {
+  const seen = [];
+  const { call, job } = harness({ projectNew: async (args) => (seen.push(args), 0) });
+  await call('POST', '/api/pcsetup/project/new', { name: 'noskill', skill: false });
+  await job();
+  await call('POST', '/api/pcsetup/project/new', { name: 'withskill', skill: true });
+  await job();
+  assert.deepEqual(seen, [['noskill', '--no-github', '--no-skill'], ['withskill', '--no-github']]);
+  await assert.rejects(call('POST', '/api/pcsetup/project/new', { name: 'x7', brief: 'A shop.', skill: false }), /goes without a brief/);
+  await assert.rejects(call('POST', '/api/pcsetup/project/new', { name: 'x8', skill: 'no' }), /skill is true or false/);
+  assert.equal(seen.length, 2);
+  const pv = await call('GET', '/api/pcsetup/project/preview?name=shop');
+  assert.ok(pv.files.includes('.claude/skills/new-project/SKILL.md') && !pv.files.includes('docs/brief.md'), 'the preview lists the skill by default');
+  const bare = (await call('GET', '/api/pcsetup/project/preview?name=shop&skill=0')).files;
+  assert.ok(!bare.some((f) => f.startsWith('.claude/skills/')), 'and leaves it out when unticked');
+});
+
+test('New project: "Add skills that fit its technology" records the choice in Hoprig\'s state and runs the fit once; unticked or not said, neither', async () => {
+  const { fitChoice } = await import('../../src/skillhub/fit.mjs');
+  const fits = [];
+  const { call, job } = harness({
+    projectNew: async (args) => (fs.mkdirSync(path.join(pdir, args[0]), { recursive: true }), 0),
+    fitProject: async ({ dir }) => (fits.push(dir), { project: dir, at: 'now', code: false, mine: [], added: [{ name: 'a' }], waiting: [] }),
+  });
+  await call('POST', '/api/pcsetup/project/new', { name: 'fitme', fit: true });
+  const j = await job();
+  assert.deepEqual(fits, [path.join(pdir, 'fitme')], 'the fit ran once, when it was made');
+  assert.equal(fitChoice(path.join(pdir, 'fitme')).fit, true, 'the choice is kept');
+  assert.ok(!fs.existsSync(path.join(pdir, 'fitme', '.claude')), 'in Hoprig\'s state, not in the project');
+  assert.ok(j.lines.some((l) => /Skills that fit its technology: 1 added by themselves/.test(l)), j.lines.join('\n'));
+  for (const body of [{ name: 'nofit', fit: false }, { name: 'unsaid' }]) {
+    await call('POST', '/api/pcsetup/project/new', body);
+    await job();
+    assert.equal(fitChoice(path.join(pdir, body.name)).fit, false, body.name);
+  }
+  assert.equal(fits.length, 1, 'no fit when it was not chosen');
+  await assert.rejects(call('POST', '/api/pcsetup/project/new', { name: 'x9', fit: 'yes' }), /fit is true or false/);
 });
 
 test('Get an existing project and Add a repository: checked input, a job, no password prompt on the server', async () => {

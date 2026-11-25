@@ -1,7 +1,7 @@
 // One computer's health in one answer (Computers → Health): GET /api/health on every computer, which a hub that
 // controls it reads with its own token over its own link. Only what this list names leaves the computer:
 //
-//   { hoprig: 'health', at, checks: [{ group, id, label, status, detail, fix, fixId, where, admin, commands }],
+//   { hoprig: 'health', at, checks: [{ group, id, label, status, detail, fix, fixId, where, action, admin, commands }], line,
 //     versions: { hoprig, claude, opencode }, service: { status, detail }, listens: { host, port },
 //     load: [1, 5, 15], cpus, memory: { total, available }, disks: [{ mount, size, used, avail }],
 //     own: { working, runs: { running, atOnce }, holdLeftMs, mount } | null }
@@ -16,6 +16,7 @@
 import { defaultHubLabel } from './hub.mjs';
 import { dashboardAddress, VERSION } from './pairing.mjs';
 import { mountHolding } from '../operator/room.mjs';
+import { healthLineRoute } from './healthline.mjs';
 
 const pickDisk = (d) => ({ mount: String(d.mount || ''), size: Number(d.size) || 0, used: Number(d.used) || 0, avail: Number(d.avail) || 0 });
 /** A number another computer sent, kept only when it is one: null, '', true, [] or '8' become null, never 0 or 8. */
@@ -31,11 +32,19 @@ const answerDisk = (d) => (d && typeof d === 'object' ? { mount: String(d.mount 
 // Checks that `pc setup --yes` cannot do (a name to type, a sign-in): their Fix would end "ok" and change nothing.
 // They point to the part of Setup that does them instead.
 const ASKED = { identity: 'Setup → Git and GitHub', signin: 'Setup → Git and GitHub' };
+// Checks a part of the page does with a press (Health links there instead of showing a command to type): by id, or for
+// a family of ids by its prefix. The page knows each place's address (web/health.js PLACES).
+const DONE_ON = { root: 'Settings → Runs as root', profiles: 'Providers', 'skill:': 'Skills', 'skill-update:': 'Skills' };
+const PLACES = [...new Set([...Object.values(ASKED), ...Object.values(DONE_ON)])];
+const placeOf = (id) => ASKED[id] || DONE_ON[id] || Object.entries(DONE_ON).find(([k]) => k.endsWith(':') && String(id).startsWith(k))?.[1] || null;
+
+// The page parts a check may name as its press (src/setup/checks.mjs `action`).
+const ACTIONS = ['claude-login'];
 
 export function healthChecks(results, plans = {}) {
   return (results || []).map((c) => {
     const bad = c.status !== 'ok';
-    const where = bad && (ASKED[c.id] || (typeof c.where === 'string' && Object.values(ASKED).includes(c.where) ? c.where : null)) || null;
+    const where = bad && (placeOf(c.id) || (typeof c.where === 'string' && PLACES.includes(c.where) ? c.where : null)) || null;
     const plan = bad && c.fixKit && !where ? plans[c.fixKit] || null : null;
     return {
       group: c.group || null,
@@ -46,6 +55,8 @@ export function healthChecks(results, plans = {}) {
       fix: bad && c.fix ? String(c.fix) : '',
       fixId: bad && c.fixKit && !where ? String(c.id) : null,
       where,
+      // A press of the page does it (the coding tool's sign-in: web/claudelogin.js): never a line to type there.
+      action: bad && !where && !plan && ACTIONS.includes(c.action) ? c.action : null,
       admin: bad && (plan ? plan.admin === true : /(^|\s|&&\s*)sudo\s/.test(String(c.fix || ''))),
       commands: plan && Array.isArray(plan.commands) ? plan.commands.map(String) : [],
     };
@@ -54,7 +65,7 @@ export function healthChecks(results, plans = {}) {
 
 /** What Setup's Fix would run for each kit the checks name: { <kit>: { admin, commands } } (nothing is run). */
 async function fixPlans(results) {
-  const kits = [...new Set((results || []).filter((c) => c.status !== 'ok' && c.fixKit && !ASKED[c.id]).map((c) => c.fixKit))];
+  const kits = [...new Set((results || []).filter((c) => c.status !== 'ok' && c.fixKit && !placeOf(c.id)).map((c) => c.fixKit))];
   if (!kits.length) return {};
   const { sysFacts, detectKits } = await import('../pcsetup/detect.mjs');
   const { buildPlan } = await import('../pcsetup/kits.mjs');
@@ -67,25 +78,34 @@ async function fixPlans(results) {
   }));
 }
 
+/** The doctor's checks of this computer (`parts.checks` in tests and the demo). */
+const doctorChecks = (parts) => parts.checks || (async () => {
+  const { sysInfo } = await import('../setup/checks.mjs');
+  const { overview } = await import('../setup/overview.mjs');
+  const { loadConfig } = await import('../config.mjs');
+  const sys = sysInfo();
+  let hub = false;
+  try {
+    hub = loadConfig().hubOnly === true || sys.env.HOPRIG_HUB === '1';
+  } catch {
+    /* unreadable config: not a hub */
+  }
+  // The doctor's own checks, offline: no lookup on the network, so a slow registry never holds the view.
+  return overview({ sys, hub, offline: true });
+});
+
+/** This computer's checks as Health lists them (healthChecks), without the rest of its health. */
+export async function localChecks({ parts = {} } = {}) {
+  const results = await doctorChecks(parts)().catch((e) => [{ id: 'health', label: 'Checks', status: 'warn', detail: `could not be run: ${e.message}` }]);
+  return healthChecks(results, await (parts.plans || fixPlans)(results).catch(() => ({})));
+}
+
 /**
  * This computer's health. `parts` replaces the sources (tests, the demo): { checks(), snapshot(), versions(),
  * listens() }.
  */
 export async function localHealth({ parts = {}, now = Date.now, own = null } = {}) {
-  const checks = parts.checks || (async () => {
-    const { sysInfo } = await import('../setup/checks.mjs');
-    const { overview } = await import('../setup/overview.mjs');
-    const { loadConfig } = await import('../config.mjs');
-    const sys = sysInfo();
-    let hub = false;
-    try {
-      hub = loadConfig().hubOnly === true || sys.env.HOPRIG_HUB === '1';
-    } catch {
-      /* unreadable config: not a hub */
-    }
-    // The doctor's own checks, offline: no lookup on the network, so a slow registry never holds the view.
-    return overview({ sys, hub, offline: true });
-  });
+  const checks = doctorChecks(parts);
   const snapshot = parts.snapshot || (async () => (await import('../server/platform.mjs')).snapshot());
   const versions = parts.versions || (async () => {
     const { claudeVersionQuick } = await import('../claudecode.mjs');
@@ -105,6 +125,7 @@ export async function localHealth({ parts = {}, now = Date.now, own = null } = {
     at: now(),
     computer: defaultHubLabel(), // the name its Fix's confirmation sends back (src/server/ownerpress.mjs)
     checks: list,
+    line: true, // it answers POST /api/health/line: Health offers "Open a terminal with this line" for it
     versions: { hoprig: v.hoprig || null, claude: v.claude || null, opencode: v.opencode || null },
     service: svc ? { status: svc.status, detail: svc.detail } : { status: 'info', detail: 'unknown' },
     listens: { host: String(addr.host), port: Number(addr.port) },
@@ -144,6 +165,7 @@ export function pickHealth(j) {
       const plan = kit ? { [kit]: { admin: c.admin === true, commands: Array.isArray(c.commands) ? c.commands.slice(0, 30).map((x) => String(x).slice(0, 500)) : [] } } : {};
       return healthChecks([{ ...c, fixKit: kit }], plan).map((x) => ({ ...x, fixId: x.fixId, group: str(x.group, 60), label: x.label.slice(0, 120), detail: x.detail.slice(0, 500), fix: x.fix.slice(0, 500) }))[0];
     }),
+    line: j.line === true, // an older Hoprig there has no such route: no press is shown for it
     versions: { hoprig: str(v.hoprig, 40), claude: str(v.claude, 40), opencode: str(v.opencode, 40) },
     service: j.service ? { status: str(j.service.status, 10), detail: str(j.service.detail, 300) } : null,
     listens: j.listens ? { host: str(j.listens.host, 100), port: num(j.listens.port) } : null,
@@ -159,5 +181,7 @@ export function pickHealth(j) {
 
 /** The server feature: GET /api/health (the page here, or the token of a hub that controls this computer). */
 export function healthFeature(ctx, opts = {}) {
-  return { name: 'health', routes: [['GET', /^\/api\/health$/, () => localHealth(opts)]] };
+  // POST /api/health/line: one check's line, rebuilt here from this computer's own checks (./healthline.mjs).
+  const line = healthLineRoute(ctx, { checks: () => localChecks(opts), name: defaultHubLabel, tokenId: opts.tokenId || null });
+  return { name: 'health', routes: [['GET', /^\/api\/health$/, () => localHealth(opts)], line] };
 }

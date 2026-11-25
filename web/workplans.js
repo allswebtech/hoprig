@@ -3,6 +3,7 @@
 // as text: a link as its address, never as HTML), its milestones with their tasks in order, and a timeline of tasks
 // and milestones week by week, with what waits for what said plainly. A plan is made by hand here, changed, marked
 // done or dropped; a task is put into a plan and taken out. "Plan with AI" and its proposals are workpropose.js.
+import { drawRows, partRows } from './chat/parts.js';
 import { goalSheet } from './mission.js';
 import { icon } from './icons.js';
 import { add, api, btn, fill, h, openSheet, toast } from './lib.js';
@@ -39,6 +40,21 @@ const progressBar = (p) => h('span.wk-progress', { role: 'img', 'aria-label': `$
  * today, runs, doIt }, as they are now); data: GET /api/work's answer as it is now; reload(): the Work page looks again.
  * → { refresh(), working(), stop() }.
  */
+/** One task's line under the plan's card: its title, then the models that worked on it and its runs. */
+export const taskModelsText = (t) => `${t.models.join(', ') || '?'} · ${plural(t.runs, 'run')}`;
+/**
+ * A plan's "Who did what" (Lead model): the chat page's rows (web/chat/parts.js) of its tasks' runs summed per tier,
+ * and one short line per task of the models that worked on it. `parts`: the plan route's, or none (nothing drawn).
+ */
+export function planPartsCard(parts) {
+  if (!parts || !Array.isArray(parts.tiers) || !parts.tiers.length) return null;
+  const rows = partRows({ lead: null, parts: [], tiers: parts.tiers });
+  return h('section.wk-section', groupHead('Who did what'),
+    h('div.card.wk-note-card.wk-plan-parts',
+      h('dl.chat-rail-rows.chat-parts-rows', drawRows(rows)),
+      (parts.tasks || []).length ? h('ul.wk-plan-models', parts.tasks.map((t) => h('li', h('strong', t.title), ` · ${taskModelsText(t)}`))) : null));
+}
+
 export function paintPlans(content, { sub, data, ctx, reload }) {
   const m = /^plans\/([^/]+)$/.exec(sub);
   const pm = /^proposal\/([^/]+)$/.exec(sub);
@@ -146,6 +162,7 @@ function viewPlan(content, id, { data, ctx, reload }) {
       head,
       parts,
       timeline(p.timeline, year),
+      planPartsCard(r.parts),
       note);
     // After a change of its status, the button that undoes it; just accepted, the plan's title (the proposal's Accept
     // is gone), unless the focus is somewhere already.

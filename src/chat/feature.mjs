@@ -135,7 +135,9 @@ export function chatFeature(ctx, o = {}) {
     const key = `this|chat:${c.id}`;
     const l = spendLedger();
     const base = l.bound().get(key);
-    if (base !== undefined && Number.isFinite(c.costTotal) && c.costTotal >= base) l.measure(key, c.costTotal - base, false);
+    // Its own figure as it is (raw): one below the base, or below the last one measured, is a new conversation in the
+    // chat, which the ledger adds to what was measured before it (spend.mjs measure); never dropped.
+    if (base !== undefined && Number.isFinite(c.costTotal)) l.measure(key, c.costTotal - base, false, c.costTotal);
     l.settleParts(key, { cut, unseen });
     return l;
   }
@@ -326,7 +328,7 @@ export function chatFeature(ctx, o = {}) {
       created: c.openedAt, attached: false, panes: 0, sessionId: c.conversationId, canSwitch: false,
       lastMessage: previewText(c.lastText), // plain words: a card shows no Markdown marks
       running: !!c.session, // its process runs on the provider now (idle care keeps that provider's gateway up)
-      costTotal: Number.isFinite(c.costTotal) ? c.costTotal : null, // what its coding tool reported it has cost so far (Tia's daily cap reads it)
+      costTotal: Number.isFinite(c.costTotal) ? c.costTotal : null, // what its coding tool reported it has cost so far (Tia's daily limit for paid use reads it)
       note: ask ? askNote(ask, c.cwd, c.engine.id === 'claude' ? 'Claude' : c.engine.label) : '',
       tool: c.engine.id, // the coding tool (Home shows its chip when it is not Claude Code)
       ...(c.extras && c.extras.length ? { extras: [...c.extras] } : c.withs.length ? { extras: [...c.withs] } : {}), // its extra folders, by map name
@@ -702,6 +704,9 @@ export function chatFeature(ctx, o = {}) {
       const n = make({
         id: crypto.randomUUID(), engine: c.engine.id, cwd: c.cwd, profile: c.profile, model: c.model, effort: c.effort,
         permissionMode: c.permissionMode, ultracode: c.ultracode, ...(c.lead ? { lead: true } : {}), ...(c.others.length ? { others: [...c.others] } : {}), fork,
+        // A fork through her door is hers for her safety (the mark, her git sign-in), as a chat she opens (POST /api/chats);
+        // never byTia: the copy holds the owner's conversation, so its OKs stay his.
+        ...(fromTia(req) ? { hers: true } : {}),
         ...(title ? { title, named: true } : {}),
       });
       save();
@@ -896,8 +901,9 @@ export function chatFeature(ctx, o = {}) {
     },
     /**
      * How message `messageId` of chat `id` ended, for Tia's spending ledger (spend.mjs measureChats): what the chat saw
-     * (Chat messageEnd), else, after a restart, its turn's kept end (turns.mjs; total: the chat's costTotal now, which
-     * that turn's end came before). null: waiting, running, or not known (its hold stays). Reads only.
+     * (Chat messageEnd), else, after a restart, its turn's kept end (turns.mjs; total: the chat's costTotal after that
+     * turn, as kept with it, or null when its line has none: then the ledger does not settle it and its hold stays).
+     * null: waiting, running, or not known (its hold stays). Reads only.
      */
     messageEnd(id, messageId) {
       load();
@@ -909,7 +915,7 @@ export function chatFeature(ctx, o = {}) {
       if (c.queue.find(messageId)) return null;
       const kept = readTurns(path.join(path.dirname(file()), 'chat-turns'), c.conversationId).get(messageId);
       if (!kept) return null;
-      return { ended: true, cost: Number.isFinite(kept.turnCostUsd) ? kept.turnCostUsd : null, total: c.costTotal };
+      return { ended: true, cost: Number.isFinite(kept.turnCostUsd) ? kept.turnCostUsd : null, total: Number.isFinite(kept.costTotal) ? kept.costTotal : null };
     },
   };
 }

@@ -175,7 +175,7 @@ function render({ here, isAlive }) {
       s.error && s.state !== 'blocked' && (s.on || s.state === 'error') ? failure(s.error, wait, s) : null,
       ui.error && !ui.need ? h('p.mrow-error', ui.error) : null,
       needBox(p, need, why),
-      !s.on ? h('p.hint', 'Off until you turn it on. Nothing is reachable from outside while it is off.') : null);
+      !s.on ? h('p.hint', 'Off until you turn it on: nothing is reachable from outside while it is off.') : null);
   }
 
   // A failure: plain words and what happens next; cloudflared's own line behind "Details".

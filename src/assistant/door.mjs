@@ -122,6 +122,8 @@ export const ALLOW = [
   r('POST', `/api/chats/${CHAT_ID}/provider`, 'switch_account (a chat)', (b) => onlyKeys(['profile'])(b) || (typeof b.profile !== 'string' ? 'say which provider' : null)),
   r('POST', `/api/chats/${CHAT_ID}/title`, 'send_to_chat (name)', (b) => onlyKeys(['title'])(b) || (typeof b.title !== 'string' ? 'say the name' : null)),
   r('POST', `/api/chats/${CHAT_ID}/close`, 'send_to_chat (close)', onlyKeys([])),
+  // A fork of a chat (start_chat fork_of), by her card only: the copy takes that chat's own settings, nothing to send.
+  r('POST', `/api/chats/${CHAT_ID}/fork`, 'start_chat (fork_of)', onlyKeys([])),
   r('POST', `/api/chats/${CHAT_ID}/terminal`, 'send_to_chat (terminal)', onlyKeys([])),
   r('POST', '/api/chats/from-session', 'send_to_session (to_chat)', (b) => onlyKeys(['session'])(b) || (typeof b.session !== 'string' ? 'say which session' : null)),
   // Only the carry-on message: a restart of the session in place (restart: true) is the page's own button.
@@ -154,7 +156,8 @@ export const ALLOW = [
   r('POST', '/api/workspace/group', 'manage_project group_add (the dry run for her card)', (b) => onlyKeys(['dir', 'repo', 'holds', 'dryRun'])(b) || (b.dryRun !== true ? 'a group is added by the owner\'s own press on the Workspace page' : null)),
   // Work (manage_work): the list, its items and "Do it". Only the fields her tool sends: a start always carries the brief
   // her card showed (never `seen` or a dry run), and a status she sets is done, open, dropped, or waiting again (undo).
-  // Save, Tidy, the doubles, the settings and the command's route stay the owner's (NEVER below).
+  // Save, the settings and the command's route stay the owner's (NEVER below). Tidy and the doubles are her cards:
+  // tidy is written only with the hash of the difference his card showed.
   r('GET', '/api/work', 'manage_work today, list, task'),
   r('POST', '/api/work/items', 'manage_work add', onlyKeys(['title', 'date', 'project', 'by', 'note'])),
   r('POST', `/api/work/items/${SEG}`, 'manage_work edit, undo', (b) => onlyKeys(['at', 'title', 'date', 'project', 'by', 'note'])(b) || atOk(b)),
@@ -164,12 +167,25 @@ export const ALLOW = [
   r('POST', `/api/work/items/${SEG}/do`, 'manage_work start', (b) => onlyKeys(['at', 'brief', 'project', 'folder', 'tool', 'provider', 'model', 'effort'])(b) || atOk(b) || (typeof b.brief !== 'string' || !b.brief.trim() ? 'a start of hers carries the brief her card showed' : null)),
   r('POST', `/api/work/items/${SEG}/accept`, 'manage_work accept', (b) => onlyKeys(['at'])(b) || atOk(b)),
   r('POST', `/api/work/items/${SEG}/send-back`, 'manage_work send_back', (b) => onlyKeys(['at', 'text'])(b) || atOk(b)),
+  r('POST', '/api/work/fix-ids', 'manage_work fix_ids', onlyKeys([])),
+  r('GET', '/api/work/tidy', 'manage_work tidy (what it would write)'),
+  r('POST', '/api/work/tidy', 'manage_work tidy', (b) => onlyKeys(['hash'])(b) || (typeof b.hash === 'string' && /^[0-9a-f]{32}$/.test(b.hash) ? null : 'the hash of the difference the card showed')),
   r('GET', '/api/work/runs', 'manage_work task, run'),
   r('GET', '/api/work/progress', 'manage_work progress'),
-  // Missions: she reads them, and gives a goal by her card (its dry run first); stop, add and the switches stay his.
+  // Plans: she reads the list and one plan.
+  r('GET', '/api/work/plans', 'manage_work plans'),
+  r('GET', `/api/work/plans/${SEG}`, 'manage_work plan, add, edit, done (the plan as it is now)'),
+  // A task into a plan (its milestone) or what it waits for; a plan's own words, milestones and status stay his.
+  r('POST', `/api/work/items/${SEG}/plan`, 'manage_work add, edit, undo', (b) => onlyKeys(['at', 'plan', 'milestone', 'after'])(b) || atOk(b)),
+  // Missions: she reads them, and gives a goal by her card (its dry run first). Stop, a task of his list into a
+  // mission and a waiting task's tests in the box are her cards too. The switches, Tia OFF and the tests outside the
+  // box (the field `outside`: his own press on his page) stay his, so that field is never hers to send.
   r('GET', '/api/work/missions', 'manage_work mission'),
   r('GET', '/api/work/missions/m-[^/]+', 'manage_work mission'),
   r('POST', '/api/work/missions', 'manage_work goal', (b) => onlyKeys(['goal', 'project', 'dryRun'])(b) || (b.dryRun !== undefined && typeof b.dryRun !== 'boolean' ? 'dryRun is true or false' : null)),
+  r('POST', '/api/work/missions/m-[^/]+/stop', 'manage_work mission_stop', onlyKeys([])),
+  r('POST', '/api/work/missions/m-[^/]+/add', 'manage_work mission_add', (b) => onlyKeys(['task'])(b) || (typeof b.task === 'string' && b.task ? null : 'name the task')),
+  r('POST', `/api/work/missions/m-[^/]+/tasks/${SEG}/run-tests`, 'manage_work mission_tests', onlyKeys([])),
   r('GET', '/api/brain', 'read_brain'),
   r('GET', '/api/brain/item', 'read_brain (item)'),
   r('GET', '/api/machines', 'get_computer_status, manage_computer'),
@@ -188,6 +204,8 @@ export const ALLOW = [
   r('GET', '/api/updates', 'get_computer_status (coding_tools), manage_computer update'),
   r('POST', '/api/updates/check', 'manage_computer check_updates', onlyKeys([])),
   r('POST', '/api/updates/run', 'manage_computer update', (b) => onlyKeys(['id'])(b) || (typeof b.id !== 'string' ? 'say which item to update' : null)),
+  // The restart after an update of Hoprig, by her card only (it ends her own turn): nothing to send.
+  r('POST', '/api/updates/restart', 'manage_computer restart_dashboard', onlyKeys([])),
   r('POST', '/api/pc/kill', 'manage_computer end_process'),
   r('POST', '/api/pc/power', 'manage_computer reboot, power_off'),
   r('POST', '/api/machine/label', 'manage_computer rename (this computer)'),
@@ -211,6 +229,16 @@ export const ALLOW = [
   r('POST', '/api/skillhub/update-review', 'manage_skills update_review'),
   r('POST', '/api/skillhub/approve', 'manage_skills install'),
   r('POST', '/api/skillhub/remove', 'manage_skills remove'),
+  // A review's cancel names only the review (its id as the hub makes it); undo only a skill's name and its project.
+  // Learned skills (/api/skills/learned) stay his: their route refuses her. The "went wrong twice" lines: she reads
+  // them, and Dismiss or a draft run only as the act of her card he confirmed for exactly that line (the route checks).
+  r('POST', '/api/skillhub/cancel', 'manage_skills cancel_review', (b) => onlyKeys(['id'])(b) || (typeof b.id === 'string' && /^[a-f0-9]{24}$/.test(b.id) ? null : 'the id of a review she was shown')),
+  r('POST', '/api/skillhub/undo', 'manage_skills undo_update', (b) => onlyKeys(['name', 'project'])(b)
+    || (typeof b.name === 'string' && /^[a-z0-9][a-z0-9:._-]{0,79}$/.test(b.name) ? null : 'the name of an installed skill')
+    || (b.project !== undefined && (typeof b.project !== 'string' || !b.project) ? 'project is a folder' : null)),
+  r('GET', '/api/field/twice', 'manage_skills twice, twice_dismiss, twice_draft (the lines as they stand)'),
+  r('POST', '/api/field/twice/[a-z-]+:[a-z-]+/dismiss', 'manage_skills twice_dismiss', onlyKeys([])),
+  r('POST', '/api/field/twice/[a-z-]+:[a-z-]+/draft', 'manage_skills twice_draft', onlyKeys([])),
   r('POST', '/api/skillhub/settings', 'change_setting skills_weekly_check'),
   r('GET', '/api/settings', 'get_computer_status (settings), change_setting'),
   r('POST', '/api/settings', 'change_setting, set_auto_mode', settingsBody),
@@ -253,7 +281,7 @@ export const NEVER = [
   /^\/api\/onboarding(\/|$)/,
   /^\/api\/pcsetup\/recipe$/,
   /^\/api\/workspace\/git\/.+$/, // signing in to GitHub, the commit name, the brain's repository: the owner's own steps
-  /^\/api\/work\/(save|tidy|fix-ids|settings|command)(\/|$)/, // Work's Save (git), Tidy, the doubles, where it lives, the command's route
+  /^\/api\/work\/(save|settings|command)(\/|$)/, // Work's Save (git), where it lives, the command's route (Tidy and the doubles are her cards above)
   /^\/api\/work\/(access|token)(\/|$)/, // Work tokens and webhooks for another program: made, listed and revoked by the owner only
   /^\/api\/assistant(?!\/run$)(\/|$)/,
   // What Tia may do by herself (the rules, the master switch, budgets, projects taken out), "Tia OFF", Undo and the

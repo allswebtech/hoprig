@@ -22,6 +22,8 @@
 //   POST /api/pcsetup/project/new { name, github, brief?, kind?, scope? }   `project new` as a background job (never asks: GitHub
 //                                                        only when chosen); the brief is checked first (newproject.mjs)
 //   POST /api/pcsetup/project/clone { spec }             `project clone` as a background job (installs are left to the page)
+//   POST /api/pcsetup/project/needs { name, dryRun?, seen? }   after Get: the needs `hoprig get` offers (dryRun, read
+//                                                        only); his "Get them too" with its seen (getneeds.mjs, a job)
 //   POST /api/pcsetup/project/add { name, repo, github } `project add`: a new code repository in the project's code/
 //   POST /api/pcsetup/project/sync { name, memory }      background job; its result says per repository what was
 //                                                        done and what needs a decision ({ kind, why, command })
@@ -44,7 +46,8 @@ import { stateDir } from '../paths.mjs';
 import { uniqueName } from '../server/validate.mjs';
 import { capture, stream } from '../setup/system.mjs';
 import { detectKits, ghAuth, sysFacts } from './detect.mjs';
-import { KITS, KIT_IDS, afterText, buildPlan, kitCovered } from './kits.mjs';
+import { KITS, KIT_IDS, afterText, buildPlan, kitCovered, stepLine } from './kits.mjs';
+import { kitInfo } from './kitinfo.mjs';
 import { leftOutText } from './suggest.mjs';
 import { extraSteps, optionalExtras } from './optional.mjs';
 import { cloneRepo, expandDir, listRepos, parseRepo, prepareEnv, projectNeeds, projectsDir, rememberDir, repoState } from './projects.mjs';
@@ -123,6 +126,24 @@ export function todoKind(why) {
 
 /** `opts`: { sys, status, run, projectsDir } stand-ins for tests. */
 export function pcsetupFeature(sctx, opts = {}) {
+  /**
+   * A project just made with "Add skills that fit its technology": the choice is kept in Hoprig's state and the fit runs
+   * once (the first-code fit follows when it has code). Only inside the projects folder; a failed fit is said, never
+   * the project's failure.
+   */
+  async function fitNew(dir, ui) {
+    try {
+      const fitting = await import('../skillhub/fit.mjs');
+      const top = fs.realpathSync(pdir());
+      const allowed = (real) => real === top || real.startsWith(`${top}${path.sep}`);
+      fitting.setFitChoice(dir, true);
+      const r = await (opts.fitProject || fitting.fitProject)({ dir, allowed });
+      fitting.recordFit(dir, r, { firstCode: r.code === true });
+      ui.line('ok', fitting.fitSaid(r));
+    } catch (e) {
+      ui.line('warn', `Skills that fit its technology could not be looked for: ${e.message}`);
+    }
+  }
   const facts = () => (opts.sys ? Promise.resolve(opts.sys) : sysFacts());
   const pdir = () => (opts.projectsDir ? opts.projectsDir() : projectsDir());
   const computer = opts.computer || (() => defaultHubLabel()); // the name a Fix's confirmation must give
@@ -172,9 +193,9 @@ export function pcsetupFeature(sctx, opts = {}) {
     const sys = await facts();
     const found = await detectKits(sys);
     const extras = await extrasOf(sys, found);
-    const plan = buildPlan(kits, found, sys, { extra: extraSteps(extras) });
+    const plan = buildPlan(kits, found, sys, { extra: extraSteps(extras), named: kits });
     const hands = plan.steps.find((s) => s.interactive);
-    if (hands) return { needsTerminal: true, why: hands.why || showCommand(hands.argv) };
+    if (hands) return { needsTerminal: true, why: hands.why || stepLine(hands, showCommand) };
     let password = null;
     if (plan.admin && (await (opts.sudoNeedsPassword || sudoNeedsPassword)(sys))) {
       if (b.password === undefined) return plainLeg ? { needsPassword: true, plainLeg: true } : { needsPassword: true };
@@ -187,9 +208,11 @@ export function pcsetupFeature(sctx, opts = {}) {
       ui.page = true; // setup's wording: "on this page", not "run … in a terminal"
       j.steps = [];
       const r = await (opts.runPcSetup || runPcSetup)({
-        ui, yes: true, kits, recipe, sys, extras, runner: adminRunner(password, opts.stream || stream),
-        onStep: (i, s, state) => {
-          j.steps[i] = { label: s.why || (s.items && s.items.length ? `install ${s.items.join(', ')}` : 'install'), command: showCommand(s.argv), state };
+        // The dashboard stopped (Ctrl-C, a kill) while Hoprig downloads a toolchain: that step removes its half download.
+        ui, yes: true, kits, recipe, sys, extras, runner: adminRunner(password, opts.stream || stream), stopOn: ['SIGINT', 'SIGTERM'],
+        onStep: (i, s, state, r) => {
+          // A step Hoprig runs itself (a checked download) has words, not a command; a failure says why and what to do.
+          j.steps[i] = { label: s.why || (s.items && s.items.length ? `install ${s.items.join(', ')}` : 'install'), command: stepLine(s, showCommand), state, ...(s.argv ? {} : { inside: true }), ...(r && !r.ok ? { why: r.why, todo: r.todo || null } : {}) };
         },
       });
       // What is still missing afterwards, by name: a sign-in, or what needs a new login before it is found.
@@ -234,19 +257,26 @@ export function pcsetupFeature(sctx, opts = {}) {
       const extras = await extrasOf(sys, found);
       const extra = extraSteps(extras);
       const t = (x) => tildeText(x, sys.home);
+      const kf = await import('../workspace/kitfolder.mjs'); // a kit's own folder of the workspace (database/mysql)
       return {
         platform: sys.platform, pm: sys.pm,
         // A kit Hoprig does not set up here (the PHP and fvm kits on Windows) is not offered: `notCovered` names it.
         kits: KITS.filter((k) => kitCovered(k, sys.platform)).map((k) => {
-          const plan = buildPlan([k.id], found, sys, { extra });
-          const mariadb = k.start && plan.steps.some((s) => s.items.includes('mariadb'));
+          const plan = buildPlan([k.id], found, sys, { extra, named: [k.id] }); // what a tick of this kit would do
+          const mariadb = k.start && plan.steps.some((s) => (s.items || []).includes('mariadb'));
           return {
             // MariaDB's sentence only when this plan installs MariaDB (not when it is held back or already here).
             id: k.id, title: k.title, summary: k.summary, defaultOn: k.defaultOn, after: k.start && !mariadb ? null : afterText(k, sys),
             items: found[k.id].filter((i) => i.state !== 'na').map(({ id, name, state, version, detail }) => ({ id, name, state, version, detail: t(detail || '') })),
-            commands: plan.steps.map((s) => showCommand(s.argv)), admin: plan.admin,
+            commands: plan.steps.map((s) => stepLine(s, showCommand)), admin: plan.admin,
+            // What a toolchain kit downloads, how big, what it changes, what was found and the owner's own steps (kitinfo.mjs).
+            ...(() => {
+              const { downloads, size, changes, found: here, yours } = kitInfo(k, found, sys, plan);
+              return { downloads, size, changes, found: here.map((f) => ({ ...f, where: t(f.where), text: t(f.text || '') })), yours };
+            })(),
             cannot: plan.cannot.map((c) => c.why || `${c.name}: no way to install it here automatically`),
             start: mariadb ? k.start(sys).map((l) => showCommand(l)) : [],
+            folder: mariadb ? kf.kitFolderPlan(k) : [],
             suggested: extras.suggested.filter((x) => x.kit === k.id).map((x) => x.reason),
             notes: k.id === 'php' ? extras.php.map((n) => ({ verdict: n.verdict, text: n.text })) : [],
           };
@@ -424,11 +454,12 @@ export function pcsetupFeature(sctx, opts = {}) {
       let files = null;
       if (!template) files = Object.keys(BUILTIN_TEMPLATE);
       else if (fs.existsSync(template)) files = (() => { try { return readTemplate(template).map((f) => f.rel); } catch { return null; } })();
-      // With a brief (brief=1) the new-project skill and docs/brief.md come in too (newproject.mjs), unless the template
-      // has its own skill.
-      if (files && q.get('brief') === '1') {
+      // The new-project skill comes in too (newproject.mjs), unless it is left out (skill=0) or the template has its own
+      // skill; with a brief (brief=1) also docs/brief.md.
+      if (files) {
         const np = await import('./newproject.mjs');
-        files = np.withProjectFiles(files.map((rel) => ({ rel })), { files: np.briefFileList().map((rel) => ({ rel })), brief: '' }).map((f) => f.rel);
+        const withBrief = q.get('brief') === '1';
+        files = np.withProjectFiles(files.map((rel) => ({ rel })), { files: np.briefFileList({ brief: withBrief, skill: q.get('skill') !== '0' }).map((rel) => ({ rel })), brief: withBrief ? '' : null }).map((f) => f.rel);
       }
       const gh = await ghAuth(await facts()).catch(() => ({ signedIn: false }));
       // No name and e-mail for the first commit anywhere (a fresh computer): the page asks for them.
@@ -453,6 +484,11 @@ export function pcsetupFeature(sctx, opts = {}) {
       if (b.kind !== undefined && b.kind !== null && b.kind !== '' && !np.kindOf(b.kind)) throw fail(400, `the kind is one of: ${np.KINDS.map((k) => k.id).join(', ')}`);
       if (b.scope !== undefined && b.scope !== null && b.scope !== '' && !np.scopeOf(b.scope)) throw fail(400, `the scope is one of: ${np.SCOPES.map((s) => s.id).join(', ')}`);
       if ((b.kind || b.scope) && brief === undefined) throw fail(400, 'a kind and a scope go with a brief');
+      // "Add the New Project skill" unticked: the command's --no-skill, which goes without a brief only.
+      if (b.skill !== undefined && typeof b.skill !== 'boolean') throw fail(400, 'skill is true or false');
+      if (b.skill === false && brief !== undefined) throw fail(400, 'leaving the New Project skill out goes without a brief: a project made from a brief is set up with it');
+      // "Add skills that fit its technology" (src/skillhub/fit.mjs): his choice for this project, off unless ticked.
+      if (b.fit !== undefined && typeof b.fit !== 'boolean') throw fail(400, 'fit is true or false');
       const kind = [...(b.kind ? ['--kind', b.kind] : []), ...(b.scope ? ['--scope', b.scope] : [])];
       // A name and an e-mail typed on the page (when git has none): checked here, given to git for this project's first
       // commit only, as --git-name and --git-email are.
@@ -461,9 +497,10 @@ export function pcsetupFeature(sctx, opts = {}) {
       const idArgs = who.name ? ['--git-name', who.name, '--git-email', who.email] : [];
       return { ...startJob('new', async (onLine, j) => {
         const { ui, failures } = jobUi(onLine);
-        const code = await (opts.projectNew || projectNew)([b.name, b.github === true ? '--github' : '--no-github', ...kind, ...idArgs], { ui, run: opts.stream || stream, ...(brief !== undefined ? { brief } : {}) });
+        const code = await (opts.projectNew || projectNew)([b.name, b.github === true ? '--github' : '--no-github', ...kind, ...(b.skill === false ? ['--no-skill'] : []), ...idArgs], { ui, run: opts.stream || stream, ...(brief !== undefined ? { brief } : {}) });
         j.data = { name: b.name, dir, made: fs.existsSync(path.join(dir, '.git')) };
         j.error = failures[0] || null;
+        if (code === 0 && b.fit === true) await fitNew(dir, ui);
         return code === 0;
       }), name: b.name, dir };
     }],
@@ -504,6 +541,28 @@ export function pcsetupFeature(sctx, opts = {}) {
         j.error = failures[0] || null;
         return code === 0;
       }), name: guess, dir, ...where };
+    }],
+    // A project's needs after Get (getneeds.mjs): dryRun: the terminal's offer, read only; else his press "Get them
+    // too" with the `seen` of that offer, the owner's own page only, as a background job.
+    ['POST', /^\/api\/pcsetup\/project\/needs$/, async (req) => {
+      if (/^Bearer\s+tia_/i.test(String((req.headers && req.headers.authorization) || ''))) throw fail(403, 'the workspace is the owner\'s only');
+      const b = await sctx.readJson(req);
+      for (const k of Object.keys(b || {})) if (!['name', 'dryRun', 'seen'].includes(k)) throw fail(400, `"${String(k).slice(0, 30)}" is not something this takes`);
+      if (b.dryRun !== undefined && typeof b.dryRun !== 'boolean') throw fail(400, 'dryRun is true or false');
+      if (typeof b.name !== 'string' || !b.name || b.name.length > 300) throw fail(400, 'name a project on this computer');
+      const G = await import('./getneeds.mjs');
+      if (b.dryRun === true) return G.look(b.name, { dir: pdir() });
+      await (await import('../workspace/whomay.mjs')).ownerPageOnly(req, sctx, 'getting a project\'s needs', { tokenId: tokenIdOf });
+      if (typeof b.seen !== 'string' || !/^[0-9a-f]{64}$/.test(b.seen)) throw fail(400, 'seen is what the page showed: look again');
+      busy();
+      const checked = await G.checkSeen(b.name, { dir: pdir(), seen: b.seen });
+      const quiet = (argv, o = {}) => (opts.stream || stream)(argv, { ...o, env: { ...(o.env || process.env), GIT_TERMINAL_PROMPT: '0' } });
+      return startJob('get-needs', async (onLine, j) => {
+        const { ui, failures } = jobUi(onLine);
+        j.data = await G.take(checked, { dir: pdir(), ui, runner: quiet });
+        j.error = failures[0] || null;
+        return j.data.got.every((x) => x.ok);
+      });
     }],
     ['POST', /^\/api\/pcsetup\/project\/add$/, async (req) => {
       const b = await sctx.readJson(req);

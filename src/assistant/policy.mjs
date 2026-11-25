@@ -11,6 +11,8 @@
 //     mine:     boolean                       Tia started that very session (a chat: by its own mark; a terminal: by its name and when it was made)
 //     account:  { name, kind, allowed } | null    the account a start or move would use
 //     work:     boolean                       the session is a Work run's (a job follows it with `work`): the owner's
+//     herWork:  boolean                       that very session is the run of a Work task she started (her manage_work
+//               start, matched by its name and when it was made): its OK is hers only with tia.answersHers on (below)
 //     (session.notice: the card is a question of the coding tool itself, askcard.mjs: always the owner's)
 //   }
 // Returns { level: "L0" | "L1" | "L2", why } or { refuse, next }.
@@ -116,7 +118,18 @@ export function decideLevel(tool, a, f, tia) {
   if (risk) return { level: 'L2', why: risk };
   // A Work run's session is the owner's (the Work route opened it, its result is his to accept): nothing is typed into
   // it, answered, refused, interrupted or renamed there without his OK, at any level (a stop ends his paid run part way).
-  if (f.work && (name === 'send_to_session' || name === 'send_to_chat')) return { level: 'L2', why: 'this session runs a Work task: it is the owner\'s' };
+  // One narrowing, behind the owner's switch "She answers the OKs of her Work runs" (tia.answersHers, off at first): in
+  // the run of a Work task she started, an answer allow to the OK it waits for goes on to the rules below, which judge it
+  // as in any session of hers. Nothing else does: a deny (a no stops his run's step), text, a key, allow_always,
+  // continue, a stop stay his card.
+  const herWork = f.work && f.herWork === true && tia.answersHers === true && name === 'send_to_chat' && a.answer === 'allow';
+  if (f.work && (name === 'send_to_session' || name === 'send_to_chat') && !herWork) return { level: 'L2', why: 'this session runs a Work task: it is the owner\'s' };
+  if (herWork) {
+    if (tia.level === 'ask') return { level: 'L2', why: 'the owner set "Ask me": every OK in a Work run is his' };
+    // Her answer is "yes" to the run's next call only on a provider her level lets her spend on without asking.
+    if (f.session && f.session.paid && tia.level !== 'handsoff') return { level: 'L2', why: 'this Work run is on a provider billed by use: an OK there is the owner\'s below "Hands off"' };
+    if (!(f.session && f.session.status === 'needs_ok' && f.session.known === true)) return { level: 'L2', why: `this OK is not one ${ASSISTANT_NAME} can judge` };
+  }
   // The coding tool asks a question of its own before it starts (trust this folder, Bypass permissions mode, external
   // imports, another first-time choice): what a key accepts there is not a call her rules can judge, so any key or text
   // typed while it stands waits for his tap, at every level and in her own session too.
@@ -140,7 +153,7 @@ export function decideLevel(tool, a, f, tia) {
     // Her rules judge only Claude Code's own calls: an OK in another coding tool's session (an OpenCode chat or terminal)
     // is always the owner's, whatever the call says.
     if (f.session.codingTool && f.session.codingTool !== 'claude') return { level: 'L2', why: `${toolName(f.session.codingTool)} asks for this OK: only Claude Code's own OKs are ${ASSISTANT_NAME}'s to answer` };
-    if (!f.mine) return { level: 'L2', why: `the session is asking for permission and ${ASSISTANT_NAME} did not start it` };
+    if (!f.mine && !herWork) return { level: 'L2', why: `the session is asking for permission and ${ASSISTANT_NAME} did not start it` };
     // A chat's OK for a call that is not the coding tool's own in a shape it knows (an MCP tool, any other input): a
     // deny-list cannot judge an input of unknown shape, whatever it says.
     if (f.session.known === false) return { level: 'L2', why: `this tool's input is not one ${ASSISTANT_NAME} can judge` };

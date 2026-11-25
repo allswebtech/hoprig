@@ -10,6 +10,7 @@
 import { APP_NAME, COMMAND } from './brand.js';
 import { icon } from './icons.js';
 import { confirmGatewayProgram, defineGatewaySheet, needsConfirmText, removeGateway, runsLine } from './gatewaydefine.js';
+import { gatewayPageLink } from './gateways.js';
 import { add, api, btn, confirmSheet, fill, h, link, toast } from './lib.js';
 import { registerSettingsPage } from './registry.js';
 
@@ -49,6 +50,7 @@ function render({ isAlive, here = true }) {
   };
   let painted = false;
   let computer = 'this computer'; // the name this computer gives itself (GET /api/addons): an install's confirmation sends it
+  let signedIn = []; // the loopback names the owner is signed in under here (GET /api/addons): a gateway's page link takes another
 
   async function paint() {
     let r;
@@ -60,6 +62,7 @@ function render({ isAlive, here = true }) {
     }
     if (!isAlive()) return;
     computer = r.computer || 'this computer';
+    signedIn = Array.isArray(r.signedIn) ? r.signedIn : [];
     const list = shownAddons(r.addons);
     fill(box, list.length ? list.map(row) : h('div.row.static', h('span.row-main', h('span.row-sub', 'No add-ons on this computer.'))),
       skipped(r).map((x, i) => h('div.banner.warn.mbanner', icon('alert', { size: 18 }), h('span', skippedLines(r)[i]),
@@ -107,6 +110,8 @@ function render({ isAlive, here = true }) {
     const out = h('pre.output', { hidden: true, 'aria-live': 'polite' });
     const busy = a.job && a.job.running;
     const v = addonView(a);
+    // Its own page as this browser can open it: a link on a loopback name, else one sentence of where it opens.
+    const gp = a.running ? gatewayPageLink(pageOf(a), { title: a.title, pageHost: location.hostname, signedIn, other: !here }) : null;
     const b = (ic, label, action) => btn('small secondary', { icon: ic, label, disabled: busy, onclick: () => act(a, action, out) });
     // Install, after one confirmation when some of its parts build a helper program while it installs.
     const install = () => btn('small secondary', {
@@ -139,7 +144,7 @@ function render({ isAlive, here = true }) {
         a.running ? b('stop', 'Stop', 'stop') : null,
         a.installed && a.installable !== false ? b('refresh', 'Update', 'update') : null,
         !v.showAccount ? null : h('a.btn.small.ghost', { href: link('#/providers'), title: 'Providers → Add provider makes one of this gateway' }, icon('user', { size: 18 }), h('span', 'Set up as a provider')),
-        a.running && pageOf(a) ? h('a.btn.small.ghost', { href: pageOf(a), target: '_blank', rel: 'noopener' }, icon('chevronRight', { size: 18 }), h('span', 'Open its dashboard')) : null,
+        gp && gp.href ? h('a.btn.small.ghost', { href: gp.href, target: '_blank', rel: 'noopener noreferrer' }, icon('chevronRight', { size: 18 }), h('span', 'Open its dashboard')) : null,
         a.homepage ? h('a.btn.small.ghost', { href: a.homepage, target: '_blank', rel: 'noopener' }, h('span', 'About')) : null,
         a.defined && here ? btn('small ghost', { icon: 'trash', label: 'Remove', disabled: busy, onclick: () => removeGateway(a, again) }) : null),
       a.defined ? runsLine(a) : null,
@@ -149,7 +154,7 @@ function render({ isAlive, here = true }) {
       // A gateway of the owner's own whose port another program holds (src/addons/localgateway.mjs): left alone.
       a.foreign ? h('p.hint', `Another program answers on its port (${a.url}). ${APP_NAME} did not start it, so it does not use or stop it: stop that program, or give ${a.title} another port.`) : null,
       v.notes.length && !a.running ? h('ul.addon-notes', v.notes.map((n) => h('li', n))) : null,
-      a.running && pageOf(a) ? h('p.hint', `Its dashboard is at ${pageOf(a)} on this computer.`) : null,
+      gp ? h('p.hint', gp.href ? `Its dashboard is at ${gp.href} on this computer.` : gp.text) : null,
       out);
   }
 

@@ -27,6 +27,8 @@ const STARTS = {
   // A chat's process is started again for a message, a provider move and a restart: each start reads the chat's word.
   [`POST ${CHAT}/send`]: { file: 'chat/run.mjs', does: /chat\.byTia \|\| chat\.hers \|\| chat\.restoredMark\) \{\n\s*env = startAsHers\(/, proof: 'hershandoff.test.mjs' },
   [`POST ${CHAT}/provider`]: { file: 'chat/run.mjs', does: /chat\.byTia \|\| chat\.hers \|\| chat\.restoredMark\) \{\n\s*env = startAsHers\(/, proof: 'hershandoff.test.mjs' },
+  // A fork starts its process at its first message, through run.mjs as every chat: the route marks it hers.
+  [`POST ${CHAT}/fork`]: { file: 'chat/feature.mjs', does: /\.\.\.\(fromTia\(req\) \? \{ hers: true \} : \{\}\)/, proof: 'fork-hers.test.mjs' },
   [`POST ${CHAT}/terminal`]: { file: 'chat/handoff.mjs', does: /hers: wasHers/, proof: 'hershandoff.test.mjs' },
   'POST /api/chats/from-session': { file: 'chat/handoff.mjs', does: /isMarkedHers\(path\.join\(runsDir\(\)/, proof: 'hershandoff.test.mjs' },
   'POST /api/work/items/[^/]+/do': { file: 'work/dofeature.mjs', does: /hers: fromTia\(req\)/, proof: 'hersdoit.test.mjs' },
@@ -46,6 +48,11 @@ const NOT_STARTS = {
   [`POST ${CHAT}/close`]: 'closes the chat; its process ends',
   'POST /api/work/items': 'writes a task', 'POST /api/work/items/[^/]+': 'writes a task', 'POST /api/work/items/[^/]+/status': 'writes a status',
   'POST /api/work/items/[^/]+/remove': 'writes the list',
+  'POST /api/work/fix-ids': 'writes the list: later doubles get ids of their own', 'POST /api/work/tidy': 'writes the list\'s file in its tidy form',
+  'POST /api/work/missions/m-[^/]+/stop': 'stops a mission: nothing new starts',
+  'POST /api/work/missions/m-[^/]+/add': 'a task joins a mission that runs; its session is started later by the mission itself, as every task of it (mission/engine.mjs)',
+  'POST /api/work/missions/m-[^/]+/tasks/[^/]+/run-tests': 'the project\'s test command in the box; no coding tool starts',
+  'POST /api/work/items/[^/]+/plan': 'writes a task\'s plan, milestone and what it waits for; a task of a plan starts only by a Do it of its own',
   'POST /api/work/items/[^/]+/accept': 'marks a run done and frees its worktree; no coding tool starts',
   'POST /api/work/items/[^/]+/send-back': 'writes the brief and sets the task open; the next start is a Do it of its own',
   'POST /api/automation/settings': 'switches rules; restore brings sessions back with their own mark (automation/restore.mjs), retry and the queue only type',
@@ -58,6 +65,7 @@ const NOT_STARTS = {
   'POST /api/workspace/drop/check': 'a dry run', 'POST /api/workspace/group': 'a dry run',
   'POST /api/pcsetup/fix': 'an install step on his card', 'POST /api/pcsetup/setup': 'install steps', 'POST /api/claude/update': 'updates a program',
   'POST /api/codetools/[a-z]+': 'turns a coding tool on or off; starts no session', 'POST /api/updates/check': 'asks for versions',
+  'POST /api/updates/restart': 'restarts the dashboard; no coding tool starts by it, and a session the restore reopens keeps its own mark (restore-hers.test.mjs)',
   'POST /api/updates/run': 'updates a program', 'POST /api/pc/kill': 'ends a process',
   'POST /api/pc/power': 'reboots: the restore afterwards brings each session back with its own mark (automation/restore.mjs)',
   'POST /api/machine/label': 'a name', 'POST /api/machines/[^/]+/rename': 'a name',
@@ -65,7 +73,8 @@ const NOT_STARTS = {
   'POST /api/addons/(?!public-link/)[^/]+/(install|update)': 'an add-on\'s install, on his card', 'POST /api/public-link': 'off only',
   'POST /api/skillhub/check': 'asks for versions', 'POST /api/skillhub/review': 'fetches files into quarantine; no coding tool',
   'POST /api/skillhub/update-review': 'fetches files into quarantine', 'POST /api/skillhub/approve': 'copies reviewed files',
-  'POST /api/skillhub/remove': 'removes files', 'POST /api/skillhub/settings': 'settings', 'POST /api/settings': 'settings',
+  'POST /api/skillhub/remove': 'removes files', 'POST /api/skillhub/cancel': 'deletes a review\'s fetched files', 'POST /api/skillhub/undo': 'swaps a skill\'s files with the kept version',
+  'POST /api/field/twice/[a-z-]+:[a-z-]+/dismiss': 'notes a line as hidden', 'POST /api/field/twice/[a-z-]+:[a-z-]+/draft': 'writes a skill draft; nothing is installed and no coding tool starts', 'POST /api/skillhub/settings': 'settings', 'POST /api/settings': 'settings',
   'POST /api/pcsetup/projects-dir': 'settings', 'POST /api/pcsetup/rules': 'a rules file',
 };
 

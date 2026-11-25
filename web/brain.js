@@ -12,6 +12,7 @@ import { mdView } from './mdtext.js';
 import { registerPage } from './registry.js';
 import { emptyState, errorBox, fold, groupHead, okBox, panel, skeletonRows } from './shell.js';
 import { store } from './store.js';
+import { credentialsPart } from './workspacecreds.js';
 
 const enc = encodeURIComponent;
 
@@ -82,6 +83,7 @@ export function workspaceFolders() {
       h('p.hint', 'In ', h('code', w.short), w.exists ? '' : ' (not made yet)', '.'),
       other.length ? rows(other) : null,
       fine.length ? fold('workspace-folders-fine', fine.length === w.folders.length ? `All ${fine.length} folders are there` : `${fine.length} more folder${fine.length === 1 ? ' is' : 's are'} there`, rows(fine)) : null,
+      credentialsPart(),
       missing
         ? h('div.savebar.start', h('button.btn.primary', { type: 'button', onclick: () => setUpWorkspace(load) }, icon('plus', { size: 16 }), h('span', 'Create what is missing')))
         : null);

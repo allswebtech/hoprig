@@ -26,7 +26,7 @@ export function partRows(r) {
  * The rows drawn: the kind, then its tokens and model on a line that wraps (a dated model id is long), with the whole
  * text as its title. The rail is narrow: nothing of it is cut off.
  */
-const drawRows = (rows) => rows.flatMap(([k, x]) => [h('dt', k), h('dd', { title: `${k}: ${x}` }, x)]);
+export const drawRows = (rows) => rows.flatMap(([k, x]) => [h('dt', k), h('dd', { title: `${k}: ${x}` }, x)]);
 
 /** "Who did what" in a sheet: the same rows, at any width (below the rail's width the rail is not drawn). */
 export async function partsSheet(A) {

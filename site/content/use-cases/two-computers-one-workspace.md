@@ -6,7 +6,7 @@ short: Home PC, office PC, laptop: the same projects, rules, skills and memory t
 
 # How do I use Claude Code on two computers with the same skills, rules and memory?
 
-Keep them in one workspace that lives in git. Hoprig links Claude Code's rules, skills and memory to your own AI brain repository and each project's memory to that project's repository; on the next computer `hop workspace restore` brings the brain back, `hop get` brings each project when you need it, and `hop workspace sync` keeps the repositories in step.
+Keep them in one workspace that lives in git (a record of every version of your files, kept on a server such as GitHub): Hoprig links Claude Code's rules, skills and memory to your own AI brain repository (a folder kept in git) and each project's memory to that project's repository. On the next computer, press **Bring my workspace from git** on the empty **Workspace** page, then **Get it** on each project you need and **Sync** to keep them in step; in a terminal, `hop workspace restore`, `hop get` and `hop workspace sync` do the same.
 
 ## Who this is for
 
@@ -18,13 +18,17 @@ Claude Code keeps a project's memory under a folder named after the project's fu
 
 ## What Hoprig does
 
-1. On the first computer, `hop workspace setup` creates the one folder tree (`~/Workspace` with `ai_brain/`, `projects/` and the rest). It creates only what is missing.
-2. `hop workspace link` makes every coding tool that is on read the same global rules, skills and memory from your AI brain. Nothing is overwritten: a file that is already there is merged into the brain and kept as a dated backup.
-3. `hop workspace git` signs you in to GitHub and offers to start your brain in a private repository.
-4. `hop workspace map` writes one file in the brain that lists every git repository of the workspace, by address only, never a token. It never commits; it prints the `git add` and `git commit` to run.
-5. On the second computer: install Hoprig, then `hop workspace restore <your brain's address>`. It shows the plan, asks once, and clones the brain and the other repositories its map names. A project comes when you ask for it: `hop get <name>` clones it with its code repositories and links its memory (`--with-projects` on restore brings them all at once). `hop get --list` shows every project of the map and which computer has it.
-6. From then on, `hop workspace sync` fetches and fast-forwards every repository on this computer; it pushes only with `--push`, and `--memory` commits the memory folders first. `hop sync <name>`, or **Sync** on the Workspace page, does it for one project. Every few hours the dashboard can keep the AI brain and its other repositories in step by itself (off until you turn it on: `hop workspace auto --sync on`); it never fetches or pushes a project by itself.
+1. On the first computer, open the **AI brain** page and press **Set up the workspace** (or **Create what is missing** under "Workspace folders" on **Settings → Workspace**): it creates the one folder tree (`~/Workspace` with `ai_brain/`, `projects/` and the rest), only what is missing. In a terminal (the window where you type commands): `hop workspace setup`.
+2. On the **AI brain** page, press **Link** under "Coding tools": every coding tool that is on reads the same global rules, skills and memory from your AI brain. Nothing is overwritten: a file that is already there is merged into the brain and kept as a dated backup. In a terminal: `hop workspace link`.
+3. On **Computers → this computer → Setup**, press **Sign in** on the row "Signed in to GitHub" (you type a one-time code on GitHub's own page), then **Keep on GitHub** on the AI brain's row and **Create it**: your brain goes into a new private repository of yours. In a terminal: `hop workspace git`.
+4. On **Settings → Workspace**, press **Update the map**: it writes one file in the brain that lists every git repository of the workspace, by address only, never a token. The dashboard then keeps it up to date by itself, and **Save it now** saves a changed map in the brain's history. In a terminal: `hop workspace map`, which never commits; it prints the `git add` and `git commit` to run.
+5. On the second computer: install Hoprig, open the **Workspace** page, press **Bring my workspace from git**, type your brain's address and press **Look at the plan**. It shows the plan, then clones (copies down) the brain and the other repositories its map names. A project comes when you ask for it: press **Get it** on its card, and it comes with its code repositories and its memory linked; tick **Also get every project of the map on this computer** to get them all at once. In a terminal: `hop workspace restore <your brain's address>`, then `hop get <name>` for a project (`--with-projects` on restore brings them all), and `hop get --list` shows every project of the map and which computer has it.
+6. From then on, press **Sync** on the **Workspace** page: it fetches and moves every repository on this computer forward, and never merges. Tick **Also save the AI memory (commits only the memory folders)** or **Also upload my saved changes** in it when you want those. **Sync** on a project's page does it for one project. Every few hours the dashboard can keep the AI brain and its other repositories in step by itself: on **Settings → Workspace**, turn on **Keep the workspace in step** (off until you turn it on); it never fetches or pushes a project by itself. In a terminal: `hop workspace sync` (`--push` uploads, `--memory` commits the memory folders first), `hop sync <name>` for one project, `hop workspace auto --sync on`.
 7. To see both computers' sessions in one place: **Computers → Add a computer**.
+
+![The Computers page: every computer in one list, with its state](/screenshots/computers-desktop-light.webp)
+
+## In a terminal
 
 On the first computer:
 
@@ -42,8 +46,6 @@ hop get <project>           # a project, when you need it here
 hop workspace sync --memory # later: every repository in step
 ```
 
-![The Computers page: every computer in one list, with its state](/screenshots/computers-desktop-light.webp)
-
 ## What you need
 
 - Hoprig on both computers.
@@ -52,6 +54,6 @@ hop workspace sync --memory # later: every repository in step
 ## What it does not do
 
 - **Sessions stay on the computer they ran on.** The conversations themselves are not copied between computers; the dashboard shows every computer's sessions on one page, and the memory travels through git.
-- It is not live sync. Memory moves when it is committed and pushed, and sync never merges: when both sides changed, it lists the command to run. The one exception is the map: with `hop workspace auto --commit on --push on`, two computers that each added a project still end with one map, which Hoprig unites by its own rule, never merging text and never forcing.
+- It is not live sync. Memory moves when it is committed and pushed, and sync never merges: when both sides changed, it lists the command to run. The one exception is the map: with **Save a change of the map in the AI brain's history** and **Also upload** on (Settings → Workspace, or in a terminal `hop workspace auto --commit on --push on`), two computers that each added a project still end with one map, which Hoprig unites by its own rule, never merging text and never forcing.
 - Not yet proven between two computers in use: the workspace of 0.3.3 was run on Linux only, in temporary homes.
 - Keys and passwords are never put in git. The `credentials/` folder stays on each computer; copy it yourself.

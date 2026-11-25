@@ -560,15 +560,19 @@ function rulesPart(st, after) {
       Object.assign(rule('Send the next queued message', s.queue.enabled, (v) => ({ queue: { enabled: v } }),
         'Each time a reply ends, the next message from that session\'s queue is sent.'), { id: 'queue' }),
       rule('Try again after a server error', s.retry.enabled, (v) => ({ retry: { enabled: v } }),
-        'In a Claude Code session: when the provider\'s servers are busy or the connection breaks, it waits a little and sends "continue", up to three times; never at a usage limit.'),
+        { line: 'In a Claude Code session: when the provider\'s servers are busy or the connection breaks, it sends "continue" after a short wait.',
+          more: 'Up to three times; never at a usage limit. Other coding tools\' sessions are left as they are.' }),
       rule('Reopen sessions after a restart', !!st.restoreOn, (v) => ({ restore: { enabled: v } }),
-        'Claude Code and OpenCode sessions lost when the computer or the dashboard restarts come back with their conversation; nothing is typed into them.')),
+        { line: 'Claude Code and OpenCode sessions lost when the computer or the dashboard restarts come back with their conversation.',
+          more: 'Nothing is typed into them. Another coding tool\'s session is not reopened.' })),
     panel({ icon: 'settings', title: 'Housekeeping', desc: ['Keep the computer tidy. New versions have a page of their own: ', h('a', { href: link('#/settings/updates') }, 'Settings → Updates'), '.'] },
       rule('Close idle terminals', s.idle.shells, (v) => ({ idle: { shells: v } }),
-        'Closes a plain terminal that nobody uses after it has been quiet for a while; a coding tool\'s session is never closed.', (v) => (idleShells.hidden = !v)),
+        { line: 'Closes a plain terminal that has been quiet for a while; a coding tool\'s session is never closed.',
+          more: 'Only a terminal that nobody uses.' }, (v) => (idleShells.hidden = !v)),
       idleShells,
       rule('Stop an unused gateway', s.idle.gateway, (v) => ({ idle: { gateway: v } }),
-        'Stops an add-on gateway that no session has used for a while, to free memory; it starts again when a session needs it.', (v) => (idleGateway.hidden = !v)),
+        { line: 'Stops an add-on gateway that no session has used for a while, to free memory.',
+          more: 'It starts again when a session needs it.' }, (v) => (idleGateway.hidden = !v)),
       idleGateway),
   ];
 }
@@ -582,7 +586,7 @@ function pauseRow(st, after) {
       row.querySelector('input').checked = !v;
       throw e;
     }
-  }, 'Nothing is sent, started, closed or updated by itself while this is on. Your schedules and queues are kept.');
+  }, { line: 'Nothing is sent, started, closed or updated by itself while this is on.', more: 'Your schedules and queues are kept.' });
   return row;
 }
 

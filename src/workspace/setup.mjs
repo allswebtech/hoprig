@@ -63,10 +63,12 @@ const empty = (d) => {
  * Create what is missing. → { dir, dryRun, did: [{ path, what }], left: [{ path, why }], git: { done, why? } | null }
  * `did` lists what was (or, with dryRun, would be) created; `left` what exists and was left as it is.
  */
-export async function workspaceSetup({ dryRun = false, cfg, projectsDir, run = capture, platform = process.platform } = {}) {
+export async function workspaceSetup({ dryRun = false, cfg, projectsDir, run = capture, platform = process.platform, only = null } = {}) {
   const st = workspaceStatus({ cfg, projectsDir, platform });
   const did = [];
   const left = [];
+  // `only`: one folder of the tree (setUpFolder below); a workspace that is not set up is left to the whole set-up.
+  if (only && !st.exists) return { dir: st.dir, dryRun, did, left: [{ path: st.short, why: 'the workspace is not set up on this computer yet: nothing was made' }], git: null };
   // Every folder and file is made inside the workspace, never through a link (inside.mjs). A folder of the tree that
   // is a link (the owner's database folder on another disk) is not followed and never stops the rest: it is named,
   // with the command that names it as his own, and setup goes on.
@@ -93,6 +95,7 @@ export async function workspaceSetup({ dryRun = false, cfg, projectsDir, run = c
   }
   let brainMade = false;
   for (const f of TREE) {
+    if (only && f.id !== only) continue;
     const p = path.join(st.dir, f.rel);
     const s = st.folders.find((x) => x.id === f.id);
     if (f.id === 'projects' && !st.projectsInWorkspace && !s.exists) {
@@ -120,12 +123,18 @@ export async function workspaceSetup({ dryRun = false, cfg, projectsDir, run = c
       });
       continue;
     }
-    make(p, f.rel, () => mkdirIn(at, p));
+    make(p, f.rel, () => mkdirIn(at, p, f.mode === undefined ? {} : { mode: f.mode }));
   }
   let git = null;
   if (brainMade) git = await brainGit(path.join(st.dir, 'ai_brain'), { dryRun, run, ws: st.dir });
   return { dir: st.dir, dryRun, did, left, git };
 }
+
+/**
+ * Make one folder of the tree when it is missing, exactly as set-up does (a kit's own folder: database/mysql with
+ * MariaDB). Nothing that is there is touched, nothing is put inside it. → the same as workspaceSetup.
+ */
+export const setUpFolder = (id, o = {}) => workspaceSetup({ ...o, only: id });
 
 /** git init and a first commit for a new brain, only when git knows a name and an e-mail (a commit needs them). */
 async function brainGit(dir, { dryRun, run, ws }) {

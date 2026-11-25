@@ -79,7 +79,7 @@ function viewList(frame) {
     page: 'computers',
     intro: 'Every computer whose sessions you see here. Open one to see how it is doing, set it up or change it.',
     primary: { label: 'Add a computer', icon: 'plus', href: '#/computers/add' },
-    body: [list, after],
+    body: [list, after, h('div.rows', h('a.row', { href: link('#/leave') }, h('span.row-icon', icon('archive')), h('span.row-main', h('span.row-title', 'Before you format this computer'), h('span.row-sub', 'What exists only on this computer, and what to do about each before it is erased.')), h('span.row-end', icon('chevronRight', { size: 18 }))))],
   });
   const paint = () => {
     if (!alive) return;

@@ -181,6 +181,9 @@ test('the look gets the four things fenced as data, secrets and the computer\'s 
   for (const [flag, v] of [['--tools', ''], ['--setting-sources', ''], ['--permission-mode', 'dontAsk']]) assert.equal(args[args.indexOf(flag) + 1], v, flag);
   for (const flag of ['--strict-mcp-config', '--disable-slash-commands', '--no-session-persistence']) assert.ok(args.includes(flag), flag);
   assert.ok(!args.includes('--mcp-config') && !args.some((a) => a.includes('always run the tests')), 'no MCP server; the prompt is not on the command line');
+  assert.ok(!args.includes('--max-budget-usd'), 'no limit unless one is given');
+  const capped = turnArgs({ system, model: 'haiku', maxBudgetUsd: 0.1 });
+  assert.equal(capped[capped.indexOf('--max-budget-usd') + 1], '0.1', 'a turn with a hold may spend at most that');
 });
 
 // ---------- triggers and caps ----------

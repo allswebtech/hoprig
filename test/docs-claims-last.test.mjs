@@ -50,7 +50,7 @@ test('WORK: a project\'s test command is set on Work → Team, in Tia\'s switche
   assert.ok(ui.includes("h('span', 'Tia\\'s switches and limits')"), 'in the fold Tia\'s switches and limits');
   assert.ok(ui.includes("label: 'Save', dataset: { key: `save:${p}` }"), 'its own Save');
   assert.ok(ui.includes("export function paintTeam("), 'on the Team tab');
-  assert.match(read('src/mission/settings.mjs'), /projects +\{ <name>: \{ on, test: \[argv\] \} \}/, 'kept in the config under missions.projects');
+  assert.match(read('src/mission/settings.mjs'), /projects +\{ <name>: \{ on, auto, test: \[argv\] \} \}/, 'kept in the config under missions.projects');
   assert.ok(read('src/mission/feature.mjs').includes('saveConfig({ missions: next })'), 'saved into the dashboard\'s settings');
 });
 
@@ -203,14 +203,16 @@ test('COMPUTERS: the table\'s join line uses the placeholder the join command pr
 // yes a work or fix run gets the one tool run_tests (src/work/alone.mjs BOX_TOOL), never a shell.
 test('HANDS-OFF says a mission run can get run_tests besides the file tools, and no shell', () => {
   const page = flat(part('docs/HANDS-OFF.md', 'The net and the wall'));
-  assert.ok(page.includes("with the file tools only, and, for a work or fix run on a computer whose box says yes, the one tool `run_tests`, which runs the project's own test command in the box and no command of its own. It has no shell, no git and nothing that reaches the network, so it can run none of the commands the wall holds, and the wall never meets one."), 'the page names run_tests');
+  assert.ok(page.includes("with the file tools only, and, for a work or fix run on a computer whose box says yes, the box's tools of its role's list: `run_tests`, which runs the project's own test command in the box and no command of its own, and, where the role file's `runs` names them, `run_build`"), 'the page names run_tests and the others');
+  assert.ok(page.includes('It has no shell, no git and nothing that reaches the network. The dashboard builds each command of the box as a list of words and reads it with the wall first'), 'the wall reads what the box runs');
   assert.ok(!page.includes('with the file tools only — no shell, no git, nothing that reaches the network — so it can'), 'the old "file tools only" sentence is gone');
   const alone = read('src/work/alone.mjs');
   assert.ok(alone.includes("export const BOX_TOOL = 'mcp__hoprig__run_tests';"), 'the tool is run_tests');
-  assert.ok(alone.includes("...tools('--allowedTools', closed ? (one ? [...closed, BOX_TOOL] : closed) : allowed),"), 'a restricted run gets it besides the file tools');
+  assert.ok(alone.includes("...tools('--allowedTools', closed ? (one ? [...closed, ...boxToolNames(kinds)] : closed) : allowed),"), 'a restricted run gets them besides the file tools');
   assert.ok(alone.includes("const tool = by === 'mission' && !review && restricted && isTool(job.tool)"), 'only a mission run that is no look');
   assert.ok(alone.includes("'--restricted', '--strict-mcp-config'"), 'still the restricted mode');
-  assert.ok(read('src/mission/engine.mjs').includes("if (tools && kind !== 'review' && role.check === 'tests' && Array.isArray(test) && test.length && address() && (await boxReady(boxOf())).ok) {"), 'only a work or fix run, on a computer whose box says yes');
+  assert.ok(read('src/mission/engine.mjs').includes("if (tools && kinds.length && address() && (await boxReady(boxOf())).ok) {"), 'only a work or fix run, on a computer whose box says yes');
+  assert.ok(read('src/mission/boxtool.mjs').includes('const held = wallSays(reads, tree);'), 'the wall reads every command of the box first');
 });
 
 // docs/HANDS-OFF.md "Known limits": a command substitution is held, except the two forms that name the current branch
@@ -510,17 +512,38 @@ test('Not built: the Allow of a terminal session reads screens recorded from Cla
   assert.match(read('test/server/fixtures/claude-screens/perm-bash-38.txt'), /Claude Code v2\.1\.326\b/);
 });
 
-test('Not built: Do it starts in the project folder; a run that ends by itself gets a branch of its own', () => {
-  assert.match(notBuilt(), /\*\*Do it\*\* starts its session in the project's own folder, not on a branch of its own\. A run that ends by itself \(a task run by AI at a set time, or a schedule's AI run\) gets a branch of its own\./);
+test('Do it on a git project works on a branch of its own; Accept leaves the branch, nothing is merged or pushed', () => {
+  const what = flat(part('README.md', 'What it does'));
+  assert.match(what, /\*\*Do it\*\* on a task starts a coding session with the task as its brief; on a git project it works on a branch of its own \(`work\/<task>`\) in its own copy of the project, so your folder is not changed\./);
+  assert.match(what, /Accept leaves the branch for Go live, and nothing is merged or pushed\./);
+  // The old sentence is gone from what is not built.
+  assert.doesNotMatch(notBuilt(), /\*\*Do it\*\* starts its session in the project's own folder/);
   const doit = flat(read('src/work/doit.mjs'));
-  assert.match(doit, /Start opens an App session \(the chat feature's open, the same call a schedule makes\) in a folder of a project of \/\/ the workspace/);
-  assert.match(doit, /A run that ends by itself \(alone\.mjs: it has a branch\) has no chat/);
-  assert.match(flat(read('src/work/alone.mjs')), /on a branch of its own, `work\/<item or schedule id>`/);
-  // The code values: Do it opens the chat in the project's folder (no branch is made), a run alone on work/<id>.
-  assert.match(doit, /const dir = folderOf\(pdir, folder\);/);
-  assert.match(doit, /opened = await o\.chat\.open\(\{ dir, tool, profile: provider,/);
-  assert.doesNotMatch(doit, /branchOf|worktree add/);
+  // The code values: a git repository's run gets a worktree on work/<id> (unless he chose the folder itself), and the
+  // chat opens in that worktree; a folder that is no git repository has no branch.
+  assert.match(doit, /const bp = c\.inFolder === true \? null : await branchPlace\(id, dir\);/);
+  assert.match(doit, /tree = await treeFor\(onBranch\.top, onBranch\.asked, \{ run \}\);/);
+  assert.match(doit, /opened = await o\.chat\.open\(\{ dir: sdir, tool, profile: provider,/);
+  assert.match(doit, /if \(!top\) return \{ why: 'not-git' \};/);
   assert.match(read('src/work/alone.mjs'), /export const branchOf = \(id\) => `work\/\$\{/);
+  // Nothing in Do it pushes or merges, and Accept's release removes only the worktree: the branch stays.
+  assert.doesNotMatch(doit, /'push'|'merge'/);
+  const git = read('src/work/alonegit.mjs');
+  const release = git.slice(git.indexOf('export async function releaseTree('), git.indexOf('\n}\n', git.indexOf('export async function releaseTree(')));
+  assert.match(release, /'worktree', 'remove', t\.dir\]/);
+  assert.doesNotMatch(release, /'branch', '-D'|'push'|'merge'/);
+  assert.match(read('src/work/feature.mjs'), /tree = await sched\.runner\.released\(r\.item\);/);
+});
+
+test('Not built: Tia carries no Work run of hers on after a limit, answers no OK without a job, and Hoprig writes no note', () => {
+  assert.match(notBuilt(), /\*\*Work, what is not there yet\*\*: Tia does not carry a Work run of hers on to another provider after a usage limit by herself, and she does not answer the OKs of a session of hers that no job follows\. Hoprig does not write a note into a session to take the option it recommends\./);
+  const jobs = read('src/assistant/jobs.mjs');
+  // A Work run at a usage limit ends its job (she reports it), and a Work run's OK is hers only while an active job follows it.
+  assert.match(jobs, /if \(event\.reason === 'limit' && workOf\(job\.work\)\) return \{ state: 'stuck', log: `\$\{why\}; the run ended there` \};/);
+  assert.match(jobs, /if \(!workOf\(j\.work\) \|\| !ACTIVE\.has\(j\.state\)\) continue;/);
+  // The switch's own words promise neither.
+  const help = /answersHers: `([^`]*)`/.exec(read('src/assistant/tia.mjs'))[1];
+  assert.doesNotMatch(help, /usage limit|another provider|note/);
 });
 
 test('Not built: a submodule\'s own changes are not counted (git is read without looking inside it)', () => {
@@ -694,7 +717,7 @@ test('README: a part started by your yes counts $0.50 until its turn reports a c
   assert.ok(door.includes('if (rec.byTia) {\n        const tap = `part-'));
   assert.ok(door.includes('ledger().tapped(tap);\n        ledger().bind(tap, `this|chat:${parts.get(id).id}`, 0, true);'));
   const spend = read('src/assistant/spend.mjs');
-  assert.ok(spend.includes('  /** A paid act ran from his tap on a card: counted in today\'s sum at once, never checked against the cap. */'));
+  assert.ok(spend.includes('  /** A paid act ran from his tap on a card: counted in today\'s sum at once, never checked against the daily limit for paid use. */'));
   // Its $0.50 goes only when a turn that began after it ended at a higher figure: a turn with no reported cost leaves it.
   assert.ok(spend.includes('if (own && m.usd > from + 1e-9) return true;'));
   // His yes binds the part's chat as fresh: the $0.50 goes only when that chat's turn ended at a higher figure.

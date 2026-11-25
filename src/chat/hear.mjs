@@ -199,7 +199,8 @@ function turnEnd(chat, ev) {
   cancelAsks(chat);
   chat.live.turnEnded();
   const end = chat.push({ kind: 'turn-end', ok: ev.ok, subtype: ev.subtype, error: ev.ok || stopped || limited ? null : ev.error, limited, turnCostUsd: turnCost, usage: ev.usage, durationMs: ev.durationMs, stopped });
-  if (chat.turn && chat.turn.messageId) rememberTurn(chat.o.turnsDir, chat.conversationId, chat.turn.messageId, end); // read back on a reload
+  // Read back on a reload; with the chat's total after this turn, for Tia's ledger after a restart (feature.mjs messageEnd).
+  if (chat.turn && chat.turn.messageId) rememberTurn(chat.o.turnsDir, chat.conversationId, chat.turn.messageId, Number.isFinite(chat.costTotal) ? { ...end, costTotal: chat.costTotal } : end);
   chat.endMessages(turnCost);
   chat.knowSize();
   // A rewound conversation now has its own file: it is read from there from now on.
@@ -252,9 +253,14 @@ export function processGone(chat, cut = false) {
 /** The process is gone: what it ran in the background and what was queued in it went with it. */
 export function lostWork(chat) {
   chat.tasks.lost();
-  const gone = chat.queue.items.filter((q) => q.state === 'sent').map((q) => q.id);
+  const gone = chat.queue.items.filter((q) => q.state === 'sent');
   const lost = chat.queue.lose();
-  for (const id of gone) chat.gaveBack(id); // they never ran
+  // They never ran; one the coding tool refused to give back (it took it), or one whose take-back failed (not known
+  // whether it had it), may have, and ended without a cost.
+  for (const q of gone) {
+    if (q.taken || q.unsure) chat.endedWithoutCost(q.id);
+    else chat.gaveBack(q.id);
+  }
   if (lost) chat.push({ kind: 'notice', level: 'warning', text: lost === 1 ? 'The message you sent was lost with the process: send it again.' : `The ${lost} messages you sent were lost with the process: send them again.` });
   chat.live.clear();
   chat.activity = null;

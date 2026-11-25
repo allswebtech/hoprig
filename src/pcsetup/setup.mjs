@@ -13,7 +13,8 @@ import path from 'node:path';
 import { capture, forThisUser, osName, showCommand, stream } from '../setup/system.mjs';
 import { bold, dim, yours } from '../setup/ui.mjs';
 import { detectKits, preselect, sysFacts } from './detect.mjs';
-import { KITS, KIT_IDS, PY_INSTALL, afterText, buildPlan, kitById, kitCovered, sshSession } from './kits.mjs';
+import { KITS, KIT_IDS, PY_INSTALL, afterText, buildPlan, kitById, kitCovered, sshSession, stepLine } from './kits.mjs';
+import { progressWords, runInside } from './devinstall.mjs';
 import { brokenText, javaHomeText } from './java.mjs';
 import { extraSteps, optionalExtras } from './optional.mjs';
 import { leftOutText } from './suggest.mjs';
@@ -21,13 +22,17 @@ import { cloneRepo, expandDir, parseRepo, prepareEnv, projectNeeds, projectsDir,
 import { loadRecipe } from './recipe.mjs';
 import { addRules, removeRules, rulesState } from './rules.mjs';
 import { forInstalls, withoutSecrets } from '../secretenv.mjs';
+import { blockLine } from '../setup/localbin.mjs';
+import { yourSteps } from './kitinfo.mjs';
 
 
 /** PATH with the folders a fresh install puts programs in (nvm's node, Homebrew), so later steps find them. */
-export function freshPath(env = process.env, home = os.homedir(), platform = process.platform) {
+export function freshPath(env = process.env, home = os.homedir(), platform = process.platform, wsNvm = null) {
   if (platform === 'win32') return env.PATH;
   const add = [];
-  const nvm = path.join(env.NVM_DIR || path.join(home, '.nvm'), 'versions', 'node');
+  // nvm where NVM_DIR says, else ~/.nvm, else the workspace's development/nodejs/nvm (a new nvm goes there).
+  const nvms = [env.NVM_DIR, path.join(home, '.nvm'), ...(wsNvm ? [wsNvm] : [])].filter(Boolean);
+  const nvm = path.join(nvms.find((d) => fs.existsSync(path.join(d, 'versions', 'node'))) || nvms[0], 'versions', 'node');
   try {
     const vs = fs.readdirSync(nvm).filter((v) => /^v\d+/.test(v)).sort((a, b) => Number(b.slice(1).split('.')[0]) - Number(a.slice(1).split('.')[0]));
     if (vs[0]) add.push(path.join(nvm, vs[0], 'bin'));
@@ -117,25 +122,58 @@ export function parseArgs(args) {
  * skipped): the dashboard marks its steps with it. The steps run installers from the internet (nvm's, Docker's,
  * Homebrew's) and package managers: no secret and no GitHub token reaches them (../secretenv.mjs).
  */
-export async function runSteps(steps, { ui, interactive, runner = stream, env = forInstalls(process.env), onStep = () => {} }) {
+// A step with `do` instead of `argv` is not a command: Hoprig runs it itself (devinstall.mjs: a checked download, an
+// adoption link, the kits block of the shell start files), never through `runner`, so never under sudo. `get` is the
+// vendor's getter (tests hand their own); `signal` stops a download. `stopOn`: the process signals (Ctrl-C's SIGINT, a
+// kill's SIGTERM) that stop such a step, heard only while it runs, so that it removes what it made before the run
+// ends; a command step keeps the signal's usual way. After a stop no further step runs.
+export async function runSteps(steps, { ui, interactive, runner = stream, env = forInstalls(process.env), onStep = () => {}, get, signal, stopOn = [] }) {
   const results = [];
   const failedKits = new Set();
+  let stopped = false;
   steps.forEach((s, i) => onStep(i, s, 'waiting'));
   for (const [i, step] of steps.entries()) {
-    if (step.kit && failedKits.has(step.kit)) {
+    if (stopped || (signal && signal.aborted) || (step.kit && failedKits.has(step.kit))) {
       results.push({ step, ok: false, skipped: true });
       onStep(i, step, 'skipped');
       continue;
     }
     onStep(i, step, 'running');
-    ui.out(`\n  ${bold('→')} ${step.why ? `${step.why}: ` : ''}${showCommand(step.argv)}`);
+    ui.out(`\n  ${bold('→')} ${step.why ? `${step.why}: ` : ''}${stepLine(step, showCommand)}`);
+    if (!step.argv) {
+      const words = progressWords(step.why || 'download');
+      const ac = new AbortController();
+      const stop = () => ac.abort();
+      for (const s of stopOn) process.on(s, stop);
+      let r;
+      try {
+        r = await runInside(step, { ...(get ? { get } : {}), signal: signal ? AbortSignal.any([signal, ac.signal]) : ac.signal, onProgress: (b, t) => {
+          const w = words(b, t);
+          if (w) ui.out(`    ${dim(w)}`);
+        } });
+      } finally {
+        for (const s of stopOn) process.off(s, stop);
+      }
+      if (ac.signal.aborted) stopped = true;
+      if (stopped) ui.line('warn', 'stopped: what this step had made is removed, and no further step runs');
+      if (r.ok) ui.line('ok', r.said);
+      else {
+        ui.line('fail', `that failed: ${r.why}`);
+        if (r.todo) ui.out(`    ${r.todo}`);
+        if (step.kit) failedKits.add(step.kit);
+      }
+      onStep(i, step, r.ok ? 'ok' : 'fail', r);
+      results.push({ step, ok: r.ok, skipped: false, ...(stopped ? { stopped: true } : {}), ...(r.ok ? {} : { why: r.why, todo: r.todo }) });
+      continue;
+    }
     const live = interactive || step.interactive;
     // Without a terminal the package manager's long output is kept back and shown only when the step fails: the
     // run stays readable (with a terminal the command has it, so sudo can ask for its password). The dashboard's
     // job (ui.page) shows every line as it comes: the page folds the output itself.
     const kept = [];
     const onLine = ui.page ? (l) => ui.out(`    ${l}`) : (l) => kept.push(l);
-    const r = await runner(step.argv, { env: { ...env, PATH: freshPath(env) }, interactive: live, onLine });
+    // A step's own `env` (JAVA_HOME for one tool) is for that step only.
+    const r = await runner(step.argv, { env: { ...env, ...(step.env || {}), PATH: freshPath(env, os.homedir(), process.platform, step.nvmDir || null) }, interactive: live, onLine });
     if (!r.ok) {
       for (const l of kept.slice(-15)) ui.out(`    ${dim(l)}`);
       ui.line('fail', `that failed (exit ${r.code ?? '?'})`);
@@ -313,7 +351,7 @@ async function rulesStep(ui, want) {
  * `missing` lists "kit.item" still missing afterwards; `changed` is true when anything was installed or set.
  */
 // `extraSteps`: steps of `hoprig setup` itself (lingering), named `ownSteps` here: optional.mjs's extraSteps() is another thing.
-export async function runPcSetup({ ui, yes = false, dryRun = false, kits = null, recipe = null, projects = false, rules = null, hold = false, sys: sysOver, runner = stream, ghList, onStep, codingTools: tools = null, extras: extrasOver, extraSteps: ownSteps = [] } = {}) {
+export async function runPcSetup({ ui, yes = false, dryRun = false, kits = null, recipe = null, projects = false, rules = null, hold = false, sys: sysOver, runner = stream, ghList, onStep, codingTools: tools = null, extras: extrasOver, extraSteps: ownSteps = [], get, signal, stopOn = [] } = {}) {
   ui.yes = ui.yes || yes;
   ui.dryRun = ui.dryRun || dryRun;
   const sys = sysOver || (await sysFacts());
@@ -325,13 +363,18 @@ export async function runPcSetup({ ui, yes = false, dryRun = false, kits = null,
   const personal = !!ui.todo && !(ui.interactive && !ui.dryRun);
   ui.out(formatKits(found, chosen, extras, { personal }));
   for (const k of chosen.filter((id) => kitById(id) && !kitCovered(kitById(id), sys.platform))) ui.line('warn', `${kitById(k).title}: not covered on Windows, so nothing of it is installed here`);
-  const plan = buildPlan(chosen, found, sys, { extra: extraSteps(extras) });
+  const plan = buildPlan(chosen, found, sys, { extra: extraSteps(extras), named: kits || (recipe && recipe.kits) || [] });
   // Steps of `hoprig setup` that need sudo too (lingering, setup/linger.mjs): in the same list, under the same yes.
   if (ownSteps.length) {
     plan.steps.push(...ownSteps);
     plan.admin = plan.admin || ownSteps.some((x) => x.admin);
   }
   for (const c of plan.cannot) ui.line('warn', `${c.name} (${kitById(c.kit).title}): ${c.why || 'no way to install it here automatically'}`);
+  // The owner's own steps of a chosen kit (packages that need administrator rights): shown with the command, never run.
+  for (const y of yourSteps(chosen, found, sys)) {
+    ui.line('warn', `${y.kit}: yours to do: ${y.text}`);
+    if (y.command) ui.out(`    ${y.command}`);
+  }
   const asks = chosen.includes('github') && (found.github || []).some((i) => ['identity', 'signin'].includes(i.id) && i.state === 'missing');
   const rulesDue = rules === true || (rules === null && ui.interactive && !ui.yes && !(rulesState().installed && !rulesState().oldBlock));
   const repos = recipe && ((recipe.repos && recipe.repos.length) || (recipe.workspaces && recipe.workspaces.length));
@@ -347,12 +390,16 @@ export async function runPcSetup({ ui, yes = false, dryRun = false, kits = null,
     // same phrasing doctor's fix lines get), not with a sudo that is not there.
     if (sys.platform === 'linux' && !sys.root && plan.admin && !sys.has('sudo')) {
       ui.out(`\n${bold('These need administrator rights, and sudo is not installed here')}`);
-      for (const s of plan.steps) ui.out(`    ${forThisUser(showCommand(s.argv), sys)}`);
+      for (const s of plan.steps) ui.out(`    ${s.argv ? forThisUser(showCommand(s.argv), sys) : stepLine(s, showCommand)}`);
       ui.line('fail', 'run the "as root" commands as root (or install sudo first), then run this again');
       return { ok: false, changed: false, missing: [], code: 1 };
     }
     ui.out(`\n${bold('Will run')}${plan.admin && !ui.page ? dim('  (sudo asks for your password itself; Hoprig never sees it)') : ''}`);
-    for (const s of plan.steps) ui.out(`    ${showCommand(s.argv)}`);
+    for (const s of plan.steps) {
+      ui.out(`    ${stepLine(s, showCommand)}`);
+      // The kits block's lines are shown exactly as they are written.
+      if (s.do === 'shell') for (const l of s.lines) ui.out(`        ${blockLine(l)}`);
+    }
     // A kit that sets up a service (MariaDB) says so before the yes, with the start commands it leaves to you.
     for (const k of new Set(plan.steps.map((s) => s.kit))) {
       const kit = kitById(k);
@@ -360,11 +407,20 @@ export async function runPcSetup({ ui, yes = false, dryRun = false, kits = null,
       ui.out(`  ${dim(`${kit.title}: ${afterText(kit, sys)}`)}`);
       for (const l of kit.start(sys)) ui.out(`    ${showCommand(l)}`);
     }
+    // A kit's own folder of the workspace (database/mysql with MariaDB) is said before the yes (workspace/kitfolder.mjs).
+    for (const k of new Set(plan.steps.filter((s) => s.items.includes('mariadb')).map((s) => s.kit))) for (const l of (await import('../workspace/kitfolder.mjs')).kitFolderPlan(kitById(k))) ui.out(`  ${dim(l)}`);
     const go = await ui.confirm(`${ownSteps.length === plan.steps.length ? 'Run' : 'Install'} ${plan.steps.length === 1 ? 'this' : `these ${plan.steps.length} steps`} now?`, true);
-    if (go) results = await runSteps(plan.steps, { ui, interactive: ui.interactive, runner, onStep });
+    if (go) results = await runSteps(plan.steps, { ui, interactive: ui.interactive, runner, onStep, get, signal, stopOn });
     else if (!ui.dryRun) ui.note('Nothing installed.');
   }
+  // A stop (Ctrl-C, a kill) ends the run here: nothing more is installed, asked or cloned.
+  if (results.some((x) => x.stopped)) {
+    ui.out(`\n${bold('Stopped')}  ${dim('run it again when you want it: hoprig pc setup')}`);
+    return { ok: false, changed: results.some((x) => x.ok), missing: [], code: 1, stopped: true };
+  }
   let changed = results.some((x) => x.ok);
+  // ...and made once MariaDB is installed: only that folder, only when it is missing.
+  for (const k of new Set(results.filter((x) => x.ok && x.step.items.includes('mariadb')).map((x) => x.step.kit))) for (const m of await (await import('../workspace/kitfolder.mjs')).makeKitFolders(kitById(k))) ui.line(m.ok ? 'ok' : 'warn', m.text);
   // The recipe's coding tools (the offered ones Hoprig installs): into Hoprig's own tools folder, after the kits (they need npm).
   const toolsFailed = [];
   for (const t of toolsDue) {
@@ -440,7 +496,14 @@ export async function runPcSetup({ ui, yes = false, dryRun = false, kits = null,
       if (kit.start) for (const l of kit.start(sys)) ui.out(`    ${showCommand(l)}`);
     }
   }
-  for (const f of failed) ui.out(`  ${dim('retry:')} ${showCommand(f.step.argv)}${f.skipped ? dim('  (skipped: an earlier step failed)') : ''}`);
+  // A step Hoprig runs itself is retried by its kit: that line is said once, whatever else of the kit was skipped.
+  const retried = new Set();
+  for (const f of failed) {
+    const kitLine = !f.step.argv || (retried.has(f.step.kit) && f.skipped);
+    if (kitLine && retried.has(f.step.kit)) continue;
+    if (kitLine) retried.add(f.step.kit);
+    ui.out(`  ${dim('retry:')} ${kitLine ? `hoprig pc setup --kits ${f.step.kit}` : showCommand(f.step.argv)}${f.skipped && !kitLine ? dim('  (skipped: an earlier step failed)') : ''}`);
+  }
   for (const f of (proj && proj.failed) || []) ui.out(`  ${dim('retry:')} ${f.command}`);
   for (const id of toolsFailed) ui.out(`  ${dim('retry:')} hoprig tools install ${id}`);
   if (own.some((x) => x.ok) && sys.platform !== 'win32') {
@@ -465,8 +528,11 @@ export async function runPcSetup({ ui, yes = false, dryRun = false, kits = null,
 /** The usage of `hoprig pc setup` (printed for a wrong option, and as its help). */
 export const SETUP_USAGE = `usage: hoprig pc setup [--yes] [--dry-run] [--kits ${KIT_IDS.join(',')}] [--recipe <file or https address>] [--no-projects] [--rules | --remove-rules]`;
 
+// Ctrl-C or a kill while Hoprig downloads or unpacks a toolchain: that step removes its half download, then the run ends.
+const STOP_SIGNALS = ['SIGINT', 'SIGTERM'];
+
 /** `hoprig pc setup …`. Returns the exit code. */
-export async function pcSetup(args, { ui, sys, runner = stream, ghList } = {}) {
+export async function pcSetup(args, { ui, sys, runner = stream, ghList, get } = {}) {
   const o = parseArgs(args);
   if (o.errors.length) {
     ui.out(`${o.errors.join('\n')}\n${SETUP_USAGE}`);
@@ -492,9 +558,10 @@ export async function pcSetup(args, { ui, sys, runner = stream, ghList } = {}) {
   const onStep = (i, step, state) => {
     if (state === 'ok' || state === 'fail' || state === 'skipped') ended[i] = { step, ok: state === 'ok', skipped: state === 'skipped' };
   };
-  const r = await runPcSetup({ ui, yes: o.yes, dryRun: o.dryRun, kits: o.kits, recipe, projects: o.projects && !o.kits && ui.interactive && !o.yes, rules: o.rules, hold: o.hold, sys, runner, ghList, onStep });
+  const r = await runPcSetup({ ui, yes: o.yes, dryRun: o.dryRun, kits: o.kits, recipe, projects: o.projects && !o.kits && ui.interactive && !o.yes, rules: o.rules, hold: o.hold, sys, runner, ghList, onStep, get, stopOn: STOP_SIGNALS });
   // Then git and GitHub (gh is there now), which may restore a workspace from GitHub, then the workspace itself.
-  if (!o.kits && !recipe) {
+  // A run that was stopped (Ctrl-C) ends here.
+  if (!o.kits && !recipe && !r.stopped) {
     await (await import('../workspace/gitstep.mjs')).runGitStep({ ui });
     await (await import('../workspace/step.mjs')).runWorkspaceStep({ ui });
   }

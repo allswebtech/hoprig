@@ -24,7 +24,7 @@ export async function runWorkspaceStep({ ui }) {
     }
     return { ok: true, changed: false };
   }
-  ui.out(`  Creates ${st.short} with ai_brain/ (AI knowledge for all projects, its own git repository), ${st.projectsInWorkspace ? 'projects/, ' : ''}credentials/ (only you can open it), development/, git/, database/postgresql/ and backups/; nothing else is changed.${st.projectsInWorkspace ? '' : ` Your projects stay in ${st.projectsShort}.`}`);
+  ui.out(`  Creates ${st.short} with ai_brain/ (AI knowledge for all projects, its own git repository), ${st.projectsInWorkspace ? 'projects/, ' : ''}credentials/ (only you can open it), development/, git/, database/postgresql/, database/mysql/ (only you can open it) and backups/; nothing else is changed.${st.projectsInWorkspace ? '' : ` Your projects stay in ${st.projectsShort}.`}`);
   if (!(await ui.confirm('Create the workspace?', true))) return { ok: true, changed: false };
   const r = await workspaceSetup();
   printSetup(ui, r);

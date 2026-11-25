@@ -4,7 +4,7 @@
 // The three numbers of a task: its tokens and minutes (the sums of its runs: the work, its reviews, its fixes) and
 // whether its gate and review passed the first time. Cost: the sum of the runs' own cost lines; a run whose provider
 // reported none is counted in tokens only and said so ("costUnknown").
-import { ROLE_NAMES } from './roles.mjs';
+import { ROLE_NAMES, loadRoles, runsWords } from './roles.mjs';
 
 // The places a why names, read from its own words, as codes of the page's table of places (web/errorways.js). Worked
 // out here when the report is built, never kept in the mission file: a dashboard on an older build reads the same Work
@@ -115,7 +115,7 @@ export function missionReport(m) {
   }
   // Its cost, tokens and minutes are the report's numbers (total), shown once, as numbers: not again as a line.
   // ways: the places its why names, as codes of the page's table of places (web/errorways.js).
-  return { id: m.id, goal: m.goal, project: m.project, state: m.state, why: m.why, ...(waysOf(m) ? { ways: waysOf(m) } : {}), createdAt: m.createdAt, endedAt: m.endedAt, tasks, total, counts: Object.fromEntries(Object.entries(by).map(([k, v]) => [k, v.length])), lines };
+  return { id: m.id, goal: m.goal, project: m.project, state: m.state, why: m.why, ...(m.auto ? { auto: true } : {}), ...(waysOf(m) ? { ways: waysOf(m) } : {}), createdAt: m.createdAt, endedAt: m.endedAt, tasks, total, counts: Object.fromEntries(Object.entries(by).map(([k, v]) => [k, v.length])), lines };
 }
 
 /**
@@ -131,9 +131,10 @@ export function faceOf(m, { on, mine }) {
 
 /**
  * The Team tab: per role, whether it is on, how many tasks it did, how many passed the first time, its tokens, cost
- * and minutes (of the runs it did: a reviewer's runs count for the reviewer).
+ * and minutes (of the runs it did: a reviewer's runs count for the reviewer), and what it may run in plain words (its
+ * role file's `runs`; `roles`: the role files, read once).
  */
-export function teamView(missions, rolesOff = []) {
+export function teamView(missions, rolesOff = [], roles = loadRoles()) {
   const per = new Map(ROLE_NAMES.map((r) => [r, { role: r, on: !rolesOff.includes(r), tasks: 0, passedFirst: 0, judged: 0, tokens: 0, cost: 0, costUnknown: 0, minutes: 0, runs: 0 }]));
   for (const m of missions) for (const t of m.tasks) {
     const own = per.get(t.role);
@@ -155,7 +156,7 @@ export function teamView(missions, rolesOff = []) {
       else x.cost += r.cost;
     }
   }
-  return [...per.values()].map((x) => ({ ...x, cost: round(x.cost, 4), minutes: round(x.minutes, 1) }));
+  return [...per.values()].map((x) => ({ ...x, cost: round(x.cost, 4), minutes: round(x.minutes, 1), may: runsWords((roles.get(x.role) || {}).runs || []) }));
 }
 
 /**

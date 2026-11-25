@@ -72,6 +72,16 @@ export function workQuestion(q, onchange) {
 }
 
 /**
+ * Another project here names it in "needs": the terminal's question (dropcli.mjs terminalAsk needed), asked first.
+ * Its box starts unticked; only his tick of it sends `needed: true`.
+ */
+export function neededQuestion(q, onchange) {
+  const box = h('input', { type: 'checkbox', onchange });
+  return h('fieldset.ws-q', h('legend', q.why), h('p.hint', q.later),
+    h('label.toggle-line', box, h('span', q.words)));
+}
+
+/**
  * The drop sheet: the check, then the terminal's questions. Nothing is answered for him: the box for work starts
  * unticked, no answer is chosen for a default branch, and the name field starts empty and takes no paste or drop.
  */
@@ -87,11 +97,13 @@ export function dropSheet(name, after = () => {}, { on = null } = {}) {
           c.refusals.length ? h('div.banner.warn', icon('alert', { size: 18 }), h('span', 'It cannot be dropped yet: each line above says what to do first.')) : null,
           h('div.sheet-actions', h('button.btn.primary', { type: 'button', autofocus: true, onclick: () => close(null) }, 'Close')));
       }
-      const answers = { work: false, defaults: {} };
+      const answers = { needed: false, work: false, defaults: {} };
       const qs = [];
       let typed = null;
       for (const q of c.questions) {
-        if (q.ask === 'work') {
+        if (q.ask === 'needed') {
+          qs.push(neededQuestion(q, (e) => (answers.needed = e.target.checked)));
+        } else if (q.ask === 'work') {
           qs.push(workQuestion(q, (e) => (answers.work = e.target.checked)));
         } else if (q.ask === 'default branch') {
           const group = `ws-q-${q.repo.replace(/[^a-z0-9]+/gi, '-')}`;
@@ -111,7 +123,7 @@ export function dropSheet(name, after = () => {}, { on = null } = {}) {
         fill(res, busyLine('Fetching, pushing what you said yes to, and checking everything again…'));
         let r;
         try {
-          r = await api('/api/workspace/drop', { ticket: c.ticket, work: answers.work, defaults: answers.defaults, ...(typed ? { typed: typed.value } : {}) });
+          r = await api('/api/workspace/drop', { ticket: c.ticket, ...(answers.needed ? { needed: true } : {}), work: answers.work, defaults: answers.defaults, ...(typed ? { typed: typed.value } : {}) });
         } catch (e) {
           go.disabled = false;
           return void fill(res, errorBox(e));

@@ -1,0 +1,6 @@
+{
+  "version": 1,
+  "core": null,
+  "pinned": null,
+  "about": "Names the shared core and the version of it whose public skills tools/core-sync.mjs took into skills/, with each taken file's hash; null means no core is pinned and Hoprig's own copy in skills/ is used. Hoprig never reads this file when it runs: it is for the maintainers, who take a newer version of the core on purpose, with a plain diff."
+}

@@ -5,8 +5,15 @@ import fs from 'node:fs';
 import test from 'node:test';
 
 const read = (f) => fs.readFileSync(new URL(`../../src/${f}`, import.meta.url), 'utf8');
-// The comment text of a file: its // lines and its /** … */ lines, one string each.
-const comments = (s) => s.split('\n').map((l) => l.trim()).filter((l) => l.startsWith('//') || l.startsWith('*') || l.startsWith('/**'));
+const readWeb = (f) => fs.readFileSync(new URL(`../../web/${f}`, import.meta.url), 'utf8');
+// The comment text of a file: its // lines and its /** … */ lines, one string each, and the comment after code on a line
+// (" // …").
+const comments = (s) =>
+  s.split('\n').map((l) => l.trim()).flatMap((l) => {
+    if (l.startsWith('//') || l.startsWith('*') || l.startsWith('/**')) return [l];
+    const i = l.indexOf(' // ');
+    return i >= 0 ? [l.slice(i + 1)] : [];
+  });
 
 test('money.mjs, look.mjs and feature.mjs say "daily limit for paid use" in their comments, never "the cap"', () => {
   const money = read('operator/money.mjs');
@@ -22,7 +29,11 @@ test('money.mjs, look.mjs and feature.mjs say "daily limit for paid use" in thei
   assert.ok(feature.includes('The code follows the reason, not the daily\n * limit for paid use: a busy spending record is "busy" (no button: that limit may have room), no limit set is\n * "paid-no-cap", and only a limit without room is "cap-reached".'), 'feature: paidNotice');
   assert.ok(feature.includes("what is left of today's daily limit for paid use (the coding tool stops it there)"), 'feature: a paid turn');
   assert.ok(feature.includes('the daily limit for paid use he set and what was spent against it today'), 'feature: the overview');
-  for (const [name, s] of [['money.mjs', money], ['look.mjs', look], ['feature.mjs', feature]]) {
+  // Every file of src/chat/ too: a part's chat is billed against that limit (chat/feature.mjs settles its holds).
+  const chatFiles = fs.readdirSync(new URL('../../src/chat/', import.meta.url)).filter((f) => f.endsWith('.mjs')).sort();
+  assert.ok(chatFiles.includes('feature.mjs') && chatFiles.includes('queue.mjs'), 'the chat files are read');
+  const chat = chatFiles.map((f) => [`chat/${f}`, read(`chat/${f}`)]);
+  for (const [name, s] of [['money.mjs', money], ['look.mjs', look], ['feature.mjs', feature], ['spend.mjs', read('assistant/spend.mjs')], ['tia.js', readWeb('tia.js')], ...chat]) {
     for (const c of comments(s)) assert.doesNotMatch(c, /\b(?:the|today's|daily|a) cap(?:'s)?\b/i, `${name}: "${c}"`);
   }
 });

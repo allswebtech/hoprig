@@ -488,9 +488,11 @@ test('after a tap on Bring up to date the next look no longer shows the reposito
 });
 
 test('a gateway that providers go through and that stopped is an item; started again, it is gone; with no session of them open (a restored chat whose process does not run is none) it is only not started yet', async () => {
-  const port = 7932;
+  // A port the system hands out, each time the gateway starts: a fixed one was shared with this test of a second run
+  // of the suite beside it, whose gateway then answered for this one's stopped gateway, or held the port it restarts on.
+  let port = null;
   let srv = null;
-  const up = () => new Promise((r) => { srv = http.createServer((q, s) => s.end()).listen(port, '127.0.0.1', r); });
+  const up = () => new Promise((r) => { srv = http.createServer((q, s) => s.end()).listen(0, '127.0.0.1', () => { port = srv.address().port; r(); }); });
   const gate = { id: 'gate', status: async () => ({ installed: true, running: !!srv, url: `http://127.0.0.1:${port}` }) };
   const items = async () => {
     const src = defaultSources(ctx, { port: () => null, gateways: () => [gate], usersOf: () => ['plan-g'] });
@@ -504,7 +506,7 @@ test('a gateway that providers go through and that stopped is an item; started a
     // No session of plan-g is open: its next session's PRERUN starts the gateway, so nothing waits for it.
     const [idle] = await items();
     assert.equal(idle?.class, 'info');
-    assert.match(idle.facts[0], /not started: nothing answers on port 7932/);
+    assert.match(idle.facts[0], new RegExp(`not started: nothing answers on port ${port}$`));
     assert.match(idle.facts[1], /the next session of plan-g starts it/);
     // A chat of plan-g restored after a restart: its process does not run, so its next message starts the gateway.
     for (const running of [false, undefined]) {
@@ -519,7 +521,7 @@ test('a gateway that providers go through and that stopped is an item; started a
     const [it] = await items();
     assert.equal(it?.class, 'stopped');
     assert.equal(it.recommended, 'restart-gateway');
-    assert.match(it.facts[0], /not running: nothing answers on port 7932/);
+    assert.match(it.facts[0], new RegExp(`not running: nothing answers on port ${port}$`));
     assert.equal(it.facts[1], '1 open session goes through it and cannot work');
     await up();
     assert.deepEqual(await items(), []);

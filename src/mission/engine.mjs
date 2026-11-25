@@ -11,6 +11,8 @@
 //      reviewer's points fenced as the reviewer's words; fix and review at most twice, then it is his;
 //   5. a task whose gate and review passed waits for his Accept in Work (review), or is accepted by Work's own Accept
 //      when its kind is one he named (docs, tests). Nothing here merges, pushes or moves a default branch.
+// Auto (auto.mjs), only for a project whose Auto switch he turned on: a ready task of its list becomes a mission of that
+// one task (no plan), one per look and only when the limits allow a start; it then goes through steps 2 to 5 as any.
 // Before every start the limits (limits.mjs) are checked. Every act is one line on the mission's line. A mission file
 // is written only under the Work file's lock and only by its own writer (this dashboard's Work writer id); a task is
 // claimed with this process's identity before its run starts, so it never runs twice at once.
@@ -25,20 +27,23 @@ import { currentBranch, keptTree, repoTop } from '../work/alonegit.mjs';
 import { steersLeft, steersTools } from '../work/alonecommit.mjs';
 import { folderOf, projectsByName } from '../work/folders.mjs';
 import { withLock } from '../work/lock.mjs';
-import { briefOf, findItem, statusOf, todayIn, viewItem, whoOf } from '../work/model.mjs';
+import { briefOf, findItem, rawItems, statusOf, todayIn, viewItem, whoOf } from '../work/model.mjs';
 import { resolvePlace } from '../work/place.mjs';
 import { readProposal } from '../work/proposals.mjs';
-import { cleanText, pathsOf, readRun, writerId } from '../work/runs.mjs';
+import { cleanText, listRuns, pathsOf, readRun, writerId } from '../work/runs.mjs';
 import { readDoc } from '../work/store.mjs';
 import { listMissions, newMissionId, newTask, readMission, say, writeMission } from './file.mjs';
 import { CHECK_MS, GATE_MS, boxReady, boxWhy, commandWords, gate, printedTail } from './gate.mjs';
 import { runInBox, runsNow, waitIdle } from './boxed.mjs';
 import { RUN_MS, RUNS_MAX, TOTAL_MS } from './boxtool.mjs';
+import { scriptNames } from './boxrun.mjs';
 import { box as seamBox, mayDo } from './seam.mjs';
 import { changesOf, dropChanges, writeChanges, writePrinted } from './changes.mjs';
 import { budgetFor, clockIn, inHours, overloaded, providerOrder, spentOn, whyNot } from './limits.mjs';
 import { choiceOf, loadRoles, takeOf, toolsFor } from './roles.mjs';
-import { SELF_KINDS, missionSettings, worksOn } from './settings.mjs';
+import { SELF_KINDS, autoOn, missionSettings, worksOn } from './settings.mjs';
+import { AUTO_WHO, STARTED_WORDS, addEnded, notReady, readEnded, readyTask } from './auto.mjs';
+import { DEFAULTS as TIA_DEFAULTS, LEVELS } from '../assistant/tia.mjs';
 import { parseVerdict } from './verdict.mjs';
 
 export const FIXES_MAX = 2; // fix and review at most twice, then it is his
@@ -51,6 +56,7 @@ export const REGATE_MS = 60_000; // a check held by another run of the worktree 
 const RECHECK_CLAIM_MS = 2 * GATE_MS + CHECK_MS + 60_000;
 export const TESTS_HERE_MS = 10 * 60_000; // the owner's own "Run the tests here" is given this long
 export const OFF_STOP = 'Tia OFF was pressed: stopped, as your setting says';
+export const ENDED_STOP = 'You ended it';
 const ACTIVE = ['planning', 'running', 'waits'];
 const ENDED = ['review', 'done', 'his', 'failed', 'dropped', 'stopped'];
 const TICK_MS = 15_000;
@@ -63,6 +69,15 @@ export const TOOL_WORDS = `This time you can run the tests: the tool run_tests r
 // A tests-role session that does NOT get the tool (no box) is still told that the tests run after it, so it
 // writes its work to pass them, even though it cannot run them itself this time. With no test command it is not told.
 // True on a computer with a box (the check runs them there by itself) and on one without (only the owner runs them).
+/** What a session with more than the tests is told of its tools: each kind it has, the shared limit, the wall. */
+export function runWords(kinds, scripts = []) {
+  const each = {
+    tests: 'run_tests runs this project\'s own test command (give it test files or folders to run only those)',
+    build: 'run_build runs the project\'s build command',
+    scripts: `run_script runs one script of the project's package.json by its name${scripts.length ? ` (${scripts.slice(0, 12).join(', ')})` : ''}`,
+  };
+  return `This time you can run, in a box (no network, only this folder): ${kinds.map((k) => each[k]).join('; ')}. Each gives you its last lines.\nRun one after a change, not again and again: at most ${RUNS_MAX} runs and ${TOTAL_MS / 60_000} minutes of runs in all per session, for all of them together, then they run nothing. Hoprig reads each command first: one that stays the owner's (a deploy, a release, an administrator command) is not run. The check after you end is the one that counts.`;
+}
 export const AFTER_WORDS = 'You cannot run the tests while you work. After you end they are run in a box, where this computer has one; where it has none, only when the owner runs them. That run is the one that counts.';
 const fail = (status, message, code) => Object.assign(new Error(message), { status, details: { code } });
 
@@ -104,7 +119,8 @@ const machineNow = () => ({ cpus: os.cpus().length, load1: os.loadavg()[0], memT
  * o: { config(), places(), runner (alone.mjs aloneRunner), planner (planai.mjs planRunner), providers() → [{ name,
  * kind, label }], slots() (runs by themselves at once), accept(id) (Work's Accept), reopen(id) (the task open again for a
  * fix), machine(), now(), run (git), exec (a test command), log, rolesDir, gateWaitMs (how long the gate waits for a
- * run of the worktree under way; the gate's own default when left out) }.
+ * run of the worktree under way; the gate's own default when left out), activity({ automation, did, outcome }) (a line of
+ * Work → Activity) }.
  */
 export function missionEngine(o) {
   const cfg = () => (o.config ? o.config() : {});
@@ -121,6 +137,7 @@ export function missionEngine(o) {
   const byWords = (d) => (d.by === 'Tia decides' ? ` (Tia decides${d.why ? `: ${d.why}` : ''})` : ` (${d.by})`);
   const boxOf = o.box || seamBox; // seam.box(): the real box ({ check: boxCheck, run: runBoxed }); a test hands in its own
   const log = o.log || (() => {});
+  const activity = typeof o.activity === 'function' ? o.activity : () => {};
   const me = () => writerId();
   const iso = () => now().toISOString();
   const dayOf = (p) => todayIn(p.settings.timeZone, now());
@@ -142,6 +159,7 @@ export function missionEngine(o) {
   const accepting = new Set(); // proposal ids whose Accept runs now
   let timer = null;
   let closed = false;
+  let askSaid = false; // "Auto starts nothing at Ask me" is logged once, until the level changes
 
   /** Change mission `id` under the Work file's lock (only this dashboard's own). fn(m) → its answer; false: nothing written. */
   async function update(p, id, fn) {
@@ -289,9 +307,12 @@ export function missionEngine(o) {
   const notMine = (p, mid) => (readMission(p, mid) ? fail(409, 'another dashboard started this mission: stop or change it there', 'not-mine') : fail(404, 'there is no such mission of this computer', 'not-found'));
 
   /** His press: a task of the Work list joins the mission (one the plan got later, or one another program added). */
-  async function add(mid, taskId) {
+  async function add(mid, taskId, { hers = false } = {}) {
     const p = place();
     const raw = findItem(readDoc(p.file).doc, taskId);
+    // Through her door (his yes on her card): a task another program added stays his own press on Work, where he
+    // reads it on his page. Her card would show words that program wrote.
+    if (hers && raw.from) throw fail(403, `"${raw.id}" came from another program: it joins a mission only by your own press on Work`, 'his-press');
     if (['done', 'dropped'].includes(statusOf(raw))) throw fail(409, `"${raw.id}" is ${statusOf(raw)}`, 'closed');
     const who = takeOf(whoOf(raw, p.settings.ownerId));
     if (who.his) throw fail(409, `"${raw.id}" is not for her sessions: ${who.his}`, 'his');
@@ -302,7 +323,7 @@ export function missionEngine(o) {
       if (other) throw fail(409, `"${raw.id}" is in the mission "${other.goal.slice(0, 80)}" already`, 'twice');
       if (m.tasks.length >= 60) throw fail(409, 'a mission has 60 tasks at most', 'too-many');
       m.tasks.push(newTask(raw.id, viewItem(raw).title, who.role));
-      say(m, iso(), raw.id, 'You added it to the mission');
+      say(m, iso(), raw.id, hers ? 'Added to the mission by your yes on her card' : 'You added it to the mission');
     });
     if (!r) throw notMine(p, mid);
     kick();
@@ -317,12 +338,18 @@ export function missionEngine(o) {
       if (!ACTIVE.includes(m.state)) throw fail(409, `the mission is ${m.state} already`, 'ended');
       m.state = 'stopped';
       m.endedAt = iso();
-      m.why = 'You stopped it';
+      m.why = m.auto ? 'You ended it' : 'You stopped it';
       for (const t of m.tasks) if (t.state === 'queued') t.state = 'stopped';
-      say(m, iso(), null, s.offStops ? 'You stopped the mission: what ran is stopped' : 'You stopped the mission: what runs goes to its end, nothing more starts');
+      // End of a mission Tia started by herself (Auto): its task is never taken by Auto again, and what runs is stopped.
+      // A list that cannot be read is not overwritten (auto.mjs addEnded): Auto then starts nothing until it can be.
+      let kept = true;
+      if (m.auto) for (const t of m.tasks) kept = addEnded(p, t.id) && kept;
+      say(m, iso(), null, m.auto ? (kept ? 'You ended it: what ran is stopped, and Auto never takes this task again'
+        : 'You ended it: what ran is stopped. The list of the tasks you ended could not be read, so it was not written, and Auto starts nothing until it can be read')
+        : s.offStops ? 'You stopped the mission: what ran is stopped' : 'You stopped the mission: what runs goes to its end, nothing more starts');
     });
     if (!r) throw notMine(p, mid);
-    if (s.offStops) for (const [rid, x] of live) if (x.mission === mid) o.runner.stop(rid, OFF_STOP);
+    if (s.offStops || r.auto) for (const [rid, x] of live) if (x.mission === mid) o.runner.stop(rid, r.auto ? ENDED_STOP : OFF_STOP);
     return r;
   }
 
@@ -387,6 +414,7 @@ export function missionEngine(o) {
     const mine = () => listMissions(p).missions.filter((m) => m.writer === me());
     // A mission that is going, or one that ended (he stopped it) while a session of it ran: that run is still settled.
     const open = (m) => ACTIVE.includes(m.state) || m.tasks.some((t) => t.state === 'running');
+    await autoStart(p);
     if (!mine().some(open)) return; // nothing of hers: nothing read, nothing written
     let doc;
     try {
@@ -399,6 +427,80 @@ export function missionEngine(o) {
       if (closed) return;
       await startNext(p, m.id, doc);
     }
+  }
+
+  // ---------- Auto: a project's ready task, started by herself ----------
+
+  /**
+   * With Auto on for a project (autoOn), its first ready task (auto.mjs) becomes a mission of that one task, marked
+   * `auto`: one per look, only when the owner's limits allow a start in that project (whyNot), and none while an Auto
+   * mission of this dashboard still waits for its first start (a provider, the budget), so missions do not pile up.
+   * With Auto off for every project nothing is read and nothing written here. → the mission, or null.
+   */
+  async function autoStart(p) {
+    const s = settings();
+    const names = Object.keys(s.projects).filter((n) => autoOn(s, n));
+    if (!names.length || closed) return null;
+    // At "Ask me" every start of a session of hers is his card first (assistant/policy.mjs STARTS), and Auto has no
+    // card: it starts nothing, so a task she handed to the AI herself never starts without his yes.
+    const level = (cfg().assistant || {}).level;
+    if ((LEVELS.includes(level) ? level : TIA_DEFAULTS.level) === 'ask') {
+      if (!askSaid) log('Auto starts nothing: Tia is set to "Ask me"');
+      askSaid = true;
+      return null;
+    }
+    askSaid = false;
+    const mine0 = listMissions(p).missions.filter((m) => m.writer === me());
+    if (mine0.some((m) => m.auto && ACTIVE.includes(m.state) && m.tasks.some((t) => t.state === 'queued' && !t.runs.length))) return null;
+    if (!readEnded(p)) {
+      log('Auto starts nothing: the list of the tasks you ended under Auto cannot be read');
+      return null;
+    }
+    let doc;
+    try {
+      doc = readDoc(p.file).doc;
+    } catch {
+      return null;
+    }
+    const items = rawItems(doc);
+    const running = new Set(listRuns(p, { max: 200 }).filter((r) => r.state === 'running' && r.item).map((r) => r.item));
+    for (const project of names) {
+      const mine = listMissions(p).missions.filter((m) => m.writer === me());
+      const why = whyNot({
+        s, project, running: mine.reduce((n, x) => n + x.tasks.filter((y) => y.state === 'running').length, 0),
+        slots: o.slots ? o.slots() : 1, clock: clockIn(p.settings.timeZone, now()), spent: spentOn(mine, dayOf(p)), machine: (o.machine || machineNow)(),
+      });
+      if (why) continue;
+      const ctx = (missions, ended) => ({ project, ownerId: p.settings.ownerId, today: dayOf(p), items, missions, running, ended, rolesOff: s.rolesOff });
+      const raw = readyTask(items, ctx(listMissions(p).missions, readEnded(p) || new Set()));
+      if (!raw) continue;
+      // Looked at again under the Work file's lock: a mission made meanwhile (another look, another dashboard), an End,
+      // or a switch turned off takes it out.
+      const m = await withLock(p.file, async () => {
+        const ended = readEnded(p);
+        if (!ended || closed || !autoOn(settings(), project)) return null;
+        let items2;
+        try {
+          items2 = rawItems(readDoc(p.file).doc);
+        } catch {
+          return null;
+        }
+        const now2 = items2.find((x) => x.id === raw.id);
+        if (!now2 || notReady(now2, { ...ctx(listMissions(p).missions, ended), items: items2 }) !== null) return null;
+        const who = takeOf(whoOf(now2, p.settings.ownerId));
+        if (!who.role) return null;
+        const title = viewItem(now2).title.slice(0, 200);
+        const x = {
+          v: 1, id: newMissionId(now()), writer: me(), goal: title, project, proposal: null, plan: null, state: 'running', why: null,
+          createdAt: iso(), endedAt: null, tasks: [newTask(raw.id, title, who.role)], line: [], auto: true,
+        };
+        say(x, iso(), raw.id, `${STARTED_WORDS}: it was ready in ${project}`);
+        return writeMission(p, x);
+      });
+      if (m) activity({ automation: AUTO_WHO, did: `${AUTO_WHO} started "${m.goal}" in ${project}`, outcome: 'ok' });
+      return m;
+    }
+    return null;
   }
 
   /** A mission's tasks against Work's list and the runs: a task he removed, closed or sent back; a run that ended while no one watched. */
@@ -693,11 +795,16 @@ export function missionEngine(o) {
     }
     // The one tool of the box: only a work or fix run of a role whose check is its tests, with a test command set, a
     // box that says yes and this dashboard's address known. Anything else starts as before, with the file tools alone.
+    // A role whose file names what it runs (roles.mjs RUNS) gets the box's tools of that list that can run here: the
+    // tests with a test command, the build with a build command, scripts when the project's package.json names some.
     const test = (s.projects[project] || {}).test;
+    const build = (s.projects[project] || {}).build;
+    const kinds = kind === 'review' ? [] : (role.runs || []).filter((k) => (k === 'tests' ? Array.isArray(test) && test.length : k === 'build' ? Array.isArray(build) && build.length : scriptNames(top).length > 0));
     let tok = null;
-    if (tools && kind !== 'review' && role.check === 'tests' && Array.isArray(test) && test.length && address() && (await boxReady(boxOf())).ok) {
-      tok = tools.make({ mission: mid, task: tid, project, top, branch: branchOf(tid) });
+    if (tools && kinds.length && address() && (await boxReady(boxOf())).ok) {
+      tok = tools.make({ mission: mid, task: tid, project, top, branch: branchOf(tid), kinds });
     }
+    const toolWords = !tok ? '' : kinds.length === 1 && kinds[0] === 'tests' ? TOOL_WORDS : runWords(kinds, scriptNames(top));
     // A session that ended while a run of its tool goes on: the token is dead at once, then the run is waited for (one
     // run's time at most), so nothing is committed or gated while it holds the worktree.
     const ended = async () => {
@@ -710,8 +817,21 @@ export function missionEngine(o) {
     // test command: then the check fails the task for want of one and runs nothing, so the words would be false. A file
     // or diff role (writer, researcher, ops) and a review start as before, byte for byte.
     const afterWords = !tok && kind !== 'review' && role.check === 'tests' && Array.isArray(test) && test.length ? AFTER_WORDS : '';
-    const runPrompt = tok ? promptOf(role.text, brief, [TOOL_WORDS, tail].filter(Boolean).join('\n\n'))
+    const runPrompt = tok ? promptOf(role.text, brief, [toolWords, tail].filter(Boolean).join('\n\n'))
       : afterWords ? promptOf(role.text, brief, [afterWords, tail].filter(Boolean).join('\n\n')) : prompt;
+    // Looked at again right before the start: a mission he stopped or ended during the checks above starts nothing.
+    const m1 = readMission(p, mid);
+    if (!m1 || m1.state === 'stopped') {
+      tok?.drop();
+      await update(p, mid, (x) => {
+        const y = x.tasks.find((z) => z.id === tid);
+        if (!y || y.state !== 'running' || y.run) return false;
+        y.state = 'stopped';
+        y.claim = null;
+        say(x, iso(), tid, `${x.auto ? 'You ended it' : 'You stopped the mission'}: it did not start`);
+      });
+      return 'stop';
+    }
     let r;
     try {
       r = await o.runner.startAlone({
@@ -719,7 +839,7 @@ export function missionEngine(o) {
         // Always restricted, with the role's file tools and no other (alone.mjs); the dashboard commits what a
         // writing role changed; a reviewer may also read the folder that holds the branch's changes.
         minutes: s.minutes, allowed: toolsFor(role), restricted: toolsFor(role), commit: !role.readonly, ...(changes ? { dirs: [changes.dir] } : {}), denied: role.deny, budget, mode: 'manual',
-        ...(tok ? { tool: { url: address(), token: tok.token }, onEnd: ended } : {}),
+        ...(tok ? { tool: { url: address(), token: tok.token, ...(kinds.length === 1 && kinds[0] === 'tests' ? {} : { kinds }) }, onEnd: ended } : {}),
       });
     } catch (e) {
       tok?.drop();
@@ -739,13 +859,15 @@ export function missionEngine(o) {
       // Each work or fix session's own test runs are its own: the count starts again, so the card's line is about this
       // session, not the sum of every session of the task. A review does not run the tests itself, so it keeps the count.
       if (kind !== 'review') delete y.selfTests;
-      x.why = null;
+      if (x.state !== 'stopped') x.why = null; // his Stop or End during the start keeps its words
       say(x, iso(), tid, `${kind === 'work' ? 'Started' : kind === 'fix' ? 'Fix started' : 'Review started'}: ${role.name} on ${r.run.branch}, ${order[0]}, ${choice.model} at ${choice.effort} effort`);
     });
     // Tia OFF (or Stop this mission) pressed while this run was starting: off() and stop() saw no run of it in `live`.
     const s2 = settings();
     const m2 = readMission(p, mid);
-    if (s2.offStops && (!s2.on || (m2 && m2.state === 'stopped'))) o.runner.stop(r.run.id, OFF_STOP);
+    // An End of an Auto mission stops its session whatever "Tia OFF stops what runs" says (End always stops it).
+    if (m2 && m2.auto && m2.state === 'stopped') o.runner.stop(r.run.id, ENDED_STOP);
+    else if (s2.offStops && (!s2.on || (m2 && m2.state === 'stopped'))) o.runner.stop(r.run.id, OFF_STOP);
     r.done.then((fin) => finish(p, mid, tid, kind, fin, before)).catch((e) => log(`a mission's run could not be settled: ${e.message}`)).finally(() => {
       tok?.drop(); // however the run ended: also one that never started its coding tool
       live.delete(r.run.id);

@@ -20,10 +20,12 @@
 import { Color, Mesh, NoToneMapping, PerspectiveCamera, PlaneGeometry, SRGBColorSpace, Scene, ShaderMaterial, TextureLoader, Vector2, WebGLRenderer } from 'three';
 import { frameLoop, paceLadder, softwareRenderer, warmQueue } from './pace.mjs';
 import { focusHandler, keepPlace, showPane } from './progress.mjs';
-import { FOV, box as boxOf, camDist, frontSize, layout, pinProgress, ringState, ringT } from './ring.mjs';
+import { FOV, box as boxOf, camDist, frontSize, layout, pinProgress, ringRest, ringState, ringT } from './ring.mjs';
 
 // The bar's bottom: the stage is pinned there (story.css: top 61px).
 const BAR = 61;
+// How long the scroll stands still before a ring left in the middle of a change finishes its turn (ring.mjs ringRest).
+const REST = 250;
 
 const VERT = 'varying vec2 vUv; void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }';
 // A screen: its picture in a rounded box with a 1 px border, a soft shadow under it, a blur (from the mipmaps) and a
@@ -98,6 +100,7 @@ export async function start({ story, onSlow, onError = () => {} }) {
   let stopped = false;
   let wake = () => {};
   let movedAt = -Infinity; // when a ring last turned
+  let scrolledAt = -Infinity; // when the page last scrolled
   const warm = warmQueue({ busy: () => performance.now() - movedAt < 300 });
   const steps = [...story.querySelectorAll('.step')].map((li) => {
     const floor = li.querySelector('.floor');
@@ -130,6 +133,7 @@ export async function start({ story, onSlow, onError = () => {} }) {
       // The order the ring shows the screens in on a floor higher than wide (a phone): indexes into names.
       phoneOrder: li.dataset.phoneOrder ? li.dataset.phoneOrder.split(',').map((n) => names.indexOf(n)) : null,
       perm: '',
+      rest: ringRest(),
       camera: new PerspectiveCamera(FOV, 1, 1, 40000),
       t: -1, drawnT: undefined, now: -1, key: '', want: '', geo: '', sig: '',
     };
@@ -258,6 +262,7 @@ export async function start({ story, onSlow, onError = () => {} }) {
     const vh = innerHeight;
     const views = [];
     let turning = false;
+    let restless = false; // a scroll that just stopped in a change: the loop wakes once more when it has rested
     for (const s of steps) {
       const fr = s.box.getBoundingClientRect();
       const W = Math.round(fr.width);
@@ -269,9 +274,12 @@ export async function start({ story, onSlow, onError = () => {} }) {
       const li = s.li.getBoundingClientRect();
       // Each screen held for a stretch of the pin, the change between two short (ring.mjs ringT).
       const target = ringT(pinProgress(li.top, li.height, s.stage.offsetHeight, BAR), s.names.length);
-      // Eased toward the scroll's place (a wheel's step is a jump), and snapped when it is there.
-      s.t = s.t < 0 ? target : s.t + (target - s.t) * 0.25;
-      if (Math.abs(target - s.t) < 0.002) s.t = target;
+      // Aimed at the scroll's place, or at a screen when the scroll rests in a change; eased toward it (a wheel's step
+      // is a jump), and snapped when it is there.
+      const aim = s.rest(target, time - scrolledAt > REST);
+      s.t = s.t < 0 ? aim : s.t + (aim - s.t) * 0.25;
+      if (Math.abs(aim - s.t) < 0.002) s.t = aim;
+      if (!Number.isInteger(target) && time - scrolledAt <= REST) restless = true;
       // Turning: the ring moved since it was last drawn (a first drawing, a resize or a new picture is not).
       if (s.drawnT !== undefined && s.t !== s.drawnT) turning = true;
       views.push({ s, W, H, L });
@@ -309,14 +317,14 @@ export async function start({ story, onSlow, onError = () => {} }) {
       last = time;
       if (judged) story.dataset.motionFrameMs = judged.median.toFixed(1);
     } else last = 0;
-    return turning || thin || drew;
+    return turning || thin || drew || restless;
   }
 
   const io = new IntersectionObserver((e) => { visible = e.some((x) => x.isIntersecting); if (visible) wake(); }, { rootMargin: '20% 0px' });
   io.observe(story);
   const retheme = () => { retint(); tint++; wake(); };
   const media = matchMedia('(prefers-color-scheme: dark)');
-  const poke = () => wake();
+  const poke = () => { scrolledAt = performance.now(); wake(); };
   window.addEventListener('themechange', retheme);
   media.addEventListener('change', retheme);
   addEventListener('scroll', poke, { passive: true });

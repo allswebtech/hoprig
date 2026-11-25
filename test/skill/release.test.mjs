@@ -25,6 +25,23 @@ test('the notes are the changelog section of the tag\'s version, with full addre
   assert.equal(one.notes, 'See [Work](https://hoprig.com/docs/work/).\n');
 });
 
+test('notes longer than a release page holds are cut at a section, and the rest is named with the changelog at that tag', async () => {
+  const { fitNotes, NOTES_MAX } = await import('../../tools/release-notes.mjs');
+  assert.ok(NOTES_MAX < 125_000, 'under what a GitHub release page holds');
+  assert.equal(fitNotes('short\n\n### One\n\n- a', 'v1.2.3'), 'short\n\n### One\n\n- a', 'notes that fit are not touched');
+  const long = `An opening line.\n\n### One\n\n- ${'a'.repeat(300)}\n\n### Two\n\n- ${'b'.repeat(300)}\n\n### Three\n\n- c`;
+  const cut = fitNotes(long, 'v1.2.3', 500);
+  assert.ok(cut.startsWith('An opening line.\n\n### One\n\n- aaa'), 'the leading sections stay whole');
+  assert.ok(!cut.includes('bbb') && !cut.includes('- c'), 'a section that does not fit is left out whole, and so is every later one');
+  assert.ok(cut.endsWith('### The rest of this version\n\nThis version changed more than a release page holds. The whole list is in [the changelog](https://github.com/allswebtech/hoprig/blob/v1.2.3/site/content/changelog.md), with these sections that are not on this page: Two; Three.'));
+  // The real changelog: every released section gives notes a release page holds.
+  const changelog = fs.readFileSync(new URL('../../site/content/changelog.md', import.meta.url), 'utf8');
+  for (const [, version] of changelog.matchAll(/^## (\d+\.\d+\.\d+) \(\d/gm)) {
+    const { notes } = releaseNotes({ tag: `v${version}`, version, skillVersion: version, changelog });
+    assert.ok(notes.length < 125_000, `${version}: ${notes.length} characters`);
+  }
+});
+
 test('a tag that is not the version, a missing or empty section, or a skill package behind is refused', () => {
   assert.throws(() => releaseNotes({ ...ok, tag: version }), /not a release tag/);
   assert.throws(() => releaseNotes({ ...ok, tag: 'v99.0.0' }), /not the version in package\.json/);
@@ -101,7 +118,10 @@ test('RELEASING.md is found from CONTRIBUTING.md and the README, and says what a
 });
 
 test('the changelog tells what the skill package, the generated skill and the help fixes bring', () => {
-  const newest = changelog.slice(changelog.indexOf('\n## '), changelog.indexOf('\n## ', changelog.indexOf('\n## ') + 1));
+  // They came with 0.3.3, so its block says them (the block after it is 0.3.2).
+  const at = changelog.indexOf('\n## 0.3.3 ');
+  assert.ok(at >= 0, 'the 0.3.3 block stands');
+  const newest = changelog.slice(at, changelog.indexOf('\n## ', at + 1));
   assert.match(newest, /npx hoprig-skill --claude/);
   assert.match(newest, /made from the commands themselves/);
   assert.match(newest, /help word after a command only prints help/);

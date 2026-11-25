@@ -40,6 +40,7 @@ export const PROBES = [
   ['hoprig tools', ['tools', 'help']],
   ['hoprig pc', ['pc', 'help']],
   ['hoprig pc setup', ['pc', 'setup', '--help']],
+  ['hoprig pc leave', ['pc', 'leave', '--help']],
   ['hoprig get, project clone', ['get']],
   ['hoprig drop', ['drop', '--help']],
   ['hoprig adopt', ['adopt', '--help']],

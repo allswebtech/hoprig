@@ -226,6 +226,14 @@ export function askTitle(tool, input = {}, who = 'Claude') {
 
 // A cent or more in cents; what rounds to a cent is one (a difference of two sums is 0.0099999…, not "$0.0100").
 export const money = (n) => (n >= 0.00995 ? `$${n.toFixed(2)}` : n > 0 ? `$${n.toFixed(4)}` : '$0');
+/** US dollars cut, never rounded up (a cost or a saving read from records): to cents from $1, else to four places. */
+export function moneyCut(n) {
+  const places = n >= 1 ? 2 : 4;
+  const f = 10 ** places;
+  const cut = Math.floor(n * f + 1e-9) / f;
+  // A cost that was reported is never shown as nothing.
+  return n > 0 && cut === 0 ? 'less than $0.0001' : `$${cut.toFixed(places)}`;
+}
 export const kilo = (n) => (n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}M` : n >= 1000 ? `${(n / 1000).toFixed(n >= 10_000 ? 0 : 1)}k` : String(n));
 /** less than 1 s, 4 s, 1 min 5 s, 2 h 3 min */
 export function took(ms) {

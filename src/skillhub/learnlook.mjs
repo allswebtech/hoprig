@@ -18,10 +18,13 @@ import { fence, fenceData } from '../assistant/fence.mjs';
 import { redact } from '../assistant/secrets.mjs';
 import { HOST_WORD, cleanText } from '../work/runs.mjs';
 import { LINE_MAX } from './learnscan.mjs';
-import { CHEAPEST, specName } from './learnset.mjs';
+import { CHEAPEST, HOPRIG_LEARNED, specName } from './learnset.mjs';
 
 export const LIMITS = { brief: 4000, words: 2000, answer: 4000, files: 100, description: 1024, steps: 4000, part: 2000, body: 8000, why: 300, test: 300 };
 const RESERVED = new Set(['hoprig', 'synced', 'anthropic-skills']);
+export { HOPRIG_LEARNED };
+/** The description of hoprig-learned, which Hoprig writes (the look's own description becomes part of the lesson). */
+export const LEARNED_DESCRIPTION = 'What was learned about using Hoprig on this computer. Use together with the hoprig skill whenever Hoprig or hop is used here.';
 
 /** The four things a look is given, each cleaned again (cleaning twice changes nothing). `paths`: pathsOf(). */
 export function lookInput({ run, words = null }, paths = []) {
@@ -42,6 +45,7 @@ Rules you always keep:
 - A skill is text only: no scripts, no commands that run when the skill loads, no downloads, no reading of credentials or .env files.
 - Never name a secret, a full path of a computer, a host name, an e-mail address or a person.
 - Find before you create: when a skill that is there covers it, change that skill (kind "patch") instead of making a new one. Patch only a skill in the list you are given. Never propose a name in the "turned-down" list.
+- A lesson about using Hoprig itself (its dashboard pages, its hop or hoprig commands) goes into "hoprig-learned": answer kind "new" with name "hoprig-learned" and the lesson alone in "steps", and it is added to the lessons there; never into "hoprig", which is generated.
 - Most work shows nothing worth keeping. When in doubt, answer {"kind":"nothing"}.
 
 Answer with ONE JSON object and nothing else, in one of these shapes:
@@ -203,7 +207,7 @@ const SHAPES = {
  * `waiting`: names a draft waits for already (one draft per skill at a time); `people`: peopleIn() of the run's text.
  * Throws (rule, message) on anything else: the answer then makes no draft.
  */
-export function parseLook(raw, { skills = [], declined = [], waiting = [], people = [] } = {}) {
+export function parseLook(raw, { skills = [], declined = [], waiting = [], people = [], hoprigLearned = null } = {}) {
   const text = (v, key, max, o = {}) => checkText(v, key, max, { ...o, people });
   let s = String(raw ?? '').trim();
   const fenced = /^```(?:json)?\n([\s\S]*)\n```$/.exec(s);
@@ -221,6 +225,8 @@ export function parseLook(raw, { skills = [], declined = [], waiting = [], peopl
   const why = text(v.why, 'why', LIMITS.why, { oneLine: true });
   if (!Array.isArray(v.tests) || v.tests.length < 2 || v.tests.length > 3) throw refuse('tests', 'two or three test requests are needed');
   const tests = v.tests.map((t, i) => text(t, `tests[${i}]`, LIMITS.test, { min: 5, oneLine: true }));
+  const aimed = v.kind === 'patch' ? v.skill : v.name;
+  if (hoprigLearned && (aimed === 'hoprig' || aimed === HOPRIG_LEARNED)) return lessonOf(v, { why, tests, text, waiting, hoprigLearned });
   if (v.kind === 'patch') {
     if (typeof v.skill !== 'string' || !skills.includes(v.skill)) throw refuse('not-shown', 'the answer changes a skill it was not shown');
     if (waiting.includes(v.skill)) throw refuse('waiting', `a draft for "${v.skill}" waits for you already`);
@@ -246,22 +252,58 @@ export function parseLook(raw, { skills = [], declined = [], waiting = [], peopl
   return { kind: 'new', name: v.name, description, body, why, tests };
 }
 
+/**
+ * A lesson about using Hoprig itself (the answer names hoprig or hoprig-learned) → a draft for hoprig-learned: a new
+ * skill the first time, after that a change that adds the lesson below the ones there. The generated hoprig skill is
+ * never the target. `hoprigLearned`: { body } (its body now, null when it is not there) and `blocked` when its folder
+ * is there but a look may not change it (his uncommitted change, not kept in git). The lesson is checked as any
+ * draft's text is; `lesson` stays with the draft, so a discarded lesson is known by itself (learnset.mjs ideaKey).
+ */
+function lessonOf(v, { why, tests, text, waiting, hoprigLearned }) {
+  if (hoprigLearned.blocked) throw refuse('yours', `"${HOPRIG_LEARNED}" has changes of yours not committed, or is not kept in the AI brain's git: commit them first`);
+  if (waiting.includes(HOPRIG_LEARNED)) throw refuse('waiting', `a draft for "${HOPRIG_LEARNED}" waits for you already`);
+  let lesson;
+  if (v.kind === 'patch') {
+    let body = text(v.body, 'body', LIMITS.body);
+    if (/^---\s*$/.test(body.split('\n')[0])) throw refuse('front-matter', 'the new text starts with front matter');
+    // A change of hoprig-learned may hold its whole text again: only what comes after the lessons there is new.
+    const was = hoprigLearned.body;
+    if (was && body.startsWith(was)) body = body.slice(was.length).replace(/^\s*(## Lesson\s*)?/, '').trim();
+    if (!body) throw refuse('empty', '"body" adds no lesson');
+    lesson = body;
+  } else {
+    const parts = [text(v.description, 'description', LIMITS.description, { oneLine: true }), text(v.steps, 'steps', LIMITS.steps),
+      text(v.examples, 'examples', LIMITS.part, { optional: true }), text(v.edgeCases, 'edgeCases', LIMITS.part, { optional: true })];
+    lesson = parts.filter(Boolean).join('\n\n');
+  }
+  const section = `## Lesson\n\n${lesson}`;
+  if (hoprigLearned.body) {
+    const body = `${hoprigLearned.body}\n\n${section}`;
+    if (body.length > LIMITS.body) throw refuse('too-long', `"${HOPRIG_LEARNED}" would be longer than ${LIMITS.body} characters: take lessons out of it first`);
+    return { kind: 'patch', target: HOPRIG_LEARNED, body, lesson, why, tests };
+  }
+  const body = ['# Hoprig learned', '', '## When to use', '', LEARNED_DESCRIPTION, '', section].join('\n');
+  return { kind: 'new', name: HOPRIG_LEARNED, description: LEARNED_DESCRIPTION, body, lesson, why, tests };
+}
+
 // ---------- the model turn ----------
 
 const EFFORTS = ['low', 'medium', 'high'];
 
 /** Claude Code's arguments for a turn that can only answer. `effort`: low, medium or high (none: Claude Code's own). */
-export function turnArgs({ system, model, effort = null }) {
+export function turnArgs({ system, model, effort = null, maxBudgetUsd = null }) {
   return ['-p', '--output-format', 'json', '--system-prompt', system, '--tools', '', '--strict-mcp-config', '--setting-sources', '',
     '--disable-slash-commands', '--permission-mode', 'dontAsk', '--no-session-persistence', '--model', model,
-    ...(EFFORTS.includes(effort) ? ['--effort', effort] : [])];
+    ...(EFFORTS.includes(effort) ? ['--effort', effort] : []),
+    // The most the turn may spend (its hold): Claude Code ends the turn there.
+    ...(Number.isFinite(maxBudgetUsd) && maxBudgetUsd > 0 ? ['--max-budget-usd', String(maxBudgetUsd)] : [])];
 }
 
 /**
  * One headless turn on provider `provider` → { ok, text, usd, tokens, error? }. The prompt goes on standard input
  * (never on the command line). `o.resolveEnv`, `o.spawnImpl`: tests.
  */
-export async function claudeTurn({ provider, model, system, prompt, timeoutMs = 180_000, effort = null, fixedPrefix = false }, o = {}) {
+export async function claudeTurn({ provider, model, system, prompt, timeoutMs = 180_000, effort = null, fixedPrefix = false, maxBudgetUsd = null }, o = {}) {
   let env;
   try {
     env = await (o.resolveEnv || engineEnv)(provider);
@@ -276,7 +318,7 @@ export async function claudeTurn({ provider, model, system, prompt, timeoutMs = 
   // turn runs in an empty folder of the system's temporary folder instead, removed when it ends. (On Windows that
   // temporary folder is in the home too; there the account name still goes with it.)
   const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'hoprig-look-'));
-  const plan = claudeCommand(turnArgs({ system, model, effort }), env);
+  const plan = claudeCommand(turnArgs({ system, model, effort, maxBudgetUsd }), env);
   return new Promise((done) => {
     const resolve = (v) => {
       fs.rmSync(cwd, { recursive: true, force: true });

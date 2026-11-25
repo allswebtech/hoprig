@@ -32,6 +32,11 @@
 //   fvm                  https://fvm.app/documentation/getting-started/installation: `dart pub global activate fvm`, for the
 //                        user (no administrator rights; it lands in ~/.pub-cache/bin). Its Homebrew tap is a package source
 //                        of its own, so it is not used.
+//   Flutter              https://docs.flutter.dev/install/archive links Flutter's own release lists
+//                        (releases_linux.json, releases_macos.json): the current stable release (`current_release.stable`),
+//                        its archive and sha256. The lists give no size: the Linux 3.50.1 archive was 1,518,418,752 bytes
+//                        (a HEAD request, 24 Nov 2026). The Linux packages Flutter needs: https://docs.flutter.dev/install/manual
+//                        ("curl git unzip xz-utils zip libglu1-mesa", read 24 Nov 2026), shown for the owner to install.
 //   winget ids           https://github.com/microsoft/winget-pkgs (manifests/<letter>/<Publisher>/<Name>)
 //   VS Build Tools       winget id Microsoft.VisualStudio.BuildTools (2026); workload id Microsoft.VisualStudio.Workload.VCTools
 //                        https://learn.microsoft.com/visualstudio/install/workload-component-id-vs-build-tools
@@ -39,7 +44,26 @@
 export const NVM_VERSION = 'v0.40.8'; // the same pinned release as install.sh
 export const NVM_INSTALL = `https://raw.githubusercontent.com/nvm-sh/nvm/${NVM_VERSION}/install.sh`;
 export const BREW_INSTALL = '/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"';
+import { DEV_PLACES } from '../workspace/layout.mjs';
+import { shellValue } from '../setup/localbin.mjs';
+
 const GH_KEYRING = '/etc/apt/keyrings/githubcli-archive-keyring.gpg';
+
+/**
+ * Flutter's checked download (fetchkit.mjs): ONLY this data names its addresses. `list` has `<os>` for linux or macos;
+ * the archive is taken from the list, on `host` over https. `ceiling` is the most a download may be (the list gives no
+ * size); `download` and `disk` are what the page and the plan say, as "about".
+ */
+export const FLUTTER = Object.freeze({
+  host: 'storage.googleapis.com',
+  list: 'https://storage.googleapis.com/flutter_infra_release/releases/releases_<os>.json', // https://docs.flutter.dev/install/archive
+  listCeiling: 8_000_000, // the Linux list was 273,704 bytes on 24 Nov 2026
+  ceiling: 3_000_000_000,
+  download: 1_600_000_000, // Linux 3.50.1: 1,518,418,752 bytes
+  disk: 3_000_000_000, // an estimate (Flutter publishes none): the unpacked SDK, before its first run fills bin/cache
+  unpackCeiling: 6_000_000_000, // the most an archive may unpack to (the sum of its entries' sizes): twice `disk`
+  packages: ['curl', 'git', 'unzip', 'xz-utils', 'zip', 'libglu1-mesa'], // https://docs.flutter.dev/install/manual (apt)
+});
 const GH_REPO_RPM = 'https://cli.github.com/packages/rpm/gh-cli.repo';
 
 /** End of life per major, from the projects' own schedules. A version past its date is "old". */
@@ -149,6 +173,7 @@ export const KITS = [
       ? 'MariaDB is a database that runs in the background. Hoprig does not start it; to start it now and with the computer, run:'
       : 'MariaDB is a service: it starts now and with the computer, and keeps running in the background.'),
     start: mariadbStart,
+    folder: 'database-mysql', // the workspace's folder for MariaDB, made with it (workspace/kitfolder.mjs)
     items: [
       { id: 'php', name: 'PHP (command line)', bins: ['php'], detect: (sys) => import('./detect.mjs').then((d) => d.detectPhp(sys)), packages: { apt: ['php-cli'], dnf: ['php-cli'], yum: ['php-cli'], pacman: ['php'], zypper: ['php8'], apk: ['php85'], brew: ['php'] } },
       // Composer runs `sudo -K` before any command, its version too, and so would end the person's sudo sign-in on
@@ -172,6 +197,22 @@ export const KITS = [
         detect: (sys) => import('./detect.mjs').then((d) => d.detectFvm(sys)),
         steps: (sys) => (sys.has && sys.has('dart') ? [{ argv: ['dart', 'pub', 'global', 'activate', 'fvm'], admin: false, why: 'fvm with Dart, for you only' }] : null),
         cannot: () => 'Install Flutter first; fvm comes with Flutter\'s dart command.',
+      },
+    ],
+  },
+  {
+    id: 'flutter',
+    title: 'Flutter',
+    summary: 'Google\'s Flutter SDK (the stable release) for apps on phones, the web and desktops, in the workspace\'s development/flutter/flutter. A Flutter that is here already is used where it is. Optional.',
+    defaultOn: false,
+    windows: false,
+    after: 'Open a new terminal so it finds flutter (its bin folder is on PATH in your shell start files).',
+    items: [
+      {
+        id: 'flutter', name: 'Flutter', bins: ['flutter'],
+        detect: (sys) => import('./devplaces.mjs').then((d) => d.detectFlutter(sys)),
+        steps: flutterSteps,
+        cannot: (sys) => (!sys.ws ? 'Set up the workspace first (hoprig workspace setup): Flutter goes into its development/ folder.' : `Flutter publishes no archive for this computer's CPU (${sys.arch}): see https://docs.flutter.dev/install for other ways.`),
       },
     ],
   },
@@ -220,11 +261,97 @@ const wingetInstall = (id) => ['winget', 'install', '-e', '--id', id, '--accept-
 
 function nodeSteps(sys) {
   if (sys.platform === 'win32' || sys.pm === 'apk') return null; // winget id / apk packages
+  // A workspace and no nvm anywhere: the new nvm goes to its place in development/ (NVM_DIR set for these steps only;
+  // nvm's install.sh wants the folder to exist). The place comes in as an argument ($1), never inside the script.
+  if (sys.nvm && sys.nvm.newAt) {
+    return [
+      { argv: ['bash', '-c', `mkdir -p "$1" && export NVM_DIR="$1" && { [ -s "$NVM_DIR/nvm.sh" ] || curl -o- ${NVM_INSTALL} | bash; }`, 'bash', sys.nvm.newAt], admin: false, nvmDir: sys.nvm.newAt, why: `nvm ${NVM_VERSION}, for you only, into ${DEV_PLACES.nvm.rel}` },
+      { argv: ['bash', '-c', 'export NVM_DIR="$1"; . "$NVM_DIR/nvm.sh" && nvm install --lts', 'bash', sys.nvm.newAt], admin: false, nvmDir: sys.nvm.newAt, why: 'Node.js LTS with nvm' },
+    ];
+  }
   const nvmDir = '"${NVM_DIR:-$HOME/.nvm}"';
   return [
     { argv: ['bash', '-c', `[ -s ${nvmDir}/nvm.sh ] || curl -o- ${NVM_INSTALL} | bash`], admin: false, why: `nvm ${NVM_VERSION}, for you only` },
     { argv: ['bash', '-c', `export NVM_DIR=${nvmDir}; . "$NVM_DIR/nvm.sh" && nvm install --lts`], admin: false, why: 'Node.js LTS with nvm' },
   ];
+}
+
+/** A path for people: the home folder as "~". */
+const tildeAt = (p, home) => (home && (p === home || p.startsWith(`${home}/`)) ? `~${p.slice(home.length)}` : p);
+const sizeAbout = (n) => (n >= 1e9 ? `about ${Math.round(n / 1e8) / 10} GB` : `about ${Math.round(n / 1e6)} MB`);
+
+/**
+ * The Flutter kit's install: one step that is not a command (`do`, run inside Hoprig by devinstall.mjs). Only with a
+ * workspace (it goes into development/), and only where Flutter publishes an archive for this CPU.
+ */
+function flutterSteps(sys) {
+  if (sys.platform === 'win32' || !sys.ws) return null;
+  if (!(sys.arch === 'x64' || (sys.platform === 'darwin' && sys.arch === 'arm64'))) return null;
+  const place = `${sys.ws}/${DEV_PLACES.flutter.rel}`;
+  const os = sys.platform === 'darwin' ? 'macos' : 'linux';
+  return [{
+    do: 'flutter', admin: false, why: 'Flutter, the stable release',
+    words: `download Flutter's current stable release (the one ${FLUTTER.list.replace('<os>', os)} names) from ${FLUTTER.host} over https, ${sizeAbout(FLUTTER.download)} (${sizeAbout(FLUTTER.disk)} on disk), check its sha256, unpack it into ${tildeAt(place, sys.home)}`,
+    download: { what: 'Flutter\'s current stable release', host: FLUTTER.host, list: FLUTTER.list.replace('<os>', os), download: FLUTTER.download, disk: FLUTTER.disk, checksum: 'sha256' },
+    place, ws: sys.ws, home: sys.home, platform: sys.platform, arch: sys.arch, data: FLUTTER, tools: { platform: sys.platform, has: sys.has },
+  }];
+}
+
+/** Titles as one list in words: "A", "A and B", "A, B and C". */
+export const listWords = (xs) => (xs.length > 1 ? `${xs.slice(0, -1).join(', ')} and ${xs.at(-1)}` : xs.join(''));
+
+/** The line a step is shown as: its command, or for a step Hoprig runs itself, its words. */
+export const stepLine = (s, show) => (s.argv ? show(s.argv) : `(Hoprig) ${s.words}`);
+
+/**
+ * What a chosen kit adds in development/ beyond its installs: the adoption link of a tool found elsewhere (only where
+ * the place does not exist), and the kits block's shell lines that are not in the start files yet (`sys.blockHas`).
+ */
+// A folder whose path holds a character a shell would read (a quote, `$(`, a backtick, a space) gets no line: it is
+// said in `cannot`, with a line in single quotes for the owner to add himself.
+function devSteps(id, results, plan, sys, named, cannot = []) {
+  if (!sys.ws || sys.platform === 'win32') return [];
+  const out = [];
+  const lines = [];
+  const add = (l, p) => {
+    const value = shellValue(p, sys.home);
+    if (value !== null) return lines.push({ ...l, value });
+    const q = `'${p.replace(/'/g, `'\\''`)}'`;
+    const own = l.prepend ? `PATH=${q}:"$PATH"; export PATH` : `export ${l.var}=${q}`;
+    cannot.push({ kit: id, item: `${l.key}-line`, name: `the shell line for ${l.prepend ? `${tildeAt(p, sys.home)} on PATH` : l.var}`, why: `${tildeAt(p, sys.home)} holds a character a shell would read (a quote, $, a backtick, a space or another), so Hoprig writes no line for it. Add it to your shell start files yourself if you want it: ${own}` });
+  };
+  const base = { admin: false, kit: id, ws: sys.ws, home: sys.home, platform: sys.platform, shell: (sys.env || {}).SHELL || '' };
+  // A link only for a kit the owner named (a tick, --kits, a recipe), never for one set-up picked by itself.
+  const link = (a, name, item) => named.includes(id) && out.push({
+    ...base, do: 'link', items: [item], from: a.from, place: a.place, why: `${name} found at ${tildeAt(a.from, sys.home)}: used where it is`,
+    words: `make ${a.rel} a link to ${tildeAt(a.from, sys.home)} (nothing of it is moved, copied or changed)`,
+  });
+  if (id === 'flutter') {
+    const r = (results || []).find((x) => x.id === 'flutter') || {};
+    if (r.adopt) link(r.adopt, 'Flutter', 'flutter');
+    // An adopted Flutter is reached through its link: without the link (a kit not named) no line points at the place.
+    const coming = (r.state === 'ok' && (!r.adopt || named.includes(id))) || plan.steps.some((s) => s.do === 'flutter');
+    if (coming && r.shellLine) add({ key: 'flutter', var: 'PATH', prepend: true }, `${sys.ws}/${DEV_PLACES.flutter.rel}/bin`);
+  }
+  if (id === 'node' && sys.nvm) {
+    // An nvm found elsewhere keeps its own lines (they set NVM_DIR to where it is): only the link is added. A new one
+    // at the place, or one that is there already, gets NVM_DIR in the block.
+    if (sys.nvm.adopt) link(sys.nvm.adopt, 'nvm', 'node');
+    const fresh = sys.nvm.newAt && plan.steps.some((s) => s.nvmDir === sys.nvm.newAt);
+    if (fresh || (sys.nvm.from === 'workspace' && sys.nvm.placeKind === 'folder')) add({ key: 'nvm', var: 'NVM_DIR' }, `${sys.ws}/${DEV_PLACES.nvm.rel}`);
+  }
+  if (id === 'fvm') {
+    const r = (results || []).find((x) => x.id === 'fvm') || {};
+    if (r.state === 'ok' || plan.steps.length) add({ key: 'fvm', var: 'FVM_CACHE_PATH' }, `${sys.ws}/${DEV_PLACES.fvm.rel}`);
+  }
+  const due = typeof sys.blockHas === 'function' ? lines.filter((l) => !sys.blockHas(l)) : [];
+  if (due.length) {
+    out.push({
+      ...base, do: 'shell', items: [], lines: due, why: 'the kits block in your shell start files',
+      words: `write ${due.map((l) => (l.prepend ? `${l.value} on PATH` : `${l.var}=${l.value}`)).join(', ')} into the hoprig kits block of your shell start files (once, replaced in place)`,
+    });
+  }
+  return out;
 }
 
 /** Whether this runs in an SSH session (OpenSSH for Windows sets these as it does elsewhere). */
@@ -349,7 +476,7 @@ export function kitSteps(kit, missing, sys) {
     if (item.kind) continue; // identity and sign-in are asked, not installed
     const custom = item.steps ? item.steps(sys) : null;
     if (custom) {
-      const key = JSON.stringify(custom.map((s) => s.argv));
+      const key = JSON.stringify(custom.map((s) => s.argv || s.do));
       if (!seen.has(key)) {
         seen.add(key);
         steps.push(...custom.map((s) => ({ ...s, items: [item.id] })));
@@ -380,7 +507,8 @@ export function kitSteps(kit, missing, sys) {
  * lists are refreshed once at the start (on a fresh machine they are empty); Homebrew is installed first on a Mac
  * without it. Returns { steps, cannot, admin }.
  */
-export function buildPlan(kitIds, found, sys, { extra = {} } = {}) {
+// `named`: the kits the owner named (a tick, --kits, a recipe): only those adopt a tool by a link in development/.
+export function buildPlan(kitIds, found, sys, { extra = {}, named = [] } = {}) {
   const steps = [];
   const cannot = [];
   let brewFirst = false;
@@ -395,15 +523,16 @@ export function buildPlan(kitIds, found, sys, { extra = {} } = {}) {
     // `extra`: steps a kit adds for this computer (another PHP series a project needs, optional.mjs), after its own.
     const more = (extra[id] || []).map((s) => ({ ...s, kit: id }));
     if (!missing.length) {
-      steps.push(...more);
+      steps.push(...more, ...devSteps(id, found[id], { steps: more }, sys, named, cannot));
       continue;
     }
     if (sys.platform === 'darwin' && sys.pm !== 'brew' && missing.some((i) => !i.kind && i.packages && i.packages.brew && !(i.steps && i.steps(sys)))) brewFirst = true;
     const plan = kitSteps(kit, missing, { ...sys, pm: sys.platform === 'darwin' && brewFirst ? 'brew' : sys.pm });
-    steps.push(...plan.steps.map((s) => ({ ...s, kit: id })), ...more);
+    const own = plan.steps.map((s) => ({ ...s, kit: id }));
+    steps.push(...own, ...more, ...devSteps(id, found[id], { steps: own }, sys, named, cannot));
     cannot.push(...plan.cannot.map((i) => ({ kit: id, item: i.id, name: i.name, why: i.cannot ? i.cannot(sys) : null })));
   }
-  if (sys.pm === 'apt' && steps.some((s) => s.argv.includes('apt-get') && s.argv.includes('install'))) {
+  if (sys.pm === 'apt' && steps.some((s) => s.argv && s.argv.includes('apt-get') && s.argv.includes('install'))) {
     steps.unshift({ argv: aptUpdate(sys), admin: !sys.root, kit: null, items: [], why: 'refresh the package lists' });
   }
   if (brewFirst) steps.unshift({ argv: ['/bin/bash', '-c', BREW_INSTALL], admin: false, interactive: true, kit: null, items: ['brew'], why: 'Homebrew (https://brew.sh); it asks for your password itself' });

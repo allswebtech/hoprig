@@ -5,15 +5,18 @@
 // (GET /api/models/others: its coding tools, billed by use or not, its limit as last known).
 import { api, fill, h, link } from './lib.js';
 import { MODE } from './chat/words.js';
+import { helpParts } from './helpline.js';
 
 export const LEAD_LABEL = 'Lead model';
-export const LEAD_HELP = 'The model you chose plans the work and hands easy parts to a faster model, code to a strong one.';
 export const OTHERS_LABEL = 'Use other providers';
 export const OTHERS_HELP = 'The lead may also hand a part to a provider you tick below.';
 export const OTHERS_NONE = 'Tick at least one provider: with none ticked, this stays off.';
 // What Lead costs, as measured on a small task of three parts: 3.3 times the tokens of the same task without it, and
-// 5.7 times with one part handed to another provider.
-export const LEAD_COST = 'It pays on work with parts that can be done apart. On a small task it costs more: three to six times as much in our tests.';
+// 5.7 times with one part handed to another provider. The cost stands in the one line under the switch (never folded
+// away); how it works is under "More".
+export const LEAD_COST = 'on a small task it costs more, three to six times in our tests.';
+export const LEAD_HELP = `Your model hands parts to other models; ${LEAD_COST}`;
+export const LEAD_MORE = 'The model you chose plans the work and hands easy parts to a faster model, code to a strong one. It pays on work with parts that can be done apart.';
 // A terminal session of Claude Code: Hoprig sees a part's model and tokens in Claude Code's records, but not what it
 // cost (only the App reads Claude Code's cost), and a part on another provider is an App session of the lead's App
 // session. So it shows Lead off there, with this line, rather than half of it.
@@ -49,8 +52,7 @@ function switchRow(label, hint, o) {
       input.checked = !input.checked;
       o.onchange(input.checked);
     } });
-  const hints = (Array.isArray(hint) ? hint : [hint]).filter(Boolean).map((x) => h('span.hint', x));
-  return { input, el: h('label.switchrow', h('span.switchrow-text', h('span.switchrow-label', label), ...hints), input) };
+  return { input, el: h('label.switchrow', h('span.switchrow-text', h('span.switchrow-label', label), ...helpParts(hint, { input, label })), input) };
 }
 
 /**
@@ -67,7 +69,7 @@ export function leadSwitch(o) {
   const billed = o.billed || ((p) => p.paid === true);
   const line = h('span.hint.lead-line', { role: 'status', style: { whiteSpace: 'pre-line' } }); // one short line per tier
   const othersSlot = h('div.lead-others');
-  const lead = switchRow(LEAD_LABEL, [LEAD_HELP, LEAD_COST], { checked: o.value && !o.off, disabled: tool !== 'claude' || !!o.off, key, onchange: (on) => {
+  const lead = switchRow(LEAD_LABEL, { line: LEAD_HELP, more: LEAD_MORE }, { checked: o.value && !o.off, disabled: tool !== 'claude' || !!o.off, key, onchange: (on) => {
     o.onchange(on);
     say();
     drawOthers(on);
@@ -92,7 +94,9 @@ export function leadSwitch(o) {
     const list = h('div.checks.lead-ticks', h('span.hint', 'Asking for your providers…'));
     const none = h('span.hint.lead-none', { role: 'status' });
     const sayNone = () => (none.textContent = useOthers && !ticks.length ? OTHERS_NONE : '');
-    const sw = switchRow(OTHERS_LABEL, [OTHERS_HELP, partModeHint(o.partMode || null, o.modes || null)], { checked: useOthers, key: `${key}-others`, onchange: (v) => {
+    // The mode parts run in changes with the session's mode: a line of its own under the switch, never folded away.
+    const mode = h('span.hint.lead-mode', partModeHint(o.partMode || null, o.modes || null));
+    const sw = switchRow(OTHERS_LABEL, OTHERS_HELP, { checked: useOthers, key: `${key}-others`, onchange: (v) => {
       useOthers = v;
       o.onothers(useOthers ? ticks : [], true);
       list.classList.toggle('hidden', !useOthers);
@@ -101,7 +105,7 @@ export function leadSwitch(o) {
     // The ticks are all this switch does: shown right under it while it is on, never folded away.
     list.classList.toggle('hidden', !useOthers);
     sayNone();
-    fill(othersSlot, sw.el, list, none);
+    fill(othersSlot, sw.el, mode, list, none);
     const q = o.provider ? `?provider=${encodeURIComponent(o.provider)}` : '';
     api(at(`/api/models/others${q}`)).then((r) => {
       // A tick on a name that is no longer another provider for Claude Code (removed under Providers, or a tick from

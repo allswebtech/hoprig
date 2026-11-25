@@ -64,8 +64,8 @@ test('the first run on a fresh server: each thing left to the person is said onc
   assert.doesNotMatch(before, /will set up.*\n?.*GitHub|GitHub[^\n]*will set up/, 'what --yes never sets up is not "will set up"');
   for (const said of [/commit name and e-mail not set/i, /commits need your name/i, /not signed in to GitHub/i, /GitHub: not signed in/, /GitHub: still missing/, /gh auth login/, /git config --global user\.name "/]) assert.doesNotMatch(before, said, `said before the list:\n${before}`);
   assert.equal(list.filter((l) => l.startsWith('· Your name and e-mail for commits:')).length, 1, list.join('\n'));
-  assert.equal(list.filter((l) => l === '· Sign in to GitHub: gh auth login').length, 1, list.join('\n'));
-  assert.equal(list.filter((l) => l === '· Sign in to Claude Code: run claude, then type /login').length, 1, list.join('\n'));
+  assert.equal(list.filter((l) => l === '· Sign in to GitHub: On the dashboard: Home → Get started → Set up git and GitHub. Or only here, on this computer: gh auth login').length, 1, list.join('\n'));
+  assert.equal(list.filter((l) => l === '· Sign in to Claude Code: On the dashboard: Home → Get started → Sign in to Claude. Or only here, on this computer: run claude, then type /login').length, 1, list.join('\n'));
 });
 
 test('the brain\'s first commit waits for the git name and e-mail: a short mark, and one item after theirs, on both runs', async () => {
@@ -83,7 +83,7 @@ test('lingering refused: listed among the steps, its command in the closing list
   assert.match(first.before, /Will run.*\n(?:.*\n)*? {4}sudo loginctl enable-linger alex\n/);
   assert.match(first.before, /! The dashboard stops when you log out: lingering is off\n/);
   assert.doesNotMatch(first.text, /starts with the computer/);
-  assert.equal(first.list.filter((l) => l === '· Keep the dashboard running after you log out (lingering): sudo loginctl enable-linger alex').length, 1, first.list.join('\n'));
+  assert.equal(first.list.filter((l) => l === '· Keep the dashboard running after you log out (lingering): On the dashboard: Computers → this computer → Health → Let them start after a restart. Or only here, on this computer: sudo loginctl enable-linger alex').length, 1, first.list.join('\n'));
 });
 
 test('every program set-up starts runs with the working locale (C.UTF-8, no LC_ALL)', () => {

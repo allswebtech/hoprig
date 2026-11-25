@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import test from 'node:test';
-import { FILE_TOOLS, ROLES_DIR, ROLE_NAMES, choiceOf, loadRoles, parseRole, takeOf, toolsFor } from '../../src/mission/roles.mjs';
+import { FILE_TOOLS, ROLES_DIR, ROLE_NAMES, RUNS, choiceOf, loadRoles, parseRole, runsWords, takeOf, toolsFor } from '../../src/mission/roles.mjs';
 import { mayDo } from '../../src/mission/seam.mjs';
 
 test('the six roles ship as files and read strictly; each says what it is for, may touch, never does and how it is checked', () => {
@@ -31,6 +31,28 @@ test('the six roles ship as files and read strictly; each says what it is for, m
   assert.match(takeOf('me').his, /only you can do it/);
   assert.equal(takeOf('social').role, null, 'nor one the plan gives to someone she is not');
   assert.equal(takeOf('reviewer').role, null, 'a plan\'s review task is not a work session: the mission reviews every task itself');
+});
+
+test('a role file names what it runs from a closed set: developer, tester and ops run tests, build and scripts; the others nothing', () => {
+  assert.deepEqual(RUNS, ['tests', 'build', 'scripts']);
+  const roles = loadRoles();
+  for (const n of ['developer', 'tester', 'ops']) assert.deepEqual(roles.get(n).runs, ['tests', 'build', 'scripts'], n);
+  for (const n of ['writer', 'researcher', 'reviewer']) assert.deepEqual(roles.get(n).runs, [], n);
+  const good = fs.readFileSync(`${ROLES_DIR}/developer/ROLE.md`, 'utf8');
+  assert.throws(() => parseRole(good.replace(/^runs: .*$/m, ''), 'developer'), /line that is no "key: value"|has no "runs"/);
+  assert.throws(() => parseRole(good.replace(/^runs: .*\n/m, ''), 'developer'), /has no "runs"/);
+  for (const bad of ['tests,deploy', 'npm test', 'tests,tests', 'Tests', 'build;scripts', 'scripts(lint)']) {
+    assert.throws(() => parseRole(good.replace(/^runs: .*$/m, `runs: ${bad}`), 'developer'), /bad "runs"/, bad);
+  }
+  assert.deepEqual(parseRole(good.replace(/^runs: .*$/m, 'runs: build'), 'developer').runs, ['build']);
+  assert.deepEqual(parseRole(good.replace(/^runs: .*$/m, 'runs: '), 'developer').runs, []);
+  const reviewer = fs.readFileSync(`${ROLES_DIR}/reviewer/ROLE.md`, 'utf8');
+  assert.throws(() => parseRole(reviewer.replace(/^runs: .*$/m, 'runs: tests'), 'reviewer'), /may not write and still runs/);
+  // In plain words, as the Team tab shows them.
+  assert.equal(runsWords(['tests', 'build', 'scripts']), 'May run: the project\'s tests, its build and its scripts, in a box: no network, only its own folder.');
+  assert.equal(runsWords(['tests', 'build']), 'May run: the project\'s tests and its build, in a box: no network, only its own folder.');
+  assert.equal(runsWords(['tests']), 'May run: the project\'s tests, in a box: no network, only its own folder.');
+  assert.equal(runsWords([]), 'Runs nothing: it has the file tools only.');
 });
 
 test('a broken role file is refused: an unknown key, a missing key, a reviewer that may write', () => {

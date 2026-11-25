@@ -90,8 +90,8 @@ test('GET /api/pcsetup/kits: the new kits unticked by default, with the suggesti
 test('Windows: the new kits are not offered, and the page is told so in one line', async () => {
   const { call } = harness({ platform: 'win32', pm: 'winget' });
   const d = await call('GET', '/api/pcsetup/kits');
-  assert.ok(!d.kits.some((k) => ['php', 'fvm'].includes(k.id)));
-  assert.deepEqual(d.notCovered, ['PHP + database', 'Flutter versions (fvm)']);
+  assert.ok(!d.kits.some((k) => ['php', 'fvm', 'flutter'].includes(k.id)));
+  assert.deepEqual(d.notCovered, ['PHP + database', 'Flutter versions (fvm)', 'Flutter']);
   assert.match(d.java.text, /not looked for on Windows/);
 });
 
@@ -169,7 +169,7 @@ test('the page\'s summary: a PHP note or the Java line is never "to fix"; status
   assert.equal(setupSummary([...notes, { group: 'kit:docker', id: 'docker.docker', label: 'Docker', status: 'info', detail: '', setupKit: 'docker' }]).offers.length, 1);
   assert.equal(s.text, 'Everything needed is installed');
   const win = extraChecks({ php: [], java: null }, 'win32');
-  assert.deepEqual(win.map((c) => c.detail), ['PHP + database and Flutter versions (fvm): not covered on Windows (Hoprig does not set them up there)']);
+  assert.deepEqual(win.map((c) => c.detail), ['PHP + database, Flutter versions (fvm) and Flutter: not covered on Windows (Hoprig does not set them up there)']);
 });
 
 test('the sheet keeps the Java line\'s height: in its flex column a .rows list would shrink to nothing (seen in a browser)', () => {
@@ -227,4 +227,33 @@ test('a Java that works beside a JAVA_HOME that does not: a warning note, so the
   // Without JAVA_HOME the same Java is fine and needs no line.
   const fine = checksOf({ php: [], java: await findJava({ ...sys, env: {} }) }, 'linux').find((x) => x.id === 'java');
   assert.deepEqual([fine.status, fine.fix], ['ok', '']);
+});
+
+test('the kits route says, for Flutter: what it downloads and from which host, about how big, what it changes, what was found', async () => {
+  const ws = path.join(tmp, 'ws');
+  fs.mkdirSync(ws, { recursive: true });
+  const real = { ws, blockHas: () => false, has: (b) => ['tar', 'xz', 'sudo', 'curl', 'git', 'unzip', 'zip'].includes(b), exists: (f) => fs.existsSync(f) };
+  const fresh = (await harness(real).call('GET', '/api/pcsetup/kits')).kits.find((k) => k.id === 'flutter');
+  assert.equal(fresh.defaultOn, false);
+  assert.deepEqual(fresh.downloads.map((d) => [d.host, d.checksum, d.text]), [['storage.googleapis.com', 'sha256', "Flutter's current stable release, from storage.googleapis.com over https (checked against its sha256)"]]);
+  assert.equal(fresh.size.text, 'about 1.6 GB to download, about 3 GB on disk');
+  assert.deepEqual(fresh.changes, [`a new folder ${ws}/development/flutter/flutter`, `these lines in the hoprig kits block of your shell start files: case ":$PATH:" in *":${ws}/development/flutter/flutter/bin:"*) ;; *) PATH="${ws}/development/flutter/flutter/bin:$PATH"; export PATH ;; esac  # flutter`]);
+  assert.deepEqual(fresh.found, []);
+  assert.deepEqual(fresh.yours.map((y) => y.command), [undefined], 'pacman: the packages are named, with no apt command');
+  assert.match(fresh.yours[0].text, /libglu1-mesa/);
+  // A Flutter in ~/flutter: found and shown with ~, used where it is; nothing is downloaded.
+  const own = path.join(process.env.HOME, 'flutter');
+  fs.mkdirSync(path.join(own, 'bin'), { recursive: true });
+  fs.writeFileSync(path.join(own, 'bin', 'flutter'), '#!/bin/sh\n', { mode: 0o755 });
+  fs.writeFileSync(path.join(own, 'version'), '3.41.2\n');
+  try {
+    const found = (await harness(real).call('GET', '/api/pcsetup/kits')).kits.find((k) => k.id === 'flutter');
+    assert.deepEqual(found.found, [{ name: 'Flutter', where: '~/flutter', version: '3.41.2', text: 'found at ~/flutter: used where it is' }]);
+    assert.deepEqual(found.downloads, []);
+    assert.equal(found.size, null);
+    assert.equal(found.changes[0], `${ws}/development/flutter/flutter becomes a link to ~/flutter (nothing of it is moved, copied or changed)`);
+    assert.ok(!fs.existsSync(path.join(ws, 'development')), 'the route only looks: no link was made');
+  } finally {
+    fs.rmSync(own, { recursive: true, force: true });
+  }
 });

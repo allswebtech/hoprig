@@ -75,6 +75,7 @@ const SCREEN_LINES = 80;
 import { killProcess, power, snapshot } from './platform.mjs';
 import { machinesFeature } from '../machines/index.mjs';
 import { healthFeature } from '../machines/health.mjs';
+import { ownLinePage } from '../machines/healthline.mjs';
 import { gatewayHostFeature } from '../addons/gatewayhost.mjs';
 import { confirmedCard } from '../assistant/confirmed.mjs';
 import { assistantFeature } from '../assistant/feature.mjs';
@@ -90,7 +91,9 @@ import { skillhubFeature } from '../skillhub/feature.mjs';
 import { learnFeature } from '../skillhub/learnfeature.mjs';
 import { fieldFeature } from '../field/feature.mjs';
 import { proposalsFeature } from '../skillhub/proposals.mjs';
+import { improveFeature } from '../assistant/improvefeature.mjs';
 import { workspaceFeature } from '../workspace/feature.mjs';
+import { leaveFeature } from '../workspace/leavefeature.mjs';
 import { projectsIn, workspaceDir } from '../workspace/layout.mjs';
 import { adoptFeature } from '../adopt/feature.mjs';
 import { workFeature } from '../work/feature.mjs';
@@ -361,10 +364,12 @@ export function createServer(opts = {}) {
     skillhubFeature(ctx, opts.skillhub), // Settings → Skills: installed, suggested for a project, find, review → approve, updates
     onboardingFeature(ctx, opts.onboarding), // Home → Get started: the steps a new user goes through, done or not
     workspaceFeature(ctx, opts.workspace), // Workspace: the tree, its map, restore and sync, Git and GitHub, the AI brain (read-only)
+    leaveFeature(ctx, opts.leave), // Computers → Before you format this computer: the whole check (read only), the daily line on Home, the one press that pushes the other branches
     adoptFeature(ctx, opts.adopt), // Workspace → Projects found on this computer: look, suggest, arrange (the owner's own page only)
     learn, // Skills → Learned: drafts of skills from the owner's own work (off by default), Install, Discard, Undo
     fieldFeature(ctx, opts.field), // Settings → Field reports and their Home lines: nothing is sent, shown or learned without the owner's choice
     proposalsFeature(ctx, { reload: () => features.find((f) => f.name === 'assistant')?.core?.skills?.reload(), ...opts.proposals }), // Skills: proposal files of an outside improvement loop, Accept with Undo, Not now
+    improveFeature(ctx, opts.improve), // Settings → Tia → Improve Tia: a round that measures rewordings of her texts and proposes the better ones
     work, // Work: tasks and Today, kept in a file of the workspace and saved to git by name; "Do it" opens a chat
     chat, // coding without the terminal: a Claude Code conversation as a chat (its cards are among the sessions)
     codetoolsFeature(ctx, opts.codetools), // Codex's and OpenCode's servers: stopped when no session uses them
@@ -384,6 +389,11 @@ export function createServer(opts = {}) {
     res.end(JSON.stringify(body));
   };
 
+  // A session of Health's line-ready kind (deck.mjs lineReady) holds a line for the owner to run himself: `owner: true`
+  // there is taken only from this dashboard's own page, never from Tia (her door) or another computer's token.
+  async function ownKeysOnly(req, name) {
+    if (ctx.caller(req) !== 'page' && (await deck.isLineReady(name))) throw Object.assign(new HttpError(409, `Nothing was typed: session "${name}" holds a line for you to run yourself. Type there on this computer's own page`), { code: 'line_ready' });
+  }
   async function sessionOr404(name) {
     if (!v.sessionName(name)) throw bad('bad session name');
     const found = await deck.find(name);
@@ -803,6 +813,7 @@ export function createServer(opts = {}) {
       // `owner: true`: the page's own answer and stop buttons, the owner's keys: to whatever runs there, as before. Anyone
       // else (the assistant, which may never send that key: assistant/door.mjs) presses a key only for the coding tool
       // while it is in front (deck.mjs keyToTool; 409 otherwise): an Enter never runs what stands on a shell's line.
+      if (b.owner === true) await ownKeysOnly(req, name);
       if (b.owner !== true) {
         if (when && !when.test(await backend.capture(term.id, SCREEN_LINES))) throw new HttpError(409, when.message);
         await deck.keyToTool(name, b.key);
@@ -843,6 +854,7 @@ export function createServer(opts = {}) {
       // `owner: true`: the session page's message box, the owner's own keys: typed into whatever runs there, as he sees
       // it. Anyone else (the assistant, which may never send that key: assistant/door.mjs; a request without it) types
       // only for the coding tool while it is in front, never a control byte (src/server/typing.mjs; 409 otherwise).
+      if (b.owner === true) await ownKeysOnly(req, name);
       if (b.owner === true) await deck.send(term.id, text, { enter: b.enter !== false });
       else await deck.sendToTool(name, text, { enter: b.enter !== false, ...(guard ? { guard, enterGuard: stillWaiting } : {}) });
       return { ok: true };
@@ -1322,6 +1334,8 @@ export function createServer(opts = {}) {
       if (!viaToken && !authed(req)) return reject(401, 'Unauthorized');
       const name = v.sessionName(url.searchParams.get('name'));
       if (!name || !(await deck.find(name))) return reject(404, 'Not Found');
+      // A session that holds a line for the owner to run (Health): a token types there only for a hub's own page.
+      if (viaToken && (await deck.isLineReady(name)) && !(await ownLinePage(ctx, req))) return reject(409, 'Conflict');
       const cols = Number(url.searchParams.get('cols'));
       const rows = Number(url.searchParams.get('rows'));
       wss.handleUpgrade(req, socket, head, (ws) => {

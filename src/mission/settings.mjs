@@ -2,9 +2,11 @@
 // `missions`. Off by default, twice: the master switch `on` (its off is "Tia OFF") and one switch per project. With
 // either off, a goal given to Tia is a plain plan proposal and its tasks are his to start, as before.
 //
-//   on          the master switch (false: "Tia OFF")            projects   { <name>: { on, test: [argv] } }: her
-//   atOnce      sessions of hers at once (1 to 4; never more than      switch per project, and the command that
-//               "runs by themselves at once")                          runs its tests (a code task's gate)
+//   on          the master switch (false: "Tia OFF")            projects   { <name>: { on, auto, test: [argv] } }:
+//   atOnce      sessions of hers at once (1 to 4; never more than      her switch per project, Auto (she starts the
+//               "runs by themselves at once")                          project's ready tasks by herself: auto.mjs; off
+//                                                                      by default, only while her switch is on), and
+//                                                                      the command that runs its tests (a code task's gate)
 //   hours       null, or { from: "HH:MM", to: "HH:MM" } in Work's time zone: nothing of hers starts outside them
 //   capUsd      the spend cap per day in dollars, from each run's own cost line (0: none set, nothing starts)
 //   capTokens   the token cap per day for runs whose provider reports no cost (0: such runs are not counted)
@@ -13,6 +15,7 @@
 //   offStops    what "Tia OFF" does to what runs: false (it runs to its end, nothing further) or true (stopped)
 //   minutes     the time limit of each session (1 to 240)          model   null (each role's own) or one model for all
 //   rolesOff    roles she does not use (their tasks are his)
+//   projects.<name>.build  the command that builds the project (argv, like test): what a role's "build" runs in the box
 import { MODELS } from '../config.mjs';
 import { ROLE_NAMES } from './roles.mjs';
 
@@ -25,7 +28,9 @@ const ARG_RE = /^[^\u0000-\u001f\u007f]{1,200}$/;
 const isObj = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
 const fail = (message) => Object.assign(new Error(message), { status: 400, details: { code: 'bad-request' } });
 
-const cleanProjects = (v, strict, known) => {
+const argvOf = (v) => (Array.isArray(v) && v.length <= 10 && v.every((a) => typeof a === 'string' && ARG_RE.test(a)) ? [...v] : null);
+// current: the projects as saved, so a change that does not name the build command keeps the one he set.
+const cleanProjects = (v, strict, known, current = {}) => {
   if (!isObj(v)) {
     if (strict) throw fail('projects is an object of project names');
     return {};
@@ -33,10 +38,16 @@ const cleanProjects = (v, strict, known) => {
   const out = {};
   for (const [name, p] of Object.entries(v)) {
     const ok = PROJECT_RE.test(name) && isObj(p) && (!known || known.includes(name));
-    const test = isObj(p) && Array.isArray(p.test) && p.test.length <= 10 && p.test.every((a) => typeof a === 'string' && ARG_RE.test(a)) ? [...p.test] : null;
+    const test = isObj(p) ? argvOf(p.test) : null;
+    const build = isObj(p) ? argvOf(p.build) : null;
     if (strict && !ok) throw fail(`"${String(name).slice(0, 60)}" is not a project of the workspace`);
     if (strict && isObj(p) && p.test !== undefined && p.test !== null && !test) throw fail('a test command is up to 10 words, each one line');
-    if (ok) out[name] = { on: p.on === true, test: test && test.length ? test : null };
+    if (strict && isObj(p) && p.build !== undefined && p.build !== null && !build) throw fail('a build command is up to 10 words, each one line');
+    if (strict && isObj(p) && p.auto !== undefined && typeof p.auto !== 'boolean') throw fail('auto is true or false');
+    const was = isObj(current[name]) ? current[name].build : null;
+    // Auto holds only while her switch for the project is on: a project turned off loses it, so turning it on again
+    // never brings back a start by herself he did not choose again.
+    if (ok) out[name] = { on: p.on === true, auto: p.on === true && p.auto === true, test: test && test.length ? test : null, build: build && build.length ? build : p.build === undefined && strict ? was || null : null };
   }
   return out;
 };
@@ -72,7 +83,12 @@ export function cleanPatch(patch, current, { projects = [], providers = [] } = {
     if (k === 'on' || k === 'offStops') {
       if (typeof v !== 'boolean') throw fail(`${k} is true or false`);
       next[k] = v;
-    } else if (k === 'projects') next.projects = { ...current.projects, ...cleanProjects(v, true, projects) };
+    } else if (k === 'projects') {
+      // A project sent without `auto` (its switch or its test command saved) keeps what it had, while it stays on;
+      // one sent without its build command keeps that too (cleanProjects reads current.projects for it).
+      const kept = (name, p) => (isObj(p) && p.auto === undefined && current.projects[name] ? { ...p, auto: current.projects[name].auto === true } : p);
+      next.projects = { ...current.projects, ...cleanProjects(isObj(v) ? Object.fromEntries(Object.entries(v).map(([n, p]) => [n, kept(n, p)])) : v, true, projects, current.projects) };
+    }
     else if (k === 'atOnce' || k === 'minutes') {
       const hi = k === 'atOnce' ? 4 : 240;
       if (!Number.isInteger(v) || v < 1 || v > hi) throw fail(`${k === 'atOnce' ? 'sessions at once' : 'the time limit'} is a whole number from 1 to ${hi}`);
@@ -113,3 +129,6 @@ export const stepsOf = (s) => [
 
 /** Whether Tia works on `project` by herself now: both switches on. */
 export const worksOn = (s, project) => s.on === true && !!(s.projects[project] && s.projects[project].on === true);
+
+/** Whether Tia starts `project`'s ready tasks by herself now (Auto): her switches on, and its own. */
+export const autoOn = (s, project) => worksOn(s, project) && s.projects[project].auto === true;

@@ -9,7 +9,7 @@ import path from 'node:path';
 import { claudeCheck, loginCheck } from '../setup/checks.mjs';
 import { osName, showCommand } from '../setup/system.mjs';
 import { detectKits, ghAuth, gitIdentity, sshKeys } from './detect.mjs';
-import { KITS, buildPlan, kitById, kitCovered } from './kits.mjs';
+import { KITS, buildPlan, kitById, kitCovered, listWords, stepLine } from './kits.mjs';
 import { brokenText, javaHomeText } from './java.mjs';
 import { extraSteps, optionalExtras } from './optional.mjs';
 import { leftOutText } from './suggest.mjs';
@@ -190,7 +190,7 @@ export function kitChecks(found, sys, extras = null) {
       const none = nothing && optional;
       const why0 = nothing ? (plan.cannot.find((c) => c.item === it.id) || plan.cannot[0] || {}).why : null;
       const fix = it.state === 'missing'
-        ? nothing ? '' : !optional ? plan.steps.map((s) => showCommand(s.argv)).join(' && ') : `hoprig pc setup --kits ${kit.id}`
+        ? nothing ? '' : !optional ? plan.steps.map((s) => stepLine(s, showCommand)).join(' && ') : `hoprig pc setup --kits ${kit.id}`
         : it.state === 'old' ? oldFix(it.id) : it.state === 'offpath' ? it.fix : '';
       // An optional kit a project here would use says why ("suggested: shop has composer.json"); it stays optional.
       const why = optional && it.state === 'missing' && extras && !told ? (extras.suggested || []).filter((x) => x.kit === kit.id).map((x) => x.reason) : [];
@@ -218,7 +218,7 @@ export function extraChecks(extras, platform) {
   }
   if (extras && extras.leftOut) out.push(r('system', 'projects-left-out', 'Projects read', 'info', leftOutText(extras.leftOut), '', { note: true }));
   const not = KITS.filter((k) => !kitCovered(k, platform)).map((k) => k.title);
-  if (not.length) out.push(r('system', 'optional-windows', 'Optional kits', 'info', `${not.join(' and ')}: not covered on Windows (Hoprig does not set them up there)`));
+  if (not.length) out.push(r('system', 'optional-windows', 'Optional kits', 'info', `${listWords(not)}: not covered on Windows (Hoprig does not set them up there)`));
   const j = extras && extras.java;
   // A Java that works beside a JAVA_HOME that does not is a warning, so what to do is shown on the Setup tab and in pc
   // status (neither shows a fix under a row that is fine); still a note, never "to fix". The sentence goes with the

@@ -657,62 +657,95 @@ export function needsWords(ref, missing) {
 }
 
 /**
+ * What `get` offers for the needs of a project it brought or found here (r: its result), with nothing printed, asked
+ * or changed: the terminal (needsOffer) and the page's Get (POST /api/pcsetup/project/needs, getneeds.mjs) both start
+ * from it. `offered`: what this run offered already (a name is offered once, so a loop of needs ends); `follow`: r came
+ * only as a need. → null when there is nothing to say, else { ref, g, missing, allow, toRead, told, allowed, command,
+ * allowCommands, lines: { missing?, toRead? }, question, later }
+ */
+export async function needsPlan(r, { dir, offered = new Set(), follow = false } = {}) {
+  if (r.result === 'would clone' || !fs.existsSync(r.dir)) return null; // a dry run has no project.json to read yet
+  const N = await import('../workspace/needs.mjs');
+  const Y = await import('../workspace/needsyes.mjs');
+  const m = N.mapFor();
+  if (m.why) return null;
+  const { workspaceDir } = await import('../workspace/layout.mjs');
+  const ref = r.place ? `${r.place}/${r.folder}` : r.folder;
+  const g = await N.needsToGet(r.dir, ref, { map: m.map, ctx: { dir: workspaceDir(), projects: dir } });
+  if (!g.needs.length && !g.refused.length) return null;
+  const missing = g.missing.filter((x) => !offered.has(x.name));
+  let allow = g.notAccepted.filter((x) => !offered.has(`${x.of} ${x.name}`));
+  // A project that came only as a need (not one the owner named): its yes covers only what is got now; the needs of it
+  // that are here already are told with their command, never allowed by a yes he gave for something else.
+  const told = [];
+  if (follow) {
+    for (const x of allow.filter((y) => !missing.some((m) => m.name === y.name && m.of === y.of))) told.push({ ...x, command: Y.acceptCommand(x.of, x.name) });
+    allow = allow.filter((y) => missing.some((m) => m.name === y.name && m.of === y.of));
+  }
+  const allowed = g.here.filter((n) => !allow.some((x) => x.of === ref && x.name === n));
+  const command = missing.length ? `hoprig get ${missing.map((x) => x.name).join(' ')}` : null;
+  const allowCommands = allow.map((x) => Y.acceptCommand(x.of, x.name));
+  const toRead = allow.filter((x) => !missing.some((y) => y.name === x.name && y.of === x.of));
+  const lines = {
+    ...(missing.length ? { missing: `${needsWords(ref, missing)}. ${missing.length === 1 ? 'It is' : 'They are'} not on this computer.` } : {}),
+    ...(toRead.length ? { toRead: `${needsWords(ref, toRead).replace(' also needs, to read:', ' names, to read:')}: not opened to ${toRead.length === 1 ? 'its' : 'their'} sessions until you allow it on this computer (a project.json can come from anyone).` } : {}),
+    told: told.map((x) => `${x.of} names ${x.name} as a need: not opened to its sessions until you allow it on this computer:  ${x.command}`),
+    refused: g.refused.map((x) => `${x.of} names "${x.name}" as a need: left out, because ${x.why}`),
+    ...(allowed.length ? { allowed: `every session in ${ref} reads ${allowed.join(', ')} (allowed on this computer;  hoprig workspace needs revoke ${ref} <name>  takes that back)` } : {}),
+  };
+  const question = missing.length ? `Get ${missing.length === 1 ? 'it' : 'them'} too, and let the sessions read ${missing.length + toRead.length === 1 ? 'it' : 'them'}?` : `Let the sessions read ${toRead.length === 1 ? 'it' : 'them'} on this computer?`;
+  const later = [command, ...allowCommands].filter(Boolean).join('  and  ');
+  return { ref, g, missing, allow, toRead, told, allowed, command, allowCommands, lines, question, later };
+}
+
+/**
+ * The owner's yes to a plan of needsPlan (his answer in a terminal, --with-needs, or his press on the page): his yes ON
+ * THIS COMPUTER for each need named, kept in Hoprig's own settings (workspace/needsyes.mjs). → { names: what to get
+ * now, words: what was allowed }
+ */
+export async function takeNeeds(p, offered = new Set()) {
+  const Y = await import('../workspace/needsyes.mjs');
+  for (const x of p.allow) Y.setAccepted(x.of, x.name, true);
+  for (const x of p.missing) if (!p.allow.some((y) => y.of === x.of && y.name === x.name)) Y.setAccepted(x.of, x.name, true);
+  for (const x of p.missing) offered.add(x.name);
+  return { names: p.missing.map((x) => x.name), words: [...new Set([...p.allow, ...p.missing].map((x) => `${x.of} reads ${x.name}`))].join(', ') };
+}
+
+/**
  * The needs of a project `get` brought or found here (r: its result): named on the result (needs, missingNeeds,
  * notAccepted and the commands), and offered in one question: get what is missing, and let the project's sessions
  * read what it names (the owner's yes ON THIS COMPUTER, workspace/needsyes.mjs: a project.json is someone else's words
  * until he says so). → the names to get now (after a yes, or `yes`: --with-needs, his typed word).
  */
 async function needsOffer(r, { ui, yes, ask, dry, offered, dir, follow = false }) {
-  if (r.result === 'would clone' || !fs.existsSync(r.dir)) return []; // a dry run has no project.json to read yet
-  const N = await import('../workspace/needs.mjs');
-  const Y = await import('../workspace/needsyes.mjs');
-  const m = N.mapFor();
-  if (m.why) return [];
-  const { workspaceDir } = await import('../workspace/layout.mjs');
-  const ref = r.place ? `${r.place}/${r.folder}` : r.folder;
-  const g = await N.needsToGet(r.dir, ref, { map: m.map, ctx: { dir: workspaceDir(), projects: dir } });
-  if (!g.needs.length && !g.refused.length) return [];
-  const missing = g.missing.filter((x) => !offered.has(x.name));
-  let allow = g.notAccepted.filter((x) => !offered.has(`${x.of} ${x.name}`));
-  // A project that came only as a need (not one the owner named): its yes covers only what is got now; the needs of it
-  // that are here already are told with their command, never allowed by a yes he gave for something else.
-  if (follow) {
-    for (const x of allow.filter((y) => !missing.some((m) => m.name === y.name && m.of === y.of))) {
-      ui.line('info', `${x.of} names ${x.name} as a need: not opened to its sessions until you allow it on this computer:  ${Y.acceptCommand(x.of, x.name)}`);
-      offered.add(`${x.of} ${x.name}`);
-    }
-    allow = allow.filter((y) => missing.some((m) => m.name === y.name && m.of === y.of));
-  }
+  const p = await needsPlan(r, { dir, offered, follow });
+  if (!p) return [];
+  const { ref, g, missing, allow } = p;
+  p.told.forEach((x, i) => {
+    ui.line('info', p.lines.told[i]);
+    offered.add(`${x.of} ${x.name}`);
+  });
   Object.assign(r, { needs: g.needs, missingNeeds: missing.map((x) => ({ name: x.name, ...(x.of !== ref ? { of: x.of } : {}) })) });
-  if (allow.length) Object.assign(r, { notAccepted: allow.map((x) => ({ name: x.name, ...(x.of !== ref ? { of: x.of } : {}) })), allowCommands: allow.map((x) => Y.acceptCommand(x.of, x.name)) });
-  for (const x of g.refused) ui.line('warn', `${x.of} names "${x.name}" as a need: left out, because ${x.why}`);
-  const allowed = g.here.filter((n) => !allow.some((x) => x.of === ref && x.name === n));
-  if (allowed.length) ui.line('info', `every session in ${ref} reads ${allowed.join(', ')} (allowed on this computer;  hoprig workspace needs revoke ${ref} <name>  takes that back)`);
+  if (allow.length) Object.assign(r, { notAccepted: allow.map((x) => ({ name: x.name, ...(x.of !== ref ? { of: x.of } : {}) })), allowCommands: p.allowCommands });
+  for (const l of p.lines.refused) ui.line('warn', l);
+  if (p.lines.allowed) ui.line('info', p.lines.allowed);
   if (!missing.length && !allow.length) return [];
-  const command = missing.length ? `hoprig get ${missing.map((x) => x.name).join(' ')}` : null;
-  if (command) r.needsCommand = command;
-  if (missing.length) ui.line('info', `${needsWords(ref, missing)}. ${missing.length === 1 ? 'It is' : 'They are'} not on this computer.`);
-  const toRead = allow.filter((x) => !missing.some((y) => y.name === x.name && y.of === x.of));
-  if (toRead.length) ui.line('info', `${needsWords(ref, toRead).replace(' also needs, to read:', ' names, to read:')}: not opened to ${toRead.length === 1 ? 'its' : 'their'} sessions until you allow it on this computer (a project.json can come from anyone).`);
-  const q = missing.length ? `Get ${missing.length === 1 ? 'it' : 'them'} too, and let the sessions read ${missing.length + toRead.length === 1 ? 'it' : 'them'}?` : `Let the sessions read ${toRead.length === 1 ? 'it' : 'them'} on this computer?`;
+  if (p.command) r.needsCommand = p.command;
+  if (p.lines.missing) ui.line('info', p.lines.missing);
+  if (p.lines.toRead) ui.line('info', p.lines.toRead);
   let go = false;
-  if (dry) ui.note(`(dry run) would ask: ${q}  nothing is got or allowed`);
+  if (dry) ui.note(`(dry run) would ask: ${p.question}  nothing is got or allowed`);
   else if (yes) go = true;
-  else if (ask) go = await ui.confirm(q, false);
-  else {
-    const later = [command, ...allow.map((x) => Y.acceptCommand(x.of, x.name))].filter(Boolean).join('  and  ');
-    ui.note(`nothing more was got or allowed (${ui.yes ? '--yes never brings or allows a need: --with-needs does' : 'no terminal to ask in'}): ${later}  (or hoprig get ${ref} --with-needs)`);
-  }
+  else if (ask) go = await ui.confirm(p.question, false);
+  else ui.note(`nothing more was got or allowed (${ui.yes ? '--yes never brings or allows a need: --with-needs does' : 'no terminal to ask in'}): ${p.later}  (or hoprig get ${ref} --with-needs)`);
   for (const x of [...missing.map((y) => `${y.of} ${y.name}`), ...allow.map((y) => `${y.of} ${y.name}`)]) offered.add(x);
   if (!go) {
-    if (ask && !dry) ui.note(`not got and not allowed; later:  ${[command, ...allow.map((x) => Y.acceptCommand(x.of, x.name))].filter(Boolean).join('  and  ')}`);
+    if (ask && !dry) ui.note(`not got and not allowed; later:  ${p.later}`);
     return [];
   }
-  for (const x of allow) Y.setAccepted(x.of, x.name, true);
-  for (const x of missing) if (!allow.some((y) => y.of === x.of && y.name === x.name)) Y.setAccepted(x.of, x.name, true);
-  if (allow.length || missing.length) ui.line('ok', `allowed on this computer: ${[...new Set([...allow, ...missing].map((x) => `${x.of} reads ${x.name}`))].join(', ')}`);
-  for (const x of missing) offered.add(x.name);
-  return missing.map((x) => x.name);
+  const took = await takeNeeds(p, offered);
+  ui.line('ok', `allowed on this computer: ${took.words}`);
+  return took.names;
 }
 
 /** The refusal for a place the map does not have, with the hint a map of version 1 needs. */

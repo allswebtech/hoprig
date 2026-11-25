@@ -60,7 +60,7 @@ const placeOf = (labels, n) => (n === LOCAL ? 'this computer' : labels.get(n) ||
  */
 export function placedByRoom(name, args, tia) {
   if (!STARTS.has(name) || !Array.isArray(tia.computers) || !tia.computers.length || args.computer) return false;
-  return !(args.mode === 'continue' || args.mode === 'resume' || args.conversation);
+  return !(args.mode === 'continue' || args.mode === 'resume' || args.conversation || args.fork_of);
 }
 
 export async function startWhere({ ops, name, args, tia, placed = [], now = Date.now() }) {
@@ -77,7 +77,8 @@ async function whereOf({ ops, name, args, tia, placed, now }) {
   if (args.computer && !allowed.has(args.computer)) return { refuse: `the owner has not allowed you to start work on ${args.computer}`, next: SETTINGS_NEXT };
   // An earlier conversation (mode continue or resume, a conversation id) is not new work: it lives on the computer that
   // holds it, so it starts where the call says, as before (on another computer "continue" would take another one).
-  if (args.mode === 'continue' || args.mode === 'resume' || args.conversation) return null;
+  // A fork goes on from a chat on the computer that holds it.
+  if (args.mode === 'continue' || args.mode === 'resume' || args.conversation || args.fork_of) return null;
   if (args.computer && args.computer !== LOCAL) {
     // Named and allowed: it still must have the project, the coding tool and a provider (asked through its own gate).
     const raw = (await ops.assistantSettings().catch(() => ({}))) || {};

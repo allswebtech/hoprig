@@ -20,6 +20,13 @@ export const GIT_USAGE = `  hoprig workspace map [--dry-run] [--json]   write th
   hoprig workspace map --upgrade [--dry-run] [--yes] [--json]
                                                the map to version 2 (needed for groups); says first which
                                                computers need a newer Hoprig
+  hoprig workspace map --undo [--dry-run] [--json]
+                                               the old map back after an upgrade on this computer, while the map
+                                               has not changed since (the Workspace page has the same button)
+  hoprig workspace map --fix-case [--undo] [--dry-run] [--yes] [--json]
+                                               give a folder whose name differs from its map entry only in
+                                               letter case the map's name (Shop → shop), through a temporary
+                                               name; --undo: the old names back
   hoprig workspace restore <brain address> [--with-projects] [--dry-run] [--yes] [--json]
                                                a fresh computer: clone the brain, the credentials and groups'
                                                repositories and the others its map names; no project unless
@@ -73,6 +80,7 @@ export function printMapStatus(ui, ms) {
   }
   if (ms.blocked) ui.line('fail', `the map cannot be written now, so it is not kept up to date: ${ms.blocked.join('; ')}`);
   for (const l of ms.leftOut || []) ui.line('warn', `${l.entry} is not put into the map: ${l.why}; ${l.fix}`);
+  for (const c of ms.caseOnly || []) ui.line('warn', `${c.words}:  hoprig workspace map --fix-case`);
   for (const d of ms.duplicates || []) ui.line('warn', `${d.entries.join(' and ')} have the same address (one project is in one place only): forget one, for example  ${d.fix}`);
   // Every link met that leads out (inside.mjs): not followed, with the command that names it as the owner's own.
   for (const l of ms.links || []) ui.line('warn', `${l.path}: ${l.what}: not followed${l.fix ? `  →  if it is yours:  ${l.fix}` : ''}`);
@@ -206,12 +214,35 @@ async function upgrade(o, { ui, json, failed }) {
   if (!sure) return failed(new Error(`the map was not changed${ui.interactive || o.json ? '' : ' (add --yes to upgrade it without a question)'}`));
   let r;
   try {
-    r = upgradeMap({});
+    // The old map is kept in Hoprig's state folder first, so --undo (and the page's Undo) can put it back.
+    const { upgradeKept } = await import('./mapundo.mjs');
+    r = await brainLocked(() => upgradeKept());
   } catch (e) {
     return failed(e);
   }
   if (o.json) return json(r);
   show(r);
+  if (r.kept) ui.note('the old map is kept on this computer: hoprig workspace map --undo puts it back while the map has not changed');
+  return 0;
+}
+
+/** `workspace map --undo`: the old map back, the same function the page's Undo calls (mapundo.mjs). */
+async function undo(o, { ui, json, failed }) {
+  const { undoUpgrade } = await import('./mapundo.mjs');
+  let r;
+  try {
+    r = o['dry-run'] ? undoUpgrade({ dryRun: true }) : await brainLocked(() => undoUpgrade({}));
+  } catch (e) {
+    return o.json ? (json({ ok: false, error: e.message }), 1) : failed(e);
+  }
+  if (o.json) return json(r);
+  if (r.dryRun) {
+    if (!r.can) return failed(new Error(r.why));
+    for (const l of r.lines) ui.note(l);
+    ui.line('ok', '(dry run) would put the old map back: nothing was written');
+    return 0;
+  }
+  ui.line('ok', 'the old map is back (version ' + r.version + '): commit the brain if you had shared the new one');
   return 0;
 }
 
@@ -239,9 +270,11 @@ export async function gitMain(sub, args, { ui, write, usage }) {
     return 1;
   };
   if (sub === 'map') {
-    const o = flags(args, { 'dry-run': 'bool', json: 'bool', upgrade: 'bool', yes: 'bool' });
-    if (o.errors.length || o._.length) return usage();
+    const o = flags(args, { 'dry-run': 'bool', json: 'bool', upgrade: 'bool', yes: 'bool', undo: 'bool', 'fix-case': 'bool' });
+    if (o.errors.length || o._.length || (o.upgrade && (o.undo || o['fix-case']))) return usage();
+    if (o['fix-case']) return (await import('./mapcase.mjs')).fixCaseMain(o, { ui, json, failed, locked: brainLocked });
     if (o.upgrade) return upgrade(o, { ui, json, failed });
+    if (o.undo) return undo(o, { ui, json, failed });
     const r = await updateMap({ dryRun: o['dry-run'] }).catch((e) => e);
     if (r instanceof Error) return failed(r);
     // This computer's own file beside the map (with a label only; a dry run writes nothing).

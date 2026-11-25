@@ -286,9 +286,10 @@ export const projectRepos = (dir) => (hasLayout(dir) ? reposBelow(dir) : reposIn
 
 /**
  * Scan the places `places` (folders the owner named or confirmed). → { places: [{ dir, ok, error? }], projects: [{
- * name, dir, layout, repos: [facts], ai: [names], neighbours: [names], privates }], privates }.
+ * name, dir, layout, repos: [facts], ai: [names], neighbours: [names], privates }], privates }. `only`: when given (a
+ * Set of folders), only those folders of the places are looked at (the look over the home names them; src/adopt/home.mjs).
  */
-export async function scanPlaces(places, { run, now = Date.now() } = {}) {
+export async function scanPlaces(places, { run, now = Date.now(), only = null } = {}) {
   const out = { places: [], projects: [], privates: 0 };
   for (const p of places) {
     const dir = path.resolve(p);
@@ -312,6 +313,7 @@ export async function scanPlaces(places, { run, now = Date.now() } = {}) {
       }
       if (SKIP_DIRS.has(e.name) || e.name.startsWith('.')) continue;
       const pdir = path.join(dir, e.name);
+      if (only && !only.has(pdir)) continue;
       const names = list(pdir).map((x) => x.name);
       const found = projectRepos(pdir);
       if (!found.length && !hasSign(names)) continue;

@@ -42,5 +42,7 @@ test('BOX.md and WORK.md say what a session\'s own tool runs, with the limits th
   assert.match(m, /\*\*It is not the check\*\*/);
   assert.match(m, /"Accept by itself" follows the check's own run alone/);
   assert.match(m, /`mission-box-runs\.jsonl`/);
-  assert.match(m, /With missions off, no box, no test command, a review, or a role whose check is not its tests \(a writer, a researcher, an ops session\), the session starts as before/);
+  assert.match(m, /With missions off, no box, no test command, a review, or a role whose role file names nothing it runs \(a writer, a researcher, a reviewer\), the session starts as before/);
+  assert.match(m, /\*\*Hoprig's wall reads every command first\*\*/);
+  assert.match(m, new RegExp(`${RUNS_MAX} runs and ${TOTAL_MS / 60_000} minutes of runs per\\s+session for all kinds together`));
 });

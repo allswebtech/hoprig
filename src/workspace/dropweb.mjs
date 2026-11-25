@@ -6,7 +6,8 @@
 //                            one-use ticket bound to what the check found (its fingerprint), for ten minutes
 //   drop(ticket, answers)    the drop itself: the ticket is used once; drop.mjs checks everything again (after a fetch)
 //                            and, when that differs from what the sheet showed, nothing is asked or done and the new
-//                            list comes back with a new ticket. answers: { work: true only on his press, defaults:
+//                            list comes back with a new ticket. answers: { needed: true only on his press of "drop it
+//                            all the same" (another project here names it in "needs"), work: true only on his press, defaults:
 //                            { <repository>: 'push' | 'wip' } only on his press of that very answer, typed: what he
 //                            typed into the field } (the server compares it with the project's name; no default)
 import crypto from 'node:crypto';
@@ -27,7 +28,9 @@ export function fingerprint(r) {
   const items = {
     refusals: (r.refusals || []).filter((x) => x.what !== NO_TERMINAL).map((x) => [x.repo, x.what]),
     pushes: r.pushes || [],
-    asks: r.asks || [],
+    // Who needs it, from neededBy: drop.mjs names it in every mode, but asks it as an ask only outside a drop.
+    neededBy: r.neededBy || [],
+    asks: (r.asks || []).filter((a) => a.ask !== 'needed'),
     seals: r.seals || [],
     confirm: (r.confirm || []).map((i) => [i.repo, i.path, i.kind, i.size, i.files ?? null]).sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b))),
   };
@@ -46,7 +49,8 @@ function linesOf(r, mode, tilde) {
 function questionsOf(r) {
   const out = [];
   for (const a of r.asks || []) {
-    if (a.ask === 'work') out.push({ ask: 'work', repos: a.repos, words: QUESTION.work(a.repos.length) });
+    if (a.ask === 'needed') out.push({ ask: 'needed', by: a.by, words: QUESTION.needed(r.ref), why: QUESTION.neededWhy(r.ref, a.by), later: QUESTION.neededLater(r.ref, a.by) });
+    else if (a.ask === 'work') out.push({ ask: 'work', repos: a.repos, words: QUESTION.work(a.repos.length) });
     else if (a.ask === 'default branch') {
       const c = { label: a.repo, def: { branch: a.branch, count: a.commits } };
       out.push({ ask: 'default branch', repo: a.repo, branch: a.branch, commits: a.commits, words: `${QUESTION.defaultBranch(c)}${a.memory ? QUESTION.defaultMemory : ''}.`, release: QUESTION.release(a.branch), choices: QUESTION.choices(a.branch).map(([value, words]) => ({ value, words })) });
@@ -104,6 +108,7 @@ export function pageDrop({ ctx, tilde: tildeOf = (s) => s, now = () => Date.now(
     used.set(ticket, t.until);
     const typed = typeof answers.typed === 'string' ? answers.typed.trim() : '';
     const ask = {
+      needed: async () => answers.needed === true, // his press of "Drop it all the same" only; the fingerprint holds who
       work: async () => answers.work === true,
       defaultBranch: async (c) => {
         const a = answers.defaults && Object.hasOwn(answers.defaults, c.label) ? answers.defaults[c.label] : null;

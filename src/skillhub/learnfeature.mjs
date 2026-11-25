@@ -22,7 +22,7 @@ import { findItem, statusOf } from '../work/model.mjs';
 import { resolvePlace } from '../work/place.mjs';
 import { RUN_ID_RE, cleanText, listRuns, pathsOf, readRun } from '../work/runs.mjs';
 import { brainDir, projectsIn, workspaceDir } from '../workspace/layout.mjs';
-import { changeDraft, discard, install, listDrafts, makeDraft, ownSkills, readDraft, settledView, undo } from './learned.mjs';
+import { changeDraft, discard, hoprigLearnedPlace, install, listDrafts, makeDraft, ownSkills, readDraft, settledView, undo } from './learned.mjs';
 import { noteCorrection } from '../operator/corrections.mjs';
 import { freshWayRound } from '../field/wayround.mjs';
 import { claudeTurn, lookInput, lookPrompt, parseLook, peopleIn, tryTests } from './learnlook.mjs';
@@ -111,7 +111,7 @@ export function learnFeature(sctx, opts = {}) {
       let parsed;
       try {
         const waiting = listDrafts().filter((x) => ['trying', 'ready', 'installing'].includes(x.state)).map((x) => x.name);
-        parsed = parseLook(r.text, { skills: skills.map((x) => x.name), declined, waiting, people: peopleIn([run.title, input.brief, input.words, input.answer]) });
+        parsed = parseLook(r.text, { skills: skills.map((x) => x.name), declined, waiting, people: peopleIn([run.title, input.brief, input.words, input.answer]), hoprigLearned: hoprigLearnedPlace(skills, { brain: brain() }) });
       } catch (e) {
         await settleLook(run.id, at, `refused: ${e.rule || 'shape'}`);
         return { result: 'refused', rule: e.rule || 'shape', why: e.message };

@@ -1,12 +1,16 @@
 // A new project that starts from its owner's brief (`hoprig project new <name> --brief <file> --kind <kind> --start`,
 // and the dashboard's New project). What it adds to the folder `project new` makes (project.mjs calls in here):
 //
-//   docs/brief.md                          the brief, byte for byte as the owner gave it
 //   .claude/skills/new-project/            the bundled new-project skill (templates/skills/new-project), where every
 //                                          coding tool that opens the project finds it; recorded in
-//   .claude/skills/.hoprig-skills.json     as a bundled skill, so `hoprig skills list` and `update` know it
-//   AGENTS.md                              a part "Every session": the memory, the brief, the applies table and the
-//                                          skill to read in every later session (EVERY_SESSION)
+//   .claude/skills/.hoprig-skills.json     as a bundled skill, so `hoprig skills list` and `update` know it. On by
+//                                          default, with a brief or without one; --no-skill leaves both out (and
+//                                          goes only without a brief: a brief is set up with the skill)
+//   AGENTS.md                              with a brief, a part "Every session": the memory, the brief, the applies
+//                                          table and the skill to read in every later session (EVERY_SESSION);
+//                                          without one, a part "No brief yet" that says how to give one (NO_BRIEF_YET)
+// and with a brief only:
+//   docs/brief.md                          the brief, byte for byte as the owner gave it
 //   decisions.md                           a dated entry "how the project starts": the owner's hint for the kind and
 //                                          the scope, or that he chose none (always written: a start reads the newest)
 //
@@ -195,6 +199,18 @@ skill's step 4).
 `;
 
 /**
+ * The part of AGENTS.md for a project made with the skill but without a brief: every coding tool reads AGENTS.md, so the
+ * first session knows the skill is there and how the owner gives it a brief. The skill replaces it with "Every session"
+ * once the brief is written (its step "No brief yet").
+ */
+export const NO_BRIEF_YET = `## No brief yet
+
+This project has the ${SKILL} skill in \`${SKILL_DIR}\`, and no brief yet. To set it up from one, write what the
+product is, who uses it and its main features into \`${BRIEF_FILE}\`, or tell the session, and use the skill: it
+reads the brief and works out the rest. Until then, work as the owner asks.
+`;
+
+/**
  * decisions.md's entry for how the project starts: the owner's hint for the kind and the scope as chosen when the
  * project was made, or that he chose none. Written for every project made with a brief, also when nothing was chosen:
  * a start reads the newest such entry (newprojectstart.mjs madeWith), and a template's decisions.md may hold one of its
@@ -257,6 +273,9 @@ export async function prepareNew(o, { ui, brief: typed = undefined, stdin = proc
   let scope = o.scope === undefined ? null : String(o.scope);
   if (scope !== null && !scopeOf(scope)) return { error: `the scope is one of: ${SCOPES.map((s) => s.id).join(', ')}` };
   if (o.start && !coming) return { error: '--start needs a brief: --brief <file> (or --brief - to type it)' };
+  // The skill is on by default; --no-skill leaves it out, and a brief needs it (the start reads the skill).
+  const withSkill = !o['no-skill'];
+  if (!withSkill && coming) return { error: '--no-skill goes without a brief: a project made from a brief is set up with the new-project skill' };
   if ((kind !== null || scope !== null) && !coming) return { error: `--${kind !== null ? 'kind' : 'scope'} goes with a brief: --brief <file> (or --brief - to type it)` };
   let brief = null;
   const read = async () => {
@@ -288,25 +307,27 @@ export async function prepareNew(o, { ui, brief: typed = undefined, stdin = proc
     const refused = await read();
     if (refused) return refused;
   }
-  // The skill comes with a brief only: it is how a project is set up from one, and a plain project stays as it was.
-  const skill = brief !== null ? skillFiles() : [];
-  const files = brief === null ? [] : [...skill, { rel: SKILLS_RECORD, kind: 'file', data: Buffer.from(skillRecord(skill)) }, { rel: BRIEF_FILE, kind: 'file', data: Buffer.from(brief, 'utf8') }];
+  // The skill comes with every new project unless --no-skill: with a brief it sets the project up from it, and without
+  // one it is there for when a brief comes.
+  const skill = withSkill ? skillFiles() : [];
+  const files = [...(withSkill ? [...skill, { rel: SKILLS_RECORD, kind: 'file', data: Buffer.from(skillRecord(skill)) }] : []), ...(brief !== null ? [{ rel: BRIEF_FILE, kind: 'file', data: Buffer.from(brief, 'utf8') }] : [])];
   // What a dry run says, each after "would ".
   const said = [
-    brief !== null ? `add the ${SKILL} skill in ${SKILL_DIR} (where every coding tool that opens the project finds it)` : null,
+    withSkill ? `add the ${SKILL} skill in ${SKILL_DIR} (where every coding tool that opens the project finds it)` : null,
+    withSkill && brief === null ? `add the part "No brief yet" to AGENTS.md (how to give the project a brief in ${BRIEF_FILE})` : null,
     brief !== null ? `add the brief, unchanged, as ${BRIEF_FILE} (${Buffer.byteLength(brief)} bytes)` : null,
     brief !== null ? 'add the part "Every session" to AGENTS.md, unless it has it (the memory, the brief, the applies table and the skill every later session reads)' : null,
     brief !== null ? `add ${kind ? `your hint for the kind (${kind})` : 'that you gave no hint for the kind'} and ${scope ? `the scope (${scope})` : 'that the scope is as the brief says'} to decisions.md, as the entry "how the project starts"` : null,
     o.start ? 'then start a session in the App with a first message that names the skill and carries the brief' : null,
   ].filter(Boolean);
   return {
-    brief, kind, scope, start: Boolean(o.start), files, said,
+    brief, kind, scope, start: Boolean(o.start), skill: withSkill, files, said,
     /**
      * After the template is written, before the first commit: with a brief, AGENTS.md's "Every session" part, and the
-     * entry "how the project starts" in decisions.md.
+     * entry "how the project starts" in decisions.md; with the skill but no brief, AGENTS.md's "No brief yet" part.
      */
     after(root, now = new Date()) {
-      if (brief === null) return;
+      if (brief === null && !withSkill) return;
       const add = (rel, fresh, text) => {
         const file = path.join(root, rel);
         const cur = readIn(root, file);
@@ -314,14 +335,21 @@ export async function prepareNew(o, { ui, brief: typed = undefined, stdin = proc
       };
       // A template made from such a project has the part already: once is enough (its words may be the owner's own).
       const agents = readIn(root, path.join(root, 'AGENTS.md'));
+      if (brief === null) {
+        if (!(agents && /^## (Every session|No brief yet)[ \t]*\r?$/m.test(agents.toString('utf8')))) add('AGENTS.md', '# Rules for AI tools\n', `\n${NO_BRIEF_YET}`);
+        return;
+      }
       if (!(agents && /^## Every session[ \t]*\r?$/m.test(agents.toString('utf8')))) add('AGENTS.md', '# Rules for AI tools\n', `\n${EVERY_SESSION}`);
       add('decisions.md', '# Decisions\n', startDecision({ kind, scope }, now.toISOString().slice(0, 10)));
     },
   };
 }
 
-/** The files a brief adds, by place (New project's preview lists them before anything is made). */
-export const briefFileList = () => [...skillFiles().map((f) => f.rel), SKILLS_RECORD, BRIEF_FILE];
+/**
+ * The files New project adds to the template, by place (its preview lists them before anything is made): the skill and
+ * its record unless it is left out, and the brief when there is one.
+ */
+export const briefFileList = ({ brief = true, skill = true } = {}) => [...(skill || brief ? [...skillFiles().map((f) => f.rel), SKILLS_RECORD] : []), ...(brief ? [BRIEF_FILE] : [])];
 
 /**
  * The template's files with the new project's own: a template file at the same place as the brief is replaced by the

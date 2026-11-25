@@ -34,7 +34,7 @@ import { VIEW_LINE, createAssistantCore } from './core.mjs';
 import { DYNAMIC } from './cardkinds.mjs';
 import { Engine } from './engine.mjs';
 import { createOps, runShell as realRunShell } from './ops.mjs';
-import { systemPrompt } from './prompt.mjs';
+import { tiaPrompt } from './accepted.mjs';
 import { loadMachines } from '../machines/store.mjs';
 import { ASSISTANT_NAME, DEFAULTS as TIA_DEFAULTS, HELP, LEVELS, cleanTiaPatch, resolveTia, savedTiaChoice, servesTool, tiaChoices } from './tia.mjs';
 import { keepSample } from '../work/tellwire.mjs';
@@ -311,7 +311,7 @@ export function assistantFeature(ctx, o = {}) {
       if (!c.engine || c.engine.o.profile !== ready.runsOn || c.engine.o.model !== (ready.model || null)) {
         c.engine?.cleanup();
         c.engine = new Engine({
-          profile: ready.runsOn, model: ready.model || null, conversation: c.id, systemPrompt: systemPrompt(core.skills.index()),
+          profile: ready.runsOn, model: ready.model || null, conversation: c.id, systemPrompt: tiaPrompt(core.skills.index()), accepted: true,
           url: address, tokenFile: tokenFile(), maxBudgetUsd: o.maxBudgetUsd || null, ...(c.engine ? { sessionId: c.engine.sessionId } : {}), ...(o.engine || {}),
         });
         c.engine.on('event', (ev) => {
@@ -343,11 +343,17 @@ export function assistantFeature(ctx, o = {}) {
         const r = await c.engine.send(message);
         const d = r.done;
         if (c.turn.progress) progressAnswerOf(c, c.turn);
+        // The turn's cost goes into the spending record first and on its own: it is money. When the record cannot be
+        // written (its lock stayed taken to the end of the wait), the turn stays counted at its hold, and the log says so.
+        try {
+          if (ready.paid && Number.isFinite(d.costUsd)) spend.spent(d.costUsd, 'her own turn', hold);
+        } catch (e) {
+          console.error(`${ASSISTANT_NAME}: the cost of a turn could not be written into the spending record (${e && e.message ? e.message : e}); the turn stays counted at its hold`);
+        }
         try {
           recordUsage(turnUsage(d, { conversation: c.id }));
-          if (ready.paid && Number.isFinite(d.costUsd)) spend.spent(d.costUsd, 'her own turn', hold);
         } catch {
-          /* usage is a nice-to-have */
+          /* the usage list is a nice-to-have */
         }
         push(c, { kind: 'done', ok: d.ok, error: d.ok ? null : d.text.slice(0, 300), costUsd: d.costUsd });
       } finally {

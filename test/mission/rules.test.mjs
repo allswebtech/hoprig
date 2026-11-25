@@ -270,6 +270,8 @@ test('a task that came from another program\'s token is never part of a mission 
   assert.deepEqual(m.tasks.map((x) => x.id), [own]);
   assert.ok(m.line.some((l) => l.task === foreign && /came from another program/.test(l.words)));
   assert.ok(m.line.some((l) => l.task === foreign && /it is yours to start from Work/.test(l.words)), 'no press is promised that the page has not');
+  await assert.rejects(() => e.add(m.id, foreign, { hers: true }), (x) => x.status === 403 && /came from another program: it joins a mission only by your own press on Work/.test(x.message), 'never by her card');
+  assert.deepEqual(readMission(place(), m.id).tasks.map((x) => x.id), [own]);
   await e.add(m.id, foreign); // his press
   assert.deepEqual(readMission(place(), m.id).tasks.map((x) => x.id), [own, foreign]);
   await e.stop(m.id);

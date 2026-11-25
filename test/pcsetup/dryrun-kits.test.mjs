@@ -25,7 +25,7 @@ const sysFor = async (w) => {
 };
 // apt and ~/android-studio/jbr are Linux's: the platform comes with them, whatever computer runs the tests.
 const facts = (w) => sysFacts({
-  platform: 'linux', pm: 'apt', root: false, user: 'dev', home: w.home,
+  platform: 'linux', arch: 'x64', pm: 'apt', root: false, user: 'dev', home: w.home,
   has: (b) => b === 'sudo' || (!HIDE.has(b) && Boolean(which(b, process.env))),
   exists: (f) => inWorld(w, f) && fs.existsSync(f),
   list: (d) => {
@@ -40,7 +40,9 @@ const recorder = () => {
   const ran = [];
   return { ran, runner: async (argv) => (ran.push(argv), { ok: true, code: 0 }) };
 };
-/** The command lines `pc setup` printed under "Will run". */
+/** The command lines `pc setup` printed under "Will run" (a step Hoprig runs itself reads "(Hoprig) …"; the shell lines
+ * shown under it, indented further, are left out: `blockLines` gives them). */
+const blockLines = (text) => text.split('\n').filter((l) => l.startsWith('        ') && /# [a-z]+$/.test(l)).map((l) => l.trim());
 const willRun = (text) => {
   const lines = text.split('\n');
   const at = lines.findIndex((l) => l.startsWith('Will run'));
@@ -48,7 +50,7 @@ const willRun = (text) => {
   const out = [];
   for (const l of lines.slice(at + 1)) {
     if (!l.startsWith('    ')) break;
-    out.push(l.trim());
+    if (!l.startsWith('        ')) out.push(l.trim());
   }
   return out;
 };
@@ -76,10 +78,13 @@ test('pc setup --dry-run with the optional kits: nothing changed, nothing instal
     'sudo env DEBIAN_FRONTEND=noninteractive apt-get update',
     'sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y composer mariadb-server',
     'dart pub global activate fvm',
+    // A workspace is here: fvm keeps its Flutter versions in development/flutter/fvm, through the kits block.
+    '(Hoprig) write FVM_CACHE_PATH=$HOME/Workspace/development/flutter/fvm into the hoprig kits block of your shell start files (once, replaced in place)',
   ]);
-  assert.match(kits.text, /\(dry run\) would ask: Install these 3 steps now\? — nothing is changed/);
+  assert.deepEqual(blockLines(kits.text), ['export FVM_CACHE_PATH="$HOME/Workspace/development/flutter/fvm"  # fvm']);
+  assert.match(kits.text, /\(dry run\) would ask: Install these 4 steps now\? — nothing is changed/);
   assert.match(kits.text, /Dry run: nothing was changed/);
-  assert.match(kits.text, /PHP \+ database: MariaDB is a service: it starts now and with the computer[^\n]*\n[\s\S]*would ask: Install these 3 steps now\?/, 'the service is said before the one question');
+  assert.match(kits.text, /PHP \+ database: MariaDB is a service: it starts now and with the computer[^\n]*\n[\s\S]*would ask: Install these 4 steps now\?/, 'the service is said before the one question');
   // Only programs that answer a question ran: no install, no dart pub, no package source.
   for (const c of w.kitCalls()) assert.match(c, /^(php -v|apt-cache (policy|pkgnames|depends) \S+|java -version)$/, c);
   assert.ok(w.kitCalls().includes('php -v') && w.kitCalls().includes('java -version'));
@@ -96,8 +101,10 @@ test('pc setup --yes takes no optional kit; with --kits it runs exactly what it 
   const b = recorder();
   const ui2 = await quietUi({ yes: true });
   await runPcSetup({ ui: ui2, yes: true, kits: ['php', 'fvm'], sys, runner: b.runner });
-  assert.deepEqual(b.ran.map(showCommand), willRun(ui2.text()));
+  // Every command it printed ran, in that order; the kits block is written by Hoprig itself, not by a command.
+  assert.deepEqual(b.ran.map(showCommand), willRun(ui2.text()).filter((l) => !l.startsWith('(Hoprig) ')));
   assert.equal(b.ran.length, 3);
+  assert.match(fs.readFileSync(`${w.home}/.profile`, 'utf8'), /# >>> hoprig kits[^\n]*\nexport FVM_CACHE_PATH="\$HOME\/Workspace\/development\/flutter\/fvm"  # fvm\n# <<< hoprig kits <<<\n/);
   assert.doesNotMatch(JSON.stringify(b.ran), /add-apt-repository|ppa:|update-alternatives|remove|purge|git clone|workspace\.json/);
   assert.match(ui2.text(), /MariaDB is a service: it starts now and with the computer/);
 });
@@ -111,4 +118,27 @@ test('a jbr that does not run: named with its place and what to do, never "no Ja
   assert.match(r.text, /· Java \(no kit: Hoprig only looks for it\): No working Java\. The Java in Android Studio \(~\/android-studio\/jbr\) did not run: open Android Studio once, or reinstall it\.\n/);
   assert.doesNotMatch(r.text, /No Java found|Found but not working/);
   assert.doesNotMatch(willRun(r.text).join('\n'), /java|jdk/i);
+});
+
+test('pc setup --kits flutter --dry-run on a home with a workspace: nothing changes, nothing is fetched; the plan names address, size, place and shell line', async (tc) => {
+  const w = await dryWorld(tc, 'kitsflutter', { kits: true });
+  const sys = await sysFor(w);
+  const asked = [];
+  const get = async (url) => {
+    asked.push(url);
+    throw new Error('a dry run asked the network');
+  };
+  const r = await w.unchanged('pc setup --dry-run --kits flutter', () => runCli((a, o) => pcSetup(a, { ...o, sys, get }), ['--dry-run', '--kits', 'flutter']));
+  assert.equal(r.code, 0, r.text);
+  assert.deepEqual(asked, [], 'nothing was fetched');
+  assert.deepEqual(willRun(r.text), [
+    `(Hoprig) download Flutter's current stable release (the one https://storage.googleapis.com/flutter_infra_release/releases/releases_linux.json names) from storage.googleapis.com over https, about 1.6 GB (about 3 GB on disk), check its sha256, unpack it into ~/Workspace/development/flutter/flutter`,
+    '(Hoprig) write $HOME/Workspace/development/flutter/flutter/bin on PATH into the hoprig kits block of your shell start files (once, replaced in place)',
+  ]);
+  assert.deepEqual(blockLines(r.text), ['case ":$PATH:" in *":$HOME/Workspace/development/flutter/flutter/bin:"*) ;; *) PATH="$HOME/Workspace/development/flutter/flutter/bin:$PATH"; export PATH ;; esac  # flutter']);
+  assert.match(r.text, /\(dry run\) would ask: Install these 2 steps now\? — nothing is changed/);
+  // The packages Flutter's own page names are the owner's to install: shown with the command, never planned.
+  assert.match(r.text, /Flutter: yours to do: Flutter needs [^\n]*libglu1-mesa[^\n]*\n {4}sudo apt-get install [^\n]*libglu1-mesa/);
+  assert.doesNotMatch(willRun(r.text).join('\n'), /sudo|apt-get/);
+  for (const c of w.kitCalls()) assert.match(c, /^(php -v|apt-cache (policy|pkgnames|depends) \S+|java -version)$/, c);
 });

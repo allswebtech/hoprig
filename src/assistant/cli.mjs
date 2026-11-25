@@ -24,6 +24,8 @@ export async function main(command, args = []) {
     console.error(`hoprig mcp takes no arguments.\n${USAGE}`);
     return 2;
   }
-  await serveMcp({ client: httpClient(clientSettings()) });
+  // The dashboard's own Tia (her engine's config says so): the tool descriptions the owner accepted, where they apply.
+  const toolsJson = process.env.HOPRIG_ASSISTANT_ACCEPTED === '1' ? (await import('./accepted.mjs')).tiaToolsJson() : null;
+  await serveMcp({ client: httpClient(clientSettings()), toolsJson });
   return 0;
 }

@@ -39,7 +39,7 @@ import { withLock } from './lock.mjs';
 import { CLOSED, ID_RE, briefOf, checkBrief, findItem, fromOf, setStatus, statusOf, todayIn } from './model.mjs';
 import { resolvePlace } from './place.mjs';
 import { WAIT_OVER } from './planview.mjs';
-import { tokensOf, usedOf, cleanFolder, cleanText, dropStart, keepStart, listRuns, newRunId, pathsOf, readRun, readStart, viewRun, writeRun, writerId } from './runs.mjs';
+import { endsByItself, tokensOf, usedOf, cleanFolder, cleanText, dropStart, keepStart, listRuns, newRunId, pathsOf, readRun, readStart, viewRun, writeRun, writerId } from './runs.mjs';
 import { changeHeld, readDoc } from './store.mjs';
 import { commitWords, currentBranch, dropRunBranch, keptTree, noHooksEnv, refsOf, releaseTree, repoTop, treeFor } from './alonegit.mjs';
 import { commitRun, gitEntryOf } from './alonecommit.mjs';
@@ -52,6 +52,15 @@ import { fileURLToPath } from 'node:url';
 export const TOOL_SERVER = fileURLToPath(new URL('../mission/toolserver.mjs', import.meta.url));
 export const TOOL_SERVER_NAME = 'hoprig';
 export const BOX_TOOL = 'mcp__hoprig__run_tests';
+// What a role may run besides the tests, each one tool of that server (src/mission/toolserver.mjs), by the coding tool's name.
+export const BOX_TOOLS = Object.freeze({ tests: BOX_TOOL, build: 'mcp__hoprig__run_build', scripts: 'mcp__hoprig__run_script' });
+/** A role's run kinds, checked: the closed set only, in its order (left out: the tests). → the list, or null. */
+export const boxKinds = (v) => {
+  if (v === undefined || v === null) return ['tests'];
+  if (!Array.isArray(v) || !v.length || v.some((k) => !Object.hasOwn(BOX_TOOLS, k))) return null;
+  return Object.keys(BOX_TOOLS).filter((k) => v.includes(k));
+};
+export const boxToolNames = (kinds) => (kinds || ['tests']).map((k) => BOX_TOOLS[k]);
 const TOOL_TOKEN_RE = /^hbt_[A-Za-z0-9_-]{43}$/;
 const TOOL_URL_RE = /^http:\/\/[A-Za-z0-9.:[\]-]{1,100}$/;
 
@@ -104,7 +113,10 @@ export function aloneArgs({ mode = 'manual', model = null, effort = null, allowe
   const closed = Array.isArray(restricted) && restricted.length ? restricted : null;
   // tool ({ url, token }): the one tool server of the product's own, named here and nowhere else (never a file in the
   // worktree), told this dashboard's address and the token of this one session through its environment.
-  const one = closed && tool ? JSON.stringify({ mcpServers: { [TOOL_SERVER_NAME]: { command: process.execPath, args: [TOOL_SERVER], env: { HOPRIG_TOOL_URL: tool.url, HOPRIG_TOOL_TOKEN: tool.token } } } }) : null;
+  // tool.kinds: what the role may run (src/mission/roles.mjs RUNS); left out or the tests alone, the start is as before.
+  // A list outside the closed set gives no tool at all.
+  const kinds = tool ? boxKinds(tool.kinds) : null;
+  const one = closed && tool && kinds ? JSON.stringify({ mcpServers: { [TOOL_SERVER_NAME]: { command: process.execPath, args: [TOOL_SERVER], env: { HOPRIG_TOOL_URL: tool.url, HOPRIG_TOOL_TOKEN: tool.token, ...(kinds.join(',') === 'tests' ? {} : { HOPRIG_TOOL_KINDS: kinds.join(',') }) } } } }) : null;
   return [
     '-p', '--output-format', 'stream-json', '--verbose',
     '--permission-mode', mode === 'manual' || closed ? 'default' : mode,
@@ -117,7 +129,7 @@ export function aloneArgs({ mode = 'manual', model = null, effort = null, allowe
     ...(mode === 'bypassPermissions' && !closed ? ['--allow-dangerously-skip-permissions'] : []),
     ...(model ? ['--model', model] : []),
     ...(effort ? ['--effort', effort] : []),
-    ...tools('--allowedTools', closed ? (one ? [...closed, BOX_TOOL] : closed) : allowed),
+    ...tools('--allowedTools', closed ? (one ? [...closed, ...boxToolNames(kinds)] : closed) : allowed),
     ...tools('--disallowedTools', denied),
     // A mission's run: what is left of the owner's spend cap for it, so one turn cannot spend past the cap.
     ...(budget ? ['--max-budget-usd', String(budget)] : []),
@@ -381,14 +393,14 @@ export function aloneRunner(o) {
     // A mission's work or fix run whose role's check is its tests may get the one tool of the box (its token made for
     // this session by the mission's own code); onEnd: what the mission does first when the session has ended. A look
     // never gets it: only a mission's run.
-    const isTool = (t) => isObj(t) && Object.keys(t).length === 2 && typeof t.url === 'string' && TOOL_URL_RE.test(t.url) && typeof t.token === 'string' && TOOL_TOKEN_RE.test(t.token);
-    const tool = by === 'mission' && !review && restricted && isTool(job.tool) ? { url: job.tool.url, token: job.tool.token } : null;
+    const isTool = (t) => isObj(t) && Object.keys(t).every((k) => ['url', 'token', 'kinds'].includes(k)) && typeof t.url === 'string' && TOOL_URL_RE.test(t.url) && typeof t.token === 'string' && TOOL_TOKEN_RE.test(t.token) && boxKinds(t.kinds) !== null;
+    const tool = by === 'mission' && !review && restricted && isTool(job.tool) ? { url: job.tool.url, token: job.tool.token, kinds: boxKinds(job.tool.kinds) } : null;
     const onEnd = by === 'mission' && typeof job.onEnd === 'function' ? job.onEnd : null;
     const budget = mine && typeof job.budget === 'number' && Number.isFinite(job.budget) && job.budget > 0 && job.budget <= 10_000 ? Math.round(job.budget * 100) / 100 : null;
     return { by, review, allowed, denied, restricted, commit, dirs, tool, onEnd, budget, p, ref, raw, id, project, folder, prompt, mode, model, effort, provider, minutes, tell, title, schedule: job.schedule ? job.schedule.id : null };
   }
 
-  const runningHere = () => listRuns(place()).filter((r) => r.state === 'running' && r.writer === me() && r.branch);
+  const runningHere = () => listRuns(place()).filter((r) => r.state === 'running' && r.writer === me() && endsByItself(r));
 
   /**
    * THE door (also for Tia's Auto later): start a run that ends by itself, its limits checked here. job: { item? ({ id,
@@ -523,7 +535,7 @@ export function aloneRunner(o) {
       if (!m || m.type !== 'system' || m.subtype !== 'init') return;
       firstLine.seen = true;
       // With the one tool of the box: exactly that one server of the product's, and its one tool besides the role's.
-      const own = j.tool ? [...j.restricted, BOX_TOOL] : j.restricted;
+      const own = j.tool ? [...j.restricted, ...boxToolNames(j.tool.kinds)] : j.restricted;
       const other = Array.isArray(m.tools) ? m.tools.filter((t) => !own.includes(t)) : null;
       const list = Array.isArray(m.mcp_servers) ? m.mcp_servers : [];
       const servers = j.tool && list.length === 1 && list[0] && list[0].name === TOOL_SERVER_NAME ? 0 : list.length;
@@ -765,7 +777,7 @@ export function aloneRunner(o) {
       return;
     }
     for (const r of listRuns(p)) {
-      if (r.state !== 'running' || r.writer !== me() || !r.branch || live.has(r.id)) continue;
+      if (r.state !== 'running' || r.writer !== me() || !endsByItself(r) || live.has(r.id)) continue;
       // The coding tool may outlive a dashboard that crashed: ended first, when it is still that same process.
       const st = readStart(r.id);
       if (st && st.proc) {

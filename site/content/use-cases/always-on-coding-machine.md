@@ -20,10 +20,11 @@ The do-it-yourself way works: a VPN, SSH, tmux and a terminal app on the phone. 
 
 1. Install Hoprig on the machine. Its setup puts the dashboard in the background so it starts with the computer (a systemd service on Linux). To keep it running while you are logged out: `sudo loginctl enable-linger $USER`.
 2. With tmux 3.2 or newer installed, terminal sessions run in tmux: they survive a restart of the dashboard, and `tmux attach` over SSH still works.
-3. Reach it from anywhere: the public link for a PC at home (`hop public on`), or on a server `hoprig setup --hub`, which puts the dashboard behind HTTPS and refuses plain HTTP. With Tailscale, `hoprig setup --access tailscale` serves it only to your own Tailscale devices.
-4. After a restart, **Reopen sessions after a restart** (Settings → Automations) brings Claude Code's and OpenCode's terminal sessions back where they were, each on its own conversation. It is on at first with the built-in terminals (the dashboard's own). With tmux it is off at first: tmux sessions live through a restart of the dashboard, but not a restart of the computer; switch it on to have them back after one.
-5. A computer's page shows its load, memory, disks and the sessions on it. On a wide screen, **Open desktop** gives windows for its terminal, files, editor, processes, services and logs.
-6. **Settings → Updates** shows the new versions of Hoprig, the coding tools and the tunnel helper; Manual is the default. Automatic installs the coding tools and the tunnel helper at a safe moment; Hoprig itself tells you and waits for you.
+3. Reach it from anywhere: for a PC at home, turn on **Settings → Public link → On** (in a terminal, the window where you type commands: `hop public on`).
+4. On a server, in a terminal: `hoprig setup --hub` puts the dashboard behind HTTPS and refuses plain HTTP. With Tailscale, `hoprig setup --access tailscale` serves it only to your own Tailscale devices. The dashboard has no press for these two yet.
+5. After a restart, **Reopen sessions after a restart** (Settings → Automations) brings Claude Code's and OpenCode's terminal sessions back where they were, each on its own conversation. It is on at first with the built-in terminals (the dashboard's own). With tmux it is off at first: tmux sessions live through a restart of the dashboard, but not a restart of the computer; switch it on to have them back after one.
+6. A computer's page shows its load, memory, disks and the sessions on it. On a wide screen, **Open desktop** gives windows for its terminal, files, editor, processes, services and logs.
+7. **Settings → Updates** shows the new versions of Hoprig, the coding tools and the tunnel helper; Manual is the default. Automatic installs the coding tools and the tunnel helper at a safe moment; Hoprig itself tells you and waits for you.
 
 ![A computer's page, Overview: load, memory, disks, Claude Code and the sessions on it](/screenshots/computer-overview-desktop-light.webp)
 

@@ -65,7 +65,15 @@ test('#/computer/setup?show=git: the page reads show, Setup gives the Git panel 
   assert.match(src('projects.js'), /h\('a', \{ href: link\('#\/computer\/setup\?show=git'\)/);
 });
 
-test('Claude Code not installed: the row says Setup shows a command to type in a terminal, as Setup does', () => {
+test('Claude Code not installed: on this computer the row has the one press Get started has; on another, Setup', () => {
+  // This computer: the install runs in the page (getstarted.js installClaude, POST /api/onboarding/install-claude).
+  assert.match(src('pc.js'), /if \(!machine\.current\) \{\n\s*return h\('div\.row\.static\.cp-press'/);
+  assert.match(src('pc.js'), /btn\('small primary', \{ icon: 'download', label: 'Install Claude Code', onclick: \(\) => import\('\.\/getstarted\.js'\)\.then\(\(m\) => m\.runAction\(\{ kind: 'install-claude' \}, ctx\.reload\)\) \}\)/);
+  assert.match(src('getstarted.js'), /\} else if \(a\.kind === 'install-claude'\) installClaude\(after\);/);
+  // On a phone its title and sentence wrap whole and the button goes under them, never cut to "Claude Code n…".
+  assert.match(src('pc.js'), /return h\('div\.row\.static\.cp-press', h\('span\.row-icon', icon\('sparkle'\)\),\n\s*h\('span\.row-main\.cp-wrap', h\('span\.row-title', 'Claude Code not installed'\)/);
+  assert.match(src('page-computers.css'), /@media \(max-width: 640px\) \{ \.cp-press \{ flex-wrap: wrap; \} \.cp-press > \.row-main \{ flex: 1 1 200px; \} \.cp-press > button\.btn \{ margin-left: 44px; \} \}/);
+  // Another computer:
   assert.match(src('pc.js'), /h\('span\.row-title', 'Claude Code not installed'\), h\('span\.row-sub', 'Setup shows the command that installs it, to type in a terminal on that computer\.'\)/);
   assert.doesNotMatch(src('pc.js'), /Install it under Setup/);
   // Setup's row for it: no Fix or Install button, its command as a line of text (the check has no fixKit or action).

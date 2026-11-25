@@ -59,6 +59,7 @@ function tiaSettingsWords(a, p) {
     else if (k === 'model') parts.push(`her model: ${said(v) || 'the provider\'s default'}`);
     else if (k === 'maxSteps' && Number.isFinite(v)) parts.push(`${v} answers per job`);
     else if (k === 'maxMinutes' && Number.isFinite(v)) parts.push(`${v} minutes per job`);
+    else if (k === 'answersHers') parts.push(v ? 'she answers the OKs of her Work runs: on' : 'she answers the OKs of her Work runs: off');
     else if (k === 'dailyCapUsd') parts.push(Number.isFinite(v) ? `daily limit for paid use: $${v}` : 'no daily limit for paid use');
   }
   return { what: `change ${TIA}'s settings`, detail: parts.join(' · ') };
@@ -75,7 +76,7 @@ const UNIT = { upload_max_mb: 'MB', auto_cooldown_minutes: 'minutes' };
 const valueWords = (v, unit) => (v === null ? 'the default' : v === true ? 'on' : v === false ? 'off' : Array.isArray(v) ? `${v.length} item${v.length === 1 ? '' : 's'}`
   : typeof v === 'object' ? 'a new value' : typeof v === 'number' && unit ? `${v} ${unit}` : String(v));
 // The kits of Set up this computer by their titles (src/pcsetup/kits.mjs; a test keeps the two the same).
-export const KIT_TITLES = { basics: 'Basics', node: 'Node.js', python: 'Python', github: 'GitHub', extras: 'Terminal extras', docker: 'Docker', php: 'PHP + database', fvm: 'Flutter versions (fvm)' };
+export const KIT_TITLES = { basics: 'Basics', node: 'Node.js', python: 'Python', github: 'GitHub', extras: 'Terminal extras', docker: 'Docker', php: 'PHP + database', fvm: 'Flutter versions (fvm)', flutter: 'Flutter' };
 const kitWords = (id) => KIT_TITLES[id] || human(id);
 const ITEM = (id) => (id === 'all' ? 'everything that has an update' : id === 'hoprig' ? APP_NAME : id === 'cloudflared' ? 'the helper for the public link (cloudflared)' : TOOL_NAMES[id] || 'an item of Updates');
 const RULE = {
@@ -92,6 +93,7 @@ const ACTIONS = {
     add: (a) => `add the computer ${a.ssh_target || ''}`.trim(),
     rename: (a) => `rename a computer${said(a.label) ? ` to "${a.label}"` : ''}`,
     check_updates: () => 'check for updates',
+    restart_dashboard: () => 'restart the dashboard to use the new version',
     update: (a) => `update ${ITEM(a.item)}`,
     coding_tool: (a) => `turn ${codingTool(a.coding_tool)} ${a.turn === 'off' ? 'off' : 'on'}`,
     setup_fix: () => 'fix a setup check',
@@ -137,14 +139,20 @@ const ACTIONS = {
     installed: () => 'look at the installed skills', suggested: () => 'look at the suggested skills', find: () => 'look for a skill',
     check_updates: () => 'check the skills for updates', review: (a) => `review the skill ${a.spec || ''}`.trim(),
     update_review: (a) => `review an update of the skill ${a.skill || ''}`.trim(), install: () => 'install the skill she reviewed', remove: (a) => `remove the skill ${a.skill || ''}`.trim(),
+    cancel_review: () => 'cancel a skill review of hers', undo_update: (a) => `put back the kept version of the skill ${a.skill || ''}`.trim(),
+    twice: () => 'look at what went wrong twice', twice_dismiss: () => 'hide a line of what went wrong twice', twice_draft: () => 'make a skill draft of what went wrong twice',
   },
   manage_procedures: { find: () => 'look up how to do it', draft: (a) => `write down how to do "${a.name || 'it'}"` },
   // A task by its title where the entry kept one (its result: a task's id may be cut off), else by its id.
   manage_work: {
     today: () => 'look at what needs you today', list: () => 'look at your tasks', task: (a) => `look at the task ${a.task || ''}`.trim(), run: () => 'read what a session did for a task',
-    mission: () => 'look at her missions', goal: (a) => `give her a goal${said(a.project) ? ` for ${a.project}` : ''}`,
+    fix_ids: () => 'give the tasks that share an id ids of their own', tidy: () => 'tidy the Work list\'s file once',
+    mission: () => 'look at her missions', mission_stop: () => 'stop a mission of hers', mission_add: (a, p, r) => `add ${taskName(a, r) || 'a task'} to a mission of hers`,
+    mission_tests: (a, p, r) => `run the tests of ${taskName(a, r) || 'a task'} in the box`, goal: (a) => `give her a goal${said(a.project) ? ` for ${a.project}` : ''}`,
     progress: () => 'look at what runs and how long it will take',
-    add: (a) => `add the task${said(a.title) ? ` "${a.title}"` : ''}`, edit: (a, p, r) => `change the task ${taskName(a, r)}`.trim(), done: (a, p, r) => `mark ${taskName(a, r) || 'a task'} done`,
+    // Plans: the list, and one plan with its tasks in order.
+    plans: () => 'look at your plans', plan: (a) => `look at the plan ${said(a.plan) ? a.plan : ''}`.trim(),
+    add: (a) => `add the task${said(a.title) ? ` "${a.title}"` : ''}${said(a.plan) ? ` to the plan ${a.plan}` : ''}`, edit: (a, p, r) => `change the task ${taskName(a, r)}`.trim(), done: (a, p, r) => `mark ${taskName(a, r) || 'a task'} done`,
     reopen: (a, p, r) => `open ${taskName(a, r) || 'a task'} again`, undo: () => 'take back her last change to your tasks',
     start: (a, p, r) => `have a session do the task ${taskName(a, r)}`.trim(), accept: (a, p, r) => `accept the result of ${taskName(a, r) || 'a task'}`,
     send_back: (a, p, r) => `send the result of ${taskName(a, r) || 'a task'} back`, drop: (a, p, r) => `drop the task ${taskName(a, r)}`.trim(), remove: (a, p, r) => `remove the task ${taskName(a, r)}`.trim(),
@@ -200,10 +208,16 @@ const ANSWER = { allow: 'allow what', allow_always: 'allow, and not ask again in
 /** The other tools: the words, the detail line, the quoted text. */
 const TOOLS = {
   start_session: (a, p) => ({ what: startWords({ kind: 'terminal', tool: a.coding_tool, folder: a.folder, continues: continuesOf(a) }), goal: a.goal, quote: a.message }),
-  start_chat: (a, p) => ({ what: startWords({ kind: 'chat', tool: a.coding_tool, folder: a.folder, named: p.tools > 1, continues: continuesOf(a) }), goal: a.goal, quote: a.message }),
+  start_chat: (a, p) => (a.fork_of ? { what: `fork ${p.chat(a.fork_of)}` } : { what: startWords({ kind: 'chat', tool: a.coding_tool, folder: a.folder, named: p.tools > 1, continues: continuesOf(a) }), goal: a.goal, quote: a.message }),
   send_to_session: (a, p) => (a.name !== undefined ? { what: `rename ${p.chat(a.session)}${said(a.name) ? ` to ${a.name}` : ''}` } : a.key !== undefined ? { what: `press ${a.key} in ${p.chat(a.session)}` } : { what: `type into ${p.chat(a.session)}`, quote: a.text }),
-  send_to_chat: (a, p) => (a.stop ? { what: `stop the reply in ${p.chat(a.session)}` }
-    : a.answer ? { what: `${ANSWER[a.answer] || 'answer what'} ${p.chat(a.session)} asks` } : { what: `write to ${p.chat(a.session)}`, quote: a.text }),
+  // An answer of hers in the run of a Work task she started (the owner's switch, core.mjs `herWork`): what it asked, and why
+  // it was hers to give.
+  send_to_chat: (a, p, kept = {}) => (a.stop ? { what: `stop the reply in ${p.chat(a.session)}` }
+    : a.answer && kept.herWork === true ? {
+      what: `answered an OK in ${p.chat(a.session)}${said(kept.asked) ? `: allowed ${kept.asked}` : ''}`,
+      detail: 'because you let her answer the OKs of her Work runs (Settings → Tia), and it only looks inside the project or runs its own checks',
+    }
+      : a.answer ? { what: `${ANSWER[a.answer] || 'answer what'} ${p.chat(a.session)} asks` } : { what: `write to ${p.chat(a.session)}`, quote: a.text }),
   rename_session: (a, p) => ({ what: `rename ${p.chat(a.session)}${said(a.name) ? ` to ${a.name}` : ''}` }),
   watch_session: (a, p) => ({ what: `watch ${p.chat(a.session)}`, goal: a.goal }),
   finish_job: (a) => ({ what: a.state === 'stuck' ? 'finish a job as stuck' : 'finish a job as done', quote: a.report }),
@@ -236,7 +250,7 @@ export function activityWords(e, p) {
   const a = (e && e.input && typeof e.input === 'object') ? e.input : {};
   const per = ACTIONS[e.tool];
   const kept = e && e.result && typeof e.result === 'object' ? e.result : {};
-  const r = per ? { what: (per[a.action] || (() => 'make a change'))(a, p, kept) } : (TOOLS[e.tool] || (() => ({ what: 'make a change' })))(a, p);
+  const r = per ? { what: (per[a.action] || (() => 'make a change'))(a, p, kept) } : (TOOLS[e.tool] || (() => ({ what: 'make a change' })))(a, p, kept);
   const place = a.computer && a.computer !== 'this' ? p.computer(a.computer) : null;
   const account = (e.tool === 'start_session' || e.tool === 'start_chat') && a.account ? ` on ${p.provider(a.account)}` : '';
   const goal = said(r.goal) ? `done when: ${r.goal.trim()}` : '';

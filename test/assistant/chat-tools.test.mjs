@@ -834,3 +834,31 @@ test('list_sessions: a terminal whose conversation the App reads along is one se
   assert.deepEqual(r.data.sessions.map((s) => [s.session, s.app_reads_along === true]), [['shop-fix', true], ['blog', false]]);
   assert.match(byName.get('list_sessions').description, /app_reads_along/);
 });
+
+// ---- a fork of a chat (start_chat fork_of): always a card; it runs on its chat's provider, in its folder ----
+test('start_chat fork_of: a card at Hands off too, on the chat\'s own provider and folder; only his yes forks', async () => {
+  const { ops, core, call } = setup({ level: 'handsoff', cards: [chatCard({ status: 'waiting', ask: null, note: '' })] });
+  const web = '/home/owner/projects/web';
+  assert.match((await call('start_chat', { folder: web, fork_of: `chat:${ID}` })).text, /was not shown to you/, 'a chat she has not read is not hers to name');
+  await call('list_sessions', {});
+  assert.match((await call('start_chat', { folder: '/home/owner/projects/shop', fork_of: `chat:${ID}` })).text, /runs in another folder/);
+  assert.match((await call('start_chat', { folder: web, fork_of: `chat:${ID}`, message: 'go on' })).text, /a fork takes only its chat/);
+  assert.match((await call('start_chat', { folder: web, fork_of: `chat:${ID}`, account: 'api' })).text, /runs on the provider of its chat \(sub\)/);
+  const r = await call('start_chat', { folder: web, fork_of: `chat:${ID}` });
+  assert.ok(staged(r), r.text);
+  assert.ok(!writes(ops).includes('forkChat'), 'nothing forked before his yes');
+  const card = core.cards.pending()[0].lines.join('\n');
+  assert.match(card, /Fork the chat "Fix the footer" \(chat:[0-9a-f-]+\) in \/home\/owner\/projects\/web on this under sub: a new chat goes on from a copy of its conversation/);
+  assert.match(card, /its OKs stay yours/);
+  const done = await core.confirm(core.cards.pending()[0].id);
+  assert.equal(done.ok, true, JSON.stringify(done));
+  assert.deepEqual(ops.calls.filter((c) => c.op === 'forkChat').map((c) => c.args), [{ computer: 'this', id: ID }]);
+  assert.ok(!writes(ops).includes('startChat'), 'a fork opens no other chat');
+});
+
+test('her door: a fork of a chat takes no field', () => {
+  const ctx = { caller: 'tia' };
+  assert.equal(checkRoute('POST', `/api/chats/${ID}/fork`, {}, ctx).tool, 'start_chat (fork_of)');
+  assert.throws(() => checkRoute('POST', `/api/chats/${ID}/fork`, { messageId: 'm1' }, ctx), (e) => e.status === 403);
+  assert.throws(() => checkRoute('POST', `/api/chats/${ID}/fork`, { hers: true }, ctx), (e) => e.status === 403);
+});

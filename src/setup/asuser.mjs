@@ -11,15 +11,23 @@ import { USER_NAME_RE } from './rootfacts.mjs';
 /** The folder of the user's service manager, made by systemd once the user's manager runs (lingering starts it). */
 export const runtimeDir = (uid) => `/run/user/${uid}`;
 
-/** The newest Node bin folder of the user's own nvm (`<home>/.nvm/versions/node/v*\/bin`), or '' when there is none. */
+/**
+ * The newest Node bin folder of the user's own nvm (`<home>/.nvm/versions/node/v*\/bin`, else the workspace's
+ * `<home>/Workspace/development/nodejs/nvm/versions/node/v*\/bin`, where pc setup puts a new nvm), or '' when there is none.
+ */
 export function userNodeBin(home, { readdir = fs.readdirSync } = {}) {
-  const base = path.posix.join(home, '.nvm', 'versions', 'node');
+  let base;
   let names;
-  try {
-    names = readdir(base);
-  } catch {
-    return '';
+  for (const nvm of [path.posix.join(home, '.nvm'), path.posix.join(home, 'Workspace', 'development', 'nodejs', 'nvm')]) {
+    try {
+      names = readdir(path.posix.join(nvm, 'versions', 'node'));
+      base = path.posix.join(nvm, 'versions', 'node');
+      break;
+    } catch {
+      /* not this one */
+    }
   }
+  if (!base) return '';
   const num = (v) => v.slice(1).split('.').map(Number);
   const newest = names
     .filter((n) => /^v\d+\.\d+\.\d+$/.test(n))

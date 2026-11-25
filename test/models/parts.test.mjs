@@ -42,6 +42,7 @@ test('cache reads are kept apart and left out of the headline: a part that wrote
   fs.writeFileSync(path.join(sub, 'agent-b1.jsonl'), line('hoprig-runner', 'r1', 'claude-haiku-5-5', big));
   const r = partsOf('/unused', CONV, { dir });
   assert.deepEqual([r.parts[0].tokens, r.parts[0].use], [5000, { in: 4800, out: 200, cached: 120_000 }]);
+  assert.equal(r.parts[0].cacheWrite, 4000, 'of the new input, what was written to the cache: its own price');
   assert.deepEqual(r.tiers[0].use, { in: 4800, out: 200, cached: 120_000 });
 });
 

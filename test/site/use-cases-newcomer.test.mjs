@@ -25,10 +25,11 @@ test('the install line installs Node.js and Hoprig; Claude Code is set-up\'s que
   assert.match(page, /When Claude Code is missing, it asks whether to install it now\./);
 });
 
-test('not signed in to Claude: set-up says to sign in and run it again', () => {
-  assert.match(read('src/setup/setup.mjs'), /run "claude" once, type \/login, then run setup again\./);
-  // After /login the person is still inside Claude Code: `hoprig setup` typed there is a message to the AI.
-  assert.match(flat(read(PAGE)), /In the terminal, type `claude` and press Enter, type `\/login` and sign in in the browser, then type `\/exit` to come back to the terminal and run `hoprig setup` again\./);
+test('not signed in to Claude: set-up says so and goes on, and the sign-in is Get started\'s press', () => {
+  // The press the guide names is the one Home's Get started shows (its label comes from the server).
+  assert.match(read('src/setup/onboarding.mjs'), /\{ kind: 'claude-login', label: 'Sign in to Claude' \}/);
+  assert.match(read('src/setup/setup.mjs'), /No Claude account logged in: sign in on the dashboard, Home → Get started → Sign in to Claude/);
+  assert.match(flat(read(PAGE)), /4\. If you are not signed in to Claude yet, it says so in one line and goes on: you sign in later on the dashboard, where Home's Get started list has \*\*Sign in to Claude\*\* \(it opens Claude's sign-in page in your browser\)\./);
 });
 
 test('step 1 points at the install line, which stands below the steps', () => {
@@ -47,8 +48,26 @@ test('the phone signs in through the QR code; the password is in the file set-up
   assert.match(page, /the QR code at the end signs your phone in, and the dashboard's password, if it is ever asked, is in the file named under the QR code;/);
 });
 
-test('hoprig doctor: the page says where to type it', () => {
-  assert.match(flat(read(PAGE)), /At any time, type `hoprig doctor` in the terminal: it checks everything/);
+test('the checks: the guide names the Health page and its Fix, the command only as the other way', () => {
+  // The page's own names: Computers in the menu, a computer's Health tab, a check's Fix button.
+  assert.match(read('web/computers.js'), /registerPage\(\{ id: 'computers', title: 'Computers',/);
+  assert.match(read('web/pc.js'), /\{ id: 'health', title: 'Health',/);
+  assert.match(read('web/health.js'), /btn\('small primary', \{ label: 'Fix',/);
+  assert.match(flat(read(PAGE)), /At any time, open \*\*Computers\*\*, then this computer, then its \*\*Health\*\* tab: it checks everything, and under a problem that one press can fix there is a \*\*Fix\*\* button, which asks before it changes anything\. \(Or, in a terminal, `hoprig doctor` shows the same checks\.\)/);
+});
+
+test('after the install line the guide sends no one to a terminal: no sign-in or check is a command to type', () => {
+  const page = flat(read(PAGE));
+  for (const typed of [/type `claude`/, /`\/login`/, /`\/exit`/, /run `hoprig setup` again/, /type `hoprig doctor`/, /the one command that fixes it/]) assert.doesNotMatch(page, typed);
+  // Every command the guide shows outside the install line is "the other way", after "Or, in a terminal,".
+  const steps = page.replace(/```sh[^`]*```/, '');
+  for (const m of steps.matchAll(/`hoprig [^`]*`/g)) {
+    const before = steps.slice(Math.max(0, m.index - 80), m.index);
+    assert.ok(m[0] === '`hoprig setup`' || /Or, in a terminal, $/.test(before), `${m[0]} is a step of its own: ${before}${m[0]}`);
+  }
+  // Step 1 says in one sentence what the line does, and the one terminal moment the page admits is that line.
+  assert.match(page, /The line fetches Hoprig's installer from GitHub and runs it on your computer\./);
+  assert.match(page, /You still need the terminal once, to paste the install line\./);
 });
 
 test('the questions the page names are the ones set-up asks', () => {

@@ -47,8 +47,97 @@ export const secondRunIds = (results) => results.filter((r) => r.pass && r.retri
 /** The result of a case that crashed (the stand-in or the engine threw). */
 export const crashed = (c, e) => ({ id: c.id, category: c.category, tags: c.tags || null, message: c.message || null, ms: 0, pass: false, problems: [`crashed: ${String(e && e.message).split('\n')[0]}`], tools: [], ops: [], cards: [], costUsd: null });
 
+/** The most one case may spend (Claude Code's --max-budget-usd for its turn). */
+export const CASE_USD = 0.5;
+/** Below this a case is not started (Claude Code ends a turn at its limit after the request that passed it). */
+export const MIN_CASE_USD = 0.0001;
+const down = (v) => Math.floor(v * 10_000 + 1e-6) / 10_000;
+
+/**
+ * The whole budget of one run (--max-usd): a case starts with its share (at most CASE_USD, and `max / n` so that n
+ * cases at once all get one) as its turn's own limit, and what it measured counts as soon as it ends (all of its share
+ * when it measured nothing). While other cases run, a case waits until its whole share is free; only when nothing runs
+ * does it start with what is left. Once nothing runs and nothing is left, no case starts any more. So the limits handed
+ * out and what was spent never pass `max`.
+ */
+export class Budget {
+  constructor(max, n = 1) {
+    this.max = max;
+    this.share = Math.max(MIN_CASE_USD, Math.min(CASE_USD, max / Math.max(1, n)));
+    this.spent = 0;
+    this.held = 0;
+    this.live = 0;
+    this.out = false;
+    this.waiting = [];
+  }
+
+  /** → the share of the case about to start, or null when the budget is used up. */
+  async take() {
+    for (;;) {
+      if (this.out) return null;
+      const usd = down(Math.min(this.share, this.max - this.spent - this.held));
+      if (usd + 1e-9 >= this.share || (!this.live && usd + 1e-9 >= MIN_CASE_USD)) {
+        this.held += usd;
+        this.live++;
+        return usd;
+      }
+      if (!this.live) {
+        this.out = true;
+        return null;
+      }
+      await new Promise((ok) => this.waiting.push(ok));
+    }
+  }
+
+  /** The case that took `usd` ended; `cost`: what it measured (null: nothing, its whole share counts). */
+  settle(usd, cost) {
+    this.held -= usd;
+    this.live--;
+    this.spent += Number.isFinite(cost) ? cost : usd;
+    for (const w of this.waiting.splice(0)) w();
+  }
+}
+
+/** A case the budget left out: no result, and never a pass. */
+export const notRun = (c, costUsd = null) => ({ id: c.id, category: c.category, tags: c.tags || null, message: c.message || null, ms: 0, pass: false, skipped: true, problems: ['not run: the budget of the run is used up'], tools: [], ops: [], cards: [], costUsd });
+
+/**
+ * Run one case under `budget`: fn(usd) runs it with at most `usd` (its turn's own limit). A case that started with less
+ * than CASE_USD, failed, and spent its limit (or measured nothing) was cut by that limit: it is no result, so it counts
+ * as not run (its cost stays in the budget's sum). A case that failed below its limit failed by itself.
+ */
+export async function withBudget(budget, c, fn) {
+  const usd = await budget.take();
+  if (usd === null) return notRun(c);
+  let r;
+  try {
+    r = await fn(usd);
+  } catch (e) {
+    budget.settle(usd, null);
+    throw e;
+  }
+  budget.settle(usd, Number.isFinite(r.costUsd) ? r.costUsd : null);
+  const cut = !r.pass && usd + 1e-9 < CASE_USD && !(Number.isFinite(r.costUsd) && r.costUsd < usd * 0.95);
+  return cut ? notRun(c, r.costUsd ?? null) : r;
+}
+
+/** --end-with-stdin: the run ends with its process group (every engine it started) when its standard input closes. */
+export function endWithStdin() {
+  const end = () => {
+    try {
+      if (process.platform !== 'win32') process.kill(-process.pid, 'SIGTERM'); // its own group: it was started detached
+    } catch {
+      /* not a group of its own */
+    }
+    process.exit(1);
+  };
+  process.stdin.on('end', end).on('close', end).on('error', end);
+  process.stdin.resume();
+}
+
 /** The progress line of one case (standard error). */
 export function lineOf(r) {
+  if (r.skipped) return `NOT RUN ${r.id}: the budget of the run is used up`;
   if (!r.retried) return `${r.pass ? 'PASS' : 'FAIL'} ${r.id}${r.pass ? '' : `: ${r.problems.join('; ')}`}`;
   if (r.pass) return `PASSED ON THE SECOND RUN ${r.id} (the first run: ${r.firstProblems.join('; ')})`;
   return `FAIL ${r.id} (failed on both runs): ${r.problems.join('; ')}`;

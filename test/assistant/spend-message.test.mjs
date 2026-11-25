@@ -220,3 +220,92 @@ test('(9) measureChats with the chat\'s function: one end entry per hold, never 
   assert.equal(endsOf(l).length, 2, 'written once per hold');
   assert.deepEqual(l.detail(), fig(0.2, 2 * HOLD_USD, 2));
 });
+
+// An act just before midnight whose turn ends after it: the day before counts its $0.50 (its cost was not measured
+// then), and what the chat cost after midnight counts in the new day. Only a chat whose act was still counted at
+// midnight goes on being measured, and only for the one day after.
+function lateAct() {
+  const clock = { t: new Date(2026, 10, 18, 23, 59).getTime() };
+  const l = new SpendLedger({ file: null, now: () => clock.t });
+  const tick = (costTotal, working = false) => measureChats(l, [{ kind: 'chat', name: 'chat:late', chatId: 'late', costTotal, status: working ? 'working' : 'idle' }]);
+  act(l, 'act-late', 'this|chat:late', 1.0);
+  tick(1.0, true); // its turn runs at 23:59
+  return { l, clock, tick };
+}
+
+test('(10) an act at 23:59 whose turn ends after midnight: what it cost after midnight counts in the new day', (t) => {
+  const { l, clock, tick } = lateAct();
+  assert.deepEqual(l.detail(), fig(0, HOLD_USD, 1), 'before midnight: its $0.50');
+  clock.t = new Date(2026, 10, 19, 0, 1).getTime();
+  tick(1.4);
+  const d = l.detail();
+  t.diagnostic(`FIG midnight detail=${JSON.stringify(d)}`);
+  assert.equal(d.spent, 0.4, 'its turn ended at $1.40: $0.40 after its base of $1.00');
+  // The day after that, nothing of the day before is measured any more.
+  clock.t = new Date(2026, 10, 20, 0, 1).getTime();
+  tick(2.0);
+  assert.deepEqual(l.detail(), fig(0, 0, 0), 'one day carried, no more');
+});
+
+test('(11) an act settled before midnight is not carried: the chat\'s later turns are not counted in the new day', () => {
+  const { l, clock, tick } = lateAct();
+  tick(1.3); // its turn ended and reported before midnight
+  assert.deepEqual(l.detail(), fig(0.3, 0, 0));
+  clock.t = new Date(2026, 10, 19, 0, 1).getTime();
+  tick(1.9);
+  assert.deepEqual(l.detail(), fig(0, 0, 0), 'nothing of hers was counted at midnight: nothing is measured');
+});
+
+// Only a turn that may still run at midnight is carried into the new day. An act whose turn ended before it, with no
+// reported cost, keeps its $0.50 on the day before and no more: the chat's cost the next day is his own.
+const lateClock = () => {
+  const clock = { t: new Date(2026, 10, 18, 23, 40).getTime() };
+  return { clock, l: new SpendLedger({ file: null, now: () => clock.t }) };
+};
+
+test('(12) a message whose turn ended before midnight without a cost is not carried: his next day is not hers', () => {
+  const { clock, l } = lateClock();
+  const c = chatOf('late');
+  act(l, 'act-1', c.key, 1.0, 'm1');
+  c.tick(l, 1.0, true);
+  c.ends.set('m1', { ended: true, cost: null, total: 1.0 }); // its coding tool crashed at 23:45
+  clock.t = new Date(2026, 10, 18, 23, 45).getTime();
+  c.tick(l, 1.0, false);
+  assert.deepEqual(l.detail(), fig(0, HOLD_USD, 1), 'its $0.50 for the day before');
+  clock.t = new Date(2026, 10, 19, 10, 0).getTime();
+  c.tick(l, 3.0, false); // his own work in that chat the next morning
+  assert.deepEqual(l.detail(), fig(0, 0, 0));
+});
+
+test('(13) an act into an older chat whose short turn ended unseen before midnight is not carried', () => {
+  const { clock, l } = lateClock();
+  const c = chatOf('late');
+  act(l, 'act-1', c.key, 1.0);
+  c.tick(l, 1.0, false);
+  clock.t = new Date(2026, 10, 18, 23, 41).getTime();
+  c.tick(l, 1.2, false); // a turn too short to be seen working: its hold stays for the day
+  assert.deepEqual(l.detail(), fig(0.2, HOLD_USD, 1));
+  clock.t = new Date(2026, 10, 19, 10, 0).getTime();
+  c.tick(l, 3.0, false);
+  assert.deepEqual(l.detail(), fig(0, 0, 0));
+});
+
+test('(14) a message whose turn still runs at midnight is carried: what the chat costs after it counts in the new day', () => {
+  const { clock, l } = lateClock();
+  const c = chatOf('late');
+  act(l, 'act-1', c.key, 1.0, 'm1');
+  c.tick(l, 1.0, true);
+  clock.t = new Date(2026, 10, 19, 0, 1).getTime();
+  c.tick(l, 1.4, false);
+  assert.deepEqual(l.detail(), fig(0.4, 0, 0));
+});
+
+test('(15) an act into an older chat seen idle before its turn began, which then runs past midnight, is carried', () => {
+  const { clock, l } = lateClock();
+  const c = chatOf('late');
+  act(l, 'act-1', c.key, 1.0);
+  c.tick(l, 1.0, false); // its message waits to begin: nothing ran yet
+  clock.t = new Date(2026, 10, 19, 0, 1).getTime();
+  c.tick(l, 1.4, false); // its turn ran across midnight between two looks
+  assert.deepEqual(l.detail(), fig(0.4, 0, 0));
+});

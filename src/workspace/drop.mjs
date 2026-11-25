@@ -71,10 +71,11 @@ const repoLabel = (wt, ctx) => {
 
 /**
  * The whole check of a project: every repository, the memory folders, the private folders. `fetch`: fetch each one
- * with prune first (a real drop only). `seen`: Map(wt → names of the server's branches known before a fetch).
+ * with prune first (a real drop only). `seen`: Map(wt → names of the server's branches known before a fetch). `ask`: what
+ * tells what the git server has (askServer; the daily look of pc leave hands in one that asks nobody, leave.mjs).
  * → { checks: [checkRepo + label], refusals: [{ repo, what, command }], confirm: [{ repo, path, kind, size, ... }], tops }
  */
-export async function lookAt(t, ctx, { fetch = false, run = capture, seen = new Map(), onStep = () => {} } = {}) {
+export async function lookAt(t, ctx, { fetch = false, run = capture, seen = new Map(), onStep = () => {}, ask = askServer } = {}) {
   const root = t.folder;
   const at = { ...ctx, root };
   const { repos, privates } = walkProject(root);
@@ -98,7 +99,7 @@ export async function lookAt(t, ctx, { fetch = false, run = capture, seen = new 
         if (!f.ok) refusals.push({ repo: label, what: `it could not be fetched from its git server (${f.why}), so it cannot be told what is only here`, command: showCommand(['git', '-C', wt, 'fetch', 'origin']) });
       }
     }
-    const server = origin ? await askServer(at, wt, run) : null;
+    const server = origin ? await ask(at, wt, run) : null;
     const c = await checkRepo(wt, { label, repos, memories: wt === root ? memories : [], server, credentials, project, memo, seenBefore: seen.get(wt) || [], run });
     for (const r of c.refusals) refusals.push({ repo: label, ...r });
     for (const i of c.ignored) confirm.push({ repo: label, ...i });
@@ -171,7 +172,7 @@ const noCredentials = (url) => String(url).replace(/^([a-z][a-z0-9+.-]*:\/\/)[^/
  * file changed, or an untracked file beside tracked ones) | 'untracked' (not in git at all, ignored or not) |
  * 'ignored inside' (tracked and clean, with files git ignores in it) | 'unknown' }
  */
-async function privateState(wt, rel, run) {
+export async function privateState(wt, rel, run) {
   const ask = async (args) => {
     const r = await gitRead(wt, ['--literal-pathspecs', ...args, '--', `${rel}/`], { run });
     return r.ok ? r.stdout.length > 0 : null;

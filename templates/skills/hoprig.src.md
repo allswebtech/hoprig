@@ -10,6 +10,8 @@ gateways) with one shared session store, continues a session on another provider
 keeps a workspace of git repositories, and has a web dashboard that also shows other computers.
 The command is `hoprig`, or `hop` for short.
 
+If a skill named hoprig-learned is installed, read it too: it holds what was learned about using Hoprig on this computer.
+
 ## What it can do for your own work here
 
 - **Tasks**: `hop tasks` shows what needs the user today; `hop tasks add "<title>" --date YYYY-MM-DD` keeps one

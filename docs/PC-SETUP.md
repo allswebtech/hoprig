@@ -62,6 +62,7 @@ git's name and e-mail, and restoring or starting your workspace) and then the wo
 | **Docker** (optional, off by default) | Docker | Docker's own install script; you must log out and in again before it works without `sudo` |
 | **PHP + database** (optional, off by default) | PHP's command line, Composer, MariaDB (server) | the package manager (apt `php-cli composer mariadb-server`, dnf/yum the same, pacman `php composer mariadb`, zypper `php8 php-composer2 mariadb`, apk `php85 composer mariadb mariadb-client`, brew `php composer mariadb`); not on Windows |
 | **Flutter versions (fvm)** (optional, off by default) | fvm | `dart pub global activate fvm`, for you only; only for work on several Flutter versions at once; Flutter (its `dart`) comes first; not on Windows |
+| **Flutter** (optional, off by default) | Flutter (the stable release) | into `development/flutter/flutter` of your workspace, for you only: Flutter's own release list is read, the archive comes only from storage.googleapis.com over https, its size is held against a ceiling and its sha256 checked before it is unpacked; a Flutter you already have (on your PATH, in `~/flutter`) is used where it is, through a link; its `bin` goes on PATH in the kits block of your shell start files; the packages it needs on Linux are shown as your own step; needs a workspace; not on Windows |
 
 An optional kit is installed only when you choose it: `--kits php,fvm` (or a tick on the Setup part, or a recipe that
 names it). `--yes` never takes one by itself. On the Setup part an optional kit's **Install…** opens "Set up this
@@ -103,6 +104,12 @@ apt, dnf, yum, pacman or zypper, MariaDB's server is left out of the plan: the p
 for MariaDB's. The line says so and shows the install command without `-y`, for you to run, where the package manager
 lists what it removes and asks first. Homebrew and Alpine do not remove such a client, so there MariaDB is planned as
 usual.
+
+With MariaDB the kit also makes the workspace's folder `database/mysql/` when it is missing (only that folder, which
+only you can open, never a file inside it), and says so before the one question and in its dry run. It is the
+workspace's place for this database's dumps and local data, as `database/postgresql/` is for PostgreSQL. MariaDB's own
+data folder is not moved or changed: it stays where its package puts it. A computer without a workspace gets no
+folder; `hoprig workspace setup` makes it with the rest.
 
 **Java** has no kit: Hoprig never installs one. When a project of yours needs Java (it has a Gradle or Maven build
 file, at its top or in its `android` folder), Hoprig looks, in this order, for `JAVA_HOME`, `java` on your PATH, Android
@@ -176,9 +183,12 @@ Today you would hand an AI one long set-up prompt with your project's details. H
 - **`--brief <file>`** (or `--brief -` to type or pipe it): what the product is, who uses it, its main features, in
   your own words. It is kept byte for byte as `docs/brief.md`. A brief with a character nobody can see (a zero-width
   space, a direction mark) is refused before anything is made, as Work's briefs are; at most 24 KiB, UTF-8.
-- **The `new-project` skill** comes with the brief, in `.claude/skills/new-project` with its record (so
-  `hoprig skills list` and `update` know it), where every coding tool that opens the project finds it. A project made
-  without a brief gets neither. A template of your own that has its own `new-project` skill keeps it.
+- **The `new-project` skill** comes with every new project, with a brief or without one, in
+  `.claude/skills/new-project` with its record (so `hoprig skills list` and `update` know it), where every coding tool
+  that opens the project finds it. Without a brief, `AGENTS.md` gets a part "No brief yet" instead: write the brief
+  into `docs/brief.md`, or tell the session, and the skill sets the project up from it. **`--no-skill`** leaves the
+  skill out (only without a brief); on the page it is the box **Add the New Project skill**, ticked at first. A
+  template of your own that has its own `new-project` skill keeps it.
 - **`AGENTS.md`** gets a part "Every session" (unless it has one already): every later session reads the memory, the
   brief, `decisions.md` and the applies table of `docs/checklist.md`, and follows the skill, so "add feature X" a
   month later keeps to the same rules.

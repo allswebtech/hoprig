@@ -157,6 +157,8 @@ export function createOps(o) {
     stopChat: ({ computer, id }) => post(computer, `/api/chats/${enc(id)}/stop`, {}),
     moveChat: ({ computer, id, profile }) => post(computer, `/api/chats/${enc(id)}/provider`, { profile }),
     renameChat: ({ computer, id, title }) => post(computer, `/api/chats/${enc(id)}/title`, { title }),
+    // A new chat on a copy of chat `id`'s conversation (the session menu's Branch); it starts nothing until a message.
+    forkChat: ({ computer, id }) => post(computer, `/api/chats/${enc(id)}/fork`, {}).then((r) => (ctx.poke?.(), r)),
     closeChat: ({ computer, id }) => post(computer, `/api/chats/${enc(id)}/close`, {}).then((r) => (ctx.poke?.(), r)),
     chatToTerminal: ({ computer, id }) => post(computer, `/api/chats/${enc(id)}/terminal`, {}).then((r) => (ctx.poke?.(), r)),
     chatFromSession: ({ computer, session }) => post(computer, '/api/chats/from-session', { session }).then((r) => (ctx.poke?.(), r)),
@@ -220,6 +222,12 @@ export function createOps(o) {
     workGoal: ({ computer, goal, project, dryRun }) => post(computer, '/api/work/missions', { goal, project, ...(dryRun ? { dryRun: true } : {}) }),
     workMissions: ({ computer }) => get(computer, '/api/work/missions'),
     workMission: ({ computer, id }) => get(computer, `/api/work/missions/${enc(id)}`),
+    workFixIds: ({ computer }) => post(computer, '/api/work/fix-ids', {}),
+    workTidyPlan: ({ computer }) => get(computer, '/api/work/tidy'),
+    workTidy: ({ computer, hash }) => post(computer, '/api/work/tidy', { hash }),
+    workMissionStop: ({ computer, id }) => post(computer, `/api/work/missions/${enc(id)}/stop`, {}),
+    workMissionAdd: ({ computer, id, task }) => post(computer, `/api/work/missions/${enc(id)}/add`, { task }),
+    workMissionTests: ({ computer, id, task }) => post(computer, `/api/work/missions/${enc(id)}/tasks/${enc(task)}/run-tests`, {}),
     workProgress: ({ computer, since, item, run }) => get(computer, `/api/work/progress${(() => {
       const q = new URLSearchParams();
       if (since) q.set('since', since);
@@ -229,6 +237,11 @@ export function createOps(o) {
       return t ? `?${t}` : '';
     })()}`),
     workRuns: ({ computer, item, id }) => get(computer, `/api/work/runs${item ? `?item=${enc(item)}` : id ? `?id=${enc(id)}` : ''}`),
+    // Plans (src/work/planfeature.mjs): the list, one plan with its milestones, tasks and `hash`, and a task put into a
+    // plan (its milestone, what it waits for) by the page's own route.
+    workPlans: ({ computer }) => get(computer, '/api/work/plans'),
+    workPlanOne: ({ computer, id }) => get(computer, `/api/work/plans/${enc(id)}`),
+    workTaskPlan: ({ computer, id, at, plan, milestone, after }) => post(computer, `/api/work/items/${enc(id)}/plan`, { at, ...(plan !== undefined ? { plan, milestone: milestone ?? null } : {}), ...(after !== undefined ? { after } : {}) }),
 
     // ---- the AI brain (read-only) ----
     brainIndex: ({ computer }) => get(computer, '/api/brain'),
@@ -272,6 +285,8 @@ export function createOps(o) {
     updates: ({ computer }) => get(computer, '/api/updates'),
     checkUpdates: ({ computer }) => post(computer, '/api/updates/check', {}),
     runUpdate: ({ computer, id }) => post(computer, '/api/updates/run', { id }),
+    // The restart that loads a version just installed (the Updates page's Restart now): it ends this dashboard, so her turn too.
+    restartDashboard: ({ computer }) => post(computer, '/api/updates/restart', {}),
     killProcess: ({ computer, pid, signal }) => post(computer, '/api/pc/kill', { pid, signal: signal === 'KILL' ? 'KILL' : 'TERM' }),
     power: ({ computer, action }) => post(computer, '/api/pc/power', { action, confirm: action }),
     renameComputer: ({ computer, label }) => (isLocal(computer) ? post(LOCAL, '/api/machine/label', { label }) : post(LOCAL, `/api/machines/${enc(computer)}/rename`, { label })),
@@ -295,6 +310,11 @@ export function createOps(o) {
     skillApprove: ({ computer, id }) => post(computer, '/api/skillhub/approve', { id }),
     skillRemove: ({ computer, name, project }) => post(computer, '/api/skillhub/remove', { name, ...(project ? { project: dir(computer, project) } : {}) }),
     skillsCheck: ({ computer, project }) => post(computer, '/api/skillhub/check', project ? { project: dir(computer, project) } : {}),
+    skillCancel: ({ computer, id }) => post(computer, '/api/skillhub/cancel', { id }),
+    skillUndo: ({ computer, name, project }) => post(computer, '/api/skillhub/undo', { name, ...(project ? { project: dir(computer, project) } : {}) }),
+    fieldTwice: ({ computer }) => get(computer, '/api/field/twice'),
+    // The line's key is <kind>:<class>; the route reads the ":" as it is (the page sends it so), each side encoded.
+    fieldTwiceAct: ({ computer, line, act }) => post(computer, `/api/field/twice/${String(line).split(':').map(enc).join(':')}/${act === 'draft' ? 'draft' : 'dismiss'}`, {}),
 
     projectsFolder: ({ computer, dir: d }) => post(computer, '/api/pcsetup/projects-dir', { dir: dir(computer, d) }),
     workingRules: ({ computer, add }) => post(computer, '/api/pcsetup/rules', { action: add ? 'add' : 'remove' }),

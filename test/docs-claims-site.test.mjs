@@ -2,6 +2,7 @@
 // a switch's name. When the code changes, the sentence has to change with it.
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
@@ -48,7 +49,21 @@ test('the index: the tests run on the systems and Node.js versions of the workfl
   assert.match(index, /The newer parts \(the chat, the editor, the desktop, Work\) were tried by hand on Linux only, not on a real Mac/);
 });
 
-test('the index: setup ends with a QR code, and on a server with how to reach it instead', async () => {
+test('the index: setup ends with a QR code, and on a server with how to reach it instead', async (t) => {
+  // With a phone address setup's last step makes a one-time sign-in link, kept in <state folder>/login-links.json.
+  // The folders are this test's own: in the run's shared state folder the link landed while test/docs-claims.test.mjs
+  // checked that this folder stays as it was, and that check failed when the two files ran side by side.
+  const own = fs.mkdtempSync(path.join(os.tmpdir(), 'docs-site-setup-'));
+  const before = { config: process.env.HOPRIG_CONFIG_DIR, state: process.env.HOPRIG_STATE_DIR };
+  process.env.HOPRIG_CONFIG_DIR = path.join(own, 'config');
+  process.env.HOPRIG_STATE_DIR = path.join(own, 'state');
+  t.after(() => {
+    for (const [k, v] of [['HOPRIG_CONFIG_DIR', before.config], ['HOPRIG_STATE_DIR', before.state]]) {
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
+    fs.rmSync(own, { recursive: true, force: true });
+  });
   const { stepSummary } = await import('../src/setup/setup.mjs');
   const { makeUi } = await import('../src/setup/ui.mjs');
   const end = async (state) => {

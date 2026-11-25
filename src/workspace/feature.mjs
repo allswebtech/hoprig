@@ -15,6 +15,12 @@
 //   POST /api/workspace/map/commit                      save workspace.json, only it, in the brain's history
 //                                                       (what the commitMap switch does; refused over staged changes;
 //                                                       { done, already } when there is nothing to save)
+//   POST /api/workspace/map/upgrade { dryRun?, seen?, undo? }   the map from version 1 to 2 (mapundo.mjs): dryRun: the
+//                                                       plan in words and its id; else the owner's own page only, refused
+//                                                       when `seen` is not the plan's id now; undo: the old map back
+//   POST /api/workspace/map/case { dryRun?, seen?, undo? }   a folder whose name differs from its entry only in letter
+//                                                       case gets the map's name (mapcase.mjs), the same steps as
+//                                                       `hoprig workspace map --fix-case`; the owner's own page only
 //   POST /api/workspace/restore { url, dryRun?, withProjects? }  dryRun: the plan at once; else a background job; no
 //                                                       project is cloned unless withProjects
 //   POST /api/workspace/sync { memory?, push?, with?, dryRun? }   a background job
@@ -35,12 +41,16 @@
 //   GET  /api/workspace/whohas         which computer has what (whohas.mjs): every place's entries, here and only in
 //                                       the map, each computer's file with when it was written; read only
 //   GET  /api/workspace/find?in=<place> what the hosting site has that fits a place's naming rule (read only, no --add)
+//   POST /api/workspace/find/add { in, dryRun?, seen? }  find --add (no clone); find/undo { entries } takes exactly
+//                                       those out again; find/get { in, repo, dryRun?, seen? } get --in, a background job
 //   POST /api/workspace/drop/check { name }   drop's --check (read only); from the owner's own page also a one-use
 //                                       ticket for the sheet (dropweb.mjs)
-//   POST /api/workspace/drop { ticket, work?, defaults?, typed? }   the drop: the owner's own page only (whomay.mjs)
+//   POST /api/workspace/drop { ticket, needed?, work?, defaults?, typed? }   the drop: the owner's own page only (whomay.mjs)
 //   POST /api/workspace/group { dir, repo?, holds?, dryRun?, writeIgnore? }   group add (groupcmd.mjs); a real one:
 //                                       the owner's own page only; a dry run says what goes into the map
 //   POST /api/workspace/group/remove { dir, dryRun? }   out of the map, never its folder (the owner's own page only)
+//   GET  /api/workspace/tools  POST /api/workspace/tools/allow { group, dryRun?, seen? }  POST /api/workspace/tools/remove
+//                                       { group, dryRun? }   a group's own command (toolweb.mjs): its state, the yes, its undo
 //   GET  /api/workspace/rules           the "Your workspace" text for coding sessions and its file's state
 //   POST /api/workspace/rules {}        write it (the owner's own page only; never by a group add itself)
 //   GET  /api/workspace/git/brains      the owner's brains on GitHub that hold a map: { signedIn, brains: [{ owner, name, url }],
@@ -55,6 +65,9 @@
 //   POST /api/workspace/git/brain/moveout { files }   the owner's yes on the save sheet's key refusal: the named files
 //                                       the save refuses are moved to the folder beside the brain the sheet named
 //                                       (brainmove.mjs), never deleted; each name is checked again here
+//   GET  /api/workspace/credentials     the credentials folder: a folder here or a repository, its address (credweb.mjs)
+//   POST /api/workspace/credentials { github?|repo?, dryRun?, typed?, seen?, confirmNotGithub? }   make it a private
+//                                       repository: a dry run with the name to type, then his typed yes (a job)
 //   POST /api/workspace/git/brain { save: true, seen }   the owner's yes: save them and upload, a background job; the
 //                                       owner's own page only; refused when the files are not those his sheet showed
 // No GitHub password and no token ever goes through these: GitHub asks on its own page, the token stays in gh.
@@ -187,6 +200,47 @@ export function workspaceFeature(sctx, opts = {}) {
       const { findInPlace } = await import('./findcmd.mjs');
       return findInPlace(place, { ...places(), ...(opts.gh ? { gh: opts.gh } : {}), ...(opts.site ? { site: opts.site } : {}) });
     }],
+    // "Look on the git server" (findweb.mjs): the command's own add and get; a real call is the owner's own page only.
+    ['POST', /^\/api\/workspace\/find\/add$/, async (req) => {
+      ownerOnly(req);
+      const b = await sctx.readJson(req);
+      keys(b, ['in', 'dryRun', 'seen']);
+      const dry = bool(b.dryRun, 'dryRun');
+      const fw = await import('./findweb.mjs');
+      const p = places();
+      const place = fw.placeOf(b.in, p);
+      const gh = opts.gh ? { gh: opts.gh } : {};
+      const { addFound } = await import('./findcmd.mjs');
+      if (dry) return addFound(place, { ...p, ...gh, dryRun: true });
+      await mine(req, 'adding projects to the map');
+      const seen = fw.seenOf(b.seen);
+      return brainLocked(p.dir, () => addFound(place, { ...p, ...gh, seen }));
+    }],
+    ['POST', /^\/api\/workspace\/find\/undo$/, async (req) => {
+      ownerOnly(req);
+      await mine(req, 'taking projects out of the map');
+      const b = await sctx.readJson(req);
+      keys(b, ['entries']);
+      const fw = await import('./findweb.mjs');
+      const p = places();
+      return brainLocked(p.dir, () => fw.undoAdd(fw.entriesOf(b.entries), p));
+    }],
+    ['POST', /^\/api\/workspace\/find\/get$/, async (req) => {
+      ownerOnly(req);
+      const b = await sctx.readJson(req);
+      keys(b, ['in', 'repo', 'dryRun', 'seen']);
+      const dry = bool(b.dryRun, 'dryRun');
+      const fw = await import('./findweb.mjs');
+      const p = places();
+      const place = fw.placeOf(b.in, p);
+      const repo = fw.repoOf(b.repo);
+      const o = { ctx: p, ...(opts.gh ? { gh: opts.gh } : {}) };
+      if (dry) return fw.getPlan(place, repo, o);
+      await mine(req, 'getting a project');
+      if (job && job.running) throw fail(409, `${job.kind} is still running; wait until it finishes`);
+      await fw.getChecked(place, repo, fw.seenOf(b.seen), o);
+      return startJob('find-get', (onLine) => fw.getIt(place, repo, { ...o, ui: jobUi(onLine).ui, ...(opts.stream ? { runner: opts.stream } : {}) }));
+    }],
     ['POST', /^\/api\/workspace\/drop\/check$/, async (req) => {
       ownerOnly(req);
       const b = await sctx.readJson(req);
@@ -198,11 +252,12 @@ export function workspaceFeature(sctx, opts = {}) {
       ownerOnly(req);
       await mine(req, 'a drop');
       const b = await sctx.readJson(req);
-      keys(b, ['ticket', 'work', 'defaults', 'typed']);
+      keys(b, ['ticket', 'needed', 'work', 'defaults', 'typed']);
+      const needed = bool(b.needed, 'needed');
       if (b.work !== undefined && typeof b.work !== 'boolean') throw fail(400, 'work is true or false');
       if (b.typed !== undefined && (typeof b.typed !== 'string' || b.typed.length > 200)) throw fail(400, 'typed is the name you typed');
       if (b.defaults !== undefined && (!b.defaults || typeof b.defaults !== 'object' || Array.isArray(b.defaults) || Object.values(b.defaults).some((v) => !['push', 'wip', 'stop'].includes(v)))) throw fail(400, 'each default branch is answered push, wip or stop');
-      return drops.drop(b.ticket, { work: b.work === true, defaults: b.defaults || {}, typed: b.typed || '' });
+      return drops.drop(b.ticket, { needed, work: b.work === true, defaults: b.defaults || {}, typed: b.typed || '' });
     }],
     ['POST', /^\/api\/workspace\/group$/, async (req) => {
       ownerOnly(req);
@@ -228,6 +283,31 @@ export function workspaceFeature(sctx, opts = {}) {
       const { groupRemove } = await import('./groupcmd.mjs');
       const p = places();
       return dry ? groupRemove(b.dir.trim(), { dryRun: true, dir: p.dir }) : brainLocked(p.dir, () => groupRemove(b.dir.trim(), { dir: p.dir }));
+    }],
+    // A group's own command (toolweb.mjs, the same functions as `hoprig workspace tool`): the yes and its undo are the
+    // owner's own presses on his page, also with a correct `seen`; a dry run for anyone who may read the workspace.
+    ['GET', /^\/api\/workspace\/tools$/, async (req) => {
+      ownerOnly(req);
+      return (await import('./toolweb.mjs')).view(places());
+    }],
+    ['POST', /^\/api\/workspace\/tools\/allow$/, async (req) => {
+      ownerOnly(req);
+      const b = await sctx.readJson(req);
+      keys(b, ['group', 'dryRun', 'seen']);
+      const dry = bool(b.dryRun, 'dryRun');
+      if (typeof b.group !== 'string' || !b.group || b.group.length > 300) throw fail(400, 'name the group');
+      if (!dry) await mine(req, 'allowing a group\'s command');
+      if (!dry && (typeof b.seen !== 'string' || !/^[0-9a-f]{64}$/.test(b.seen))) throw fail(400, 'seen is what the sheet showed: open it again');
+      return (await import('./toolweb.mjs')).allow(b.group, places(), { dryRun: dry, seen: b.seen });
+    }],
+    ['POST', /^\/api\/workspace\/tools\/remove$/, async (req) => {
+      ownerOnly(req);
+      const b = await sctx.readJson(req);
+      keys(b, ['group', 'dryRun']);
+      const dry = bool(b.dryRun, 'dryRun');
+      if (typeof b.group !== 'string' || !b.group || b.group.length > 300) throw fail(400, 'name the group');
+      if (!dry) await mine(req, 'removing a group\'s command');
+      return (await import('./toolweb.mjs')).remove(b.group, { dryRun: dry });
     }],
     ['GET', /^\/api\/workspace\/rules$/, async (req) => {
       ownerOnly(req);
@@ -299,6 +379,33 @@ export function workspaceFeature(sctx, opts = {}) {
         if (!r.done) throw fail(409, r.staged ? 'the AI brain has other staged changes; nothing was saved, so they stay as they are' : `it could not be saved: ${tildeText(r.why)}`);
         return { done: true };
       });
+    }],
+    ['POST', /^\/api\/workspace\/map\/upgrade$/, async (req) => {
+      ownerOnly(req);
+      const b = await sctx.readJson(req);
+      keys(b, ['dryRun', 'seen', 'undo']);
+      const [dry, undo] = [bool(b.dryRun, 'dryRun'), bool(b.undo, 'undo')];
+      if (b.seen !== undefined && (typeof b.seen !== 'string' || !/^[0-9a-f]{16}$/.test(b.seen))) throw fail(400, 'seen is the id the look gave');
+      const u = await import('./mapundo.mjs');
+      const p = places();
+      if (dry) return undo ? u.undoPlan({ dir: p.dir }) : u.upgradePlan(p);
+      await mine(req, undo ? 'undoing the map\'s upgrade' : 'the map\'s upgrade');
+      return brainLocked(p.dir, () => (undo ? u.undoUpgrade({ dir: p.dir, seen: b.seen }) : u.upgradeFromPage({ ...p, seen: b.seen })));
+    }],
+    ['POST', /^\/api\/workspace\/map\/case$/, async (req) => {
+      ownerOnly(req);
+      const b = await sctx.readJson(req);
+      keys(b, ['dryRun', 'seen', 'undo']);
+      const [dry, undo] = [bool(b.dryRun, 'dryRun'), bool(b.undo, 'undo')];
+      if (b.seen !== undefined && (typeof b.seen !== 'string' || !/^[0-9a-f]{16}$/.test(b.seen))) throw fail(400, 'seen is the id the look gave');
+      const c = await import('./mapcase.mjs');
+      const p = places();
+      const call = (x) => (undo ? c.undoFixCase({ ...p, ...x }) : c.fixCase({ ...p, ...x }));
+      // The page gets the parent folder as ~/…, never the full path.
+      const tildeDeep = (r) => ({ ...r, ...(r.steps ? { steps: r.steps.map((s) => ({ ...s, parent: tildeText(s.parent) })) } : {}) });
+      if (dry) return tildeDeep(await call({ dryRun: true }));
+      await mine(req, undo ? 'giving the folders their old names back' : 'renaming a folder to its name in the map');
+      return tildeDeep(await brainLocked(p.dir, () => call({ seen: b.seen })));
     }],
     ['POST', /^\/api\/workspace\/restore$/, async (req) => {
       ownerOnly(req);
@@ -457,6 +564,19 @@ export function workspaceFeature(sctx, opts = {}) {
       const dir = places().dir;
       const r = await brainLocked(dir, () => (opts.moveOut || moveOut)({ dir, files: b.files, seen: b.seen, run: opts.run || capture }));
       return { ok: true, folder: tildeText(r.folder), moved: r.moved.map((m) => ({ from: m.from, to: tildeText(m.to) })), untracked: r.untracked };
+    }],
+    // The credentials folder as a private repository (credweb.mjs): the command's own plan, typed name and push; the
+    // real call only from the owner's own page, as a background job.
+    ['GET', /^\/api\/workspace\/credentials$/, async (req) => {
+      ownerOnly(req);
+      const { credentialsView } = await import('./credweb.mjs');
+      return credentialsView({ dir: places().dir });
+    }],
+    ['POST', /^\/api\/workspace\/credentials$/, async (req) => {
+      ownerOnly(req);
+      const b = await sctx.readJson(req);
+      const { pageCredentials } = await import('./credweb.mjs');
+      return pageCredentials(b, { dir: places().dir, run: opts.run || capture, startJob, mine: (what) => mine(req, what), keys, bool });
     }],
     ['POST', /^\/api\/workspace\/git\/brain$/, async (req) => {
       ownerOnly(req);

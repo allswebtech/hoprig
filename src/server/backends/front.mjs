@@ -38,6 +38,32 @@ export function groups(pid, { platform = process.platform, read = (p) => fs.read
   return Number.isInteger(pgrp) && Number.isInteger(tpgid) ? { pgrp, tpgid } : null;
 }
 
+/**
+ * Whether terminal shell `pid` waits at its prompt: it holds its terminal in front, sleeps, and runs no program of its
+ * own. Holding the terminal is not enough: a login shell still in its start files keeps it in front of its own group
+ * while a program of those files runs (bash does), so that program is a child of the shell; and a start file busy with
+ * the shell's own commands keeps it running. False when it is not known (the process is gone, Windows). macOS and BSD:
+ * from ps, where a process asleep for long reads "I".
+ */
+export function atPrompt(pid, { platform = process.platform, read = (p) => fs.readFileSync(p, 'utf8'), list = (p) => fs.readdirSync(p), run = runSync } = {}) {
+  if (!Number.isInteger(pid) || pid <= 0 || platform === 'win32') return false;
+  if (platform === 'linux') {
+    try {
+      const stat = read(`/proc/${pid}/stat`);
+      const g = parseStat(stat);
+      const state = stat.slice(stat.lastIndexOf(')') + 2).split(' ')[0];
+      if (!g || g.tpgid <= 0 || g.tpgid !== g.pgrp || state !== 'S') return false;
+      return list(`/proc/${pid}/task`).every((t) => !read(`/proc/${pid}/task/${t}/children`).trim());
+    } catch {
+      return false; // gone
+    }
+  }
+  const [pgrp, tpgid, state = ''] = String(run('ps', ['-o', 'pgid=,tpgid=,state=', '-p', String(pid)]) || '').trim().split(/\s+/);
+  if (!(Number(tpgid) > 0) || Number(tpgid) !== Number(pgrp) || !/^[SI]/.test(state)) return false;
+  const parents = String(run('ps', ['-A', '-o', 'ppid=']) || '');
+  return !!parents.trim() && !parents.split('\n').some((l) => Number(l.trim()) === pid);
+}
+
 /** An error of a terminal whose coding tool is not in front: nothing was typed. Plain words, 409. */
 export function notInFront(message) {
   return Object.assign(new Error(message), { status: 409, code: 'not_in_front', details: { code: 'not_in_front' } });

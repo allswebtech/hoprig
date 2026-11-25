@@ -404,7 +404,7 @@ page on GitHub.
 
 ## What Tia can do, and what she cannot
 
-Every act of Hoprig is one row of `src/assistant/inventory.json`: 319 in all (43 commands, 269 changes in the dashboard, 7 skills). Tia does 89 of them with a tool of hers, 7 more by another route of the same effect, and 223 are not hers. A test holds the file to the code: a new command or route without a row fails it.
+Every act of Hoprig is one row of `src/assistant/inventory.json`: 337 in all (43 commands, 287 changes in the dashboard, 7 skills). Tia does 100 of them with a tool of hers, 7 more by another route of the same effect, and 230 are not hers. A test holds the file to the code: a new command or route without a row fails it.
 
 ### What she does
 
@@ -426,7 +426,7 @@ Every act of Hoprig is one row of `src/assistant/inventory.json`: 319 in all (43
 | `hoprig drop` | manage_project drop_check, manage_project drop | does it; always asks you (the rest is yours: the drop itself is your answer on the Workspace sheet her card opens) |
 | `hoprig workspace` | manage_project workspace_map, manage_project workspace_sync, manage_project workspace_restore, manage_project workspace_places, manage_project workspace_forget, manage_project where, manage_project find | asks you when the facts say so; always asks you; does it (the rest is yours: its git sign-in, link, rules and label stay your own steps) |
 | `hoprig sync` | manage_project workspace_sync | asks you when the facts say so (the rest is yours: publishing commits, into a default branch too, is your own press on the Workspace page; her sync only fetches and fast-forwards) |
-| `hoprig tasks` | manage_work today, manage_work list, manage_work add, manage_work edit, manage_work done, manage_work start | does it; always asks you (the rest is yours: saving the Work file to git and its plans stay yours) |
+| `hoprig tasks` | manage_work today, manage_work list, manage_work add, manage_work edit, manage_work done, manage_work start | does it; asks you when the facts say so; always asks you (the rest is yours: saving the Work file to git, and making a plan or changing its own title, goal and milestones, stay yours) |
 | `hoprig skills` | manage_skills installed, manage_skills suggested, manage_skills find, manage_skills install, manage_skills check_updates | does it; always asks you |
 | `hoprig addons` | manage_computer addon | asks you when the facts say so (the rest is yours: an add-on's set-up as a provider handles its keys) |
 | `hoprig public` | manage_computer public_link | asks you when the facts say so |
@@ -461,9 +461,11 @@ Every act of Hoprig is one row of `src/assistant/inventory.json`: 319 in all (43
 | `POST /api/pcsetup/rules` | change_setting | always asks you |
 | `POST /api/skillhub/review` | manage_skills review | does it |
 | `POST /api/skillhub/approve` | manage_skills install | always asks you |
+| `POST /api/skillhub/cancel` | manage_skills cancel_review | always asks you |
 | `POST /api/skillhub/check` | manage_skills check_updates | does it |
 | `POST /api/skillhub/update-review` | manage_skills update_review | does it |
 | `POST /api/skillhub/remove` | manage_skills remove | always asks you |
+| `POST /api/skillhub/undo` | manage_skills undo_update | always asks you |
 | `POST /api/skillhub/settings` | change_setting | always asks you |
 | `POST /api/workspace/drop/check` | manage_project drop_check | does it |
 | `POST /api/workspace/group` | manage_project group_add | always asks you |
@@ -473,18 +475,23 @@ Every act of Hoprig is one row of `src/assistant/inventory.json`: 319 in all (43
 | `POST /api/workspace/sync` | manage_project workspace_sync, manage_project workspace_sync_from | asks you when the facts say so (the rest is yours: publishing commits, into a default branch too, is your own press on the Workspace page; her sync only fetches and fast-forwards) |
 | `POST /api/workspace/settings` | manage_project workspace_places | always asks you |
 | `POST /api/workspace/forget` | manage_project workspace_forget | always asks you |
-| `POST /api/work/items` | manage_work add | does it |
-| `POST /api/work/items/<id>` | manage_work edit, manage_work undo | does it |
-| `POST /api/work/items/<id>/status` | manage_work done, manage_work reopen, manage_work drop, manage_work undo | does it; always asks you |
+| `POST /api/field/twice/<id>/(dismiss|draft)` | manage_skills twice_dismiss, manage_skills twice_draft | always asks you |
+| `POST /api/work/items` | manage_work add | asks you when the facts say so |
+| `POST /api/work/items/<id>` | manage_work edit, manage_work undo | asks you when the facts say so; does it |
+| `POST /api/work/items/<id>/status` | manage_work done, manage_work reopen, manage_work drop, manage_work undo | asks you when the facts say so; always asks you; does it |
 | `POST /api/work/items/<id>/remove` | manage_work remove, manage_work undo | always asks you; does it |
+| `POST /api/work/fix-ids` | manage_work fix_ids | always asks you |
+| `POST /api/work/tidy` | manage_work tidy | always asks you |
 | `POST /api/work/items/<id>/do` | manage_work start | always asks you |
 | `POST /api/work/items/<id>/accept` | manage_work accept | always asks you |
 | `POST /api/work/items/<id>/send-back` | manage_work send_back | always asks you |
+| `POST /api/work/items/<id>/plan` | manage_work add, manage_work edit, manage_work undo | asks you when the facts say so; does it |
 | `POST /api/chats` | start_chat | asks you when the facts say so |
 | `POST /api/chats/<id>/send` | send_to_chat | asks you when the facts say so |
 | `POST /api/chats/<id>/answer` | send_to_chat | asks you when the facts say so |
 | `POST /api/chats/<id>/stop` | send_to_chat | asks you when the facts say so |
 | `POST /api/chats/<id>/provider` | switch_account | asks you when the facts say so |
+| `POST /api/chats/<id>/fork` | start_chat | asks you when the facts say so |
 | `POST /api/chats/<id>/close` | send_to_chat | asks you when the facts say so |
 | `POST /api/chats/from-session` | send_to_session | asks you when the facts say so |
 | `POST /api/chats/<id>/terminal` | send_to_chat | asks you when the facts say so |
@@ -492,7 +499,11 @@ Every act of Hoprig is one row of `src/assistant/inventory.json`: 319 in all (43
 | `POST /api/codetools/<id>` | manage_computer coding_tool | always asks you |
 | `POST /api/machine/label` | manage_computer rename | does it |
 | `POST /api/machines/<id>/rename` | manage_computer rename | does it |
+| `POST /api/updates/restart` | manage_computer restart_dashboard | always asks you |
 | `POST /api/work/missions` | manage_work goal | always asks you |
+| `POST /api/work/missions/<id>/stop` | manage_work mission_stop | always asks you |
+| `POST /api/work/missions/<id>/add` | manage_work mission_add | always asks you |
+| `POST /api/work/missions/<id>/tasks/<id>/run-tests` | manage_work mission_tests | always asks you |
 | `skill adopt-projects` | manage_procedures find | does it (the rest is yours: each plan, the copy and the removal of the originals stay your yes after you read them) |
 | `skill coding-tools-and-updates` | manage_procedures find | does it |
 | `skill get-coding-done` | manage_procedures find | does it |
@@ -595,9 +606,10 @@ Every act of Hoprig is one row of `src/assistant/inventory.json`: 319 in all (43
 - `POST /api/accounts/own-endpoint/restore`: It puts a gateway's address and key back into the coding tool's own settings file.
 - `POST /api/accounts/own-endpoint/takeover`: It reads a gateway's key from the coding tool's settings file into a provider of its own.
 
-**A push or a merge into a default branch** (3):
+**A push or a merge into a default branch** (4):
 
 - `POST /api/workspace/map/commit`: Saving the map commits it into the brain's history, which is yours to decide.
+- `POST /api/workspace/onlyhere/push`: Pushing your other branches is your own press on the page Before you format this computer; it never pushes a default branch.
 - `POST /api/work/save`: Save commits the Work file and sends it to its repository.
 - `POST /api/work/save/drop`: Save commits the Work file and sends it to its repository.
 
@@ -624,10 +636,11 @@ Every act of Hoprig is one row of `src/assistant/inventory.json`: 319 in all (43
 - `POST /api/field/settings`: A field report may be sent out of the computer, only by your choice.
 - `POST /api/field/report/<id>/(send|dont-send)`: A field report may be sent out of the computer, only by your choice.
 
-**A delete outside a session's own folder** (15):
+**A delete outside a session's own folder** (18):
 
 - `POST /api/workspace/drop`: A drop removes a project from the computer; her drop card only opens your sheet, where you type the name yourself.
 - `POST /api/work/alone/release`: Releasing a schedule's run removes its worktree, outside any session of hers.
+- `POST /api/work/items/<id>/remove-branch`: Removing a task's branch deletes a branch and its worktree, outside any session of hers.
 - `POST /api/chats/<id>/rewind`: A rewind puts files back as they were, which can throw away work you did since.
 - `POST /api/chats/delete`: Deleting a conversation or bringing one back is yours, from the session list.
 - `POST /api/chats/trash/<id>/restore`: Deleting a conversation or bringing one back is yours, from the session list.
@@ -641,8 +654,10 @@ Every act of Hoprig is one row of `src/assistant/inventory.json`: 319 in all (43
 - `POST /api/files/trash/empty`: The Files app moves, copies and deletes anywhere in the home folder, outside a session's own folder.
 - `POST /api/files/pack`: The Files app moves, copies and deletes anywhere in the home folder, outside a session's own folder.
 - `POST /api/files/unpack`: The Files app moves, copies and deletes anywhere in the home folder, outside a session's own folder.
+- `POST /api/adopt/retire/check`: It opens the sheet that removes your old folders after Arrange, and that sheet is yours alone on your own page.
+- `POST /api/adopt/retire`: Removing your old folders cannot be undone, so only you do it, on your own page, with the project's name typed.
 
-**Administrator rights** (15):
+**Administrator rights** (16):
 
 - `hoprig gateways`: A gateway of your own is a program the dashboard will run.
 - `hoprig move-to-user`: Moving Hoprig from root to an ordinary user stops root's dashboard and changes which user its services run as.
@@ -654,6 +669,7 @@ Every act of Hoprig is one row of `src/assistant/inventory.json`: 319 in all (43
 - `POST /api/gatewayhost/<id>/(start|stop)`: A gateway of your own is a program this computer runs; its start and stop on Health are your own presses.
 - `POST /api/gatewayhost/<id>/service`: Making or removing a gateway's service changes what this computer starts by itself.
 - `POST /api/gatewayhost/linger`: Turning lingering on runs a command with administrator rights.
+- `POST /api/health/line`: A line that needs administrator rights is put in a terminal only for you, and only you press Enter on it.
 - `POST /api/pcsetup/recipe`: A recipe is run with the administrator password you type on Setup.
 - `POST /api/skillhub/tools/<id>/update`: A tool a skill needs is installed by a system command the page shows you first.
 - `POST /api/services/action`: Starting and stopping a service of the system needs administrator rights.
@@ -672,7 +688,7 @@ Every act of Hoprig is one row of `src/assistant/inventory.json`: 319 in all (43
 - `POST /api/chats/<id>/mode`: A chat's permission mode, model and effort are your choice in its page.
 - `POST /api/chats/<id>/settings`: A chat's permission mode, model and effort are your choice in its page.
 
-**Raising her own rights (her settings, her cards, her jobs, a shell without a card)** (23):
+**Raising her own rights (her settings, her cards, her jobs, a shell without a card)** (25):
 
 - `hoprig box`: Running a command in the box asks no one, which would raise her rights; run_command shows the exact command on a card.
 - `POST /api/shells`: A plain shell runs whatever is typed, and her one command goes through run_command's card instead.
@@ -683,6 +699,7 @@ Every act of Hoprig is one row of `src/assistant/inventory.json`: 319 in all (43
 - `POST /api/assistant/client-token`: Her settings, her token, her jobs and the taps on her cards are yours, or she would raise her own rights.
 - `POST /api/assistant/client-token/revoke`: Her settings, her token, her jobs and the taps on her cards are yours, or she would raise her own rights.
 - `POST /api/assistant/views/<id>/undo`: Undo on one of her result cards is your tap; she takes her own last act back with manage_work undo.
+- `POST /api/skillhub/fit/choice`: Whether skills that fit a project's technology go in by themselves is your switch on its Skills page; her token is refused on it.
 - `POST /api/chats/<id>/shell`: A chat's shell runs a command with no card, which would raise her rights.
 - `POST /api/chats/<id>/shell/stop`: A chat's shell runs a command with no card, which would raise her rights.
 - `POST /api/operator/act`: What she may do by herself, Tia OFF, Undo and the taps are your acts from your page.
@@ -694,7 +711,8 @@ Every act of Hoprig is one row of `src/assistant/inventory.json`: 319 in all (43
 - `POST /api/operator/rooms/elsewhere/end`: Ending the hold that sends her new work to another computer is your Undo on your page.
 - `POST /api/operator/corrections/forget`: Forgetting what she keeps of your corrections is your press on your page; her token is refused on it.
 - `POST /api/operator/corrections/evidence`: Writing your corrections as evidence for the improvement loop is your press; her token is refused on it.
-- `POST /api/skills/proposals/<id>/(accept|undo|later|again)`: A proposal changes her own skills or tool descriptions, which only you accept or take back.
+- `POST /api/skills/proposals/<id>/(accept|undo|later|again)`: A proposal changes her own skills, tool descriptions or parts of her instructions, which only you accept or take back.
+- `POST /api/assistant/improve/(start|stop|settings)`: A round of Improve Tia spends money and changes what is proposed for her own texts, so only your press starts, stops or sets it; her token is refused on it.
 - `POST /api/work/missions/settings`: The switches and limits of missions say how far she works by herself, which is yours to set.
 - `POST /api/work/missions/off`: Tia OFF is your own press on the switch of her work by herself.
 
@@ -704,35 +722,35 @@ Every act of Hoprig is one row of `src/assistant/inventory.json`: 319 in all (43
 - `hoprig sessions`: Moving the coding tool's conversations to a new folder follows the adopt plan you read and writes outside every project.
 - `POST /api/folders/extras/accept`: A project's need is allowed only by your press on its page, after you read what it opens.
 - `POST /api/parts/<id>/answer`: Your yes or no to a part a Lead session asks to hand to another provider is your own tap on that card.
-- `POST /api/skillhub/cancel`: Cancelling a review or taking an update back is your answer on the Skills page to what you read there.
-- `POST /api/skillhub/undo`: Cancelling a review or taking an update back is your answer on the Skills page to what you read there.
+- `POST /api/pcsetup/project/needs`: A project's needs are got and opened to its sessions only by your press after Get, once you read what each one is.
 - `POST /api/workspace/group/remove`: These are your own presses on the Workspace page after you read what they change.
+- `POST /api/workspace/find/add`: Adding what the git server has to the map is your own press after you read the list it will add.
+- `POST /api/workspace/find/undo`: Taking those projects out of the map again is your own press on the Workspace page.
+- `POST /api/workspace/find/get`: Getting a project clones it onto this computer after you read where it lands.
+- `POST /api/workspace/tools/allow`: A group's own command is made only after your yes on the Workspace page, once you read its name and the file it starts.
+- `POST /api/workspace/tools/remove`: Taking a group's command away from this computer is your own press on the Workspace page, after you read what goes.
 - `POST /api/workspace/rules`: These are your own presses on the Workspace page after you read what they change.
 - `POST /api/workspace/link`: These are your own presses on the Workspace page after you read what they change.
+- `POST /api/workspace/map/upgrade`: Upgrading the map to its new form, or undoing that, is your own press on the Workspace page after you read what changes.
+- `POST /api/workspace/map/case`: Renaming a folder to its name in the map, or back, is your own press on the Workspace page after you read which folder changes.
 - `POST /api/workspace/label`: These are your own presses on the Workspace page after you read what they change.
 - `POST /api/workspace/git/brain/moveout`: Moving a key file out of the AI brain is your own press on the save sheet, after you read which files move and where.
+- `POST /api/workspace/credentials`: Making the credentials folder a private repository pushes every key in it, so it is your own typed yes on the Workspace page after you read the cost.
 - `POST /api/workspace/mylink`: Naming a link as your own is your own press on the project's page, after the sheet showed where it leads.
+- `POST /api/workspace/leave/mark`: What the look before a format keeps, ignores or leaves out is your own word on its page, after you read what it found.
 - `POST /api/skills/learned/<id>/(install|discard|undo)`: A learned skill is installed, discarded or taken back by your own press after you read it.
-- `POST /api/field/twice/<id>/(dismiss|draft)`: A pattern seen twice is drafted or dismissed by you after you read it.
-- `POST /api/work/fix-ids`: Tidy, the doubles and where Work lives are your presses after you read the difference.
-- `POST /api/work/tidy`: Tidy, the doubles and where Work lives are your presses after you read the difference.
 - `POST /api/work/settings`: Tidy, the doubles and where Work lives are your presses after you read the difference.
 - `POST /api/work/plans`: A plan is written from a proposal you read and accepted on the Work page.
 - `POST /api/work/plans/<id>`: A plan is written from a proposal you read and accepted on the Work page.
-- `POST /api/work/items/<id>/plan`: A plan is written from a proposal you read and accepted on the Work page.
 - `POST /api/work/propose`: A plan is written from a proposal you read and accepted on the Work page.
 - `POST /api/work/proposals/<id>/accept`: A plan is written from a proposal you read and accepted on the Work page.
 - `POST /api/work/proposals/<id>/clean`: A plan is written from a proposal you read and accepted on the Work page.
 - `POST /api/work/proposals/<id>/dismiss`: A plan is written from a proposal you read and accepted on the Work page.
-- `POST /api/chats/<id>/fork`: A fork copies the conversation as you left it after a rewind, to try another way yourself from the session menu.
 - `POST /api/operator/look/task`: Making a task of a look's finding is your own tap after you read it; her token is refused on the look's routes.
-- `POST /api/updates/restart`: You restart the dashboard after an update you read on the Updates page, which also ends her own turn.
 - `POST /api/adopt/scan`: You name the folders to look in on your own page, and the plan you read there is yours to accept.
+- `POST /api/adopt/home`: A look over your home folder starts only by your own press on your page, and what it finds is yours to plan.
 - `POST /api/adopt/plan`: A plan per project is made for you to read on your own page before anything is copied.
 - `POST /api/adopt/apply`: Applying a plan copies a project into the workspace after you read that plan on your own page.
-- `POST /api/work/missions/<id>/stop`: Stopping a mission is your press on Work, where you read what it is doing.
-- `POST /api/work/missions/<id>/add`: A task of your list joins a mission by your own press on Work.
-- `POST /api/work/missions/<id>/tasks/<id>/run-tests`: Running a task's tests here is your press for a task that waits in your review.
 - `skill plan-work`: It is the method of Work's planning session, whose proposal you read and accept.
 
 **Work in a project's files and git, which a coding session she starts does inside its folder** (8):

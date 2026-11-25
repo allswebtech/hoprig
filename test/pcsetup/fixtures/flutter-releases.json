@@ -1,0 +1,51 @@
+{
+  "linux": {
+    "base_url": "https://storage.googleapis.com/flutter_infra_release/releases",
+    "current_release": {
+      "beta": "8f89a71e053b014bf8b7c19d19a4de35ea10ddbd",
+      "stable": "ae9b586f34a8443573f82ef57c3bf914a908cbf7"
+    },
+    "releases": [
+      {
+        "hash": "ae9b586f34a8443573f82ef57c3bf914a908cbf7",
+        "channel": "stable",
+        "version": "3.50.1",
+        "dart_sdk_arch": "x64",
+        "archive": "stable/linux/flutter_linux_3.50.1-stable.tar.xz",
+        "sha256": "1111111111111111111111111111111111111111111111111111111111111111"
+      },
+      {
+        "hash": "ab2912035e160d9cad6306df307576da6128ebdb",
+        "channel": "stable",
+        "version": "3.50.0",
+        "dart_sdk_arch": "x64",
+        "archive": "stable/linux/flutter_linux_3.50.0-stable.tar.xz",
+        "sha256": "2222222222222222222222222222222222222222222222222222222222222222"
+      }
+    ]
+  },
+  "macos": {
+    "base_url": "https://storage.googleapis.com/flutter_infra_release/releases",
+    "current_release": {
+      "stable": "ae9b586f34a8443573f82ef57c3bf914a908cbf7"
+    },
+    "releases": [
+      {
+        "hash": "ae9b586f34a8443573f82ef57c3bf914a908cbf7",
+        "channel": "stable",
+        "version": "3.50.1",
+        "dart_sdk_arch": "x64",
+        "archive": "stable/macos/flutter_macos_3.50.1-stable.zip",
+        "sha256": "3333333333333333333333333333333333333333333333333333333333333333"
+      },
+      {
+        "hash": "ae9b586f34a8443573f82ef57c3bf914a908cbf7",
+        "channel": "stable",
+        "version": "3.50.1",
+        "dart_sdk_arch": "arm64",
+        "archive": "stable/macos/flutter_macos_arm64_3.50.1-stable.zip",
+        "sha256": "4444444444444444444444444444444444444444444444444444444444444444"
+      }
+    ]
+  }
+}

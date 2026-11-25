@@ -21,7 +21,11 @@ const useOf = (u) => ({ in: NUM(u, 'input_tokens') + NUM(u, 'cache_creation_inpu
 const add = (a, b) => ({ in: a.in + b.in, out: a.out + b.out, cached: a.cached + b.cached });
 const ZERO = Object.freeze({ in: 0, out: 0, cached: 0 });
 
-/** What one transcript file holds: { agent, model, tokens, use: { in, out, cached }, messages } (null when it cannot be read). */
+/**
+ * What one transcript file holds: { agent, model, tokens, use: { in, out, cached }, cacheWrite (of in), byModel: [{ model,
+ * in, out, cached, cacheWrite, write1h (of cacheWrite, written for an hour; null: the record does not split it) }], first,
+ * last (the times of its first and last message, ms; null when a message has none), messages } (null when it cannot be read).
+ */
 export function readTranscriptUse(file) {
   let text;
   try {
@@ -34,6 +38,11 @@ export function readTranscriptUse(file) {
   const models = new Map();
   let agent = null;
   let use = ZERO;
+  let cacheWrite = 0; // of `in`, what was written to the cache (its price differs: operator/prices.mjs)
+  const per = new Map(); // model → its share of this file, so a fallback turn on another model is priced as that model
+  let first = Infinity;
+  let last = -Infinity;
+  let untimed = false;
   for (const line of text.split('\n')) {
     if (!line.includes('"assistant"')) continue;
     let x;
@@ -51,10 +60,23 @@ export function readTranscriptUse(file) {
     const n = useOf(x.message.usage);
     if (model) models.set(model, (models.get(model) || 0) + n.in + n.out + n.cached);
     use = add(use, n);
+    const w = NUM(x.message.usage, 'cache_creation_input_tokens');
+    cacheWrite += w;
+    const split = x.message.usage && x.message.usage.cache_creation;
+    const h1 = w === 0 ? 0 : split && Number.isFinite(split.ephemeral_1h_input_tokens) ? split.ephemeral_1h_input_tokens : null;
+    const key = model || '';
+    const m = per.get(key) || { model, in: 0, out: 0, cached: 0, cacheWrite: 0, write1h: 0 };
+    per.set(key, { ...m, in: m.in + n.in, out: m.out + n.out, cached: m.cached + n.cached, cacheWrite: m.cacheWrite + w, write1h: m.write1h === null || h1 === null ? null : m.write1h + h1 });
+    const t = typeof x.timestamp === 'string' ? Date.parse(x.timestamp) : NaN;
+    if (Number.isFinite(t)) {
+      first = Math.min(first, t);
+      last = Math.max(last, t);
+    } else untimed = true;
   }
   // The model that used most of the tokens: a helper runs on one, but a fallback may answer a turn or two.
   const model = [...models].sort((a, b) => b[1] - a[1])[0];
-  return { agent, model: model ? model[0] : null, tokens: use.in + use.out, use, messages: seen.size };
+  const timed = !untimed && seen.size > 0;
+  return { agent, model: model ? model[0] : null, tokens: use.in + use.out, use, cacheWrite, byModel: [...per.values()], first: timed ? first : null, last: timed ? last : null, messages: seen.size };
 }
 
 /**
@@ -83,7 +105,7 @@ export function partsOf(cwd, conversation, { dir = projectDir(cwd) } = {}) {
     } catch {
       /* gone */
     }
-    parts.push({ agent: u.agent, kind: LABEL_OF[u.agent] || null, tier: TIER_OF[u.agent] || null, model: u.model, tokens: u.tokens, use: u.use, at });
+    parts.push({ agent: u.agent, kind: LABEL_OF[u.agent] || null, tier: TIER_OF[u.agent] || null, model: u.model, tokens: u.tokens, use: u.use, cacheWrite: u.cacheWrite, byModel: u.byModel, first: u.first, last: u.last, at });
   }
   parts.sort((a, b) => a.at - b.at);
   const tiers = [];
@@ -96,5 +118,8 @@ export function partsOf(cwd, conversation, { dir = projectDir(cwd) } = {}) {
     t.use = add(t.use, p.use);
     t.parts++;
   }
-  return { lead: lead && lead.messages ? { model: lead.model, tokens: lead.tokens, use: lead.use } : null, parts: parts.map(({ at, ...p }) => p), tiers };
+  // When the conversation's messages were written, the lead's and every helper's: null when one of them carries no time.
+  const all = [...(lead && lead.messages ? [lead] : []), ...parts];
+  const span = all.length && all.every((x) => x.first !== null) ? { first: Math.min(...all.map((x) => x.first)), last: Math.max(...all.map((x) => x.last)) } : null;
+  return { lead: lead && lead.messages ? { model: lead.model, tokens: lead.tokens, use: lead.use } : null, parts: parts.map(({ at, first, last, ...p }) => p), tiers, ...(span ? { span } : {}) };
 }

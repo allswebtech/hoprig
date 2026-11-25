@@ -213,6 +213,15 @@ function claudeRow(ctx, c) {
   const cl = c.claude;
   if (!cl) return h('div.row.static', h('span.row-icon', icon('sparkle')), h('span.row-main', h('span.row-title', 'Claude Code'), h('span.row-sub', 'Looking…')));
   if (!cl.installed) {
+    // This computer: the same press as Home → Get started (getstarted.js installClaude: the official installer, for
+    // this user only, its output in a sheet), so it works also when Get started was closed. Loaded on the press:
+    // getstarted.js imports computers.js, which imports this file. Another computer: its Setup and the command.
+    // cp-press: on a phone the sentence stays whole and the button goes under it (page-computers.css).
+    if (!machine.current) {
+      return h('div.row.static.cp-press', h('span.row-icon', icon('sparkle')),
+        h('span.row-main.cp-wrap', h('span.row-title', 'Claude Code not installed'), h('span.row-sub', 'One press installs it with its official installer, for you only.')),
+        btn('small primary', { icon: 'download', label: 'Install Claude Code', onclick: () => import('./getstarted.js').then((m) => m.runAction({ kind: 'install-claude' }, ctx.reload)) }));
+    }
     return h('a.row', { href: link('#/computer/setup') }, h('span.row-icon', icon('sparkle')),
       h('span.row-main', h('span.row-title', 'Claude Code not installed'), h('span.row-sub', 'Setup shows the command that installs it, to type in a terminal on that computer.')),
       h('span.row-end', icon('chevronRight', { size: 18 })));

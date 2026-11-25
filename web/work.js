@@ -7,8 +7,8 @@
 //   Plans     (#/work/plans)     plans with their progress, one plan with its milestones and timeline, and "Plan with
 //                                AI" with its proposals (workplans.js, workpropose.js)
 //   Schedules (#/work/schedules) the schedules and the repeating tasks in one list, the queue below (workschedules.js)
-//   Activity  (#/work/activity)  the runs of every task, newest first, by project and by day; under them what the
-//                                automations did (automation.js activityPart)
+//   Activity  (#/work/activity)  the one history of the workspace, newest first: sessions, runs, commits, saves,
+//                                what the automations did and errors, by project, day and who (workhistory.js)
 // "Do it" on a task starts a coding session that does it (workdo.js). "Save" commits the Work file (and the run files)
 // in its git repository and shows what it will commit first. Where the data lives is Settings → Work (also in this
 // file). Rows and sheets are workitems.js.
@@ -20,11 +20,11 @@ import { emptyState, errorBox, field, fold, groupHead, panel, radioCards, saveBa
 import { sessionHref } from './sessionitem.js';
 import { store } from './store.js';
 import { dayWord, itemRow, itemSheet, weekLabel, whoText } from './workitems.js';
-import { keepFocus, paintActivity, runsSheet } from './workdo.js';
+import { keepFocus, runsSheet } from './workdo.js';
+import { paintHistory } from './workhistory.js';
 import { paintPlans } from './workplans.js';
 import { planWithAiSheet, proposalSections } from './workpropose.js';
 import { paintSchedules } from './workschedules.js';
-import { activityPart } from './automation.js';
 import { goalSheet, paintBrief, paintTeam, viewMission } from './mission.js';
 import { needsNoneWords, paintProgress } from './workpulse.js';
 import { paintShip } from './ship.js';
@@ -267,14 +267,18 @@ function viewWork({ frame, sub }) {
     fill(foot, h('p.hint.wk-hint', icon('folder', { size: 14 }), ` Kept in ${data.place.label}/${data.place.fileName} · `, h('a', { href: '#/settings/work' }, 'change where')));
   }
 
-  let activity = null; // the Activity part's handle (paintActivity): refresh, working
+  let activity = null; // the Activity part's handle (workhistory.js paintHistory): refresh, working
   let plansPart = null; // the Plans part's handle (paintPlans): drawn once, then refreshed
   let schedulesPart = null; // the Schedules part's handle (paintSchedules): drawn once
   let teamPart = null; // the Team part's or a mission's handle (mission.js): drawn once, then refreshed
   const briefSlot = h('div.ms-brief-slot'); // Today: Tia's morning brief (mission.js paintBrief), only when she has missions
   let shipPart = null; // the Go live part's handle (ship.js paintShip): drawn once, it loads its own data
-  const logSlot = h('div.wk-autolog');
-  const runsSlot = h('div.wk-runs');
+  const historySlot = h('div.wk-history-slot');
+  const openRuns = (id) => {
+    const it = data && data.items.find((x) => x.id === id);
+    if (it) runsSheet(it, load);
+    else toast('That task is not in the list any more');
+  };
   function paint() {
     activity = null;
     if (tab === 'team') {
@@ -310,19 +314,15 @@ function viewWork({ frame, sub }) {
     }
     if (data.problem) {
       fill(content, data.place ? null : h('div.card.wk-start', emptyState('folder', 'Work keeps its list in a folder of your workspace. Choose where in Settings → Work.', btn('primary', { label: 'Open Settings → Work', onclick: () => (location.hash = '#/settings/work') }))),
-        // What the automations did (Hands-off's answers among them) needs no list of tasks: it is shown all the same.
-        tab === 'activity' ? h('section.wk-section', logSlot) : null);
-      if (tab === 'activity') activityPart(logSlot, () => alive);
+        // The history (what the automations did, Hands-off's answers among them, the sessions, the commits) needs no
+        // list of tasks: it is shown all the same.
+        tab === 'activity' ? h('section.wk-section', historySlot) : null);
+      if (tab === 'activity') activity = paintHistory(historySlot, { prefs, isAlive: () => alive });
     } else if (tab === 'today') paintToday();
     else if (tab === 'activity') {
-      // The runs of the tasks, then what the automations did (the log that was the Automations page's).
-      if (!content.contains(runsSlot)) fill(content, runsSlot, h('section.wk-section', logSlot));
-      activity = paintActivity(runsSlot, { prefs, today: data.today, onItem: (id) => {
-        const it = data.items.find((x) => x.id === id);
-        if (it) runsSheet(it, load);
-        else toast('That task is not in the list any more');
-      } });
-      activityPart(logSlot, () => alive);
+      // The one history: sessions, the runs of the tasks, commits, saves, what the automations did and errors.
+      if (!content.contains(historySlot)) fill(content, historySlot);
+      activity = paintHistory(historySlot, { prefs, today: data.today, onTask: openRuns, isAlive: () => alive });
     }
     else paintTasks();
     paintTop();

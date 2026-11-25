@@ -134,10 +134,34 @@ export async function startSetup(path, body, { started = () => {} } = {}) {
   }
 }
 
-/** One step row: its mark, what it does, the command. */
-const stepRow = (s) => h('div.row.static.sj-step',
+/**
+ * A download's progress from the job's output: the newest line pc setup writes for a step Hoprig runs itself
+ * ("    <step>: 150 MB of about 1.5 GB", src/pcsetup/devinstall.mjs progressWords) → "150 MB of about 1.5 GB", or null.
+ */
+export function progressOf(lines, label) {
+  if (!label) return null;
+  let got = null;
+  for (const l of lines) {
+    if (!l.startsWith(`    ${label}: `)) continue;
+    const rest = l.slice(label.length + 6);
+    if (/^\d[\d.]* (bytes|kB|MB|GB)( of about \d[\d.]* (bytes|kB|MB|GB))?$/.test(rest)) got = rest;
+  }
+  return got;
+}
+
+/** A failed step Hoprig ran itself (a checked download): what went wrong and what to do, in one plain sentence. */
+export function stepFailWords(s) {
+  if (!s || s.state !== 'fail' || !s.why) return null;
+  const why = String(s.why).replace(/[.\s]+$/, '');
+  return `${s.label[0].toUpperCase()}${s.label.slice(1)} did not work: ${why}. ${s.todo ? s.todo : 'Nothing was put in its place; run it again later.'}`;
+}
+
+/** One step row: its mark, what it does, the command; a download's progress while it runs, why it failed after. */
+const stepRow = (s, progress = null) => h('div.row.static.sj-step',
   h(`span.sj-mark.${MARK_CLASS[s.state] || 'info'}`, { 'aria-label': MARK_LABEL[s.state] || s.state }, MARK[s.state] || '·'),
-  h('span.row-main', h('span.row-title', s.label), h('span.row-sub.mono.sj-cmd', s.command)));
+  h('span.row-main', h('span.row-title', s.label), h('span.row-sub.mono.sj-cmd', s.command),
+    s.inside && s.state === 'running' && progress ? h('span.row-sub.sj-progress', { role: 'status' }, `Downloaded ${progress}`) : null,
+    stepFailWords(s) ? h('span.row-sub.sj-why', { style: { whiteSpace: 'normal', color: 'var(--danger)' } }, stepFailWords(s)) : null));
 
 /**
  * The job's card on Setup. Finds a running (or just finished) setup job by itself, so it shows again when the owner
@@ -158,6 +182,7 @@ export function setupJobCard({ onEnd = () => {} } = {}) {
   let polls = 0;
   let inFlight = false; // one request at a time: start() during a poll asks again after it, never a second loop
   let again = false;
+  const progress = new Map(); // a step's label → its download's newest progress ("150 MB of about 1.5 GB")
 
   const hide = () => {
     el.hidden = true;
@@ -168,7 +193,8 @@ export function setupJobCard({ onEnd = () => {} } = {}) {
     el.hidden = false;
     const tool = j.kind === 'tool' && j.data && j.data.name ? j.data : null; // a coding tool: named, not "a coding tool"
     fill(title, tool ? `Installing ${tool.name}` : TITLE[j.kind] || 'Setup');
-    fill(steps, (j.steps || []).filter(Boolean).map(stepRow));
+    // The running step Hoprig runs itself shows how far its download is, from the newest output line that says so.
+    fill(steps, (j.steps || []).filter(Boolean).map((s) => stepRow(s, s.inside && s.state === 'running' ? progress.get(s.label) || null : null)));
     if (j.running) fill(state, h('div.inline-busy', h('div.spinner.small', { 'aria-hidden': 'true' }), h('span', 'Running. You can leave this page: it goes on, and shows here again.')));
     else if (j.result && j.result.ok && j.result.data && j.result.data.missing && j.result.data.missing.length) {
       fill(state, h('div.banner.warn', icon('alert', { size: 18 }), h('span', `Finished. Still to do: ${j.result.data.missing.join(', ')}. Check again shows what each needs.`)));
@@ -215,11 +241,16 @@ export function setupJobCard({ onEnd = () => {} } = {}) {
       // Another job than the one shown: from its first line.
       id = j.startedAt;
       from = 0;
+      progress.clear();
       fill(out);
       if (j.lines.length && j.next !== j.lines.length) {
         again = true;
         return;
       }
+    }
+    for (const st of (j.steps || []).filter((x) => x && x.inside)) {
+      const p = progressOf(j.lines, st.label);
+      if (p) progress.set(st.label, p);
     }
     if (j.lines.length) {
       const end = out.scrollHeight - out.scrollTop - out.clientHeight < 30;

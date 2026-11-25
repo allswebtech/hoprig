@@ -50,6 +50,10 @@ function CHANGED(old) {
     j.gateways = [{ id: 'trouteai', title: 'TRouteAI', words: SHIPPED[0].words, page: state.url, installable: true, ...state, defaults: { ...j.defaults.trouteai, baseUrl } }];
     j.ownEndpoint = null;
     j.ownBackup = null;
+    // Also added: `signedIn`, the loopback names this dashboard is signed in under (here the test's own sign-in on
+    // 127.0.0.1), so the page links to a gateway's own page only by a name the sign-in is not set for. One field
+    // added, every field 0.2.6 sent kept.
+    j.signedIn = ['127.0.0.1'];
     // Also added: whether "Also use pay-per-use providers" is on, so a provider's page says before "Use in Auto mode"
     // that the press turns it on (off in this home). One field added, every field 0.2.6 sent kept.
     j.payPerUse = false;

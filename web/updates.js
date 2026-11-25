@@ -194,8 +194,8 @@ function updatesPage({ isAlive }) {
         panel({ icon: 'download', title: 'How updates happen', desc: 'One choice for everything below.' },
           radioCards('upd-mode', MODES, view.mode, (m) => set({ mode: m })),
           toggle('Tell me about new versions', view.notify, (on) => set({ notify: on }),
-            ['A notification once per new version (Settings → Notifications says where). Hoprig then looks every 6 hours. ',
-              h('a', { href: link('#/settings/notifications') }, 'Open Notifications')]),
+            { line: ['A notification once per new version (Settings → Notifications says where). ',
+              h('a', { href: link('#/settings/notifications') }, 'Open Notifications')], more: 'Hoprig then looks every 6 hours.' }),
           h('div.savebar', mark,
             checkAll,
             btn(waiting ? 'primary' : 'secondary', { icon: 'download', label: 'Update all', disabled: !waiting || act.busy(), title: waiting ? '' : 'Nothing to update', onclick: () => act.run('all') }))));

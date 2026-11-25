@@ -116,3 +116,125 @@ export function commandCheck({ home = os.homedir(), platform = process.platform 
   if (gone.length) return { status: 'warn', detail: `${f} points to a Node.js or Hoprig that is gone`, fix: 'hoprig setup' };
   return { status: 'ok', detail: 'in every shell (~/.local/bin)', fix: '' };
 }
+
+// ---- the kits block: the shell lines for toolchains in the workspace's development/ folder ----
+//
+// ONE block between two marker lines, in the same start files as the PATH line above, written once and replaced in
+// place (never a second block). A line: { key, var, value, prepend?, kit? } — `prepend` puts `value` first on PATH
+// when it is not on it; else `export var="value"`. The home folder is written as $HOME. A start file that is a link,
+// or one whose owner sets that variable (or puts that folder on PATH) himself outside the block, is left as it is,
+// and said.
+export const BLOCK_BEGIN = '# >>> hoprig kits: toolchains in the workspace (written by hoprig pc setup) >>>';
+export const BLOCK_END = '# <<< hoprig kits <<<';
+const SAFE_VALUE = /^(\$HOME)?[A-Za-z0-9_@%+=:,./~ -]*$/;
+
+/** A path for a shell line: the home folder as $HOME. null when it holds a character a shell would read. */
+export function shellValue(p, home) {
+  const v = home && (p === home || p.startsWith(`${home}/`)) ? `$HOME${p.slice(home.length)}` : p;
+  return SAFE_VALUE.test(v) && !v.includes(' ') ? v : null;
+}
+
+/** One line as a shell writes it, with its key at the end (so the block is replaced line by line). */
+export function blockLine(l, fish = false) {
+  if (l.prepend) {
+    return fish
+      ? `contains -- ${l.value} $PATH; or set -gx PATH ${l.value} $PATH  # ${l.key}`
+      : `case ":$PATH:" in *":${l.value}:"*) ;; *) PATH="${l.value}:$PATH"; export PATH ;; esac  # ${l.key}`;
+  }
+  return fish ? `set -gx ${l.var} "${l.value}"  # ${l.key}` : `export ${l.var}="${l.value}"  # ${l.key}`;
+}
+
+const keyOf = (l) => (/# ([a-z][a-z0-9-]{0,30})$/.exec(l) || [])[1] || null;
+
+/**
+ * The block in a text: { at: [start, end] (line numbers) | null, body: [its lines], lines: Map key → line, broken }.
+ * `broken`: a begin line without its end line after it, or more than one begin or end line. Such a file is never
+ * written: where the block ends cannot be known, and a guess would take the owner's lines with it.
+ */
+function readBlock(text) {
+  const all = text.split('\n');
+  const begins = all.filter((l) => l === BLOCK_BEGIN).length;
+  const ends = all.filter((l) => l === BLOCK_END).length;
+  const b = all.indexOf(BLOCK_BEGIN);
+  const e = b < 0 ? -1 : all.indexOf(BLOCK_END, b + 1);
+  if (begins > 1 || ends > 1 || (b >= 0 && e < 0)) return { at: null, body: [], lines: new Map(), all, broken: true };
+  if (b < 0) return { at: null, body: [], lines: new Map(), all, broken: false };
+  const body = all.slice(b + 1, e);
+  const lines = new Map();
+  for (const l of body) if (keyOf(l)) lines.set(keyOf(l), l);
+  return { at: [b, e], body, lines, all, broken: false };
+}
+
+/** Does the owner set this himself, outside the block? (the variable, or the folder on PATH) */
+function ownLine(all, at, l) {
+  const outside = at ? [...all.slice(0, at[0]), ...all.slice(at[1] + 1)] : all;
+  const bare = l.value.replace(/^\$HOME/, '');
+  return outside.some((x) => !/^\s*#/.test(x) && (l.prepend ? x.includes('PATH') && bare && x.includes(bare) : new RegExp(`\\b${l.var}=`).test(x) || new RegExp(`set\\s+-gx\\s+${l.var}\\b`).test(x)));
+}
+
+const isLink = (f) => {
+  try {
+    return fs.lstatSync(f).isSymbolicLink();
+  } catch {
+    return false;
+  }
+};
+
+/** Each start file and what it needs for `lines`: [{ file, link, own: [key], due: [line] }]. */
+function blockPlan({ home, shell, platform, lines }) {
+  return shellFiles({ home, shell, platform }).map((s) => {
+    const fish = s.file.endsWith('.fish');
+    if (isLink(s.file)) return { ...s, fish, link: true, own: [], due: [] };
+    const { at, lines: have, all, broken } = readBlock(read(s.file) || '');
+    if (broken) return { ...s, fish, link: false, broken: true, own: [], due: [] };
+    const own = lines.filter((l) => ownLine(all, at, l)).map((l) => l.key);
+    const due = lines.filter((l) => !own.includes(l.key) && have.get(l.key) !== blockLine(l, fish));
+    return { ...s, fish, link: false, own, due };
+  });
+}
+
+/** True when every start file has the line already (or is left alone: a link, or the owner's own line). */
+export function kitsBlockHas(line, { home = os.homedir(), shell = process.env.SHELL || '', platform = process.platform } = {}) {
+  if (platform === 'win32') return true;
+  return blockPlan({ home, shell, platform, lines: [line] }).every((f) => !f.due.length);
+}
+
+/** Write the block's `lines` into the start files, replacing a line of the same key in place. → { did, kept } */
+export function ensureKitsBlock({ home = os.homedir(), shell = process.env.SHELL || '', platform = process.platform, lines = [], dryRun = false } = {}) {
+  const did = [];
+  const kept = [];
+  if (platform === 'win32' || !lines.length) return { did, kept };
+  const t = (f) => (f.startsWith(`${home}/`) ? `~${f.slice(home.length)}` : f);
+  for (const f of blockPlan({ home, shell, platform, lines })) {
+    if (f.link) {
+      kept.push(`${t(f.file)} is a link: left as it is (add the lines yourself if you want them there)`);
+      continue;
+    }
+    if (f.broken) {
+      kept.push(`${t(f.file)} has a hoprig kits block without its end line, or two begin lines: left as it is (mend or remove the block, then run this again)`);
+      continue;
+    }
+    for (const k of f.own) kept.push(`${t(f.file)} sets ${lines.find((l) => l.key === k).var} itself: your line is left as it is`);
+    if (!f.due.length) continue;
+    did.push(`${dryRun ? 'would write' : 'wrote'} the kits block in ${t(f.file)}`);
+    if (dryRun) continue;
+    const text = read(f.file) || '';
+    const { at, body, broken, all } = readBlock(text);
+    if (broken) continue; // changed since the plan was read: still never written
+    // A line of the same key is replaced where it is; a new key goes last; a line without a key (the owner's) stays.
+    const next0 = [...body];
+    for (const l of f.due) {
+      const i = next0.findIndex((x) => keyOf(x) === l.key);
+      if (i >= 0) next0[i] = blockLine(l, f.fish);
+      else next0.push(blockLine(l, f.fish));
+    }
+    const block = [BLOCK_BEGIN, ...next0, BLOCK_END];
+    let next;
+    if (at) next = [...all.slice(0, at[0]), ...block, ...all.slice(at[1] + 1)].join('\n');
+    else if (f.at === 'top') next = `${block.join('\n')}\n${text}`;
+    else next = `${text}${text && !text.endsWith('\n') ? '\n' : ''}${block.join('\n')}\n`;
+    fs.mkdirSync(path.dirname(f.file), { recursive: true });
+    fs.writeFileSync(f.file, next);
+  }
+  return { did, kept };
+}

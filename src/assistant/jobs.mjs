@@ -94,13 +94,20 @@ export function planWakes(jobs, cards, now, armMs = ARM_MS) {
   return { events, updates };
 }
 
-/** The turn rules for a wake-up. */
-export function decideMode(event) {
+/**
+ * The turn rules for a wake-up. `answersHers`: the owner's switch (Settings → Tia): an OK in the run of a Work task she
+ * started is hers to allow (judged by policy.mjs like any OK of hers; a no stays his); off, it is his, as before.
+ */
+export function decideMode(event, { answersHers = false } = {}) {
   if (event.reason === 'ended' || event.reason === 'expired') return 'report';
   // A question of the coding tool itself is the owner's in any job: she tells him, she never answers it.
   if (event.reason === 'notice') return 'notify';
   // A job that follows a Work run never answers in it: an OK it asks for is the owner's, any other stop is the run's end.
-  if (workOf(event.job.work)) return event.reason === 'needs_ok' ? 'notify' : 'report';
+  if (workOf(event.job.work)) {
+    if (event.reason !== 'needs_ok') return 'report';
+    // Only in the run's own chat (workRun): another session joined to the job is not her run.
+    return answersHers === true && event.entry && event.entry.workRun === true && event.job.steps < event.job.maxSteps ? 'answer' : 'notify';
+  }
   return event.job.steps >= event.job.maxSteps ? 'notify' : 'answer';
 }
 
@@ -116,7 +123,9 @@ export function stateAfter(job, event, mode) {
   // wake comes for it later; her report finishes it in words.
   if (event.reason === 'limit' && workOf(job.work)) return { state: 'stuck', log: `${why}; the run ended there` };
   // A Work run's OK is the owner's whatever its answers count (decideMode): no step cap is behind it.
-  if (event.reason === 'needs_ok' && workOf(job.work)) return { state: 'waiting', log: `${why}; the OK is the owner's, waiting for him` };
+  if (event.reason === 'needs_ok' && workOf(job.work)) {
+    return mode === 'answer' ? { state: 'working', log: `${why}; ${ASSISTANT_NAME} answers it where her rules allow, else it is the owner's` } : { state: 'waiting', log: `${why}; the OK is the owner's, waiting for him` };
+  }
   if (event.reason === 'notice') return { state: 'waiting', log: `${why}; the answer is the owner's, waiting for him` };
   if (mode === 'notify') return { state: 'waiting', log: `${why}; the step cap is used up, waiting for the owner` };
   return { state: 'working', log: why };
@@ -151,6 +160,9 @@ const WORK_RULE = {
     : ENDED_WORDS[state] ? `The run ended without a result: ${ENDED_WORDS[state]}. Read it (manage_work action run, run ${w.run}). Then ${endedRule(w)} ${TAIL}`
       : `Read the run (manage_work action run, run ${w.run}; when it still says it works, read it once more). If it is done: ${doneRule(w)} If it failed, hit a usage limit or was stopped: ${endedRule(w)} ${TAIL}`),
   owner: () => 'This session is not yours: its OKs and questions are the owner\'s. Tell him in one line what it waits for (notify_owner); do not answer it and do not type into it.',
+  // The owner's switch is on (Settings → Tia): the run's OK may be hers. The dashboard judges her answer again and makes
+  // anything but looking and the project's own checks his card; she never types into the run.
+  answer: () => 'The owner lets you answer the OKs of the Work runs you started. Read what it asks (read_session). Only when it is looking inside the project or running the project\'s own checks (its tests, its linter, its build): send_to_chat with answer "allow". Anything else (changing a file, a push or merge, a release, money, a sign-in, anything sent out, a delete, administrator rights): do not answer; tell the owner in one line what it asks (notify_owner). Answer only allow: never deny, never text, never allow_always. When the dashboard makes your answer a card, tell him that too.',
   expired: () => 'The job\'s time cap passed. Read the run (manage_work action run) and finish_job with "stuck", saying how it stands.',
 };
 const WORK_TASK = /^[a-z0-9][a-z0-9-]{0,79}$/;
@@ -158,14 +170,17 @@ const WORK_RUN = /^\d{8}-\d{6}-[0-9a-f]{8}$/;
 /** A job's Work part as kept: { task, run, computer } of the forms this code makes, or null. */
 export const workOf = (w) => (w && WORK_TASK.test(w.task) && WORK_RUN.test(w.run) && /^[a-z0-9][a-z0-9_-]{0,31}$/.test(w.computer) ? { task: w.task, run: w.run, computer: w.computer } : null);
 
-/** The user turn that wakes Tia. Header lines are built from validated values; the screen is fenced. */
+/**
+ * The user turn that wakes Tia. Header lines are built from validated values; the screen is fenced. `event.answersHers`:
+ * the owner's switch as jobTick read it; only with it (and the mode "answer") is a Work run's OK hers to answer.
+ */
 export function wakeMessage(event, mode, screen = '') {
   const { job, entry } = event;
   const who = entry ? `Session ${entry.session} on ${entry.computer}` : 'The job';
   const w = workOf(job.work);
   // The run's state, when the wake could read it (core.mjs jobTick): one of this code's own words, never a value as given.
   const state = w && event.run && RUN_STATES.includes(event.run.state) ? event.run.state : null;
-  const rule = event.reason === 'notice' ? RULE.notice : !w ? RULE[mode] : event.reason === 'expired' ? WORK_RULE.expired() : event.reason === 'needs_ok' ? WORK_RULE.owner() : WORK_RULE.report(w, state);
+  const rule = event.reason === 'notice' ? RULE.notice : !w ? RULE[mode] : event.reason === 'expired' ? WORK_RULE.expired() : event.reason === 'needs_ok' ? (mode === 'answer' && event.answersHers === true ? WORK_RULE.answer() : WORK_RULE.owner()) : WORK_RULE.report(w, state);
   const head = [
     `[job ${job.id}] ${who} ${WHY[event.reason]}.`,
     `Goal given by the owner: ${neutralize(job.goal, 500).replace(/\n/g, ' ')}`,
@@ -260,21 +275,25 @@ export class JobStore {
    * Add a session to a job (watching starts). startedByTia: Tia started it, so she may stop or move it; `created`
    * (the terminal's card's) ties that to this one terminal, as in markStarted.
    */
-  attach(id, { computer = LOCAL, session, startedByTia = false, created = null, folder = null }) {
+  attach(id, { computer = LOCAL, session, startedByTia = false, created = null, folder = null, workRun = false }) {
     const job = this.jobs.get(id);
     if (!job || !ACTIVE.has(job.state)) return null;
     const at = startKey(computer, session, created) ? created : null;
     // A chat is named by its folder in the log and on the Jobs page (`folder`: its last part only).
     const where = lastPart(folder);
+    // `workRun`: this is the Work run's own chat, as manage_work start attaches it. Only that entry is her run
+    // (herWorkRun, decideMode); any other session a call adds to the job (start_chat on his open chat) is not.
+    const run = workRun === true && !!workOf(job.work) ? { workRun: true } : {};
     const entry = job.sessions.find((e) => e.computer === computer && e.session === session);
     if (!entry) {
-      const e = { computer, session, startedByTia, created: at, since: this.now(), last: null, armed: false, ended: false, ...(where ? { folder: where } : {}) };
+      const e = { computer, session, startedByTia, created: at, since: this.now(), last: null, armed: false, ended: false, ...(where ? { folder: where } : {}), ...run };
       job.sessions.push(e);
       this.#log(job, `${startedByTia ? 'started' : 'watching'} ${named(e)}`);
     } else if (at !== null && entry.created !== at) {
       // The same name, made at another time: the conversation goes on in a new chat (or terminal) within this job, and
       // the job follows that one now.
-      Object.assign(entry, { startedByTia, created: at, since: this.now(), last: null, armed: false, ended: false, ...(where ? { folder: where } : {}) });
+      delete entry.workRun;
+      Object.assign(entry, { startedByTia, created: at, since: this.now(), last: null, armed: false, ended: false, ...(where ? { folder: where } : {}), ...run });
       this.#log(job, `${startedByTia ? 'started' : 'watching'} ${named(entry)} again`);
     }
     return { ...job };
@@ -352,8 +371,26 @@ export class JobStore {
     this.#save(job);
   }
 
-  /** One watcher tick: apply planWakes and the state changes. Returns [{ job, entry, reason, mode, card }]. */
-  tick(cards) {
+  /**
+   * This very session is the run of a Work task she started (a job of hers follows it with `work`): matched by its name
+   * AND when it was made, never by name alone (a run whose chat time was not known is not matched: his card), and only
+   * while that job follows it: once the run ended, its chat is the owner's again (workSession). Only the entry marked as
+   * the run's own chat (workRun): a chat of his that a call joined to the job stays his.
+   */
+  herWorkRun(computer, session, created) {
+    if (!Number.isSafeInteger(created) || created <= 0) return false;
+    for (const j of this.jobs.values()) {
+      if (!workOf(j.work) || !ACTIVE.has(j.state)) continue;
+      if (j.sessions.some((e) => e.workRun === true && e.computer === computer && e.session === session && e.created === created)) return true;
+    }
+    return false;
+  }
+
+  /**
+   * One watcher tick: apply planWakes and the state changes. `answersHers`: the owner's switch (decideMode). Returns
+   * [{ job, entry, reason, mode, card }].
+   */
+  tick(cards, { answersHers = false } = {}) {
     const { events, updates } = planWakes(this.list({ active: true }), cards, this.now());
     for (const [id, patches] of updates) {
       const j = this.jobs.get(id);
@@ -365,7 +402,7 @@ export class JobStore {
     for (const ev of events) {
       const j = this.jobs.get(ev.job.id);
       if (!j || !ACTIVE.has(j.state)) continue;
-      const mode = decideMode({ ...ev, job: j });
+      const mode = decideMode({ ...ev, job: j }, { answersHers });
       const next = stateAfter(j, ev, mode);
       j.state = next.state;
       this.#log(j, next.log);

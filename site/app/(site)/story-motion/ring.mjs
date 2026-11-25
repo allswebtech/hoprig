@@ -127,6 +127,36 @@ export function ringT(p, n = 3, change = 0.14) {
 }
 
 /**
+ * Where a step's ring is aimed: `aim(target, resting)` with `target` the scroll's place (ringT) and `resting` true once
+ * the scroll has stood still a moment. While the visitor scrolls, the ring follows the scroll. A scroll that rests in
+ * the middle of a change finishes the turn the visitor was making (the nearest screen when no direction is known yet,
+ * as on a page opened already scrolled), and keeps that screen while the scroll goes on toward it, until a held screen
+ * takes over; scrolling the other way gives the ring back to the scroll. The nearest screen alone would turn a slow
+ * scroller's ring back and then forward again at each pause. Seen 24 Nov 2026 at 1440x900: a scroll that stopped in a
+ * change left the ring at 0.775 for as long as the page rested, the screen in front turned and blurred all over.
+ */
+export function ringRest() {
+  let to = null; // the screen the ring rests on, null while it follows the scroll
+  let near = 0; // the scroll's nearest distance to it since then
+  let last = null; // the last target, and the way the scroll went
+  let dir = 0;
+  return (target, resting) => {
+    if (last !== null && target !== last) dir = Math.sign(target - last);
+    last = target;
+    if (Number.isInteger(target)) { to = null; return target; }
+    if (to !== null) {
+      const d = Math.abs(target - to);
+      if (d <= near + 1e-6) { near = d; return to; }
+      to = null;
+    }
+    if (!resting) return target;
+    to = dir > 0 ? Math.ceil(target) : dir < 0 ? Math.floor(target) : Math.round(target);
+    near = Math.abs(target - to);
+    return to;
+  };
+}
+
+/**
  * Every screen of the ring at `t`, with its corners, far ones first (the order they are drawn). `i` is the screen,
  * `slot` the plane that draws it (a row of phones has nine), `fill` true for a plane past the step's three in a row of
  * phones: it shows another screen of the demo (story-data.mjs rowFill), never one of the step's.

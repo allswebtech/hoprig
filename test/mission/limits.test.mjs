@@ -71,7 +71,27 @@ test('a change of the settings is checked strictly', () => {
   assert.throws(() => cleanPatch({ selfAccept: ['code'] }, cur, c), /only docs and tests/);
   assert.throws(() => cleanPatch({ hours: { from: '9', to: '17:00' } }, cur, c), /working hours/);
   const next = cleanPatch({ on: true, projects: { shop: { on: true, test: ['npm', 'test'] } }, capUsd: 2.456, providers: ['key'] }, cur, c);
-  assert.deepEqual([next.on, next.projects.shop, next.capUsd, next.providers], [true, { on: true, test: ['npm', 'test'] }, 2.46, ['key']]);
+  assert.deepEqual([next.on, next.projects.shop, next.capUsd, next.providers], [true, { on: true, auto: false, test: ['npm', 'test'], build: null }, 2.46, ['key']]);
+});
+
+test('the build command is the owner\'s, per project, beside the test command', () => {
+  const cur = missionSettings({});
+  const c = { projects: ['shop'], providers: ['key'] };
+  assert.deepEqual(missionSettings({ missions: { projects: { shop: { on: true, test: ['npm', 'test'] } } } }).projects.shop, { on: true, auto: false, test: ['npm', 'test'], build: null }, 'no build command until he sets one');
+  assert.deepEqual(missionSettings({ missions: { projects: { shop: { on: true, build: ['npm', 'run', 'build'] } } } }).projects.shop.build, ['npm', 'run', 'build']);
+  assert.equal(missionSettings({ missions: { projects: { shop: { on: true, build: 'npm run build' } } } }).projects.shop.build, null, 'a line is not a command');
+  assert.throws(() => cleanPatch({ projects: { shop: { on: true, build: ['make', 'all\n'] } } }, cur, c), /build command/);
+  assert.throws(() => cleanPatch({ projects: { shop: { on: true, build: Array(11).fill('x') } } }, cur, c), /build command/);
+  const next = cleanPatch({ projects: { shop: { on: true, test: ['npm', 'test'], build: ['npm', 'run', 'build'] } } }, cur, c);
+  assert.deepEqual(next.projects.shop, { on: true, auto: false, test: ['npm', 'test'], build: ['npm', 'run', 'build'] });
+  // A change of the test command alone keeps the build command he set (the page sends the project's whole entry).
+  const kept = cleanPatch({ projects: { shop: { on: true, test: ['npm', 'test'] } } }, next, c);
+  assert.deepEqual(kept.projects.shop.build, ['npm', 'run', 'build']);
+  // Auto's switch alone (the page sends no build command with it) keeps the build command, and the reverse.
+  const auto = cleanPatch({ projects: { shop: { on: true, auto: true, test: ['npm', 'test'] } } }, kept, c);
+  assert.deepEqual(auto.projects.shop, { on: true, auto: true, test: ['npm', 'test'], build: ['npm', 'run', 'build'] });
+  const saved = cleanPatch({ projects: { shop: { on: true, test: ['npm', 'test'], build: ['make', 'all'] } } }, auto, c);
+  assert.equal(saved.projects.shop.auto, true, 'a save of the build command keeps Auto');
 });
 
 test('a session\'s budget: what is left of the cap after the spend and what runs holds, shared with the free places', () => {

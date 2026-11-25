@@ -1,8 +1,9 @@
-// The unreleased block of the changelog (site/content/changelog.md, from "## 0.3.3" to the next "## ") was put in
-// order: a fact told twice now stands once, contradictions were mended, parts moved. That must lose no fact. So this
-// test holds the block's bold lead-ins as they were before (written here as data), and a lead-in that is gone must
-// name the item that now holds its fact and a few words of that fact that stand there. The older blocks are history:
-// the text after the block is held by its hash, so not one character of them changes.
+// The 0.3.3 block of the changelog (site/content/changelog.md, from "## 0.3.3" to the next "## ") was put in order
+// before its release: a fact told twice now stands once, contradictions were mended, parts moved. That must lose no
+// fact. So this test holds the block's bold lead-ins as they were before (written here as data), and a lead-in that
+// is gone must name the item that now holds its fact and a few words of that fact that stand there. The unreleased
+// block is the one above it (from "## 0.3.4"). The released blocks are history: the text after the unreleased block
+// is held by its hash, so not one character of them changes.
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
@@ -12,11 +13,16 @@ import { fileURLToPath } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const text = fs.readFileSync(path.join(ROOT, 'site/content/changelog.md'), 'utf8').replace(/\r\n?/g, '\n');
-const at = text.indexOf('\n## 0.3.3 ');
+const at = text.indexOf('\n## 0.3.4 ');
 const end = text.indexOf('\n## ', at + 1);
 const block = text.slice(at, end);
-/** Each item of the block by its bold lead-in: the lead-in, and the item's whole line. */
-const items = new Map([...block.matchAll(/^- \*\*(.+?)\*\*.*$/gm)].map((m) => [m[1], m[0]]));
+/** The released 0.3.3 block, right after the unreleased one. */
+const released = text.slice(end, text.indexOf('\n## ', end + 1));
+/** Each item of the 0.3.3 block by its bold lead-in: the lead-in, and the item's whole line. */
+const items = new Map([...released.matchAll(/^- \*\*(.+?)\*\*.*$/gm)].map((m) => [m[1], m[0]]));
+/** An item by its lead-in where it stands now: the unreleased block first, else the released 0.3.3 one. */
+const newer = new Map([...block.matchAll(/^- \*\*(.+?)\*\*.*$/gm)].map((m) => [m[1], m[0]]));
+const current = new Map([...items, ...newer]);
 
 /** The block's bold lead-ins before it was put in order (217). */
 const BEFORE = [
@@ -329,11 +335,17 @@ const LATER = {
   ],
 };
 
-/** sha256 of the text after the block (from "\n## 0.3.2 " to the file's end, line ends as "\n") before. */
-const OLDER = 'cf47fa9a07bc6ff41e98937d0694cf7a55fbb57a79c42d9820f14f8ebeca6b94';
+/**
+ * sha256 of the text after the unreleased block (from "\n## 0.3.3 " to the file's end, line ends as "\n"), as the
+ * tag v0.3.3 has it: the released 0.3.3 block and every older one. It holds the hash of the text from "\n## 0.3.2 "
+ * that this test held before, since that text is part of it.
+ */
+const OLDER = '9ef74182cb2c45872406c9b0bea479caf1ad48fede79fae8c5a5e65430d905a1';
 
 test('the unreleased block is found', () => {
-  assert.ok(at >= 0 && end > at, 'a block "## 0.3.3 …" followed by an older "## " block');
+  assert.ok(at >= 0 && end > at, 'a block "## 0.3.4 …" followed by an older "## " block');
+  assert.ok(text.startsWith('\n## 0.3.3 (24 November 2026)\n', end), 'the block after it is the released 0.3.3');
+  assert.ok(newer.size > 0, 'the unreleased block has entries');
   assert.equal(BEFORE.length, 217);
 });
 
@@ -378,21 +390,22 @@ test('the older blocks are history: not one character of them changed', () => {
 test('the lead-in about her rules counts them as the code has them, and its list names every rule', async () => {
   const { RULES } = await import('../src/operator/rules.mjs');
   const WORDS = ['no', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine'];
-  const lead = [...items.keys()].find((l) => /^Tia can do \w+ steps by herself, by rules you switch on\.$/.test(l));
+  const find = (map) => [...map.keys()].find((l) => /^Tia can do \w+ steps by herself, by rules you switch on\.$/.test(l));
+  const lead = find(newer) || find(items);
   assert.ok(lead, 'the lead-in "Tia can do … steps by herself, by rules you switch on." stands');
   assert.equal(lead, `Tia can do ${WORDS[RULES.length]} steps by herself, by rules you switch on.`);
   // One part of the item for each rule, in the rules' own order (src/operator/rules.mjs).
   const said = { limit: 'continue a session that stopped at a usage limit', gateway: 'restart a gateway that open sessions go through', link: 'restart the public link', leftover: "end a test's left-over processes", elsewhere: 'start her new work on a computer you chose that has room' };
   assert.deepEqual(RULES.map((r) => r.id), Object.keys(said), 'a rule was added or taken away: say it in the item');
-  for (const [id, w] of Object.entries(said)) assert.ok(items.get(lead).includes(w), `the item names the rule ${id}`);
+  for (const [id, w] of Object.entries(said)) assert.ok(current.get(lead).includes(w), `the item names the rule ${id}`);
 });
 
 test("the Operator's parts are named in the block as the page heads them", () => {
   // The page's section headings (web/operator.js: h('h2.op-h', '…')); the page cannot be imported without a browser.
   const heads = [...fs.readFileSync(path.join(ROOT, 'web/operator.js'), 'utf8').matchAll(/h\('h2\.op-h', '([^']+)'\)/g)].map((m) => m[1]);
   assert.ok(heads.includes('Done by you') && heads.includes('Done by Tia'), heads.join(', '));
-  const named = [...block.matchAll(/one line under \*\*([^*]+)\*\*/g)].map((m) => m[1]);
-  assert.ok(named.length >= 2, 'the block says where a step is written');
+  const named = [...(block + released).matchAll(/one line under \*\*([^*]+)\*\*/g)].map((m) => m[1]);
+  assert.ok(named.length >= 2, 'the blocks say where a step is written');
   for (const n of named) assert.ok(heads.includes(n), `"${n}" is a part of the Operator page (${heads.join(', ')})`);
 });
 

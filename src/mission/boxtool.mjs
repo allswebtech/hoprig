@@ -17,11 +17,25 @@ import path from 'node:path';
 import { stateDir } from '../paths.mjs';
 import { keptTree } from '../work/alonegit.mjs';
 import { runInBox } from './boxed.mjs';
+import { commandOf, readsOf, wallSays } from './boxrun.mjs';
 import { GATE_MS, boxReady, commandWords, printedTail } from './gate.mjs';
+import { RUNS } from './roles.mjs';
+
+const RUN_LIST = { tests: 'the project\'s tests', build: 'its build', scripts: 'its scripts' };
+const runsList = (kinds) => {
+  const w = RUNS.filter((k) => kinds.includes(k)).map((k) => RUN_LIST[k]);
+  return w.length === 1 ? w[0] : `${w.slice(0, -1).join(', ')} and ${w[w.length - 1]}`;
+};
 
 export const TOKEN_PREFIX = 'hbt_';
 const TOKEN_RE = /^hbt_[A-Za-z0-9_-]{43}$/;
 export const TOOL_ROUTE = '/api/mission-tool/run-tests';
+// The session's other runs, one route per kind of the role's list (roles.mjs RUNS), each with its one field.
+export const KIND_ROUTES = Object.freeze({
+  [TOOL_ROUTE]: { kind: 'tests', field: 'paths' },
+  '/api/mission-tool/run-build': { kind: 'build', field: null },
+  '/api/mission-tool/run-script': { kind: 'scripts', field: 'name' },
+});
 export const TOOL_NAME = 'mcp__hoprig__run_tests';
 
 // One run may take as long as the gate's own (GATE_MS): a test run the gate would let finish is not cut short here.
@@ -278,11 +292,11 @@ export function boxTools(o) {
   const live = new Map(); // hash of the token → its record
   const now = o.now || (() => Date.now());
 
-  /** A token for one session of one task. → { token, drop() } */
-  function make({ mission, task, project, top, branch }) {
+  /** A token for one session of one task; kinds: what its role may run (roles.mjs RUNS; the tests alone if left out). → { token, drop() } */
+  function make({ mission, task, project, top, branch, kinds = ['tests'] }) {
     const token = TOKEN_PREFIX + crypto.randomBytes(32).toString('base64url');
     const key = hash(token);
-    const rec = { mission, task, project, top, branch, runs: 0, ms: 0, refused: 0, running: false, dead: false };
+    const rec = { mission, task, project, top, branch, kinds: RUNS.filter((k) => kinds.includes(k)), runs: 0, ms: 0, refused: 0, running: false, dead: false };
     live.set(key, rec);
     return { token, rec, drop: () => {
       if (rec.dead) return;
@@ -300,12 +314,13 @@ export function boxTools(o) {
   const find = (token) => (typeof token === 'string' && TOKEN_RE.test(token) ? live.get(hash(token)) || null : null);
 
   /** A session's call. → { text, isError } (every refusal is one line; nothing ran). */
-  async function call(rec, given) {
+  async function call(rec, given, kind = 'tests') {
     const t0 = now();
-    // One audit line per run (passed, failed, timeout): a call that did not run the tests (refused, busy, nothing ran)
-    // is counted on the record instead and summed in one line when the token is dropped.
-    const said = (end, text, isError = true) => {
-      if (end === 'passed' || end === 'failed' || end === 'timeout') audit({ at: new Date(t0).toISOString(), mission: rec.mission, task: rec.task, end, ms: Math.max(0, now() - t0), runs: rec.runs });
+    // One audit line per run (passed, failed, timeout), saying what ran when it was not the tests: a call that ran
+    // nothing (refused, held by the wall, busy) is counted on the record instead and summed in one line when the token
+    // is dropped.
+    const said = (end, text, isError = true, what = null) => {
+      if (end === 'passed' || end === 'failed' || end === 'timeout') audit({ at: new Date(t0).toISOString(), mission: rec.mission, task: rec.task, end, ms: Math.max(0, now() - t0), runs: rec.runs, ...(what ? { what } : {}) });
       else rec.refused += 1;
       return { text, isError };
     };
@@ -320,43 +335,74 @@ export function boxTools(o) {
         /* the flag on the card is not worth an answer lost */
       }
     };
+    // A session of the tests alone (the one tool as before) keeps every word it had; one with more kinds is told that
+    // its limits are shared by all of them.
+    const solo = rec.kinds.length === 1 && rec.kinds[0] === 'tests';
+    const shared = `${RUNS_MAX} runs in the box (tests, build and scripts together)`;
     if (!o.on(rec.project)) return said('refused', 'Missions are off for this project now: the tool runs nothing. Go on without it; the tests run after you end.');
-    if (rec.running) return said('refused', 'A run of these tests is under way: wait for its answer, then call again.');
-    if (rec.runs >= RUNS_MAX) return hitLimit('runs'), said('refused', `This session ran the tests ${RUNS_MAX} times, its limit: go on without the tool; the tests run after you end.`);
-    if (rec.ms >= TOTAL_MS) return hitLimit('time'), said('refused', `This session's runs took ${secs(TOTAL_MS)} in all, its limit: go on without the tool; the tests run after you end.`);
-    const test = (o.settings().projects[rec.project] || {}).test;
-    if (!Array.isArray(test) || !test.length) return said('refused', 'This project has no test command any more: the tests are not run by the tool.');
+    if (!RUNS.includes(kind) || !rec.kinds.includes(kind)) {
+      return said('refused', rec.kinds.length ? `Refused: this session may run only ${runsList(rec.kinds)}; nothing ran.` : 'Refused: this session may run nothing in the box; nothing ran.');
+    }
+    if (rec.running) return said('refused', solo ? 'A run of these tests is under way: wait for its answer, then call again.' : 'A run of this session is under way: wait for its answer, then call again.');
+    if (rec.runs >= RUNS_MAX) return hitLimit('runs'), said('refused', solo ? `This session ran the tests ${RUNS_MAX} times, its limit: go on without the tool; the tests run after you end.` : `This session ran ${shared}, its limit: go on without the tool. Nothing ran.`);
+    if (rec.ms >= TOTAL_MS) return hitLimit('time'), said('refused', solo ? `This session's runs took ${secs(TOTAL_MS)} in all, its limit: go on without the tool; the tests run after you end.` : `This session's runs in the box took ${secs(TOTAL_MS)} in all, its limit: go on without the tool. Nothing ran.`);
+    const project = o.settings().projects[rec.project] || {};
+    const test = project.test;
+    if (kind === 'tests' && (!Array.isArray(test) || !test.length)) return said('refused', 'This project has no test command any more: the tests are not run by the tool.');
     const tree = keptTree(rec.top, rec.branch);
     if (!tree) return said('refused', 'The task\'s folder is gone: nothing ran.');
-    const c = checkPaths(tree, given);
-    if (c.why) return said('refused', `Refused: ${c.why}.`);
+    let argv;
+    let what = null;
+    let reads;
+    if (kind === 'tests') {
+      const c = checkPaths(tree, given);
+      if (c.why) return said('refused', `Refused: ${c.why}.`);
+      argv = [...test, ...c.paths];
+      const r = readsOf(argv, tree);
+      if (r.why) return said('held', r.why);
+      reads = r.reads;
+    } else {
+      const c = commandOf(kind, given, { top: rec.top, tree, build: project.build });
+      if (c.why) return said('refused', c.why);
+      ({ argv, what, reads } = c);
+    }
+    // The wall reads every line first (the command, and what a script runs): a held one is never run.
+    const held = wallSays(reads, tree);
+    if (held) return said('held', held);
+    const name = kind === 'tests' ? 'The tests' : kind === 'build' ? 'The build' : `The script "${given}"`;
     rec.running = true;
     try {
       const box = o.box();
       const ready = await boxReady(box);
       if (!ready.ok) return said('not-run', `Nothing ran: ${ready.why}. Go on without the tool; after you end the tests are run in a box where this computer has one, or by the owner.`);
       const timeoutMs = Math.max(1000, Math.min(RUN_MS, TOTAL_MS - rec.ms));
-      const x = await runInBox(box, { top: rec.top, tree, test: [...test, ...c.paths], timeoutMs });
-      if (x.busy) return said('busy', 'The tests of this task run in the box now (the owner\'s run, or another one): call again once it ends.');
+      const x = await runInBox(box, { top: rec.top, tree, test: argv, timeoutMs });
+      if (x.busy) return said('busy', kind === 'tests' ? 'The tests of this task run in the box now (the owner\'s run, or another one): call again once it ends.' : 'Something of this task runs in the box now (the owner\'s run, or another one): call again once it ends.');
       const r = x.r || {};
-      if (r.code == null && !r.timedOut) return said('not-run', 'Nothing ran: the box could not start the tests.');
+      if (r.code == null && !r.timedOut) return said('not-run', `Nothing ran: the box could not start ${kind === 'tests' ? 'the tests' : kind === 'build' ? 'the build' : `the script "${given}"`}.`);
       const ms = Math.max(0, now() - t0);
       rec.runs += 1;
       rec.ms += ms;
       const end = r.timedOut ? 'timeout' : r.ok === true && r.code === 0 ? 'passed' : 'failed';
-      try {
-        o.onRun?.(rec, end);
-      } catch {
-        /* the count on the card is not worth an answer lost */
+      // The card counts the session's own test runs; a build or a script is in the audit only.
+      if (kind === 'tests') {
+        try {
+          o.onRun?.(rec, end);
+        } catch {
+          /* the count on the card is not worth an answer lost */
+        }
       }
-      // The session ended while its tests ran: nobody reads the answer, which is dropped.
-      if (rec.dead) return said(end, 'The session ended: this answer was dropped.');
-      const cmd = commandWords([...test, ...c.paths]);
-      const head = end === 'timeout' ? `The tests did not end in ${secs(timeoutMs)} and were stopped (${cmd})`
-        : end === 'passed' ? `The tests passed (${cmd}, ${secs(ms)})` : `The tests failed: exit code ${r.code} (${cmd}, ${secs(ms)})`;
+      // The session ended while its run went on: nobody reads the answer, which is dropped.
+      if (rec.dead) return said(end, 'The session ended: this answer was dropped.', true, what);
+      const cmd = commandWords(argv);
+      const good = kind === 'tests' ? 'passed' : 'ended well';
+      const head = end === 'timeout' ? `${name} did not end in ${secs(timeoutMs)} and ${kind === 'tests' ? 'were' : 'was'} stopped (${cmd})`
+        : end === 'passed' ? `${name} ${good} (${cmd}, ${secs(ms)})` : `${name} failed: exit code ${r.code} (${cmd}, ${secs(ms)})`;
       const tail = printedTail(r.out, { tree, top: rec.top });
-      const left = `Run ${rec.runs} of at most ${RUNS_MAX}. In the box: no network, only this folder. The tests are run again after you end; that run is the one that counts.`;
-      return said(end, `${head}. ${left}${tail ? `\nTheir last lines:\n${tail}` : ''}`, end !== 'passed');
+      const left = solo ? `Run ${rec.runs} of at most ${RUNS_MAX}. In the box: no network, only this folder. The tests are run again after you end; that run is the one that counts.`
+        : `Run ${rec.runs} of at most ${shared}. In the box: no network, only this folder. The check after you end is the one that counts.`;
+      const lastWords = kind === 'tests' ? 'Their last lines' : 'Its last lines';
+      return said(end, `${head}. ${left}${tail ? `\n${lastWords}:\n${tail}` : ''}`, end !== 'passed', what);
     } finally {
       rec.running = false;
     }
@@ -421,7 +467,8 @@ export function toolDoor(tools) {
       return true;
     }
     if (/hbt_/.test(String(req.url || ''))) return send(res, 400, { error: 'the token goes in the Authorization header, never in the address', code: 'token-in-address' }), true;
-    if (p !== TOOL_ROUTE) return send(res, 404, { error: 'not found', code: 'not-found' }), true;
+    const route = KIND_ROUTES[p];
+    if (!route) return send(res, 404, { error: 'not found', code: 'not-found' }), true;
     if (req.method !== 'POST') return send(res, 405, { error: 'POST only', code: 'method' }), true;
     // Only a session's own token: never the owner's sign-in, another computer's token or any other bearer.
     const rec = tools.find(bearer(req));
@@ -432,9 +479,10 @@ export function toolDoor(tools) {
     } catch (e) {
       return send(res, e.status || 400, { error: e.message, code: 'body' }), true;
     }
-    if (!b || typeof b !== 'object' || Array.isArray(b) || Object.keys(b).some((k) => k !== 'paths')) return send(res, 400, { error: 'the body is { "paths": [...] } and nothing else', code: 'body' }), true;
+    // Each route takes its one field and nothing else: the tests their paths, a script its name, the build nothing.
+    if (!b || typeof b !== 'object' || Array.isArray(b) || Object.keys(b).some((k) => k !== route.field)) return send(res, 400, { error: route.field ? `the body is { "${route.field}": … } and nothing else` : 'the body is {} and nothing else', code: 'body' }), true;
     try {
-      send(res, 200, await tools.call(rec, b.paths));
+      send(res, 200, await tools.call(rec, route.field ? b[route.field] : undefined, route.kind));
     } catch {
       send(res, 500, { error: 'the tests could not be run because of an error on this computer', code: 'internal' });
     }
