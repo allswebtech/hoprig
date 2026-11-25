@@ -74,7 +74,7 @@ const NOT_STARTS = {
   'POST /api/skillhub/check': 'asks for versions', 'POST /api/skillhub/review': 'fetches files into quarantine; no coding tool',
   'POST /api/skillhub/update-review': 'fetches files into quarantine', 'POST /api/skillhub/approve': 'copies reviewed files',
   'POST /api/skillhub/remove': 'removes files', 'POST /api/skillhub/cancel': 'deletes a review\'s fetched files', 'POST /api/skillhub/undo': 'swaps a skill\'s files with the kept version',
-  'POST /api/field/twice/[a-z-]+:[a-z-]+/dismiss': 'notes a line as hidden', 'POST /api/field/twice/[a-z-]+:[a-z-]+/draft': 'writes a skill draft; nothing is installed and no coding tool starts', 'POST /api/skillhub/settings': 'settings', 'POST /api/settings': 'settings',
+  'POST /api/field/twice/[a-z-]+:[a-z-]+/dismiss': 'notes a line as hidden', 'POST /api/field/twice/[a-z-]+:[a-z-]+/draft': 'writes a skill draft; nothing is installed and no coding tool starts', 'POST /api/skills/learned/[0-9a-f]{24}/install': 'one git commit of a skill file in the brain; no coding tool starts', 'POST /api/skills/learned/[0-9a-f]{24}/discard': 'deletes a draft\'s folder', 'POST /api/skills/learned/[0-9a-f]{24}/undo': 'one git revert in the brain; no coding tool starts', 'POST /api/skillhub/settings': 'settings', 'POST /api/settings': 'settings',
   'POST /api/pcsetup/projects-dir': 'settings', 'POST /api/pcsetup/rules': 'a rules file',
 };
 

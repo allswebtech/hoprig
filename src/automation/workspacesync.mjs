@@ -16,6 +16,10 @@
 //   credentials (off by default) a change in the credentials repository the map names is committed ("Update
 //         credentials", the folder's own git identity) and pushed to that address only, a GitHub one only while gh
 //         says it is private in that round (src/workspace/credrepo.mjs). What is said is counts, never a name in it.
+//   onlyHere (off by default) once a day the check of "Before you format this computer" runs in its cheap form (no
+//         git server is asked) and its counts are kept; servers (off by default) once a week each repository of
+//         the map is asked on its git server, a read only (src/workspace/onlyherelook.mjs). Neither changes,
+//         fetches or uploads anything.
 // Sync runs first, so the map is written on top of a brain that is up to date. One activity line per real change;
 // a notification only when something needs the owner, and the same list is not told again until it changes.
 // While a save of the Work list holds the brain's lock (src/work/lock.mjs), a part skips its round with the reason and
@@ -26,7 +30,7 @@
 
 /** state: { data, now, boot, settings: { map, commitMap, memory, sync, push, pushBranches, everyHours } }. Returns { actions, data }. */
 export function decide({ data, now, boot = false, settings }) {
-  const d = { lastAt: 0, lastMapAt: 0, lastBranchesAt: 0, lastCredsAt: 0, told: '', toldMap: '', toldBranches: '', toldCreds: '', ...(data || {}) };
+  const d = { lastAt: 0, lastMapAt: 0, lastBranchesAt: 0, lastCredsAt: 0, lastOnlyHereAt: 0, lastServersAt: 0, told: '', toldMap: '', toldBranches: '', toldCreds: '', toldOnlyHere: null, toldServers: null, ...(data || {}) };
   const every = settings.everyHours * 3600_000;
   const actions = [];
   const next = { ...d };
@@ -49,8 +53,18 @@ export function decide({ data, now, boot = false, settings }) {
     actions.push({ type: 'branches', places });
     next.lastBranchesAt = now;
   }
+  // The two looks have their own rhythm, whatever "every how many hours" says: a day, and a week.
+  if (settings.onlyHere === true && now - d.lastOnlyHereAt >= DAY_MS) {
+    actions.push({ type: 'onlyHere' });
+    next.lastOnlyHereAt = now;
+  }
+  if (settings.servers === true && now - d.lastServersAt >= 7 * DAY_MS) {
+    actions.push({ type: 'servers' });
+    next.lastServersAt = now;
+  }
   return { actions, data: next };
 }
+const DAY_MS = 86_400_000;
 
 /** ctx: { record, notify, data, save, workspaceSync({ push, mapRule }) → syncAll's result, workspaceMap({ commit, push, memory }) → upkeepMap's result, workspaceBranches({ places }) → pushBranches' result }. */
 export async function apply(actions, ctx) {
@@ -117,8 +131,35 @@ export async function apply(actions, ctx) {
     if (print && print !== data.toldCreds) ctx.notify({ title: 'Workspace credentials: something needs you', message: r.needs.slice(0, 5).join('\n'), session: '' });
     data = { ...data, toldCreds: print };
   }
+  // The two looks: a changed answer is one line of the activity; the owner is told only when something needs him,
+  // and the same answer is not said or told again. A look that fails is said once, not every day.
+  for (const look of [
+    { type: 'onlyHere', run: ctx.workspaceOnlyHere, told: 'toldOnlyHere', line: (r) => r.did, none: 'looked: nothing is only on this computer', fail: 'could not look at what is only on this computer',
+      title: 'Workspace: something is only on this computer', more: 'Computers → Before you format this computer shows what and where.' },
+    { type: 'servers', run: ctx.workspaceServers, told: 'toldServers', line: (r) => r.did, none: 'looked at the git servers: each one asked has what this computer knows', fail: 'could not look at the git servers',
+      title: 'Workspace: a git server no longer has what this computer knows', more: 'Nothing was changed here.' },
+  ]) {
+    if (!actions.some((x) => x.type === look.type) || !look.run) continue;
+    let print;
+    try {
+      const r = await look.run();
+      print = look.type === 'onlyHere' ? onlyHereWords(r) : serversWords(r);
+    } catch (e) {
+      print = `failed: ${e.message}`;
+    }
+    if (print === data[look.told]) continue;
+    if (print.startsWith('failed: ')) ctx.record({ automation: 'workspace', did: look.fail, outcome: print });
+    else {
+      ctx.record({ automation: 'workspace', did: print || look.none, outcome: 'ok' });
+      if (print) ctx.notify({ title: look.title, message: `${print}. ${look.more}`, session: '' });
+    }
+    data = { ...data, [look.told]: print };
+  }
   ctx.save(data);
 }
+
+// The looks' sentences (src/workspace/onlyherelook.mjs holds the words; given here so apply stays one synchronous read).
+import { onlyHereLine as onlyHereWords, serversLine as serversWords } from '../workspace/onlyherelook.mjs';
 
 /** Run `fn` holding the AI brain's lock, or → { busy: why, lines: [], needs: [] } while a save of the Work list has it. */
 async function inBrain(fn) {
@@ -138,6 +179,12 @@ export async function realWorkspaceSync({ push, mapRule = false }) {
 }
 export async function realWorkspaceMap({ commit, push, memory }) {
   return inBrain(async () => (await import('../workspace/upkeep.mjs')).upkeepMap({ commit, push, memory }));
+}
+export async function realWorkspaceOnlyHere() {
+  return (await import('../workspace/onlyherelook.mjs')).lookOnlyHere();
+}
+export async function realWorkspaceServers() {
+  return (await import('../workspace/onlyherelook.mjs')).lookServers();
 }
 export async function realWorkspaceCredentials() {
   return (await import('../workspace/credrepo.mjs')).upkeepCredentials();

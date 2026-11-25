@@ -50,6 +50,7 @@ export const FIXES_MAX = 2; // fix and review at most twice, then it is his
 export const GATE_FAILS_MAX = 2;
 export const RESTARTS_MAX = 1;
 export const LIMIT_MS = 60 * 60_000; // a provider that reached its usage limit is tried again after an hour
+export const BUSY_SAY_MS = 3_600_000; // Auto says that a ready task waits for a calm computer once in this time at most
 export const REGATE_MS = 60_000; // a check held by another run of the worktree is tried again after this, until it is free
 // How long a claimed re-check holds its task against a second look: the gate's wait for the worktree, its run and the
 // box's check, with a margin (gate.mjs).
@@ -160,6 +161,7 @@ export function missionEngine(o) {
   let timer = null;
   let closed = false;
   let askSaid = false; // "Auto starts nothing at Ask me" is logged once, until the level changes
+  let busySaidAt = -Infinity; // when Auto last said that a ready task waits for a calm computer (ms)
 
   /** Change mission `id` under the Work file's lock (only this dashboard's own). fn(m) → its answer; false: nothing written. */
   async function update(p, id, fn) {
@@ -466,12 +468,25 @@ export function missionEngine(o) {
     const running = new Set(listRuns(p, { max: 200 }).filter((r) => r.state === 'running' && r.item).map((r) => r.item));
     for (const project of names) {
       const mine = listMissions(p).missions.filter((m) => m.writer === me());
+      const machine = (o.machine || machineNow)();
       const why = whyNot({
         s, project, running: mine.reduce((n, x) => n + x.tasks.filter((y) => y.state === 'running').length, 0),
-        slots: o.slots ? o.slots() : 1, clock: clockIn(p.settings.timeZone, now()), spent: spentOn(mine, dayOf(p)), machine: (o.machine || machineNow)(),
+        slots: o.slots ? o.slots() : 1, clock: clockIn(p.settings.timeZone, now()), spent: spentOn(mine, dayOf(p)), machine,
       });
-      if (why) continue;
       const ctx = (missions, ended) => ({ project, ownerId: p.settings.ownerId, today: dayOf(p), items, missions, running, ended, rolesOff: s.rolesOff });
+      if (why) {
+        // Every other reason is a setting he reads on Work → Team. A busy computer is none: a ready task that waits
+        // for it is said in Work → Activity, once in BUSY_SAY_MS at most while it lasts, never at every look.
+        if (why === overloaded(machine) && now().getTime() - busySaidAt >= BUSY_SAY_MS) {
+          const waits = readyTask(items, ctx(listMissions(p).missions, readEnded(p) || new Set()));
+          if (waits) {
+            busySaidAt = now().getTime();
+            log(`Auto starts nothing: ${why}`);
+            activity({ automation: AUTO_WHO, did: `${AUTO_WHO} waits with "${viewItem(waits).title.slice(0, 200)}" in ${project}: ${why}`, outcome: 'waiting' });
+          }
+        }
+        continue;
+      }
       const raw = readyTask(items, ctx(listMissions(p).missions, readEnded(p) || new Set()));
       if (!raw) continue;
       // Looked at again under the Work file's lock: a mission made meanwhile (another look, another dashboard), an End,

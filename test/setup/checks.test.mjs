@@ -12,13 +12,13 @@ const S = await import('../../src/setup/system.mjs');
 
 const info = (o) => ({ installed: '2.1.300', path: '/x/claude', latest: '2.1.300', method: 'native', updateAvailable: false, ...o });
 
-test('node version check: 22.11 is the lowest (src/nodefloor.mjs)', () => {
-  for (const v of ['22.11.0', '23.0.0', '24.1.0', '26.13.0']) assert.equal(K.nodeCheck(v).status, 'ok', v);
-  for (const v of ['22.0.0', '22.10.9', '20.20.2', '18.19.1']) {
+test('node version check: 24.13.1 is the lowest (src/nodefloor.mjs); an older one is a cross with the line that updates it', () => {
+  for (const v of ['24.13.1', '24.14.0', '25.0.0', '26.13.0']) assert.equal(K.nodeCheck(v).status, 'ok', v);
+  for (const v of ['24.13.0', '24.0.0', '22.11.0', '20.20.2', '18.19.1']) {
     const old = K.nodeCheck(v);
     assert.equal(old.status, 'fail', v);
-    assert.match(old.detail, /needs 22\.11 or newer/);
-    assert.match(old.fix, /^Install Node\.js 22\.11 or newer \(https:\/\/nodejs\.org\)/);
+    assert.equal(old.detail, `${v} (Hoprig needs 24.13.1 or newer)`);
+    assert.match(old.fix, process.platform === 'win32' ? /^irm https:\/\/raw\.githubusercontent\.com\/allswebtech\/hoprig\/main\/install\.ps1 \| iex$/ : /^curl -fsSL https:\/\/raw\.githubusercontent\.com\/allswebtech\/hoprig\/main\/install\.sh \| sh$/);
   }
 });
 

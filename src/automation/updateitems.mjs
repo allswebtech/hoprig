@@ -136,7 +136,7 @@ export function toolItem(id, deps = {}) {
     installable: true,
     async info({ fresh = false } = {}) {
       const i = await tool.info({ fresh });
-      const method = { hoprig: "Hoprig's tools folder", native: 'official installer', npm: 'npm', unknown: 'a package manager' }[i.method] || i.method || 'unknown';
+      const method = { hoprig: "Hoprig's tools folder", native: 'official installer', npm: 'npm', unknown: 'something other than the official installer or npm' }[i.method] || i.method || 'unknown';
       const note = !tool.managed ? null
         : !i.installed ? `Installs ${tool.pin}, the version this Hoprig is tested with.`
           : i.latest && compareVersions(i.latest, tool.pin) > 0 ? `This Hoprig is tested with ${tool.pin}: a newer version may behave differently.` : null;

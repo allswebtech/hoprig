@@ -565,6 +565,27 @@ export class FakeOps {
     }
     return { twice: clone(this.s.twice), draft: 'd'.repeat(24) };
   }
+  // Skills → Learned (src/skillhub/learnfeature.mjs, her door's view): `this.s.learned`, drafts made from the owner's work.
+  async skillsLearned(a) {
+    this.#read('skillsLearned', a);
+    return { drafts: clone(this.s.learned || []) };
+  }
+  async skillLearnedAct(a) {
+    this.#write('skillLearnedAct', a);
+    const d = (this.s.learned || []).find((x) => x.id === a.id);
+    if (!d) throw Object.assign(new Error('that draft is gone (discarded, or never made)'), { status: 404 });
+    if (a.act === 'discard') {
+      this.s.learned = this.s.learned.filter((x) => x !== d);
+      return { id: d.id, discarded: true };
+    }
+    if (a.act === 'install') {
+      d.state = 'installed';
+      d.installed = { at: '2026-11-21T09:00:00.000Z' };
+      return { name: d.name, commit: 'c'.repeat(40) };
+    }
+    d.state = 'undone';
+    return { name: d.name, undone: true };
+  }
   async projectsFolder(a) {
     this.#write('projectsFolder', a);
     return {};

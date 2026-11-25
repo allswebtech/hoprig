@@ -110,7 +110,7 @@ const ALLOWED = {
     'node', 'app', 'config', 'dir-config', 'dir-profiles', 'dir-state', 'command', 'claude', 'login', 'profile',
     'profiles', 'terminal', 'pty', 'password', 'https', 'access', 'service', 'port', 'rules', 'summary', 'pc',
     'git', 'workspace', 'project', 'skills', 'skills-updates', 'skill', 'skill-update', 'disk', 'kit', 'basics', 'python',
-    'github', 'extras', 'docker', 'php', 'fvm', 'flutter', 'curl', 'unzip', 'build', 'tmux', 'gh', 'ripgrep', 'jq', 'npm',
+    'github', 'extras', 'docker', 'php', 'fvm', 'flutter', 'android', 'curl', 'unzip', 'build', 'tmux', 'gh', 'ripgrep', 'jq', 'npm',
     'pip', 'venv', 'composer', 'mariadb', 'identity', 'signin', 'projects', 'tools', 'find', 'clone', 'env',
     'hooks', 'memory', 'install', 'setup', 'check', 'commit', 'push', 'remove', 'map', 'brain', 'plan', 'copy',
     'proof', 'sessions', 'download',

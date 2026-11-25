@@ -8,7 +8,7 @@ const fs = require('node:fs');
 const { syncBuiltinESMExports } = require('node:module');
 const path = require('node:path');
 const { promisify } = require('node:util');
-const { extraTraps, inTmp, ownTree, realAsked, realByFullPath, sealed, sealedPath, SEAL_VARS, TRAPPED, UNKNOWN_FILE } = require('./seal-core.cjs');
+const { extraTraps, inTmp, ownTree, realAsked, realByFullPath, sealed, sealedPath, SEAL_VARS, TRAP_EXIT, TRAPPED, UNKNOWN_FILE } = require('./seal-core.cjs');
 const { defaultPorts, extraPorts, refusePorts } = require('./seal-net.cjs');
 
 const SELF = __filename;
@@ -240,6 +240,45 @@ function sealWorkerOptions(opts, shareEnv) {
  * is a COMMAND STRING, not a program path (`spawnSync('touch /tmp/x', { shell: true })`), so it is left for the shell
  * to find on the sealed PATH (the traps are first); a full path inside a shell string is the documented residual.
  */
+/**
+ * Windows: what a start of `cmd` must become so that a trapped program is answered as its trap answers, or null.
+ * Node starts a bare name on Windows only as `.com` or `.exe`, and a `.cmd` not at all without a shell, so the traps,
+ * which are `.cmd` files there (tools/test-traps.mjs), were never reached by a start of the program itself: a test
+ * that started `sudo` got ENOENT where the computer has none, and would have started the real `sudo.exe` or
+ * `winget.exe` where it has one, with no trap line. So a trapped name, bare or sent to the trap folder by trapPath,
+ * is answered here: npm goes to the npm trap (which passes on a call that stays on the computer), any other name to a
+ * Node child that says what the trap says and exits as it does; `log` is the trap line the wrap writes. A test's own
+ * stand-in, the first match on the child's PATH and in the test's area, still runs. `exists` and `isOwn` are the
+ * system's answers, so a test gives Windows' own on any system.
+ */
+function windowsTrap(cmd, args, { env = {}, traps = process.env.HOPRIG_TEST_TRAPS, platform = process.platform, exists = fs.existsSync, isOwn = inTmp, node = process.execPath, npmTrap = NPM_TRAP } = {}) {
+  if (platform !== 'win32' || typeof cmd !== 'string' || !traps) return null;
+  const name = trapName(cmd);
+  if (!TRAP_NAMES.has(name)) return null;
+  const p = path.win32;
+  const inTraps = (f) => p.resolve(p.dirname(f)).toLowerCase() === p.resolve(traps).toLowerCase();
+  if (/[\\/]/.test(cmd)) {
+    if (!inTraps(cmd)) return null; // a full path: trapPath sent a trapped one to the trap folder, and left the test's own
+  } else {
+    // What Node itself would start: the first folder of PATH that holds the name as given when it has an extension,
+    // else the name with .com or .exe. A file without an extension (a shell-script stand-in) or a .cmd it never
+    // starts, so such a stand-in first on PATH does not hide a real .exe later on it (Windows 11 has a sudo.exe).
+    // Only when Node's pick is the test's own stand-in does it run.
+    const found = Object.entries(env || {}).find(([k]) => k.toUpperCase() === 'PATH');
+    const exts = /\.[^.\\/]+$/.test(cmd) ? [''] : ['.com', '.exe'];
+    let pick = null;
+    for (const d of String((found && found[1]) || '').split(';').filter(Boolean)) {
+      pick = exts.map((e) => p.join(d, cmd + e)).find((f) => exists(f)) || null;
+      if (pick) break;
+    }
+    if (pick && !inTraps(pick) && isOwn(pick)) return null; // the test's own stand-in is what Node starts: it runs
+  }
+  const rest = (Array.isArray(args) ? args : []).map(String);
+  if (name === 'npm') return { command: node, args: [npmTrap, p.join(traps, 'npm-trap.json'), ...rest], log: null };
+  const say = `${name}: stopped by the test runner: a test reached the real ${name}\n`;
+  return { command: node, args: ['-e', `process.stderr.write(${JSON.stringify(say)}); process.exit(${TRAP_EXIT})`], log: [name, rest.join(' ')] };
+}
+
 function wrap(orig, program) {
   return function sealedChild(...args) {
     let at = -1;
@@ -257,6 +296,17 @@ function wrap(orig, program) {
       const cb = args.findIndex((a, i) => i >= 1 && typeof a === 'function');
       if (cb >= 0) args.splice(cb, 0, sealOptions());
       else args.push(sealOptions());
+    }
+    if (program && !shell && process.platform === 'win32' && typeof args[0] === 'string') {
+      const opts = args.find((a, i) => i >= 1 && a && typeof a === 'object' && !Array.isArray(a));
+      const plan = windowsTrap(args[0], Array.isArray(args[1]) ? args[1] : [], { env: opts && opts.env });
+      if (plan) {
+        if (plan.log) logForbidden(plan.log[0], plan.log[1]);
+        args[0] = plan.command;
+        if (Array.isArray(args[1])) args[1] = plan.args;
+        else args.splice(1, 0, plan.args);
+        if (opts) delete opts.windowsVerbatimArguments;
+      }
     }
     return orig.apply(this, args);
   };
@@ -315,4 +365,4 @@ if (process.env.HOPRIG_TEST_TRAPS && !isRunner) {
   refusePorts(ports, ({ port, what, host }) => logForbidden('knock', `${port} ${host} ${what}`));
 }
 
-module.exports = { trapAlong, systemAlong, logForbidden, allowFullPath };
+module.exports = { trapAlong, systemAlong, logForbidden, allowFullPath, windowsTrap };

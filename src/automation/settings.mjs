@@ -40,7 +40,7 @@ export const DEFAULTS = Object.freeze({
   restore: { enabled: null },
   retry: { enabled: false, max: 3, firstMinutes: 1, prompt: 'Continue from where you stopped.' },
   idle: { shells: false, shellHours: 12, gateway: false, gatewayMinutes: 30 },
-  workspace: { map: true, commitMap: null, memory: false, sync: false, push: false, pushBranches: {}, everyHours: 6, credentials: false },
+  workspace: { map: true, commitMap: null, memory: false, sync: false, push: false, pushBranches: {}, everyHours: 6, credentials: false, onlyHere: false, servers: false },
 });
 
 /**
@@ -102,6 +102,8 @@ const SECTIONS = {
     everyHours: int('how often the workspace is kept in step (hours)', 1, 168),
     memory: bool('committing the memory folders of the brain and the groups'),
     credentials: bool('committing and pushing a change of the credentials'),
+    onlyHere: bool('looking once a day at what is only on this computer'),
+    servers: bool('looking once a week at the git servers of the map'),
     pushBranches: (v) => {
       // One switch per place that holds projects: "projects" for the projects folder, else the place's folder.
       if (!isObj(v) || Object.keys(v).length > 50) throw new Error('pushing the other branches is set per place: { "<place>": true or false }');

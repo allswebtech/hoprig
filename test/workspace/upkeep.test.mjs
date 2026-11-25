@@ -146,9 +146,9 @@ test('`hoprig workspace auto`: shows and sets the switches (the dashboard\'s set
   let out = '';
   const { ui } = await quietUi();
   assert.equal(await main(['auto', '--map', 'on', '--commit', 'on', '--push', 'on', '--every', '3', '--json'], { ui, write: (x) => (out += x) }), 0);
-  assert.deepEqual(JSON.parse(out), { map: true, commitMap: true, memory: false, sync: false, push: true, pushBranches: {}, everyHours: 3, credentials: false });
+  assert.deepEqual(JSON.parse(out), { map: true, commitMap: true, memory: false, sync: false, push: true, pushBranches: {}, everyHours: 3, credentials: false, onlyHere: false, servers: false });
   const cfg = JSON.parse(fs.readFileSync(path.join(A.env.HOPRIG_CONFIG_DIR, 'config.json'), 'utf8'));
-  assert.deepEqual(cfg.automation.workspace, { map: true, commitMap: true, memory: false, sync: false, push: true, pushBranches: {}, everyHours: 3, credentials: false });
+  assert.deepEqual(cfg.automation.workspace, { map: true, commitMap: true, memory: false, sync: false, push: true, pushBranches: {}, everyHours: 3, credentials: false, onlyHere: false, servers: false });
   const bad = await quietUi();
   assert.equal(await main(['auto', '--map', 'maybe'], { ui: bad.ui, write: () => {} }), 1);
   assert.equal(await main(['auto', '--every', '0'], { ui: bad.ui, write: () => {} }), 1);

@@ -625,6 +625,21 @@ export function chatFeature(ctx, o = {}) {
       const c = chatOr404(m[1]);
       const b = await ctx.readJson(req);
       if (typeof b.request !== 'string' || !b.request || b.request.length > 200) throw bad('bad request id');
+      // An MCP server's question (mcpask.mjs): { request, mcp: { action, content? } }, only from the person's own page.
+      if (b.mcp !== undefined) {
+        // The owner's own page only (here, or a hub of his relayed with its page's mark): never Tia, never a token.
+        const { ownerPageOnly } = await import('../workspace/whomay.mjs');
+        const { tokenIdOf } = await import('../machines/index.mjs');
+        try {
+          if (fromTia(req)) throw new Error('Tia');
+          await ownerPageOnly(req, ctx, 'Answering a question an MCP server asks', { tokenId: tokenIdOf });
+        } catch {
+          throw Object.assign(new HttpError(403, 'Only you answer a question an MCP server asks, in its card in the chat on your own page'), { code: 'owner-page' });
+        }
+        if (!b.mcp || typeof b.mcp !== 'object' || Array.isArray(b.mcp) || Object.keys(b).some((k) => k !== 'request' && k !== 'mcp')) throw bad('bad answer');
+        c.answer(b.request, { mcp: { action: b.mcp.action, content: b.mcp.content ?? null } });
+        return { ok: true };
+      }
       if (typeof b.allow !== 'boolean') throw bad('say allow: true or false');
       let answers = null;
       if (b.answers !== undefined && b.answers !== null) {

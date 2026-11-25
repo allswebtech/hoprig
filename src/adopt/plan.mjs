@@ -18,12 +18,37 @@ import { AI_NAMES, SIGNS, SKIP_DIRS, besideRepos, commonDir, hasLayout, projectR
 import { STATUS_EXCLUDES } from '../pcsetup/projects.mjs';
 import { askVisibility, githubOf, readAddress } from '../workspace/credrepo.mjs';
 import { noSignIn } from './scan.mjs';
+import { isRebuiltName, withoutAWord } from '../workspace/dropsilent.mjs';
 import { isPrivate, nameOf, repoState, treeOf } from './proof.mjs';
 
 export const PLAN_VERSION = 1;
 export const plansDir = () => path.join(stateDir(), 'adopt');
 export const planFile = (name) => path.join(plansDir(), `${name}.json`);
 const sha = (s) => crypto.createHash('sha256').update(s).digest('hex');
+
+/** The words of the rule that names a project (NAME_RE, as project new says it), as an error with the code ENAME. */
+export const NAME_WORDS = 'a project name is letters, digits, ".", "_" and "-"';
+export const nameError = () => Object.assign(new Error(NAME_WORDS), { code: 'ENAME' });
+
+/** The name of the plan made for the folder `dir` (the newest one), else the name made from the folder's name. */
+export function planNameOf(dir) {
+  let best = null;
+  let names = [];
+  try {
+    names = fs.readdirSync(plansDir()).filter((f) => f.endsWith('.json') && !f.endsWith('.done.json'));
+  } catch {
+    /* no plan yet */
+  }
+  for (const f of names) {
+    try {
+      const p = JSON.parse(fs.readFileSync(path.join(plansDir(), f), 'utf8'));
+      if (p && p.from === dir && NAME_RE.test(String(p.name)) && `${p.name}.json` === f && (!best || String(p.made) > String(best.made))) best = p;
+    } catch {
+      /* not a plan */
+    }
+  }
+  return best ? best.name : projectName(path.basename(dir));
+}
 
 /** A project name made from a folder's name: letters, digits, ".", "_" and "-" (what `project new` takes). */
 export function projectName(folder) {
@@ -50,27 +75,63 @@ export function placeOf(name, isDir) {
   return { kind: 'other', to: null };
 }
 
-// A project already in the layout keeps its own files where they are (ai_brain/, scripts/, docs/, ...), merged entry
-// by entry into the new folder's (so nothing of his is left out). Where Hoprig's template has a file
-// of the same name (AGENTS.md, ai_brain/learnings.md, project.json, ...), his goes into OLD_FOLDER under the same path,
-// to be read and merged with him: neither copy is overwritten.
-export const OLD_FOLDER = 'from-the-old-folder';
+// A project already in the layout keeps every file of its own at its own place (AGENTS.md, ai_brain/, scripts/,
+// docs/, project.json, ...): Hoprig adds only what its layout has and the old folder lacks (`adds`). A file of his is
+// never moved aside, replaced or written into. A folder that Hoprig writes into (one holding a file it adds, the
+// coding tool's memory, a skill's pointer) is copied entry by entry, so what Hoprig adds never lands in a copy of his.
 /** What is said of the git history of a parent in the layout that is itself a repository (it stays where it is). */
 export const OLD_HISTORY = 'the old folder\'s own git history (its .git) stays where it is';
+/** Where the table of what was where goes when the project's AGENTS.md is its own (his file is never written into). */
+export const MOVED_FILE = 'ai_brain/moved-here.md';
 const SKIPPED = { kind: 'installed', to: null, why: 'installed packages or build output: made again from the project, not copied' };
+const sized = (p) => {
+  const s = sizeOf(p);
+  return { bytes: s.bytes, files: s.files };
+};
+/** Everything Hoprig may add to a new project: its template's files, project.json, and MOVED_FILE. */
+export const addable = () => [...builtinFiles().map((f) => f.rel), MANIFEST, MOVED_FILE];
+// The places Hoprig writes into after the copy (the coding tool's memory; another tool's skill's pointer).
+const WRITES_INTO = ['ai_brain/claude-memory/x', '.claude/skills/x'];
 
-/** The neighbours of a project in the layout: `beside` from besideRepos. */
-function layoutNeighbours(src, beside) {
-  const own = [...builtinFiles().map((f) => f.rel), MANIFEST];
-  const folderAt = (t) => t === 'code' || own.some((f) => f.startsWith(`${t}/`));
+/**
+ * What Hoprig adds to the project made from `src`: for a folder not in the layout, the whole template and project.json;
+ * for one in the layout, each of these that the old folder has nothing at, nor a file or a link on the way to it (that
+ * one stays his, and the template's file is not added). MOVED_FILE when the old folder's AGENTS.md is its own.
+ */
+export function addsFor(src, layout) {
+  const all = [...builtinFiles().map((f) => f.rel), MANIFEST];
+  if (!layout) return all;
+  const taken = (rel) => {
+    const parts = rel.split('/');
+    for (let i = 1; i <= parts.length; i++) {
+      const st = fs.lstatSync(path.join(src, ...parts.slice(0, i)), { throwIfNoEntry: false });
+      if (!st) return false;
+      if (i < parts.length && !st.isDirectory()) return true;
+    }
+    return true;
+  };
+  const out = all.filter((r) => !taken(r));
+  if (!out.includes('AGENTS.md') && !taken(MOVED_FILE)) out.push(MOVED_FILE);
+  return out;
+}
+
+/** Which of the two a plan found, and what Hoprig adds, in words (the command's plan and the page's). */
+export function foundWords(plan) {
+  const adds = addsOf(plan);
+  if (!plan.layout) return 'It is not laid out as a Hoprig project yet: the new folder is made from Hoprig\'s template, and the project\'s own files go to the places below.';
+  const layout = adds.filter((f) => f !== MOVED_FILE);
+  return `It is already laid out as a Hoprig project: every file of its own keeps its place, and nothing of it is replaced. ${layout.length ? `Hoprig adds only what the layout lacks: ${layout.join(', ')}.` : 'The layout lacks nothing, so Hoprig adds none of its files.'}${adds.includes(MOVED_FILE) ? ` Its own AGENTS.md stays as it is: the table of what was where goes to ${MOVED_FILE}.` : ''}`;
+}
+
+/** The neighbours of a project in the layout: `beside` from besideRepos. Each keeps its own place. */
+function layoutNeighbours(src, beside, copyInstalled) {
+  const into = [...addable(), ...WRITES_INTO];
+  const folderAt = (t) => t === 'code' || into.some((f) => f.startsWith(`${t}/`));
   const out = [];
   const place = (rel, name, isDir) => {
     if (isDir && isPrivate(name)) return void out.push({ from: rel, kind: 'private', to: rel, private: true });
-    if (isDir && SKIP_DIRS.has(name)) return void out.push({ from: rel, ...SKIPPED });
-    if (rel.startsWith('code/') || own.includes(rel) || (folderAt(rel) && !isDir)) {
-      return void out.push({ from: rel, kind: 'own', to: `${OLD_FOLDER}/${rel}`, read: true, why: `the new project has its own ${rel} from Hoprig's template: yours goes to ${OLD_FOLDER}/${rel}, to compare and merge with you` });
-    }
-    if (!folderAt(rel)) return void out.push({ from: rel, kind: 'own', to: rel });
+    if (isDir && SKIP_DIRS.has(name) && !copyInstalled) return void out.push({ from: rel, ...SKIPPED, ...sized(path.join(src, rel)) });
+    if (!isDir || !folderAt(rel)) return void out.push({ from: rel, kind: 'own', to: rel });
     for (const e of list(path.join(src, rel)).sort((a, b) => a.name.localeCompare(b.name))) place(`${rel}/${e.name}`, e.name, e.isDirectory());
   };
   for (const b of beside) if (b.name !== '.git') place(b.rel, b.name, b.isDir);
@@ -84,6 +145,87 @@ const list = (d) => {
     return [];
   }
 };
+
+// Installed packages and build output inside a repository (node_modules, .next, vendor, .venv, ...): the folders a
+// package manager or a build makes again, decided where drop decides them (src/workspace/dropsilent.mjs: a folder of
+// that list that git ignores as a whole). A plan leaves each out of the copy by default, names it with its size and the
+// command that makes it again, and `copyInstalled` copies them all the same. One that holds a repository of its own is
+// copied (its commits are not made again by an install).
+const LEFT_MAX = 200;
+
+/** A folder's size without following a link: { bytes, files, repo } (repo: a .git lies somewhere in it). */
+export function sizeOf(dir) {
+  const out = { bytes: 0, files: 0, repo: false };
+  const stack = [dir];
+  while (stack.length) {
+    const d = stack.pop();
+    for (const e of list(d)) {
+      const p = path.join(d, e.name);
+      if (e.name === '.git') out.repo = true;
+      if (e.isDirectory()) stack.push(p);
+      else {
+        try {
+          out.bytes += fs.lstatSync(p).size;
+          out.files++;
+        } catch {
+          /* gone meanwhile */
+        }
+      }
+    }
+  }
+  return out;
+}
+
+const has = (dir, ...names) => names.find((n) => fs.existsSync(path.join(dir, n))) || null;
+/** The package manager of a folder by its lockfile, and the command that installs from that lockfile. */
+function nodeManager(dir) {
+  if (has(dir, 'pnpm-lock.yaml')) return { pm: 'pnpm', install: 'pnpm install --frozen-lockfile' };
+  if (has(dir, 'yarn.lock')) return { pm: 'yarn', install: 'yarn install --frozen-lockfile' };
+  if (has(dir, 'bun.lock', 'bun.lockb')) return { pm: 'bun', install: 'bun install --frozen-lockfile' };
+  if (has(dir, 'package-lock.json', 'npm-shrinkwrap.json')) return { pm: 'npm', install: 'npm ci' };
+  return { pm: 'npm', install: 'npm install' };
+}
+
+/** The command that makes the folder `name` in `dir` again, from what lies beside it (its lockfile first), or null. */
+export function remakeOf(dir, name) {
+  const node = has(dir, 'package.json') ? nodeManager(dir) : null;
+  if (name === 'node_modules') return nodeManager(dir).install;
+  if (name === 'vendor') return has(dir, 'composer.json') ? 'composer install' : has(dir, 'Gemfile') ? 'bundle install' : has(dir, 'go.mod') ? 'go mod vendor' : null;
+  if (name === '.venv' || name === 'venv') return has(dir, 'uv.lock') ? 'uv sync' : has(dir, 'poetry.lock') ? 'poetry install' : has(dir, 'requirements.txt') ? `python3 -m venv ${name} && ${name}/bin/pip install -r requirements.txt` : null;
+  if (name === 'Pods') return 'pod install';
+  if (name === '.dart_tool') return has(dir, 'pubspec.yaml') ? 'flutter pub get' : null;
+  if (name === '.gradle') return has(dir, 'gradlew') ? './gradlew build' : null;
+  if (name === 'target') return has(dir, 'Cargo.toml') ? 'cargo build' : has(dir, 'pom.xml') ? 'mvn package' : null;
+  if (['.next', '.nuxt', '.svelte-kit', '.turbo', 'dist', 'build'].includes(name) && node) return `${node.pm} run build`;
+  if (name === 'build' && has(dir, 'gradlew')) return './gradlew build';
+  return null;
+}
+
+/**
+ * The folders of installed packages and build output in the checkouts `dirs` (a repository and its worktrees), each
+ * one git ignores as a whole: [{ dir, bytes, files, remake }]. A private folder, a .git and another repository are not
+ * entered; a folder of the list is not entered either (what is inside it goes, or comes, with it).
+ */
+export async function installedIn(dirs) {
+  const out = [];
+  const memo = new Map();
+  const walk = async (d) => {
+    for (const e of list(d).sort((a, b) => a.name.localeCompare(b.name))) {
+      if (!e.isDirectory() || e.name === '.git' || isPrivate(e.name) || out.length >= LEFT_MAX) continue;
+      const p = path.join(d, e.name);
+      if (isRebuiltName(e.name)) {
+        if (!fs.existsSync(p) || !(await withoutAWord(p, { repos: dirs, isDir: true, memo }))) continue;
+        const sz = sizeOf(p);
+        if (!sz.repo) out.push({ dir: p, bytes: sz.bytes, files: sz.files, remake: remakeOf(d, e.name) });
+        continue;
+      }
+      if (fs.existsSync(path.join(p, '.git')) && !dirs.includes(p)) continue; // another repository: copied as it is
+      await walk(p);
+    }
+  };
+  for (const d of dirs) await walk(d);
+  return out;
+}
 
 /** The other tools' skills, rules files and hooks in `dir` (a project folder or a repository's top). */
 export function toolFiles(dir, base = '') {
@@ -283,10 +425,11 @@ export async function visibilityOf(url, run = null) {
  * The plan of the project folder `dir` (one that scan found). `projects`: the workspace's projects folder.
  * `home`, `claude`: where the coding tools keep their sessions. → the plan object (not written).
  */
-export async function makePlan(dir, { projects, home, claude, now = new Date(), ask = null } = {}) {
+export async function makePlan(dir, { projects, home, claude, now = new Date(), ask = null, copyInstalled = false, name: given = null } = {}) {
+  if (given !== null && given !== undefined && !NAME_RE.test(String(given))) throw nameError();
   await loadSessions();
   const src = path.resolve(dir);
-  const name = projectName(path.basename(src));
+  const name = given ?? projectName(path.basename(src));
   const layout = hasLayout(src);
   const repoDirs = projectRepos(src);
   const repos = [];
@@ -333,7 +476,7 @@ export async function makePlan(dir, { projects, home, claude, now = new Date(), 
   }
   // What lies beside the repositories, at every folder level down to each one (apps/notes.md beside apps/site too):
   // each goes to its kind's place, keeping the folders it was in below that place.
-  if (layout) neighbours.push(...layoutNeighbours(src, besideRepos(src, repoDirs)));
+  if (layout) neighbours.push(...layoutNeighbours(src, besideRepos(src, repoDirs), copyInstalled));
   else {
     for (const b of besideRepos(src, repoDirs)) {
       if (b.name === '.git') continue;
@@ -342,8 +485,8 @@ export async function makePlan(dir, { projects, home, claude, now = new Date(), 
         neighbours.push({ from: b.rel, kind: 'private', to: b.rel, private: true });
         continue;
       }
-      if (b.isDir && SKIP_DIRS.has(b.name)) {
-        neighbours.push({ from: b.rel, ...SKIPPED });
+      if (b.isDir && SKIP_DIRS.has(b.name) && !copyInstalled) {
+        neighbours.push({ from: b.rel, ...SKIPPED, ...sized(path.join(src, b.rel)) });
         continue;
       }
       const at = placeOf(b.name, b.isDir);
@@ -370,6 +513,9 @@ export async function makePlan(dir, { projects, home, claude, now = new Date(), 
     const t = path.resolve(path.dirname(path.join(src, rel)), v.slice(5));
     if (old.some((o) => rules.within(t, o)) && path.isAbsolute(v.slice(5))) breaks.push({ file: rel, line: 0, link: true });
   }
+  // Installed packages and build output in each repository and its worktrees: left out unless copyInstalled.
+  const leftOut = [];
+  if (!copyInstalled) for (const r of repos) leftOut.push(...(await installedIn([r.from, ...r.worktrees.map((w) => w.from)])));
   const seen = new Set();
   const tools = { skills: [], rules: [], hooks: [] };
   const addTools = (t) => {
@@ -385,9 +531,12 @@ export async function makePlan(dir, { projects, home, claude, now = new Date(), 
     from: src,
     to: path.join(projects, name),
     layout,
+    adds: addsFor(src, layout),
     exists: fs.existsSync(path.join(projects, name)),
     repos,
     neighbours,
+    leftOut,
+    copyInstalled,
     privates,
     tools,
     sessions: sessionStores(old, { home, claude }),
@@ -402,24 +551,35 @@ export async function makePlan(dir, { projects, home, claude, now = new Date(), 
 export function writePlan(plan) {
   fs.mkdirSync(plansDir(), { recursive: true, mode: 0o700 });
   const f = planFile(plan.name);
+  // A project arranged from another folder keeps its plan: verify and retire read it.
+  let was = null;
+  try {
+    was = JSON.parse(fs.readFileSync(f, 'utf8'));
+  } catch {
+    /* none yet */
+  }
+  if (was && was.from !== plan.from && fs.existsSync(path.join(plansDir(), `${plan.name}.done.json`))) throw Object.assign(new Error(`${plan.name} is the name of a project arranged from ${was.from}: give this one another name`), { code: 'ENAME' });
   fs.writeFileSync(f, `${JSON.stringify(plan, null, 2)}\n`, { mode: 0o600 });
   return f;
 }
 
-const KEYS = ['version', 'name', 'made', 'from', 'to', 'layout', 'exists', 'repos', 'neighbours', 'privates', 'tools', 'sessions', 'breaks', 'notes', 'nested', 'fingerprint'];
+const KEYS = ['version', 'name', 'made', 'from', 'to', 'layout', 'adds', 'exists', 'repos', 'neighbours', 'leftOut', 'copyInstalled', 'privates', 'tools', 'sessions', 'breaks', 'notes', 'nested', 'fingerprint'];
 const bad = (m) => Object.assign(new Error(`the plan is not one apply takes: ${m}`), { code: 'EPLAN' });
 
+/** What a plan adds: its own `adds`, or (a plan made before plans named them) the whole template and project.json. */
+export const addsOf = (plan) => (Array.isArray(plan.adds) ? plan.adds : [...builtinFiles().map((f) => f.rel), MANIFEST]);
+
 /**
- * What Hoprig's template makes in a new project folder, before anything is copied into it: its files and the folders
- * they lie in (AGENTS.md, docs, ai_brain/daily_logs, ...). Nothing is copied onto one of them: a copy never merges
- * into a folder that is there, nor writes over a file.
+ * The places of what Hoprig adds to a new project folder (`adds`), before or after anything is copied into it: its
+ * files and the folders they lie in (AGENTS.md, docs, ai_brain/daily_logs, ...). Nothing is copied onto one of them:
+ * a copy never merges into a folder that is there, nor writes over a file.
  */
-export function templatePlaces() {
+export function templatePlaces(adds = addsOf({})) {
   const out = new Map();
-  for (const f of builtinFiles()) {
-    const parts = f.rel.split('/');
+  for (const rel of adds) {
+    const parts = rel.split('/');
     for (let i = 1; i < parts.length; i++) out.set(parts.slice(0, i).join('/'), true);
-    out.set(f.rel, false);
+    out.set(rel, false);
   }
   return out; // rel -> whether it is a folder
 }
@@ -478,7 +638,30 @@ export function readPlan(name, { projects }) {
       if (!w.inside) claim(w.to);
     }
   }
-  const template = templatePlaces();
+  if (p.adds !== undefined) {
+    const may = addable();
+    if (!Array.isArray(p.adds) || p.adds.some((x) => !may.includes(x)) || new Set(p.adds).size !== p.adds.length) throw bad('"adds" lists files of Hoprig\'s template, each once');
+  }
+  if (p.copyInstalled !== undefined && typeof p.copyInstalled !== 'boolean') throw bad('"copyInstalled" is true or false');
+  if (p.leftOut !== undefined) {
+    // Only a folder of installed packages or build output inside a repository or a worktree of the plan (apply asks git
+    // again whether it ignores it as a whole): an edited plan cannot leave out anything else.
+    const checkouts = p.repos.flatMap((r) => [r.from, ...(r.worktrees || []).map((w) => w.from)]).filter((x) => typeof x === 'string');
+    const seenLeft = new Set();
+    if (!Array.isArray(p.leftOut) || p.leftOut.length > LEFT_MAX) throw bad('"leftOut" is a list of folders');
+    for (const l of p.leftOut) {
+      const d = l && l.dir;
+      if (typeof d !== 'string' || !path.isAbsolute(d) || path.resolve(d) !== d || !isRebuiltName(path.basename(d)) || seenLeft.has(d)) throw bad('a folder left out is one of installed packages or build output, named once');
+      const top = checkouts.find((c) => rules.within(d, c) && path.resolve(d) !== path.resolve(c));
+      if (!top || path.relative(top, d).split(path.sep).some((x) => x === '.git' || isPrivate(x))) throw bad(`${d.slice(0, 80)} is not inside a repository of the plan`);
+      if (!Number.isFinite(l.bytes) || !Number.isFinite(l.files) || (l.remake !== null && typeof l.remake !== 'string')) throw bad('a folder left out has its size and the command that makes it again');
+      seenLeft.add(d);
+    }
+  }
+  const template = templatePlaces(addsOf(p));
+  const fold = (x) => (rules.fold ? x.toLowerCase() : x);
+  const under = (x, d) => fold(x) === fold(d) || fold(x).startsWith(`${fold(d)}/`);
+  const copied = p.repos.flatMap((r) => [r.to, ...(r.worktrees || []).filter((w) => !w.inside).map((w) => w.to)]).filter((x) => typeof x === 'string');
   for (const n of p.neighbours) {
     if (!n || !fromOk(n.from, !!n.private)) throw bad('a neighbour is a path in the scanned folder');
     // Each folder on its way is a real folder, never a link: a copy and a retire must not reach through one.
@@ -493,10 +676,15 @@ export function readPlan(name, { projects }) {
       if (!st || !st.isDirectory()) throw bad(`${parts.slice(0, i).join('/')} is not a folder of the scanned folder`);
     }
     if (n.private ? n.to !== n.from || !isPrivate(n.from) : n.to !== null && !relTo(n.to)) throw bad(`a neighbour's place must be a folder inside the project (not ${String(n.to).slice(0, 60)})`);
-    if (n.to && (n.to === MANIFEST || n.to.startsWith('code/') || n.to === 'code')) throw bad(`a neighbour cannot go to ${n.to}`);
+    // A project in the layout keeps its own files in code/ (its code/.gitignore) at their own place; nothing else goes there.
+    if (n.to && (n.to === 'code' || (n.to.startsWith('code/') && !(p.layout && n.to === n.from)))) throw bad(`a neighbour cannot go to ${n.to}`);
     if (n.to) {
-      const hit = [...template].find(([rel]) => (rules.fold ? rel.toLowerCase() === n.to.toLowerCase() : rel === n.to));
+      const hit = [...template].find(([rel]) => fold(rel) === fold(n.to));
       if (hit) throw bad(takenWords(n.to, n.from, hit[1]));
+      const file = [...template].find(([rel, dir]) => !dir && under(n.to, rel));
+      if (file) throw bad(takenWords(file[0], n.from, false));
+      const repo = copied.find((c) => c === '.' || under(n.to, c) || under(c, n.to));
+      if (repo) throw bad(`${n.to} lies in or around the copy of a repository (${repo}): the plan must put ${path.basename(n.from)} elsewhere`);
       claim(n.to);
     }
   }

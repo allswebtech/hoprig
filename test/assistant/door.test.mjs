@@ -188,7 +188,7 @@ test('every route her tools use is in the table, and nothing else', async () => 
     ops.schedules({ computer: c, body: { op: 'delete', id: 'x' } }), ops.queue({ computer: c, session: 's', body: { op: 'clear' } }), ops.skillsInstalled({ computer: c }),
     ops.skillsSuggested({ computer: c }), ops.skillsFind({ computer: c, query: 'q' }), ops.skillReview({ computer: c, spec: 's' }), ops.skillUpdateReview({ computer: c, name: 'n' }),
     ops.skillApprove({ computer: c, id: 'i' }), ops.skillRemove({ computer: c, name: 'n' }), ops.skillsCheck({ computer: c }), ops.skillCancel({ computer: c, id: 'a'.repeat(24) }), ops.skillUndo({ computer: c, name: 'n' }),
-    ops.fieldTwice({ computer: c }), ops.fieldTwiceAct({ computer: c, line: 'get:git-auth', act: 'dismiss' }), ops.fieldTwiceAct({ computer: c, line: 'get:git-auth', act: 'draft' }), ops.projectsFolder({ computer: c, dir: '/p' }),
+    ops.fieldTwice({ computer: c }), ops.fieldTwiceAct({ computer: c, line: 'get:git-auth', act: 'dismiss' }), ops.fieldTwiceAct({ computer: c, line: 'get:git-auth', act: 'draft' }), ops.skillsLearned({ computer: c }), ops.skillLearnedAct({ computer: c, id: 'a'.repeat(24), act: 'install' }), ops.skillLearnedAct({ computer: c, id: 'a'.repeat(24), act: 'discard' }), ops.skillLearnedAct({ computer: c, id: 'a'.repeat(24), act: 'undo' }), ops.projectsFolder({ computer: c, dir: '/p' }),
     ops.workingRules({ computer: c, add: true }), ops.skillsWeekly({ computer: c, weekly: true }), ops.settings({ computer: c }),
     ops.changeSettings({ computer: c, patch: { server: { uploadMaxMB: 5 } } }), ops.runCommand({ computer: c, command: 'true' }),
     ops.workspaceMap({ computer: c }), ops.workspaceMapWrite({ computer: c, dryRun: true }), ops.workspaceGit({ computer: c }),

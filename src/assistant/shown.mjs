@@ -18,6 +18,7 @@ export const FIRST_CALL = {
   review: 'manage_skills action review (or update_review)',
   skill: 'manage_skills action installed',
   twice: 'manage_skills action twice',
+  learned: 'manage_skills action learned',
   mapped: 'list_projects with view "map"',
   address: 'list_projects with view "map" or "git" (or the owner writes the address himself)',
   task: 'manage_work action today or list',

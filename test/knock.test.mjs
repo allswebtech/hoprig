@@ -34,6 +34,9 @@ test('an answer that came while this process was held up is an answer, not "sile
   try {
     for (const target of [{ port: tcp.address().port, host: '127.0.0.1' }, { path: sock }]) {
       const said = knock(target, 200);
+      // Node starts a TCP connection on the next tick: the process is held up after the connection was asked for,
+      // so its answer comes while it is held (without this the hold came first, and macOS then had no answer yet).
+      await new Promise((r) => process.nextTick(r));
       heldUp(600); // longer than the time it was given
       assert.equal(await said, 'open', JSON.stringify(target));
     }

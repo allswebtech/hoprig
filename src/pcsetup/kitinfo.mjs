@@ -3,7 +3,8 @@
 // (download and on disk, from the kit's data), what it changes (the folder, a link, the shell lines), what was found
 // (its path with ~) and the owner's own steps (a command to type, never run by Hoprig).
 import { askingInstall, kitById, stepLine } from './kits.mjs';
-import { blockLine } from '../setup/localbin.mjs';
+import { sdkManagerAt } from './devplaces.mjs';
+import { blockLine, shellValue } from '../setup/localbin.mjs';
 import { showCommand } from '../setup/system.mjs';
 
 const about = (n) => (n >= 1e9 ? `about ${Math.round(n / 1e8) / 10} GB` : `about ${Math.round(n / 1e6)} MB`);
@@ -32,6 +33,36 @@ export function yourSteps(chosen, found, sys) {
       });
     }
   }
+  if (chosen.includes('android') && sys.platform !== 'win32') {
+    const r = (found.android || []).find((x) => x.id === 'android-sdk') || {};
+    // The SDK folder the commands work on: the one found, or the place the kit puts it.
+    if (r.sdk && r.state !== 'na' && (r.state === 'ok' || !r.hold)) {
+      // A path as the owner pastes it: "$HOME/…" in double quotes (a home with a space stays one word; a ~ after "="
+      // is not expanded), else in single quotes.
+      const q = (p) => {
+        const v = shellValue(p, sys.home);
+        return v !== null ? `"${v}"` : `'${p.replace(/'/g, `'\\''`)}'`;
+      };
+      const sdk = r.sdk;
+      const title = kitById('android').title;
+      // The sdkmanager the commands name: the one the kit puts there, or the one an SDK found here has (the older
+      // tools/bin layout too). An SDK found without any is said so, with no command that names a missing program.
+      const at = r.state === 'ok' ? [sdkManagerAt(sdk), `${sdk}/tools/bin/sdkmanager`].find((f) => sys.exists(f)) : sdkManagerAt(sdk);
+      if (!at) {
+        out.push({ kit: title, text: 'This Android SDK has no sdkmanager, so its licence and packages cannot be handled from a terminal: add the command-line tools to it with Android Studio\'s SDK Manager' });
+        return out;
+      }
+      const mgr = q(at);
+      const root = `--sdk_root=${q(sdk)}`;
+      // Google's licence is the owner's to read and accept: Hoprig never answers it for him.
+      if (!sys.exists(`${sdk}/licenses/android-sdk-license`)) {
+        out.push({ kit: title, text: 'Google\'s licence for the Android SDK is yours to read and accept: Hoprig never accepts it for you. Type this in a new terminal, read each licence, and answer it (sdkmanager needs Java: Android Studio\'s own, or a JDK)', command: `${mgr} ${root} --licenses` });
+      }
+      if (!sys.exists(`${sdk}/platform-tools/adb`)) {
+        out.push({ kit: title, text: 'The SDK\'s packages are yours to choose: platform-tools first, then the platform and build tools your app names (sdkmanager --list shows them)', command: `${mgr} ${root} --install platform-tools` });
+      }
+    }
+  }
   return out;
 }
 
@@ -50,7 +81,7 @@ export function kitInfo(kit, found, sys, plan) {
   if (size) size.text = `${about(size.download)} to download, ${about(size.disk)} on disk`;
   const changes = [];
   for (const s of steps) {
-    if (s.do === 'flutter') changes.push(`a new folder ${t(s.place)}`);
+    if (s.do === 'flutter' || s.do === 'android-sdk') changes.push(`a new folder ${t(s.place)}`);
     else if (s.do === 'link') changes.push(`${t(s.place)} becomes a link to ${t(s.from)} (nothing of it is moved, copied or changed)`);
     else if (s.do === 'shell') changes.push(`these lines in the hoprig kits block of your shell start files: ${s.lines.map((l) => blockLine(l)).join('; ')}`);
   }

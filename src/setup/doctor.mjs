@@ -41,6 +41,17 @@ export async function doctor(args = [], { write = (s) => process.stdout.write(s)
   const startedAt = Date.now();
   const results = await overview({ sys, offline, hub: isHub(sys), parts });
   if (box) results.push({ ...(await box()), group: 'This computer' });
+  // What the upkeep's two looks kept (off unless the owner turned them on): a suggestion, never a failure.
+  try {
+    const { readLooks, onlyHereLine, serversLine } = await import('../workspace/onlyherelook.mjs');
+    const kept = readLooks();
+    const only = onlyHereLine(kept.onlyHere);
+    if (only) results.push({ id: 'only-here', group: 'This computer', label: 'Only on this computer', status: 'warn', detail: `${only}, as looked ${String(kept.onlyHere.at).slice(0, 10)}`, fix: 'hoprig pc leave --check' });
+    const servers = serversLine(kept.servers);
+    if (servers) results.push({ id: 'git-servers', group: 'This computer', label: 'Git servers', status: 'warn', detail: `${servers}, as looked ${String(kept.servers.at).slice(0, 10)}` });
+  } catch {
+    /* nothing kept, or not readable: nothing to say */
+  }
   reportDoctor(results, startedAt); // a field report, only when a check failed (src/field)
   const code = exitCodeFor(results);
   const groups = grouped(results);

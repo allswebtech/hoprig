@@ -28,6 +28,13 @@ const withMission = (s) => {
   s.work.missions = [{ id: 'm-20261117-abc123', goal: 'Make the shop faster', project: 'shop', state: 'waits', why: null, total: { cost: 0.12, tokens: 9000, minutes: 7 },
     tasks: [{ id: 'fix-the-cart-total', title: 'Fix the cart total', role: 'developer', state: 'review', why: null, tokens: 9000, minutes: 7, firstPass: true }], line: [] }];
 };
+// A learned skill that waits and one installed (Skills → Learned, as her door reads them).
+const withLearned = (s) => {
+  s.learned = [
+    { id: 'a'.repeat(24), createdAt: '2026-11-20T10:00:00.000Z', state: 'ready', kind: 'new', name: 'tests-before-done', description: 'Run the tests first.', skillMd: '---\nname: tests-before-done\n---\n\nRun the tests.\n', risky: false, riskyWhy: [], installed: null, undone: null },
+    { id: 'b'.repeat(24), createdAt: '2026-11-19T10:00:00.000Z', state: 'installed', kind: 'new', name: 'lint-first', description: 'Run the linter first.', skillMd: '---\nname: lint-first\n---\n\nRun the linter.\n', risky: false, riskyWhy: [], installed: { at: '2026-11-19T11:30:00.000Z' }, undone: null },
+  ];
+};
 // One "went wrong twice" line of Home that can make a draft (src/field/learn.mjs twiceLines).
 const withTwice = (s) => {
   s.twice = [{ key: 'get:git-auth', kind: 'get', class: 'git-auth', count: 2, last: '2026-11-20T10:00:00.000Z', kindWords: 'hoprig get', words: 'git was not let into a repository', help: 'Sign in to the git server, then run it again.', command: 'hoprig pc setup', doc: null, draft: true }];
@@ -78,6 +85,10 @@ const SAMPLES = {
   'manage_skills cancel_review': { review: 'r1', before: [['manage_skills', { action: 'review', spec: 'pdf-tools' }]] },
   'manage_skills undo_update': { skill: 'tdd', world: (s) => { s.skills.user.skills[0].canUndo = true; } },
   'manage_skills twice': { world: withTwice },
+  'manage_skills learned': { world: withLearned },
+  'manage_skills learned_install': { learned: 'a'.repeat(24), world: withLearned, before: [['manage_skills', { action: 'learned' }]] },
+  'manage_skills learned_discard': { learned: 'a'.repeat(24), world: withLearned, before: [['manage_skills', { action: 'learned' }]] },
+  'manage_skills learned_undo': { learned: 'b'.repeat(24), world: withLearned, before: [['manage_skills', { action: 'learned' }]] },
   'manage_skills twice_dismiss': { line: 'get:git-auth', world: withTwice, before: [['manage_skills', { action: 'twice' }]] },
   'manage_skills twice_draft': { line: 'get:git-auth', world: withTwice, before: [['manage_skills', { action: 'twice' }]] },
   'manage_work today': {}, 'manage_work list': {}, 'manage_work task': { task: 'renew-the-domain' }, 'manage_work mission': {},

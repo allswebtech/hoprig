@@ -12,9 +12,9 @@ const flat = (s) => s.replace(/\s+/g, ' ');
 
 test('the skill page names the Node.js floor of the skill package', () => {
   const floor = JSON.parse(read('packages/hoprig-skill/package.json')).engines.node.replace(/^>=\s*/, '');
-  assert.equal(floor, '22.11');
+  assert.equal(floor, '24.13.1');
   const page = flat(read('site/content/skill.md'));
-  assert.match(page, /with Node\.js 22\.11 or newer/);
+  assert.match(page, /with Node\.js 24\.13\.1 or newer/);
   assert.doesNotMatch(page, /Node\.js 22 or newer/);
 });
 

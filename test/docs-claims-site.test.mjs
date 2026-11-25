@@ -41,9 +41,9 @@ test('a mission\'s tasks run one after another at first; Sessions at once lets u
 
 test('the index: the tests run on the systems and Node.js versions of the workflow; what is new was tried by hand on Linux only', () => {
   const wf = read('.github/workflows/test.yml');
-  assert.match(wf, /os: \[ubuntu-latest, macos-latest\]\n\s+node: \[22, 24, 26\]/, 'the blocking job: Linux and macOS, Node 22, 24 and 26');
+  assert.match(wf, /os: \[ubuntu-latest, macos-latest\]\n\s+node: \[24, 26\]/, 'the blocking job: Linux and macOS, Node 24 and 26');
   const index = flat(read('site/content/index.md'));
-  assert.match(index, /Its tests run on Linux and macOS with Node\.js 22, 24 and 26 on every change\./);
+  assert.match(index, /Its tests run on Linux and macOS with Node\.js 24 and 26 on every change\./);
   // The tests run on macOS too, so "run on Linux only" would be untrue; by hand is what only Linux had.
   assert.doesNotMatch(index, /was run on Linux only/);
   assert.match(index, /The newer parts \(the chat, the editor, the desktop, Work\) were tried by hand on Linux only, not on a real Mac/);

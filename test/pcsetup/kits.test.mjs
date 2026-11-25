@@ -118,7 +118,7 @@ test('macOS: Homebrew first when it is missing, then brew; build tools through x
 });
 
 test('Windows: winget ids (each once), the Python install manager, the VS C++ workload; no tmux/unzip/curl items', () => {
-  const win = { platform: 'win32', pm: 'winget', root: false, arch: 'x64', tmp: 'C:\\t' };
+  const win = { platform: 'win32', pm: 'winget', root: false, arch: 'x64', tmp: 'C:\\t', env: { SESSIONNAME: 'Console' } }; // a session with a desktop
   const W = (id) => ['winget', 'install', '-e', '--id', id, '--accept-package-agreements', '--accept-source-agreements'];
   assert.deepEqual(argvs(buildPlan(KIT_IDS, allMissing(win), win)), [
     W('Git.Git'),

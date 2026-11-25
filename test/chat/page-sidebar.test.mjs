@@ -49,6 +49,19 @@ test('the session open now is the App session of this id on this computer only',
   assert.equal(S.isCurrent({ ...machines[0].sessions[1], machine: null }, { chat: 'a', machine: null }), false, 'a terminal is never the App session');
 });
 
+test('the next and the previous session go in the list\'s order as drawn, round at the ends', () => {
+  const g = S.sideGroups(machines, { multi: true }); // api, chat:b, chat:a, shop
+  const here = { chat: 'a', machine: null };
+  assert.equal(S.sessionAfter(g, here, 1).name, 'shop');
+  assert.equal(S.sessionAfter(g, here, -1).name, 'chat:b');
+  assert.equal(S.sessionAfter(g, { chat: 'b', machine: 'laptop' }, -1).name, 'api');
+  assert.equal(S.sessionAfter(g, { chat: 'x' }, 1).name, 'api', 'the open one not in the list: the first');
+  assert.equal(S.sessionAfter([{ sessions: [machines[0].sessions[0]] }], here, 1), null, 'one session: nowhere to go');
+  const ring = [{ sessions: [{ ...machines[0].sessions[0], machine: null }, { name: 'z', kind: 'claude' }] }];
+  assert.equal(S.sessionAfter(ring, here, 1).name, 'z');
+  assert.equal(S.sessionAfter([{ sessions: [ring[0].sessions[1], ring[0].sessions[0]] }], here, 1).name, 'z', 'the last row goes on to the first');
+});
+
 test('the list draws its groups, marks what needs the owner and the session open now, and links every row', () => {
   const kept = new Map();
   globalThis.localStorage = { getItem: (k) => kept.get(k) ?? null, setItem: (k, x) => kept.set(k, String(x)) };

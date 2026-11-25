@@ -103,13 +103,13 @@ test('COMPUTERS: what still needs a terminal on a server, and the Health page ne
   assert.ok(!page.includes('the skills,'), 'the skills are not said to need a terminal');
 });
 
-test('INSTALL: Node.js is installed when missing or older than 22.11, the floor of install.sh and src/nodefloor.mjs', () => {
+test('INSTALL: Node.js is installed when missing or older than 24.13.1, the floor of install.sh and src/nodefloor.mjs', () => {
   const page = read('docs/INSTALL.md');
-  assert.ok(page.includes('| Node.js (when missing or older than 22.11) |'), 'the page says 22.11');
-  assert.ok(!page.includes('older than 22)'), 'the old floor is gone');
-  assert.ok(read('install.sh').includes('MIN_NODE=22.11 '), 'install.sh');
+  assert.ok(page.includes('| Node.js (when missing or older than 24.13.1) |'), 'the page says 24.13.1');
+  assert.ok(!page.includes('older than 22'), 'the old floor is gone');
+  assert.ok(read('install.sh').includes('MIN_NODE=24.13.1 '), 'install.sh');
   const floor = read('src/nodefloor.mjs');
-  assert.ok(floor.includes("export const MIN_NODE = '22.11.0';") && floor.includes("MIN_NODE.replace(/\\.0$/, '')"), 'src/nodefloor.mjs reads 22.11');
+  assert.ok(floor.includes("export const MIN_NODE = '24.13.1';") && floor.includes("MIN_NODE.replace(/\\.0$/, '')"), 'src/nodefloor.mjs reads 24.13.1');
 });
 
 test('HUB: the Docker image is for a main computer only (no "hub" in prose for it)', () => {

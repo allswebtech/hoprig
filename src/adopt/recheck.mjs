@@ -91,8 +91,12 @@ function working(listing) {
   return out;
 }
 
-/** How many working entries of the original `from` are not in `to` as they are (missing, or another content). */
-function filesMissing(from, to) {
+/**
+ * How many working entries of the original `from` are not in `to` as they are (missing, or another content). `leave`:
+ * the folders apply left out (installed packages, build output) that retire found again just now as made again: not
+ * listed, so what is in them is not counted.
+ */
+function filesMissing(from, to, leave = null) {
   let st;
   try {
     st = fs.lstatSync(from);
@@ -106,7 +110,7 @@ function filesMissing(from, to) {
       return { missing: 1, unreadable: 0 };
     }
   }
-  const a = working(treeOf(from, { skipDirs: GIT_ONLY }));
+  const a = working(treeOf(from, { skipDirs: GIT_ONLY, leave }));
   const b = working(treeOf(to, { skipDirs: GIT_ONLY }));
   let missing = 0;
   let unreadable = 0;
@@ -121,7 +125,7 @@ function filesMissing(from, to) {
  * Compare the originals that retire would remove (`go`) with their copies. `pairs`: [original, copy] of every copy
  * apply recorded. `root`: the old project folder (its repositories are found in it again). → { ok, counts, words }
  */
-export async function recheck({ root, go, pairs }) {
+export async function recheck({ root, go, pairs, leave = null }) {
   const counts = Object.fromEntries(KINDS.map(([k]) => [k, 0]));
   const map = pairs.filter(([f, t]) => f && t);
   const copyOf = (p) => {
@@ -134,7 +138,7 @@ export async function recheck({ root, go, pairs }) {
   for (const g of go) {
     const c = copyOf(g);
     if (!c) continue;
-    const f = filesMissing(g, c);
+    const f = filesMissing(g, c, leave);
     counts.files += f.missing;
     counts.unreadable += f.unreadable;
   }

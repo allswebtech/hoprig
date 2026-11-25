@@ -12,6 +12,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { DEV_PLACES, devPlace } from '../workspace/layout.mjs';
 import { missingTools } from './unpack.mjs';
+import { javaPlaces } from './java.mjs';
+import { ownValue } from '../setup/localbin.mjs';
 
 const VERSION_RE = /^\d{1,3}\.\d{1,3}\.\d{1,4}(?:[-+][0-9A-Za-z.]{1,40})?$/;
 
@@ -130,6 +132,116 @@ export async function detectFlutter(sys) {
   return { state: 'missing', version: null, detail: '', shellLine };
 }
 
+// The Android SDK is looked for (checked against developer.android.com/tools/variables and /studio/intro/update, 25 Nov
+// 2026) at the workspace's place, ANDROID_HOME, ANDROID_SDK_ROOT (the older name), then where Android Studio puts it:
+// ~/Android/Sdk on Linux, ~/Library/Android/sdk on macOS. A folder is an SDK when it holds sdkmanager
+// (cmdline-tools/latest/bin, or the old tools/bin) or adb (platform-tools). Android Studio: the places java.mjs knows.
+const SDK_MARKS = [['cmdline-tools', 'latest', 'bin', 'sdkmanager'], ['platform-tools', 'adb'], ['tools', 'bin', 'sdkmanager']];
+const isSdkRoot = (d, sys) => Boolean(d) && SDK_MARKS.some((m) => sys.exists(path.join(d, ...m)));
+/** sdkmanager inside an SDK folder (the command-line tools Hoprig puts there, or the owner's). */
+export const sdkManagerAt = (sdk) => path.join(sdk, 'cmdline-tools', 'latest', 'bin', 'sdkmanager');
+
+/** The command-line tools' version from their own source.properties (Pkg.Revision). */
+export function androidToolsVersionAt(sdk) {
+  const m = /^Pkg\.Revision=(\d{1,4}(?:\.\d{1,4}){0,2})\s*$/m.exec(readSmall(path.join(sdk, 'cmdline-tools', 'latest', 'source.properties')) || '');
+  return m ? m[1] : null;
+}
+
+/**
+ * The ANDROID_HOME the owner gives himself: in this run's environment, or in a shell start file outside the kits block
+ * (a run from the dashboard's service has not read his .bashrc). → { value (a path, or null when it cannot be read) }
+ * or null when he sets none.
+ */
+export function ownAndroidHome(sys) {
+  const env = sys.env || {};
+  if (env.ANDROID_HOME) return { value: path.isAbsolute(env.ANDROID_HOME) ? path.resolve(env.ANDROID_HOME) : null };
+  if (sys.platform === 'win32' || !sys.home) return null;
+  return ownValue('ANDROID_HOME', { home: sys.home, shell: env.SHELL || '', platform: sys.platform });
+}
+
+/** The places the Android SDK is looked for outside the workspace, in order: [{ dir, from }]. */
+export function androidSdkPlaces(sys) {
+  const env = sys.env || {};
+  const out = [];
+  for (const v of ['ANDROID_HOME', 'ANDROID_SDK_ROOT']) if (env[v] && path.isAbsolute(env[v])) out.push({ dir: env[v], from: v });
+  const own = !env.ANDROID_HOME ? ownAndroidHome(sys) : null;
+  if (own && own.value) out.push({ dir: own.value, from: 'your shell start files' });
+  out.push({ dir: sys.platform === 'darwin' ? path.join(sys.home, 'Library', 'Android', 'sdk') : path.join(sys.home, 'Android', 'Sdk'), from: 'home' });
+  return out;
+}
+
+/**
+ * The Android SDK item: { state, version, detail, found?, sdk (the folder the owner's commands use), adopt?, shellLine?,
+ * hold? }. `shellLine`: the kits block should set ANDROID_HOME to the place and put its tools on PATH (no ANDROID_HOME
+ * of the owner's names another folder: his own line is never overruled).
+ */
+export async function detectAndroidSdk(sys) {
+  const place = sys.ws ? devPlace(sys.ws, 'androidSdk') : null;
+  const rel = DEV_PLACES.androidSdk.rel;
+  const t = (p) => tildeOf(p, sys.home);
+  const at = place ? placeKind(place) : { kind: 'none' };
+  const own = ownAndroidHome(sys);
+  const shellLine = !own || (Boolean(place) && own.value === place);
+  const v = (d) => androidToolsVersionAt(d);
+  if (at.kind === 'folder' && isSdkRoot(place, sys)) return { state: 'ok', version: v(place), detail: `in ${rel}`, found: t(place), sdk: place, shellLine };
+  if (at.kind === 'link' && isSdkRoot(at.real, sys)) return { state: 'ok', version: v(at.real), detail: `${rel} points at ${t(at.real)}: used where it is`, found: t(at.real), sdk: place, shellLine };
+  const taken = at.kind === 'none' ? null : `${rel} is there already (${KIND_WORDS[at.kind]}${at.kind === 'link' ? ` to ${t(at.real)}, which holds no Android SDK` : at.kind === 'folder' ? ' without an Android SDK in it' : ''}): Hoprig never writes over it`;
+  for (const p of androidSdkPlaces(sys)) {
+    if (!isSdkRoot(p.dir, sys) || (place && realOf(sys, p.dir) === realOf(sys, place))) continue;
+    return {
+      state: 'ok', version: v(p.dir), detail: `found at ${t(p.dir)}: used where it is${taken ? `; ${taken}` : ''}`, found: t(p.dir), sdk: p.dir,
+      ...(place && at.kind === 'none' ? { adopt: { from: p.dir, place, rel } } : {}), shellLine: shellLine && Boolean(place) && at.kind === 'none',
+    };
+  }
+  if (taken) return { state: 'missing', version: null, detail: taken, hold: `${taken}. If it is yours, leave it; else move it aside, then run this again.` };
+  if (!place) return { state: 'missing', version: null, detail: 'not found; there is no workspace yet' };
+  const lack = missingTools('zip', sys);
+  if (lack.length) {
+    const words = 'unzip is not installed, and the command-line tools come as a .zip';
+    return { state: 'missing', version: null, detail: words, hold: `${words}: install it first, then run this again. Nothing was downloaded.`, sdk: place, shellLine };
+  }
+  return { state: 'missing', version: null, detail: '', sdk: place, shellLine };
+}
+
+const STUDIO_VERSION_RE = /^\d{1,4}(?:\.\d{1,4}){1,3}$/;
+const studioMark = (platform) => (platform === 'darwin' ? ['Contents', 'MacOS', 'studio'] : ['bin', 'studio.sh']);
+
+/** Android Studio's version from its own product-info.json. */
+export function studioVersionAt(dir, platform) {
+  const f = platform === 'darwin' ? path.join(dir, 'Contents', 'Resources', 'product-info.json') : path.join(dir, 'product-info.json');
+  try {
+    const v = JSON.parse(readSmall(f) || '{}').version;
+    return STUDIO_VERSION_RE.test(String(v)) ? v : null;
+  } catch {
+    return null;
+  }
+}
+
+/** The places Android Studio is looked for (the folders whose jbr java.mjs looks at). */
+export function studioPlaces(sys) {
+  return [...new Set(javaPlaces(sys).filter((p) => p.from === 'Android Studio').map((p) => (sys.platform === 'darwin' ? path.resolve(p.home, '..', '..', '..', '..') : path.dirname(p.home))))];
+}
+
+/**
+ * The Android Studio item: found and used where it is, never downloaded. On Linux one found elsewhere is adopted by a
+ * link at development/android/android-studio (only when that place is free); on macOS the app stays where it is and is
+ * only shown (an app is opened from Applications).
+ */
+export async function detectStudio(sys) {
+  const place = sys.ws && sys.platform !== 'darwin' ? devPlace(sys.ws, 'androidStudio') : null;
+  const rel = DEV_PLACES.androidStudio.rel;
+  const t = (p) => tildeOf(p, sys.home);
+  const is = (d) => Boolean(d) && sys.exists(path.join(d, ...studioMark(sys.platform)));
+  const at = place ? placeKind(place) : { kind: 'none' };
+  if (at.kind === 'folder' && is(place)) return { state: 'ok', version: studioVersionAt(place, sys.platform), detail: `in ${rel}`, found: t(place) };
+  if (at.kind === 'link' && is(at.real)) return { state: 'ok', version: studioVersionAt(at.real, sys.platform), detail: `${rel} points at ${t(at.real)}: used where it is`, found: t(at.real) };
+  for (const dir of studioPlaces(sys)) {
+    if (!is(dir) || (place && realOf(sys, dir) === realOf(sys, place))) continue;
+    return { state: 'ok', version: studioVersionAt(dir, sys.platform), detail: `found at ${t(dir)}: used where it is`, found: t(dir), ...(place && at.kind === 'none' ? { adopt: { from: dir, place, rel } } : {}) };
+  }
+  return { state: 'missing', version: null, detail: 'not found: Hoprig does not download it' };
+}
+
 /**
  * nvm on this computer: { at (its folder) | null, from, place (the workspace's) | null, placeKind, adopt? } — `adopt`
  * when it is found outside the workspace and the place is free; `newAt` when none is found and a new one goes to the
@@ -160,7 +272,7 @@ export function devTools(ws) {
     const k = placeKind(where);
     if (k.kind !== 'folder' && k.kind !== 'link') continue;
     const dir = k.real || where;
-    const version = id === 'flutter' ? flutterVersionAt(dir) : id === 'nvm' ? nvmVersionAt(dir) : null;
+    const version = id === 'flutter' ? flutterVersionAt(dir) : id === 'nvm' ? nvmVersionAt(dir) : id === 'androidSdk' ? androidToolsVersionAt(dir) : id === 'androidStudio' ? studioVersionAt(dir, process.platform) : null;
     out.push({ name: p.name, ...(version ? { version } : {}), ...(k.kind === 'link' ? { adopted: true } : {}) });
   }
   return out;

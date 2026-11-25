@@ -36,6 +36,7 @@ import { configDir, hookFile, stateDir } from '../paths.mjs';
 import { askedWhat } from '../hook.mjs';
 import { readRun } from '../runs.mjs';
 import { chatCard, handsOffAsk } from './handsoff.mjs';
+import { mcpContent } from './mcpask.mjs';
 
 import { rememberAllowed } from './turns.mjs';
 import { projectsIn, workspaceDir } from '../workspace/layout.mjs';
@@ -124,6 +125,14 @@ export const keepGrants = (list) => new Set((Array.isArray(list) ? list : []).fi
 
 /** An ask came: answered by the chat where the mode or a remembered grant settles it, else a card for the owner. */
 export function askArrived(chat, ev) {
+  // An MCP server's question (mcpask.mjs): always his card. No mode, grant, hook or Hands-off answers it.
+  if (ev.type === 'mcp') {
+    chat.pending.set(ev.request, ev);
+    const { full, interactive, owner, grant: g, settled, ...shown } = ev;
+    chat.push(shown);
+    chat.changed();
+    return;
+  }
   const grant = ev.grant;
   // No card: the mode allows everything, or the owner already allowed exactly this for the chat and only the
   // process is new (it gets the rule again with the answer).
@@ -175,6 +184,8 @@ export function answerAsk(chat, request, a) {
   if (!chat.session) throw fail(409, `${chat.engine.label} is not running in this chat`);
   // The answer goes only to the very ask its card showed: `key` (askcard.mjs askKey) is checked again now.
   if (a.key !== undefined && a.key !== null && (!ask.card || a.key !== ask.card.key)) throw fail(409, 'the question changed. Look at it again');
+  // An MCP server's question takes only the person's own answer to it (the route refuses Tia's door), and only that.
+  if (ask.type === 'mcp' || a.mcp) return answerMcp(chat, request, ask, a);
   let outcome = 'denied';
   if (a.allow) {
     const input = ask.tool === 'AskUserQuestion' && a.answers ? { ...ask.full, answers: a.answers } : ask.full;
@@ -204,10 +215,26 @@ export function answerAsk(chat, request, a) {
   chat.changed();
 }
 
+/**
+ * The person's answer to an MCP server's question: a.mcp { action: 'accept' | 'decline', content (accept, a form) }.
+ * The content is held against the fields the server asked for (mcpContent) before it goes back. Nothing else answers
+ * it: an OK, Hands-off (`by`), or an answer for another kind of ask.
+ */
+function answerMcp(chat, request, ask, a) {
+  if (ask.type !== 'mcp' || !a.mcp || a.by) throw fail(409, 'only you answer a question an MCP server asks, in its own card');
+  const action = a.mcp.action;
+  if (action !== 'accept' && action !== 'decline') throw fail(400, 'say accept or decline');
+  const content = action === 'accept' && ask.mode === 'form' ? mcpContent(ask.fields, a.mcp.content ?? {}) : null;
+  chat.session.answer(request, { mcp: { action, content } });
+  chat.pending.delete(request);
+  chat.push({ kind: 'ask-closed', request, outcome: action === 'accept' ? 'mcp-accepted' : 'mcp-declined' });
+  chat.changed();
+}
+
 /** Switched to bypass: what waits for an OK that is not the owner's own word is allowed now. */
 export function allowPending(chat) {
   for (const [r, ask] of [...chat.pending]) {
-    if (!byBypass(chat, ask, BYPASS)) continue;
+    if (ask.type === 'mcp' || !byBypass(chat, ask, BYPASS)) continue; // an MCP server's question stays his
     chat.session.answer(r, { allow: true, input: ask.full, permissions: null });
     chat.pending.delete(r);
     chat.push({ kind: 'ask-closed', request: r, outcome: 'allowed' });

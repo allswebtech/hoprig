@@ -825,7 +825,10 @@ export async function main(args = [], hooks = {}) {
       // The Operator's look checks the pretend gateway too: the real one's port on this computer is never asked.
       operator: { gateways: () => [addon] },
       // The automations' lines go to the demo's own log file: under the address they read as if something real ran.
-      automation: { updateItems: (await import('./updates.mjs')).demoUpdateItems(), log: (line) => fs.appendFileSync(path.join(root, 'demo.log'), `${line}\n`) },
+      // A restart (Updates' Restart now, Health's Restart the dashboard) is pretend too: this computer's own service
+      // manager is never asked, and the demo goes on running.
+      automation: { updateItems: (await import('./updates.mjs')).demoUpdateItems(), log: (line) => fs.appendFileSync(path.join(root, 'demo.log'), `${line}\n`),
+        restarter: { installed: () => true, run: () => fs.appendFileSync(path.join(root, 'demo.log'), '(demo) the dashboard would restart here\n') } },
       onboarding: { facts: DEMO_FACTS },
       pcsetup: { status: async () => DEMO_CHECKS },
       // Tia's administrator-rights page reads whether this computer has sudo and asks a password. The demo must never

@@ -4,8 +4,11 @@
 // menu.js), Escape twice in an empty box opens rewind, with words in it clears them into the Up history (the terminal's key). The desktop app's keys open the shortcut
 // sheet (Cmd/Ctrl+/, and "?"), the mode, model and effort menus, the transcript views and the diff pane, wherever the
 // browser leaves the key to the page; a key the browser keeps for itself (Chrome's published list of its shortcuts)
-// gets the nearest one it leaves alone, and the sheet says why in one line.
-import { h, openSheet } from '../lib.js';
+// gets the nearest one it leaves alone, and the sheet says why in one line. Ctrl+Shift+] and [ go through the session
+// list. The desktop app's keys no page ever gets (Cmd/Ctrl+N, W, Ctrl+Tab) are listed under "Kept by the browser" with
+// where the App has them, and inside a window of the desktop a key the desktop takes for its windows says so on its row.
+import { BARE, h, openSheet, prefs } from '../lib.js';
+import { DESK_KEYS, deskKeyOf, keySet } from '../desktop/keymap.js';
 
 const typing = (el) => !!el && (el.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(el.tagName));
 /** A Mac (Cmd), else Ctrl. Asked each time: a test sets the platform. */
@@ -34,8 +37,56 @@ export function desktopKeys(mac = isMac()) {
     mac ? { id: 'view', letter: 'O', keys: 'Ctrl+O', mod: 'ctrl', what: 'The next transcript view (Normal, Thinking, Verbose)' }
       : { id: 'view', letter: 'O', keys: 'Ctrl+Alt+O', mod: 'ctrl-alt', what: 'The next transcript view (Normal, Thinking, Verbose)', why: 'The desktop app\'s Ctrl+O; the browser keeps it for opening a file.' },
     { id: 'diff', letter: 'D', what: 'Open or close the diff pane', ...near('D', 'bookmarking every tab') },
+    // The next and the previous session in the session list. Chrome on a Mac keeps Cmd+Shift+] and [ for its tabs and
+    // has no Control+Shift key there; elsewhere Ctrl+Shift+] and [ are free.
+    { id: 'next', code: 'BracketRight', what: 'The next session in the session list', ...(mac
+      ? { keys: 'Ctrl+Shift+]', mod: 'ctrl-shift', why: 'The desktop app\'s Cmd+Shift+]; the browser keeps it for the next tab.' }
+      : { keys: 'Ctrl+Shift+]', mod: 'cmd-shift' }) },
+    { id: 'prev', code: 'BracketLeft', what: 'The previous session in the session list', ...(mac
+      ? { keys: 'Ctrl+Shift+[', mod: 'ctrl-shift', why: 'The desktop app\'s Cmd+Shift+[; the browser keeps it for the previous tab.' }
+      : { keys: 'Ctrl+Shift+[', mod: 'cmd-shift' }) },
   ];
 }
+
+/**
+ * The desktop app's keys a page never gets, because the browser acts on them first: [keys, what the desktop app does,
+ * where the App has it]. The sheet lists them, so a person who presses one knows why nothing happened in the page.
+ */
+export function browserKeeps(mac = isMac(), inDesk = false) {
+  const C = mac ? 'Cmd' : 'Ctrl';
+  // In a window of the desktop the App has no session list: the desktop's own Sessions takes its place.
+  return [
+    [`${C}+N`, 'A new session', `The browser keeps it for a new window. Here: ${inDesk ? 'New session in the desktop\'s Sessions' : '+ New at the top of the session list'}.`],
+    [`${C}+W`, 'Close the session', 'The browser keeps it for closing the tab. Here: Archive in the session menu.'],
+    ['Ctrl+Tab', 'The next session', `The browser keeps it for the next tab. Here: ${inDesk ? 'the desktop\'s Sessions' : 'Ctrl+Shift+] and Ctrl+Shift+['}.`],
+  ];
+}
+
+/** Key `k` of desktopKeys() as a key press on this computer (`mac`): the fields a key handler reads. */
+export function pressOf(k, mac = isMac()) {
+  const cmd = k.mod === 'cmd' || k.mod === 'cmd-shift';
+  return {
+    code: k.slash ? 'Slash' : k.code || `Key${k.letter}`,
+    key: k.slash ? '/' : k.letter || '',
+    metaKey: cmd && mac,
+    ctrlKey: (cmd && !mac) || /^ctrl/.test(k.mod),
+    shiftKey: /shift/.test(k.mod),
+    altKey: k.mod === 'ctrl-alt',
+  };
+}
+
+/**
+ * The desktop's own act for key `k` inside a window of the desktop with its keys set to `set` (web/desktop/keymap.js),
+ * or null. A key the desktop takes there never reaches the chat (lib.js takes it first), so the sheet says so.
+ */
+export function deskTakes(k, set, mac = isMac()) {
+  if (!set) return null;
+  const act = deskKeyOf(pressOf(k, mac), set);
+  return act ? DESK_KEYS.find((x) => x.act === act) : null;
+}
+
+/** The desktop's chosen keys when this page is inside a window of the desktop, else null. */
+const deskSet = () => (BARE ? keySet(prefs.get('desktop.keys', 'alt-shift')) : null);
 
 /** Whether event `e` is key `k` of desktopKeys(): exactly its modifiers, its letter by place (Shift and layouts). */
 export function isKey(e, k) {
@@ -49,13 +100,20 @@ export function isKey(e, k) {
     'ctrl-alt': e.ctrlKey && e.altKey && !e.metaKey && !e.shiftKey && String(e.key).toLowerCase() === String(k.letter).toLowerCase(),
   }[k.mod];
   if (!mods) return false;
-  return k.slash ? e.key === '/' || e.code === 'Slash' : e.code === `Key${k.letter}`;
+  return k.slash ? e.key === '/' || e.code === 'Slash' : e.code === (k.code || `Key${k.letter}`);
 }
 
-/** The sheet's rows: [keys, what, why?]. Keys read Cmd on a Mac, Ctrl elsewhere. */
-export function shortcuts(mac = isMac()) {
+/**
+ * The sheet's rows: [keys, what, why?]. Keys read Cmd on a Mac, Ctrl elsewhere. `desk`: the desktop's chosen keys when
+ * the page is in a window of the desktop (a key of the App the desktop takes there says so on its row).
+ */
+export function shortcuts(mac = isMac(), desk = null) {
   const K = Object.fromEntries(desktopKeys(mac).map((k) => [k.id, k]));
-  const row = (id) => [K[id].keys, K[id].what, K[id].why];
+  const row = (id) => {
+    const taken = deskTakes(K[id], desk, mac);
+    const note = taken ? `In a window of the desktop this key is the desktop's (${taken.what}); Settings → Appearance can give the desktop other keys.` : null;
+    return [K[id].keys, K[id].what, [K[id].why, note].filter(Boolean).join(' ') || undefined];
+  };
   return [
     ['Enter', 'Send the message (also while Claude works: it reads it after its current step); on a touch screen a new line (the Send button sends)'],
     ['Shift+Enter', 'A new line'],
@@ -67,6 +125,8 @@ export function shortcuts(mac = isMac()) {
     row('effort'),
     row('view'),
     row('diff'),
+    // In a window of the desktop there is no session list (the desktop has its own Sessions): no keys for it.
+    ...(desk ? [] : [row('next'), row('prev')]),
     ['1 … 9', 'In an open menu: pick its item. Else: answer the newest card that waits for you (also from an empty box)'],
     ['↑ ↓', 'In an open menu: move. In an empty box: your earlier messages'],
     ['Shift+Tab', 'The next permission mode (as in the terminal)'],
@@ -80,11 +140,17 @@ export const SHORTCUTS = shortcuts();
 
 const keyCell = (k) => k.split(' ').map((w, n) => (n === 0 || /^[↑↓/@?]$|^\d|^Esc$|^…$|^Shift\+|^Ctrl\+|^Cmd\+/.test(w) ? h('kbd', w) : ` ${w}`));
 const keyRows = (list) => list.flatMap(([k, what, why]) => [h('dt', keyCell(k)), h('dd', what, why ? h('span.chat-keys-why', why) : null)]);
+// The desktop app's keys the browser keeps: what each does there, and where the App has it.
+const keptRows = () => browserKeeps(isMac(), !!deskSet()).flatMap(([k, what, where]) => [h('dt', keyCell(k)), h('dd', what, h('span.chat-keys-why', where))]);
+const keysBody = () => [
+  h('dl.chat-keys', keyRows(shortcuts(isMac(), deskSet()))),
+  h('h3.chat-help-h', 'Kept by the browser'),
+  h('p.chat-keys-note', 'These keys of the desktop app never reach a page: the browser acts on them first.'),
+  h('dl.chat-keys', keptRows()),
+];
 
 export function shortcutsSheet() {
-  return openSheet({ title: 'Keyboard shortcuts', subtitle: 'In the App, as in the Claude Code desktop app. Where the browser keeps one of its keys, the nearest free key does it, and the line under it says why.' }, () => [
-    h('dl.chat-keys', keyRows(shortcuts())),
-  ]);
+  return openSheet({ title: 'Keyboard shortcuts', subtitle: 'In the App, as in the Claude Code desktop app. Where the browser keeps one of its keys, the nearest free key does it, and the line under it says why.' }, keysBody);
 }
 
 /**
@@ -104,7 +170,7 @@ export async function helpSheet(own, tool) {
     h('h3.chat-help-h', 'Commands'),
     h('dl.chat-keys.chat-help-cmds', all.flatMap((c) => [h('dt', h('code', `/${c.name}`), c.hint ? ` ${c.hint}` : ''), h('dd', c.description || (c.skill ? 'A skill' : ''))])),
     h('h3.chat-help-h', 'Keyboard shortcuts'),
-    h('dl.chat-keys', keyRows(shortcuts())),
+    ...keysBody(),
   ]);
 }
 
@@ -112,7 +178,8 @@ export async function helpSheet(own, tool) {
  * The page's own keys (the box handles its own in composer.js). o: { working(), stop(), stopShell() (a "!" command
  * runs: it is stopped → true), nextMode(), openAsk(), box (the message box: while it is empty a number answers the
  * open card, as in Claude Code), menu(id) (the desktop keys' menus: 'mode', 'model', 'effort'), view() (the next
- * transcript view), diff() (open or close the diff pane), rewind(), clearDraft() (Esc Esc with words in the box) } → remove(). While a composer menu is open
+ * transcript view), diff() (open or close the diff pane), go(1 | -1) (the next or previous session of the session list),
+ * rewind(), clearDraft() (Esc Esc with words in the box) } → remove(). While a composer menu is open
  * (menu.js) its own keys take every plain key first; a sheet (a dialog) has the keys to itself.
  */
 export function installKeys(o) {
@@ -126,6 +193,7 @@ export function installKeys(o) {
       if (k.id === 'shortcuts') shortcutsSheet();
       else if (k.id === 'view') o.view && o.view();
       else if (k.id === 'diff') o.diff && o.diff();
+      else if (k.id === 'next' || k.id === 'prev') o.go && o.go(k.id === 'next' ? 1 : -1);
       else o.menu && o.menu(k.id);
       return;
     }

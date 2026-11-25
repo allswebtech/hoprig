@@ -87,6 +87,10 @@ const onlyKeys = (allowed) => (b) => {
   return k ? `"${k}" is the owner's to send` : null;
 };
 
+/** The skills learned from his work: this computer's own (a relay elsewhere arrives as his press), an empty body. */
+const learnedHere = (b, ctx, computer) => (computer ? 'skills learned from the owner\'s work are read and changed on this computer only' : null);
+const learnedBody = (b, ctx, computer) => learnedHere(b, ctx, computer) || onlyKeys([])(b);
+
 /** A Work item is named by its place in the list with its id (src/work/feature.mjs). */
 const atOk = (b) => (Number.isInteger(b.at) && b.at >= 0 ? null : 'say the place of the item in the list ("at")');
 
@@ -230,8 +234,9 @@ export const ALLOW = [
   r('POST', '/api/skillhub/approve', 'manage_skills install'),
   r('POST', '/api/skillhub/remove', 'manage_skills remove'),
   // A review's cancel names only the review (its id as the hub makes it); undo only a skill's name and its project.
-  // Learned skills (/api/skills/learned) stay his: their route refuses her. The "went wrong twice" lines: she reads
-  // them, and Dismiss or a draft run only as the act of her card he confirmed for exactly that line (the route checks).
+  // The "went wrong twice" lines and the skills learned from his work: she reads them, and Dismiss, a draft, Install,
+  // Discard or Undo run only as the act of her card he confirmed for exactly that line or skill (the route checks).
+  // Learned skills on this computer only: another computer would take the relay's token as the owner's own press.
   r('POST', '/api/skillhub/cancel', 'manage_skills cancel_review', (b) => onlyKeys(['id'])(b) || (typeof b.id === 'string' && /^[a-f0-9]{24}$/.test(b.id) ? null : 'the id of a review she was shown')),
   r('POST', '/api/skillhub/undo', 'manage_skills undo_update', (b) => onlyKeys(['name', 'project'])(b)
     || (typeof b.name === 'string' && /^[a-z0-9][a-z0-9:._-]{0,79}$/.test(b.name) ? null : 'the name of an installed skill')
@@ -239,6 +244,10 @@ export const ALLOW = [
   r('GET', '/api/field/twice', 'manage_skills twice, twice_dismiss, twice_draft (the lines as they stand)'),
   r('POST', '/api/field/twice/[a-z-]+:[a-z-]+/dismiss', 'manage_skills twice_dismiss', onlyKeys([])),
   r('POST', '/api/field/twice/[a-z-]+:[a-z-]+/draft', 'manage_skills twice_draft', onlyKeys([])),
+  r('GET', '/api/skills/learned', 'manage_skills learned, learned_install, learned_discard, learned_undo (the skills as they stand)', learnedHere),
+  r('POST', '/api/skills/learned/[0-9a-f]{24}/install', 'manage_skills learned_install', learnedBody),
+  r('POST', '/api/skills/learned/[0-9a-f]{24}/discard', 'manage_skills learned_discard', learnedBody),
+  r('POST', '/api/skills/learned/[0-9a-f]{24}/undo', 'manage_skills learned_undo', learnedBody),
   r('POST', '/api/skillhub/settings', 'change_setting skills_weekly_check'),
   r('GET', '/api/settings', 'get_computer_status (settings), change_setting'),
   r('POST', '/api/settings', 'change_setting, set_auto_mode', settingsBody),
@@ -283,6 +292,8 @@ export const NEVER = [
   /^\/api\/workspace\/git\/.+$/, // signing in to GitHub, the commit name, the brain's repository: the owner's own steps
   /^\/api\/work\/(save|settings|command)(\/|$)/, // Work's Save (git), where it lives, the command's route (Tidy and the doubles are her cards above)
   /^\/api\/work\/(access|token)(\/|$)/, // Work tokens and webhooks for another program: made, listed and revoked by the owner only
+  /^\/api\/skills\/learn(\/settings)?$/, // learning skills from his work: on or off, its provider and its limit are his
+  /^\/api\/skills\/learned\/look$/, // "Learn from this": a paid model call he starts himself
   /^\/api\/assistant(?!\/run$)(\/|$)/,
   // What Tia may do by herself (the rules, the master switch, budgets, projects taken out), "Tia OFF", Undo and the
   // taps: the owner's acts from his page only. She reads the rules through read_attention.

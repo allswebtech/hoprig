@@ -89,7 +89,7 @@ test("a provider file the user's side made a link is not rewritten through it", 
 });
 
 // The user is the runner's own id, so the copy's chown works without root.
-test("the gateway's data copy never writes through a link a user process put at a folder above it", async () => {
+test("the gateway's data copy never writes through a link a user process put at a folder above it", { skip: process.platform === 'win32' && 'the move to a user of its own is Linux only (chown by uid)' }, async () => {
   const { realGatewaySys } = await import('../../src/setup/movegatewaysys.mjs');
   const uhome = path.join(s.tmp, 'gwlink-home');
   const outside = path.join(s.tmp, 'gwlink-outside');

@@ -6,6 +6,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
 import * as winsvc from '../../src/server/service/windows.mjs';
+import { stateKey } from '../../src/server/dashboardfile.mjs';
 import { sandbox } from './helpers.mjs';
 
 const box = sandbox('svcwin');
@@ -31,12 +32,25 @@ function fakeWindows(answers = {}) {
   const runner = async (cmd, args) => {
     calls.push([cmd, ...args]);
     if (cmd === 'schtasks' && args[0] === '/Create') xml = fs.readFileSync(args[args.indexOf('/XML') + 1]).subarray(2).toString('utf16le');
+    // The task starts the new dashboard: it writes its record and answers its key on its port (deps below).
+    if (cmd === 'schtasks' && args[0] === '/Run') fs.writeFileSync(path.join(box.state, 'dashboard.json'), JSON.stringify({ pid: 9100, port: 7433, host: '127.0.0.1', key: NEW_KEY, state: stateKey() }));
     const a = answers[cmd];
     if (typeof a === 'function') return a(args);
     return a || { ok: true, out: '', err: '' };
   };
-  return { runner, calls, xml: () => xml };
+  let clock = 0;
+  const deps = {
+    run: runner,
+    fetchImpl: async (url, opts) => {
+      if (opts?.headers?.['x-hoprig-local-key'] !== NEW_KEY) throw new Error('ECONNREFUSED');
+      return { ok: true, json: async () => ({ pid: 9100, state: stateKey() }) };
+    },
+    sleep: async (ms) => { clock += ms; },
+    now: () => clock,
+  };
+  return { runner, calls, deps, xml: () => xml };
 }
+const NEW_KEY = 'n'.repeat(43);
 
 const quiet = async (fn) => {
   const { log, error } = console;
@@ -65,8 +79,9 @@ test('service install: the task runs as the account the system names (its SID), 
   process.env.USERNAME = 'alex';
   try {
     const w = fakeWindows({ whoami: { ok: true, out: WHOAMI_OUT.trim(), err: '' } });
-    const { code } = await quiet(() => winsvc.service('install', { run: w.runner }));
-    assert.equal(code, 0);
+    const { code, said } = await quiet(() => winsvc.service('install', w.deps));
+    assert.equal(code, 0, said);
+    assert.match(said, /It answers at http:\/\/127\.0\.0\.1:7433 \(process 9100\)/);
     assert.deepEqual(w.calls[0], ['whoami', '/user', '/fo', 'csv', '/nh'], 'the system is asked first');
     const x = w.xml();
     assert.ok(x, 'schtasks /Create got a task file');

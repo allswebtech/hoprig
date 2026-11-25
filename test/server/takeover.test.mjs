@@ -46,10 +46,19 @@ function fakeWindows({ cmd = WIN_SERVE, sid = MY_SID, start = OLD_START, endable
       if (endable) running = false;
       return { ok: endable, out: '', err: endable ? '' : 'Access is denied.' };
     }
+    // The task starts the new dashboard: it writes its record, and answers its key on its port (fetchImpl below).
+    if (c === 'schtasks' && args[0] === '/Run') writeRecord(recordOf({ pid: NEW_PID, proc: `T:${OLD_START + 60_000}`, key: NEW_KEY }));
     return { ok: true, out: '', err: '' };
   };
-  return { run, calls, alive: (pid) => pid === OLD_PID && running, platform: 'win32', waitMs: 400, step: 20 };
+  const fetchImpl = async (url, opts) => {
+    if (opts?.headers?.['x-hoprig-local-key'] !== NEW_KEY) throw new Error('ECONNREFUSED');
+    return { ok: true, json: async () => ({ pid: NEW_PID, state: stateKey() }) };
+  };
+  let clock = 0;
+  return { run, calls, alive: (pid) => pid === OLD_PID && running, platform: 'win32', waitMs: 400, step: 20, fetchImpl, sleep: async (ms) => { clock += ms; }, now: () => clock };
 }
+const NEW_PID = 9100;
+const NEW_KEY = 'n'.repeat(43);
 
 const writeRecord = (rec) => fs.writeFileSync(RECORD, JSON.stringify(rec));
 // A record as this version writes it: with its key and its state folder (an old-format record has neither).

@@ -436,6 +436,7 @@ function viewChat({ sub }) {
     diff: () => (diffPane.isOpen() ? diffPane.close() : act.diff()),
     rewind: () => canRewind() && act.rewind(),
     clearDraft: () => composer.clearDraft(),
+    go: (d) => side && side.el.isConnected && side.go(d), // the session list is drawn from 900 px wide only
   });
   const dropHint = h('div.chat-drop.hidden', { 'aria-hidden': 'true' }, h('div.chat-drop-box', icon('paperclip', { size: 28 }), h('p', 'Drop to send with your message')));
   add(wrap, dropHint);

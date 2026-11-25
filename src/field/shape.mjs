@@ -34,7 +34,7 @@ export const STEPS = Object.freeze([
   'profiles', 'terminal', 'pty', 'password', 'https', 'access', 'service', 'port', 'rules', 'summary', 'pc', 'git',
   'workspace', 'project', 'skills', 'skills-updates', 'skill', 'skill-update', 'disk',
   // kits and the tools in them
-  'kit', 'basics', 'python', 'github', 'extras', 'docker', 'php', 'fvm', 'flutter', 'curl', 'unzip', 'build', 'tmux', 'gh',
+  'kit', 'basics', 'python', 'github', 'extras', 'docker', 'php', 'fvm', 'flutter', 'android', 'curl', 'unzip', 'build', 'tmux', 'gh',
   'ripgrep', 'jq', 'npm', 'pip', 'venv', 'composer', 'mariadb', 'identity', 'signin', 'projects', 'tools',
   // get, adopt and drop
   'find', 'clone', 'env', 'hooks', 'memory', 'install', 'setup', 'check', 'commit', 'push', 'remove', 'map', 'brain',

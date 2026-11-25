@@ -138,7 +138,7 @@ export function llmsTxt(pages, { version }) {
     '- Price: free. It runs on your own computers and has no server of its own. The code is on GitHub: https://github.com/allswebtech/hoprig',
     '- Licence: open source (Apache-2.0): https://github.com/allswebtech/hoprig/blob/main/LICENSE',
     `- Install: \`${INSTALL}\``,
-    `- Platforms: ${PLATFORMS} Needs Node.js 22.11 or newer (the installer adds it).`,
+    `- Platforms: ${PLATFORMS} Needs Node.js 24.13.1 or newer (the installer adds it).`,
     '- It runs the official, unmodified Claude Code and OpenCode. Not affiliated with Anthropic or with OpenCode\'s makers.',
     '- The dashboard works in any browser, also on a phone. There is no phone app.',
     '',

@@ -12,7 +12,7 @@ import { claudeLoginButton } from './claudelogin.js';
 
 const MARK = { ok: '✓', fail: '✗', warn: '!', info: '·' };
 const STATE = { ok: '✓', missing: '✗', old: '!' };
-export const GROUP_TITLES = { system: 'This computer', 'kit:basics': 'Basics', 'kit:node': 'Node.js', 'kit:python': 'Python', 'kit:github': 'GitHub', 'kit:extras': 'Terminal extras', 'kit:docker': 'Docker', 'kit:php': 'PHP + database', 'kit:fvm': 'Flutter versions (fvm)', 'kit:flutter': 'Flutter', java: 'Java', claude: 'Claude Code', codetools: 'Coding tools', projects: 'Projects' };
+export const GROUP_TITLES = { system: 'This computer', 'kit:basics': 'Basics', 'kit:node': 'Node.js', 'kit:python': 'Python', 'kit:github': 'GitHub', 'kit:extras': 'Terminal extras', 'kit:docker': 'Docker', 'kit:php': 'PHP + database', 'kit:fvm': 'Flutter versions (fvm)', 'kit:flutter': 'Flutter', 'kit:android': 'Android', java: 'Java', claude: 'Claude Code', codetools: 'Coding tools', projects: 'Projects' };
 async function post(path, body) {
   try {
     return await api(path, body);

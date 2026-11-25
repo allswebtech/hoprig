@@ -52,6 +52,7 @@ ${TOOL_USAGE}
                                                its id with another computer (a copied home folder)
   hoprig workspace auto [--map on|off] [--commit on|off] [--memory on|off] [--sync on|off] [--push on|off]
                        [--push-branches <place>=on|off] [--credentials on|off]
+                       [--only-here on|off] [--servers on|off]
                        [--every <hours>] [--json]
                                                the upkeep the dashboard does by itself: show or set its switches`;
 
@@ -113,14 +114,14 @@ const dryOrLocked = (dry, fn) => (dry ? fn() : brainLocked(fn));
 const ONOFF = { on: true, off: false };
 /** `workspace auto`: the switches of the workspace automation (the setting the dashboard uses: automation.workspace). */
 async function auto(args, { ui, json, failed, usage }) {
-  const o = flags(args, { map: 'v', commit: 'v', memory: 'v', sync: 'v', push: 'v', 'push-branches': 'v', credentials: 'v', every: 'v', json: 'bool' });
+  const o = flags(args, { map: 'v', commit: 'v', memory: 'v', sync: 'v', push: 'v', 'push-branches': 'v', credentials: 'v', 'only-here': 'v', servers: 'v', every: 'v', json: 'bool' });
   if (o.errors.length || o._.length) return usage();
   const { loadConfig, saveConfig } = await import('../config.mjs');
   const { cleanSettingsPatch, commitMapState, readSettings } = await import('../automation/settings.mjs');
   const { brainDir, remoteOf } = await import('./layout.mjs');
   const cur = readSettings(loadConfig().automation);
   const patch = {};
-  for (const [flag, key] of [['map', 'map'], ['commit', 'commitMap'], ['memory', 'memory'], ['sync', 'sync'], ['push', 'push'], ['credentials', 'credentials']]) {
+  for (const [flag, key] of [['map', 'map'], ['commit', 'commitMap'], ['memory', 'memory'], ['sync', 'sync'], ['push', 'push'], ['credentials', 'credentials'], ['only-here', 'onlyHere'], ['servers', 'servers']]) {
     if (o[flag] === undefined) continue;
     if (!(o[flag] in ONOFF)) return failed(new Error(`--${flag} is on or off`));
     patch[key] = ONOFF[o[flag]];
@@ -153,6 +154,8 @@ async function auto(args, { ui, json, failed, usage }) {
   const places = Object.keys(w.pushBranches || {});
   say(places.length > 0, `push-branches: committed work on branches that are not the default branch is pushed${places.length ? ` in ${places.join(', ')}` : ' (per place: --push-branches projects=on)'}; a default branch never`);
   say(w.credentials, 'credentials: a change in the credentials repository is committed ("Update credentials") and pushed to the address the map names, only while it is private');
+  say(w.onlyHere, 'only-here: once a day, what exists only on this computer is counted (no git server is asked; nothing is changed)');
+  say(w.servers, 'servers: once a week, each repository of the map is asked on its git server whether it is still there (a read only)');
   ui.note('a project is never fetched, fast-forwarded or pushed by itself otherwise: hoprig sync <name> does it when you ask');
   ui.note(`every ${w.everyHours} hour${w.everyHours === 1 ? '' : 's'}, and right after the dashboard starts${next.paused ? ' (all automations are paused now)' : ''}. The dashboard runs it: hoprig serve / service.`);
   return 0;

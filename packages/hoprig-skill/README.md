@@ -23,4 +23,4 @@ npx hoprig-skill --claude --remove     # take it away again
   either. A skills folder you linked yourself (`~/.claude/skills` to a folder of your own) is where it writes.
 - A copy that Hoprig installed (`hoprig skills add hoprig`) is Hoprig's to update: `hoprig skills update hoprig`.
 
-Node.js 22.11 or later. No dependency. Apache-2.0.
+Node.js 24.13.1 or later. No dependency. Apache-2.0.

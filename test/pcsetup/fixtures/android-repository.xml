@@ -1,0 +1,76 @@
+<?xml version='1.0' encoding='utf-8'?>
+<!-- A trimmed stand-in of the list sdkmanager reads (repository2-3.xml): its shape as read on 25 Nov 2026, with the
+     command-line tools only. {size} and {sha1} are filled in by the test with those of a tiny archive it makes. -->
+<sdk:sdk-repository xmlns:sdk="http://schemas.android.com/sdk/android/repo/repository2/03" xmlns:common="http://schemas.android.com/repository/android/common/02" xmlns:generic="http://schemas.android.com/repository/android/generic/02" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <license id="android-sdk-license" type="text">A stand-in for the licence text.</license>
+  <channel id="channel-0">stable</channel>
+  <channel id="channel-1">beta</channel>
+  <channel id="channel-2">dev</channel>
+  <channel id="channel-3">canary</channel>
+  <remotePackage path="cmdline-tools;22.0">
+    <type-details xsi:type="generic:genericDetailsType"/>
+    <revision>
+      <major>22</major>
+      <minor>0</minor>
+    </revision>
+    <display-name>Android SDK Command-line Tools</display-name>
+    <uses-license ref="android-sdk-license"/>
+    <channelRef ref="channel-0"/>
+    <archives>
+      <archive>
+        <complete>
+          <size>{size}</size>
+          <checksum type="sha1">{sha1}</checksum>
+          <url>commandlinetools-linux-14742923_latest.zip</url>
+        </complete>
+        <host-os>linux</host-os>
+      </archive>
+    </archives>
+  </remotePackage>
+  <remotePackage path="cmdline-tools;latest">
+    <type-details xsi:type="generic:genericDetailsType"/>
+    <revision>
+      <major>23</major>
+      <minor>0</minor>
+    </revision>
+    <display-name>Android SDK Command-line Tools (latest)</display-name>
+    <uses-license ref="android-sdk-license"/>
+    <channelRef ref="channel-0"/>
+    <archives>
+      <archive>
+        <complete>
+          <size>{size}</size>
+          <checksum type="sha1">{sha1}</checksum>
+          <url>commandlinetools-linux-16111833_latest.zip</url>
+        </complete>
+        <host-os>linux</host-os>
+      </archive>
+      <archive>
+        <complete>
+          <size>{size}</size>
+          <checksum type="sha1">{sha1}</checksum>
+          <url>commandlinetools-mac_x86_64-16111833_latest.zip</url>
+        </complete>
+        <host-os>macosx</host-os>
+        <host-arch>x64</host-arch>
+      </archive>
+      <archive>
+        <complete>
+          <size>{size}</size>
+          <checksum type="sha1">{sha1}</checksum>
+          <url>commandlinetools-mac_arm64-16111833_latest.zip</url>
+        </complete>
+        <host-os>macosx</host-os>
+        <host-arch>aarch64</host-arch>
+      </archive>
+      <archive>
+        <complete>
+          <size>{size}</size>
+          <checksum type="sha1">{sha1}</checksum>
+          <url>commandlinetools-win-16111833_latest.zip</url>
+        </complete>
+        <host-os>windows</host-os>
+      </archive>
+    </archives>
+  </remotePackage>
+</sdk:sdk-repository>

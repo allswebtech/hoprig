@@ -232,7 +232,7 @@ function bySsh(isAlive) {
         const cmd = e.data.installCommand;
         fill(msg,
           errorBox(e),
-          h('p.hint', e.data.canInstall ? 'Let this page install it there, or type this line there yourself (it needs Node.js 22.11 or newer), then press Add again:' : 'Type this line there (it needs Node.js 22.11 or newer), then press Add again:'),
+          h('p.hint', e.data.canInstall ? 'Let this page install it there, or type this line there yourself (it needs Node.js 24.13.1 or newer), then press Add again:' : 'Type this line there (it needs Node.js 24.13.1 or newer), then press Add again:'),
           cmdLine(cmd),
           e.data.canInstall ? h('div.savebar.start', btn('primary', { icon: 'download', label: 'Install it there for me', onclick: () => install(target) })) : null);
       } else {

@@ -40,6 +40,27 @@ test('the changelog names the Flutter kit by its id, its place and the vendor\'s
   }
 });
 
+test('the changelog and PC-SETUP.md name the Android kit by its id, its place, the vendor\'s host and what stays yours', async () => {
+  const { ANDROID } = await import('../src/pcsetup/kits.mjs');
+  const log = flat(read('site/content/changelog.md'));
+  const item = log.slice(log.indexOf('- **Android, into the workspace\'s `development/` folder.**'));
+  assert.ok(item.length < log.length, 'the item stands');
+  assert.ok(kits.some((k) => k.id === 'android' && !k.defaultOn && k.windows === false), 'an optional kit, not on Windows');
+  assert.match(item, /`hoprig pc setup --kits android`/);
+  assert.match(item, new RegExp(`in \`${DEV_PLACES.androidSdk.rel}\``));
+  assert.match(item, new RegExp(`downloaded only from ${ANDROID.host.replace(/\./g, '\\.')} over https`));
+  assert.match(item, /the sha1 the list gives \(its only checksum\)/);
+  assert.match(item, /Hoprig never accepts the licence for you\. Android Studio is not downloaded/);
+  assert.equal(ANDROID.host, 'dl.google.com');
+  assert.ok(ANDROID.list.startsWith(`https://${ANDROID.host}/`) && ANDROID.base.startsWith(`https://${ANDROID.host}/`), 'the list and the archives come from one host');
+  const doc = flat(read('docs/PC-SETUP.md'));
+  const row = read('docs/PC-SETUP.md').split('\n').find((l) => l.startsWith('| **Android** '));
+  assert.match(row, new RegExp(`\`${DEV_PLACES.androidSdk.rel}\``));
+  assert.match(row, /dl\.google\.com over https/);
+  assert.match(doc, /Hoprig never accepts it and never runs `sdkmanager`/);
+  assert.match(doc, /cmdline-tools\/latest\/bin\/sdkmanager" --sdk_root="\$HOME\/Workspace\/development\/sdk\/android-sdk" --licenses/);
+});
+
 test('the sheet\'s promise in the changelog is what the page draws', () => {
   const page = read('web/pcsetup.js');
   const job = read('web/setupjob.js');

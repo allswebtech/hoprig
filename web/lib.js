@@ -396,7 +396,7 @@ export function bytes(n) {
 
 // What waits for the owner, by what is asked (the card's ask.type): a question the coding tool puts to him and a plan
 // to approve are no permission, so they do not read "OK".
-const ASK_TEXT = { question: 'Needs your answer', plan: 'Needs your approval' };
+const ASK_TEXT = { question: 'Needs your answer', plan: 'Needs your approval', mcp: 'Needs your answer' };
 
 /** What a session is doing, in plain words, and how urgent it is (lower = needs you sooner). */
 export function stateOf(s) {

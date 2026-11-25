@@ -1,5 +1,5 @@
-// The unreleased block of the changelog (site/content/changelog.md, from "## 0.3.4") and the released 0.3.3 block
-// after it (to the next "## "; each entry is read where it stands now) quote what a
+// The unreleased block of the changelog (site/content/changelog.md, from "## 0.3.5") and the released 0.3.4 and 0.3.3
+// blocks after it (to the next "## "; each entry is read where it stands now) quote what a
 // person sees and types: the labels and buttons in bold, the words of a page in quotes, the commands and options in
 // code. Each one must exist at this head, spelled as there. This test reads the block and looks each one up in the
 // product's own files (web/, src/, bin/, the installer and the skill package's command); a quoted name that points
@@ -13,9 +13,10 @@ import { fileURLToPath } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const text = fs.readFileSync(path.join(ROOT, 'site/content/changelog.md'), 'utf8').replace(/\r\n?/g, '\n');
-const at = text.indexOf('\n## 0.3.4 ');
+const at = text.indexOf('\n## 0.3.5 ');
 const mid = text.indexOf('\n## ', at + 1);
-const end = text.indexOf('\n## ', mid + 1);
+const mid2 = text.indexOf('\n## ', mid + 1);
+const end = text.indexOf('\n## ', mid2 + 1);
 const block = text.slice(at, end);
 
 /** The product's files a person reads or types: the page, the server, the command line, the installer, the skill. */
@@ -143,8 +144,9 @@ function place({ kind, name }) {
 }
 
 test('the unreleased block is found and quotes names', () => {
-  assert.ok(at >= 0 && end > mid && mid > at);
-  assert.ok(text.startsWith('\n## 0.3.3 (24 November 2026)\n', mid), 'the released 0.3.3 block follows the unreleased one');
+  assert.ok(at >= 0 && end > mid2 && mid2 > mid && mid > at);
+  assert.ok(text.startsWith('\n## 0.3.4 (25 November 2026)\n', mid), 'the released 0.3.4 block follows the unreleased one');
+  assert.ok(text.startsWith('\n## 0.3.3 (24 November 2026)\n', mid2), 'then the released 0.3.3 block');
   assert.ok(entries.length > 100, `${entries.length} entries`);
   assert.ok(entries.flatMap(quoted).length > 300);
 });

@@ -89,6 +89,9 @@ export const allowLine = (requestId, input, permissions = null) =>
   line({ type: 'control_response', response: { subtype: 'success', request_id: requestId, response: { behavior: 'allow', updatedInput: input, ...(permissions && permissions.length ? { updatedPermissions: permissions } : {}) } } });
 export const denyLine = (requestId, message) =>
   line({ type: 'control_response', response: { subtype: 'success', request_id: requestId, response: { behavior: 'deny', message } } });
+/** The person's answer to an MCP server's question (src/chat/mcpask.mjs): accept with the fields' values, decline or cancel. */
+export const elicitLine = (requestId, action, content = null) =>
+  line({ type: 'control_response', response: { subtype: 'success', request_id: requestId, response: { action, ...(action === 'accept' && content ? { content } : {}) } } });
 export const controlLine = (requestId, request) => line({ type: 'control_request', request_id: requestId, request });
 export const interruptLine = (requestId) => controlLine(requestId, { subtype: 'interrupt' });
 

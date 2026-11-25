@@ -15,6 +15,10 @@ node bin/hoprig.mjs demo   # the dashboard with sample data, no coding tool need
 ```
 
 - One change per pull request, with a test that fails without it.
+- **Not on a Windows computer of your own yet.** The suite starts on Windows, but most tests still fail there and the
+  stand-ins that keep a test away from the real programs of a computer are not proven on it: run it there only on a
+  machine you can throw away, as the Windows jobs of the workflow do. Linux and macOS are the systems the suite is kept
+  green on.
 - Run tests through the runner (`npm test`, or one file with `node tools/test.mjs test/x.test.mjs`), never plain
   `node --test`: the runner keeps a test from reaching this computer's own `sudo`, `systemctl`, global `npm`,
   `ssh`, its disks, processes and ports (`df`, `ps`, `ss` are stand-ins) or the dashboard's port. A run that reaches

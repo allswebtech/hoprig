@@ -101,7 +101,7 @@ A server that only shows your other computers (a main computer) stops after the 
 
 ### What it needs, and what was run
 
-- **Node.js 22.11 or newer.** The tests run on Linux and macOS with Node 22, 24 and 26 on every change (and natively
+- **Node.js 24.13.1 or newer.** The tests run on Linux and macOS with Node 24 and 26 on every change (and natively
   on macOS with Node 26). On Windows they run as a job that is allowed to fail and do not pass yet (see above).
 - **tmux 3.2 or newer**, when you want sessions that outlive the dashboard. An older tmux is not used: the
   built-in terminals are taken instead.
@@ -112,7 +112,7 @@ A server that only shows your other computers (a main computer) stops after the 
 
 | What | How | Where |
 |---|---|---|
-| Node.js (when missing or older than 22.11) | macOS / Linux: [nvm](https://github.com/nvm-sh/nvm), for you only, no administrator rights. Alpine: `apk add nodejs npm`. Windows: WinGet, the official `OpenJS.NodeJS.LTS` package | `~/.nvm` (macOS / Linux) |
+| Node.js (when missing or older than 24.13.1) | macOS / Linux: [nvm](https://github.com/nvm-sh/nvm), for you only, no administrator rights. Alpine: `apk add nodejs npm`. Windows: WinGet, the official `OpenJS.NodeJS.LTS` package | `~/.nvm` (macOS / Linux) |
 | Build tools (Linux only) | your package manager (`apt`, `dnf`, `yum`, `pacman`, `zypper`, `apk`) with `sudo`; needed once to compile the terminal module | system |
 | Hoprig | `npm install -g` | npm's global folder, or `~/.local` when that folder belongs to the system |
 | The terminal module (`node-pty`) | built when Hoprig is installed; npm 12 and newer do not run that build in `npm install -g`, so `hoprig setup` runs it (`npm rebuild node-pty` in Hoprig's own folder, whose `package.json` allows the install script of exactly that module and no other) | inside Hoprig's folder |

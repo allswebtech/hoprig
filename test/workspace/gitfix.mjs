@@ -11,7 +11,7 @@ export function gitWorld(name = 'ws-git') {
   const server = path.join(root, 'server');
   fs.mkdirSync(server, { recursive: true });
   const gitcfg = path.join(root, 'gitconfig');
-  fs.writeFileSync(gitcfg, `[user]\n\tname = Test Dev\n\temail = dev@example.invalid\n[init]\n\tdefaultBranch = main\n[commit]\n\tgpgsign = false\n[url "${server}/"]\n\tinsteadOf = https://git.example.test/\n[protocol "file"]\n\tallow = always\n`);
+  fs.writeFileSync(gitcfg, `[user]\n\tname = Test Dev\n\temail = dev@example.invalid\n[init]\n\tdefaultBranch = main\n[commit]\n\tgpgsign = false\n[url "${String(server).replaceAll('\\', '/')}/"]\n\tinsteadOf = https://git.example.test/\n[protocol "file"]\n\tallow = always\n`);
   Object.assign(process.env, { GIT_CONFIG_GLOBAL: gitcfg, GIT_CONFIG_NOSYSTEM: '1', GIT_TERMINAL_PROMPT: '0' });
   delete process.env.HOPRIG_WORKSPACE_DIR;
   delete process.env.XDG_CONFIG_HOME;
@@ -30,7 +30,7 @@ export function gitWorld(name = 'ws-git') {
     // Decided by the names, not the disk, so Linux takes this way too.
     if (fs.readdirSync(team).some((e) => e !== `${n}.git` && e.toLowerCase() === `${n}.git`.toLowerCase())) {
       d = path.join(fs.mkdtempSync(path.join(server, 'case-')), `${n}.git`);
-      fs.appendFileSync(gitcfg, `[url "${d}"]\n\tinsteadOf = ${url(n)}\n`);
+      fs.appendFileSync(gitcfg, `[url "${String(d).replaceAll('\\', '/')}"]\n\tinsteadOf = ${url(n)}\n`);
     }
     fs.mkdirSync(d, { recursive: true });
     execFileSync('git', ['init', '-q', '--bare', '-b', 'main', d]);

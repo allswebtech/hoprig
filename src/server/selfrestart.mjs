@@ -7,7 +7,9 @@
 // unconditional stop on Windows), so that restart is not refused and ends nothing of this dashboard — the service
 // manager starts it fresh. Nothing here reaches a real program in a test: spawn and the service run are injected.
 import { spawn } from 'node:child_process';
-import { binFile } from '../paths.mjs';
+import path from 'node:path';
+import { binFile, stateDir } from '../paths.mjs';
+import { createActivityLog } from '../automation/store.mjs';
 import { service } from './service/index.mjs';
 
 /** Spawn the detached helper (`<app> __service-restart <pid>`); returns its pid. It outlives this process (unref). */
@@ -26,15 +28,38 @@ const defaultAlive = (p) => {
   }
 };
 const defaultSleep = (ms) => new Promise((r) => setTimeout(r, ms));
+/** Work → Activity on the dashboard (the automation log). */
+const activityLog = () => createActivityLog(path.join(stateDir(), 'automation.log'));
 
 /**
  * The helper's work: wait until `pid` (the dashboard that asked for the restart) is gone, up to `tries` × the sleep,
  * then `service('restart')`. Returns that command's exit code. `alive`, `sleep` and `runService` are injected in tests.
  */
-export async function restartAfterExit(pid, { alive = defaultAlive, sleep = defaultSleep, runService = service, tries = 300 } = {}) {
+export async function restartAfterExit(pid, { alive = defaultAlive, sleep = defaultSleep, runService = service, tries = 300, log = activityLog() } = {}) {
   const p = Number(pid);
   if (Number.isInteger(p) && p > 0) {
     for (let i = 0; i < tries && alive(p); i++) await sleep(100);
   }
-  return runService('restart');
+  // This helper's output goes nowhere (it was started with its stdio ignored), so what the restart said is kept and its
+  // outcome written to the activity log, where the next dashboard shows it (Work → Activity).
+  const { log: out, error } = console;
+  const said = [];
+  console.log = console.error = (...m) => said.push(m.join(' '));
+  let code;
+  try {
+    code = await runService('restart');
+  } catch (e) {
+    said.push(e?.message || String(e));
+    code = 1;
+  } finally {
+    Object.assign(console, { log: out, error });
+  }
+  const words = said.join('\n').trim();
+  if (words) (code === 0 ? out : error)(words);
+  log.add({
+    automation: 'updates',
+    did: code === 0 ? 'started the dashboard again after the update' : 'could not start the dashboard again after the update',
+    outcome: code === 0 ? 'ok' : `failed (exit ${code}): ${words.split('\n').slice(0, 3).join(' ') || 'no words'}`,
+  });
+  return code;
 }

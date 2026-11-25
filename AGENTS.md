@@ -6,7 +6,7 @@
 
 Hoprig turns a computer into a managed place to code with Claude Code and OpenCode: it installs what is missing,
 runs each coding tool under several providers (a session continues on another provider after a usage limit), and
-serves a web dashboard (chats, terminals, a code editor, a desktop) that also shows other computers. Node.js ≥ 22.11 (`src/nodefloor.mjs`), ES modules,
+serves a web dashboard (chats, terminals, a code editor, a desktop) that also shows other computers. Node.js ≥ 24.13.1 (`src/nodefloor.mjs`), ES modules,
 no framework, no build step. Runtime dependencies are few and pinned.
 
 ## Map
@@ -34,11 +34,11 @@ of the page is one file registered through `web/registry.js`.
 
 - **Prove it.** `npm test` passes before a change is done. The end-to-end tests run on tmux where it is
   installed and on the built-in terminals everywhere. Say what you ran and what you could not run; never
-  write "works on Windows" for code that was not run on Windows. Before a release the whole suite passes on Node 22.11
+  write "works on Windows" for code that was not run on Windows. Before a release the whole suite passes on Node 24.13.1
   (the lowest supported, `src/nodefloor.mjs`) and on the newest LTS.
 - **The suite cannot touch the computer it runs on.** Run tests through the runner: the whole suite with `npm test`,
   one file with `node tools/test.mjs test/x.test.mjs` (or `npm test -- test/x.test.mjs`). Plain `node --test` runs
-  WITHOUT any of what follows. The tests need Node.js 22.11 or newer: below it the runner says so in one line and starts none. You do not have to remember the rest: it holds by construction.
+  WITHOUT any of what follows. The tests need Node.js 24.13.1 or newer: below it the runner says so in one line and starts none. You do not have to remember the rest: it holds by construction.
   - **What holds it.** `tools/test.mjs` runs each test file in a home of its own and puts a trap folder first on its
     PATH: traps for `sudo`, `systemctl`, `loginctl`, the package managers, a global `npm`, `ssh`, `gh`, `docker`,
     `tailscale`, `cloudflared` and more (`TRAPPED` in `tools/seal-core.cjs`), and stand-ins for `df`, `ps` and `ss`

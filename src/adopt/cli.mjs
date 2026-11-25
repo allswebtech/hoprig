@@ -10,13 +10,16 @@ import { projectsDir } from '../pcsetup/projects.mjs';
 import { workspaceDir } from '../workspace/layout.mjs';
 import { claudeDir } from '../paths.mjs';
 import { scanPlaces } from './scan.mjs';
-import { makePlan, planFile, writePlan } from './plan.mjs';
-import { applyPlan } from './apply.mjs';
+import { NAME_WORDS, foundWords, makePlan, planFile, writePlan } from './plan.mjs';
+import { NAME_RE } from '../pcsetup/workspace.mjs';
+import { applyPlan, leftLine } from './apply.mjs';
 import { retireProject, verifyProject } from './retire.mjs';
 
 export const ADOPT_USAGE = `usage: hoprig adopt scan [--in <folder>]… [--json]     look at the projects in the folders you name (changes nothing)
        hoprig adopt plan <folder | all --in <folder>…> [--json]   a plan per project, as a file; nothing else is written
                     (it asks GitHub, with this computer's sign-in, whether each repository there is public or private)
+                    [--name <name>]                      the project's name (else made from the folder's name)
+                    [--copy-installed]                   copy installed packages and build output too (left out by default)
        hoprig adopt apply <project> [--dry-run] [--name <n> --email <e>]   copy it into your workspace and prove the copy
                     [--clean-stopped]                    first remove the half-made copy of an apply that stopped partway
        hoprig adopt verify <project>                         prove the copy against the original again
@@ -117,8 +120,12 @@ async function scanCmd(o, ui, write) {
 export function printPlan(ui, p) {
   ui.out(`\n${bold(`Plan for ${p.name}`)}  ${dim(`from ${p.from}`)}`);
   ui.out(`  into ${p.to}${p.exists ? '  (that folder is there already: apply will refuse)' : ''}`);
+  ui.out(`  ${foundWords(p)}`);
   for (const r of p.repos) ui.out(`  repository ${r.rel} -> ${r.to}  ${dim('(copied whole: history, stashes, uncommitted and ignored files)')}${r.worktrees.length ? `\n    with ${r.worktrees.map((w) => `the worktree ${path.basename(w.from)} -> ${w.to}`).join(', ')}` : ''}`);
-  for (const n of p.neighbours) ui.out(`  ${n.from} -> ${n.private ? `${n.to}  ${dim('(a private folder: copied, never looked into, so its contents are not checked)')}` : n.to ? `${n.to}${n.why ? dim(`  (${n.why})`) : n.read ? dim('  (to be read: is it the plan the project came from, or a log with secrets?)') : ''}` : `stays where it is${n.why ? dim(`  (${n.why})`) : ''}`}`);
+  for (const n of p.neighbours) ui.out(`  ${n.from} -> ${n.private ? `${n.to}  ${dim('(a private folder: copied, never looked into, so its contents are not checked)')}` : n.to ? `${n.to}${n.why ? dim(`  (${n.why})`) : n.read ? dim('  (to be read: is it the plan the project came from, or a log with secrets?)') : ''}` : `stays where it is${n.why ? dim(`  (${n.why}${Number.isFinite(n.bytes) ? `; ${sizeText(n.bytes)}` : ''})`) : ''}`}`);
+  for (const l of p.leftOut || []) ui.out(`  ${leftLine(p, l, true)}`);
+  if ((p.leftOut || []).length) ui.out(`  ${dim(`To copy them all the same: hoprig adopt plan ${p.from.includes(' ') ? `"${p.from}"` : p.from} --copy-installed`)}`);
+  else if (p.copyInstalled) ui.out(`  ${dim('Installed packages and build output are copied with the rest (--copy-installed).')}`);
   for (const r of p.repos) if (r.visibility) ui.out(`  ${r.rel === '.' ? 'the repository' : r.rel}${r.visibility.state === 'local' ? ': ' : ' on its server: '}${r.visibility.words}`);
   for (const s of p.tools.skills) ui.out(`  skill ${s.name} (${s.tool}): copied, and a pointer in .claude/skills/${s.name}`);
   for (const r of p.tools.rules) ui.out(`  rules file ${r.file}: to read with you (what is about you, what is about the project)`);
@@ -139,6 +146,14 @@ async function planCmd(o, ui, write) {
     ui.out(ADOPT_USAGE);
     return 2;
   }
+  if (o.name !== undefined && (typeof o.name !== 'string' || target === 'all')) {
+    ui.line('fail', target === 'all' ? '--name names one project: plan one folder with it' : `--name needs a name: ${NAME_WORDS}`);
+    return 2;
+  }
+  if (o.name !== undefined && !NAME_RE.test(o.name)) {
+    ui.line('fail', `"${String(o.name).slice(0, 100)}": ${NAME_WORDS}`);
+    return 2;
+  }
   let dirs;
   if (target === 'all') {
     const places = [].concat(o.in || []);
@@ -157,9 +172,15 @@ async function planCmd(o, ui, write) {
   }
   const plans = [];
   for (const d of dirs) {
-    const p = await makePlan(d, { projects: projectsDir(), home: os.homedir(), claude: claudeDir(), ask: capture });
-    writePlan(p);
-    plans.push(p);
+    try {
+      const p = await makePlan(d, { projects: projectsDir(), home: os.homedir(), claude: claudeDir(), ask: capture, copyInstalled: !!o['copy-installed'], name: o.name ?? null });
+      writePlan(p);
+      plans.push(p);
+    } catch (e) {
+      if (e.code !== 'ENAME') throw e;
+      ui.line('fail', `${d}: ${e.message}`);
+      return 1;
+    }
   }
   if (o.json) {
     write(`${JSON.stringify({ plans: plans.map((p) => ({ ...p, file: planFile(p.name) })) }, null, 2)}\n`);
@@ -218,7 +239,7 @@ async function applyCmd(o, ui, write) {
 }
 
 export async function main(args, { ui = makeUi({}), write = (s) => process.stdout.write(s) } = {}) {
-  const o = flags(args, { in: 'v', json: 'bool', 'dry-run': 'bool', 'clean-stopped': 'bool', name: 'v', email: 'v', help: 'bool' });
+  const o = flags(args, { in: 'v', json: 'bool', 'dry-run': 'bool', 'clean-stopped': 'bool', 'copy-installed': 'bool', name: 'v', email: 'v', help: 'bool' });
   // --in is repeatable: flags() keeps the last, so it is read again here.
   o.in = args.flatMap((a, i) => (a === '--in' ? [args[i + 1]] : a.startsWith('--in=') ? [a.slice(5)] : [])).filter(Boolean);
   const sub = o._[0];

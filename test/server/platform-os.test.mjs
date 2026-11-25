@@ -127,7 +127,9 @@ test('macOS, for real on this machine', { skip: process.platform !== 'darwin' &&
   assert.ok(s.disks.some((d) => d.mount === '/'), 'the root volume is listed');
   assert.ok(s.disks.every((d) => d.size > 0 && d.used >= 0 && d.avail >= 0));
   assert.ok(s.topCpu.length > 0 && s.topMem.length > 0);
-  assert.ok(s.topMem.every((p) => Number.isInteger(p.pid) && Number.isInteger(p.uid) && p.rss > 0 && typeof p.name === 'string'));
+  // rss 0 is a true answer: under the runner ps lists only this test's own processes, and one that started this
+  // moment (the other commands of the same snapshot) has no memory counted yet.
+  assert.ok(s.topMem.every((p) => Number.isInteger(p.pid) && Number.isInteger(p.uid) && p.rss >= 0 && typeof p.name === 'string'), JSON.stringify(s.topMem.map((p) => [p.pid, p.uid, p.rss, typeof p.name])));
   assert.ok(s.topMem.some((p) => p.mine), 'some of the biggest processes are ours');
   assert.ok(Array.isArray(s.ports));
   assert.deepEqual(s.errors, []);
@@ -155,7 +157,7 @@ const WIN_JSON = JSON.stringify({
     { pid: 7344, ppid: 5120, name: 'claude.exe', args: 'claude --resume x', rss: 301264640, age: 600, cpu: 14 },
     { pid: 1688, ppid: 640, name: 'svchost.exe', args: null, rss: 21264640, age: 90000, cpu: 0.1 },
   ],
-  owners: { 5120: 'PC\\me', 7344: 'pc\\ME', 1688: 'NT AUTHORITY\\SYSTEM', 4: '', 0: '' },
+  owners: { 5120: 'S-1-5-21-1-2-3-1001', 7344: 's-1-5-21-1-2-3-1001', 1688: 'S-1-5-18', 4: '', 0: '' },
   ports: [
     { addr: '0.0.0.0', port: 445, pid: 4 },
     { addr: '127.0.0.1', port: 7433, pid: 5120 },
@@ -165,7 +167,7 @@ const WIN_JSON = JSON.stringify({
 });
 
 test('Windows: the PowerShell snapshot', () => {
-  const s = win.parseWinSnapshot(WIN_JSON, 'PC\\me');
+  const s = win.parseWinSnapshot(WIN_JSON, 'S-1-5-21-1-2-3-1001');
   assert.deepEqual(s.mem, { total: 16641284 * 1024, available: 8123456 * 1024, swapTotal: 2432 * 1024 ** 2, swapFree: (2432 - 120) * 1024 ** 2 });
   assert.deepEqual(s.disks, [{ fs: 'C:', mount: 'C:\\', size: 510770802688, used: 300000000000, avail: 210770802688 }]);
   assert.deepEqual(s.topCpu.map((p) => [p.name, p.mine]), [['claude.exe', true], ['node.exe', true], ['System', false], ['svchost.exe', false], ['System Idle Process', false]]);
@@ -196,8 +198,7 @@ test('Windows: command arguments', () => {
   assert.deepEqual(win.taskkillArgs(42, 'SIGKILL'), ['/PID', '42', '/F']);
   assert.deepEqual(win.shutdownArgs('reboot'), ['/r', '/t', '0']);
   assert.deepEqual(win.shutdownArgs('poweroff'), ['/s', '/t', '0']);
-  assert.equal(win.currentUser({ USERDOMAIN: 'PC', USERNAME: 'me' }), 'PC\\me');
-  assert.equal(win.sameUser('PC\\Me', 'pc\\me'), true);
+  assert.equal(win.sameUser('S-1-5-21-1-2-3-1001', 's-1-5-21-1-2-3-1001'), true);
   assert.equal(win.sameUser('', ''), false);
   const parents = win.parseParentsJson('[{"ProcessId":7344,"ParentProcessId":5120},{"ProcessId":5120,"ParentProcessId":812}]');
   assert.equal(parents.get(7344), 5120);

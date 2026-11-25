@@ -90,12 +90,16 @@ export function resolveClaude({ bin = configuredBin(), env = process.env, platfo
 }
 
 /** How Claude Code was installed, from the real path of its program. */
-export function methodOf(realPath) {
+export function methodOf(realPath, platform = process.platform, exists = fs.existsSync) {
   const p = String(realPath || '').replace(/\\/g, '/');
-  if (/\/\.local\/share\/claude\/versions\//.test(p)) return 'native';
+  // Windows: npm's own claude.cmd (or .ps1) shim is a file, not a link: its folder holds node_modules with the package.
+  if (platform === 'win32' && /\/claude\.(cmd|ps1)$/i.test(p) && exists(path.win32.join(path.win32.dirname(String(realPath)), 'node_modules', '@anthropic-ai', 'claude-code'))) return 'npm';
+  // Windows folds letter case: C:\USERS\ALEX\.LOCAL\SHARE\CLAUDE\VERSIONS\… is the same folder.
+  const flags = platform === 'win32' ? 'i' : '';
+  if (new RegExp('/\\.local/share/claude/versions/', flags).test(p)) return 'native';
   // Windows: the native installer puts the program itself (a copy, not a link) at %USERPROFILE%\.local\bin\claude.exe.
   if (/\/\.local\/bin\/claude\.exe$/i.test(p)) return 'native';
-  if (/\/node_modules\/@anthropic-ai\/claude-code(\/|$)/.test(p)) return 'npm';
+  if (new RegExp('/node_modules/@anthropic-ai/claude-code(/|$)', flags).test(p)) return 'npm';
   return 'unknown';
 }
 

@@ -11,7 +11,7 @@ import { gitWorld } from './gitfix.mjs';
 const w = gitWorld('ws-gitstep');
 test.after(() => w.cleanup());
 // github.com addresses go to the local "server" too (owner folders under it).
-fs.appendFileSync(process.env.GIT_CONFIG_GLOBAL, `[url "${w.server}/"]\n\tinsteadOf = https://github.com/\n`);
+fs.appendFileSync(process.env.GIT_CONFIG_GLOBAL, `[url "${String(w.server).replaceAll('\\', '/')}/"]\n\tinsteadOf = https://github.com/\n`);
 const { capture } = await import('../../src/setup/system.mjs');
 const { makeUi } = await import('../../src/setup/ui.mjs');
 const { gitState, runGitStep } = await import('../../src/workspace/gitstep.mjs');

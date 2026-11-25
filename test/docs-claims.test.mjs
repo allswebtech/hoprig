@@ -154,10 +154,10 @@ test('the install paragraph names what install.sh installs, with sudo, and the l
   assert.match(older.out, /To install:\n {2}build-essential python3 {3}\(/, 'the build tools on Linux');
   if (process.getuid() !== 0) assert.match(older.out, /\(sudo env DEBIAN_FRONTEND=noninteractive apt-get update -q && sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y -q build-essential python3\)/, 'with sudo');
   assert.match(older.out, /\n {2}Node\.js LTS, for you only, with nvm /, 'an older Node.js is installed again');
-  const floor = await installerAsks(`${MIN_NODE_TEXT}.0`);
+  const floor = await installerAsks(MIN_NODE_TEXT.split('.').length === 3 ? MIN_NODE_TEXT : `${MIN_NODE_TEXT}.0`);
   assert.doesNotMatch(floor.out, /Node\.js LTS/, 'the lowest supported Node.js is kept');
   assert.match(floor.out, /To install:\n {2}build-essential python3 /);
-  const v = MIN_NODE_TEXT.replace('.', '\\.');
+  const v = MIN_NODE_TEXT.replaceAll('.', '\\.');
   const p = flat(section('Install'));
   assert.match(p, new RegExp(`It installs what is missing \\(Node\\.js ${v} or newer when it is missing or older, and on Linux the build tools, with sudo\\), after asking once`));
   assert.match(flat(read('README.md')), new RegExp(`Requires Node\\.js ${v} or newer \\(`));

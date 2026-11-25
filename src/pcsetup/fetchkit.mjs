@@ -47,9 +47,15 @@ export function checkAddress(url, host) {
   return u;
 }
 
-/** Ask `url`, following at most three redirects that stay on `host` over https. → the 200 response. */
-async function ask(url, { host, get, signal }) {
-  let at = checkAddress(url, host);
+/** The address must stay under the vendor's own folder `prefix` on its host (a redirect too). */
+function checkPrefix(u, prefix, host) {
+  if (prefix && !u.pathname.startsWith(prefix)) throw new FetchError('redirect', `${host}${u.pathname.slice(0, 200)} is outside ${prefix} on ${host}: refused`);
+  return u;
+}
+
+/** Ask `url`, following at most three redirects that stay on `host` over https, under `prefix`. → the 200 response. */
+async function ask(url, { host, prefix = null, get, signal }) {
+  let at = checkPrefix(checkAddress(url, host), prefix, host);
   for (let n = 0; ; n++) {
     let res;
     try {
@@ -68,7 +74,7 @@ async function ask(url, { host, get, signal }) {
         throw new FetchError('redirect', `${host} sent a redirect that is not an address`);
       }
       if (next.protocol !== 'https:' || next.hostname !== host || next.port || next.username || next.password) throw new FetchError('redirect', `${host} sent the download on to ${next.host || next.protocol}, which is not its own host over https: refused`);
-      at = next;
+      at = checkPrefix(next, prefix, host);
       continue;
     }
     if (res.status !== 200) {
@@ -98,10 +104,10 @@ export function sizeWords(n, about = true) {
  * `{ type: 'sha256' | 'sha1', hex }` checked at the end. A failure leaves the part that came in `file`: the caller
  * removes it with its temporary folder. → { bytes }
  */
-export async function download(url, { host, ceiling, size = null, checksum, file, get = httpsGet, signal, onProgress = () => {} }) {
+export async function download(url, { host, prefix = null, ceiling, size = null, checksum, file, get = httpsGet, signal, onProgress = () => {} }) {
   if (!checksum || !['sha256', 'sha1'].includes(checksum.type) || !/^[0-9a-f]+$/.test(checksum.hex || '')) throw new FetchError('checksum', 'the list gives no checksum for it: nothing is downloaded without one');
   if (size !== null && size > ceiling) throw new FetchError('size', `the list says it is ${sizeWords(size, false)}, more than Hoprig's ceiling of ${sizeWords(ceiling, false)} for it: refused`);
-  const res = await ask(url, { host, get, signal });
+  const res = await ask(url, { host, prefix, get, signal });
   const told = lengthOf(res.headers);
   const refuse = (e) => {
     if (res.body && res.body.destroy) res.body.destroy();
@@ -143,8 +149,8 @@ export async function download(url, { host, ceiling, size = null, checksum, file
 }
 
 /** Read a vendor's list (small: held in memory, cut at `ceiling`). → its text */
-export async function readList(url, { host, ceiling, get = httpsGet, signal }) {
-  const res = await ask(url, { host, get, signal });
+export async function readList(url, { host, prefix = null, ceiling, get = httpsGet, signal }) {
+  const res = await ask(url, { host, prefix, get, signal });
   const told = lengthOf(res.headers);
   if (told !== null && told > ceiling) {
     if (res.body.destroy) res.body.destroy();
@@ -195,4 +201,48 @@ export function chooseFlutter(text, { platform, arch, host }) {
   if (!/^[0-9a-f]{64}$/.test(String(r.sha256 || ''))) throw new FetchError('checksum', 'Flutter\'s release list gives no sha256 for it: nothing is downloaded without one');
   if (!VERSION_RE.test(String(r.version || ''))) throw new FetchError('list', 'Flutter\'s release list gives no version for it');
   return { version: r.version, url: `${base}/${r.archive}`, sha256: r.sha256, kind: m[2] };
+}
+
+const ZIP_NAME_RE = /^[A-Za-z0-9._-]{1,120}\.zip$/;
+const tag = (xml, name) => {
+  const m = new RegExp(`<${name}>([^<]{0,200})</${name}>`).exec(xml);
+  return m ? m[1].trim() : null;
+};
+
+/**
+ * The Android SDK command-line tools for this computer from the list sdkmanager reads (repository2-3.xml): the
+ * package `cmdline-tools;latest`, on the channel the list calls stable, its whole archive (never a patch) for this
+ * host-os (`macosx` with host-arch on a Mac). Everything taken from it is checked: the archive a plain .zip name (so
+ * it stays under `base` on the host), an exact size under the ceiling, a sha1 of 40 hex digits.
+ * → { version, url, sha1, size }
+ */
+export function chooseAndroid(text, { platform, arch, base, ceiling }) {
+  const xml = String(text || '');
+  if (!/<sdk:sdk-repository\b/.test(xml)) throw new FetchError('list', 'Google\'s Android list is not the list sdkmanager reads');
+  const stable = /<channel id="(channel-\d+)">stable<\/channel>/.exec(xml);
+  const pkgs = [...xml.matchAll(/<remotePackage\b([^>]*)>([\s\S]*?)<\/remotePackage>/g)].filter((m) => /\bpath="cmdline-tools;latest"/.test(m[1]));
+  if (pkgs.length !== 1 || /\bobsolete="true"/.test(pkgs[0][1])) throw new FetchError('list', 'Google\'s Android list names no current command-line tools');
+  const body = pkgs[0][2];
+  const channel = (/<channelRef ref="(channel-\d+)"\/>/.exec(body) || [])[1];
+  if (!stable || channel !== stable[1]) throw new FetchError('list', 'the command-line tools in Google\'s Android list are not on its stable channel');
+  const os = platform === 'darwin' ? 'macosx' : platform === 'linux' ? 'linux' : null;
+  const cpu = arch === 'arm64' ? 'aarch64' : arch === 'x64' ? 'x64' : null;
+  const fit = [...body.matchAll(/<archive>([\s\S]*?)<\/archive>/g)].map((m) => m[1]).filter((a) => {
+    const hostArch = tag(a, 'host-arch');
+    return tag(a, 'host-os') === os && (!hostArch || hostArch === cpu);
+  });
+  if (!os || fit.length !== 1) throw new FetchError('cpu', `Google's Android list has no command-line tools for this computer (${platform}, ${arch})`, 'See https://developer.android.com/studio for other ways.');
+  const complete = (/<complete>([\s\S]*?)<\/complete>/.exec(fit[0]) || [])[1] || '';
+  const name = tag(complete, 'url') || '';
+  if (!ZIP_NAME_RE.test(name)) throw new FetchError('list', 'Google\'s Android list names an archive Hoprig does not take');
+  const sizeText = tag(complete, 'size') || '';
+  if (!/^\d{1,12}$/.test(sizeText)) throw new FetchError('list', 'Google\'s Android list gives no size for the command-line tools');
+  const size = Number(sizeText);
+  if (size > ceiling) throw new FetchError('size', `Google's Android list says the command-line tools are ${sizeWords(size, false)}, more than Hoprig's ceiling of ${sizeWords(ceiling, false)} for them: refused`);
+  const sum = /<checksum type="sha1">([0-9a-f]{40})<\/checksum>/.exec(complete);
+  if (!sum) throw new FetchError('checksum', 'Google\'s Android list gives no sha1 for the command-line tools: nothing is downloaded without one');
+  const major = tag(body, 'major');
+  const minor = tag(body, 'minor');
+  const version = major && /^\d{1,4}$/.test(major) ? `${major}.${minor && /^\d{1,4}$/.test(minor) ? minor : '0'}` : null;
+  return { version, url: `${base}${name}`, sha1: sum[1], size };
 }

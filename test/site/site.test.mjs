@@ -165,9 +165,10 @@ test('llms.txt and the README list every use case, and the sitemap every page', 
   assert.ok(readWritten('llms-full.txt').length > llms.length * 5, 'llms-full.txt holds the pages themselves');
 });
 
-test('the site\'s own words name the lowest Node.js as 22.11 or newer', () => {
-  // The lowest supported Node.js is 22.11; the content's own words are another file's (site/content, docs, README).
-  assert.match(readWritten('llms.txt'), /Needs Node\.js 22\.11 or newer/);
+test('the site\'s own words name the lowest Node.js as 24.13.1 or newer', () => {
+  // The lowest supported Node.js is 24.13.1; the content's own words are another file's (site/content, docs, README).
+  assert.match(readWritten('llms.txt'), /Needs Node\.js 24\.13\.1 or newer/);
+  assert.doesNotMatch(readWritten('llms.txt'), /Node\.js 22/);
   for (const f of siteSources().filter((x) => !x.startsWith('site/content/'))) assert.doesNotMatch(fs.readFileSync(path.join(root, f), 'utf8'), /Node(\.js)? 22 or newer/, f);
 });
 

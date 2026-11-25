@@ -524,7 +524,8 @@ has come, or it has none; every task it waits for (`after`) is done; no other pr
 run of it goes on; no mission ever had it; and you never ended it under Auto. A start obeys the same limits as any (the
 master switch, your working hours, sessions at once, this computer's load, the spend cap per day), and none is made
 while an Auto mission still waits for its first session. While Tia is set to "Ask me" Auto starts nothing, since every
-start of hers is then yours to OK first. Each start is a line in **Work →
+start of hers is then yours to OK first. While this computer is overloaded and a task is ready, **Work → Activity**
+says once an hour that Tia (Auto) waits with it. Each start is a line in **Work →
 Activity** ("Tia (Auto) started …") and the first line of its mission, "Started by Tia (Auto)". Its mission has
 **End** where another has Stop: its session is stopped at once, and Tia never takes that task by herself again (the
 task stays open in Work for you). With Auto off nothing of it reads the list or writes anything.

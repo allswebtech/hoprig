@@ -80,7 +80,7 @@ test('off by default, on the page and in the settings, and shown only for a repo
   assert.equal(P.credsToggle({ credsRepo: true }, () => true).children.length > 0, true);
   assert.equal(find(P.credsToggle({ credsRepo: true }, () => true), 'input').checked, false, 'never chosen: off');
   const src = fs.readFileSync(path.join(ROOT, 'web', 'workspace.js'), 'utf8');
-  assert.match(src, /everyHours: 6, credentials: false, \.\.\./, 'the panel\'s own default is off');
+  assert.match(src, /everyHours: 6, credentials: false, onlyHere: false, servers: false, \.\.\./, 'the panel\'s own default is off');
   assert.match(src, /credsToggle\(w, save\)/, 'beside the other switches of the upkeep');
   for (const [folder, shown] of [['repository', true], ['folder', false], ['missing', false]]) {
     assert.equal(await P.credsIsRepo(async () => ({ folder })), shown, folder);

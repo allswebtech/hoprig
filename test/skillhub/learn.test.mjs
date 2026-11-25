@@ -42,13 +42,13 @@ const tryTurn = (req) => (req.model === 'haiku' && !req.system.startsWith('You r
 
 let clock = Date.parse('2026-11-18T10:00:00Z');
 let sctxConfig = {};
-const sctx = { config: () => sctxConfig, readJson: async (req) => req.body || {}, notify: async () => ({ sent: false }), caller: (req) => req.caller || 'page' };
+const sctx = { config: () => sctxConfig, readJson: async (req) => req.body || {}, notify: async () => ({ sent: false }), caller: (req) => req.caller || 'page', ownerCard: (req) => (req.caller === 'self' && req.card) || null };
 const feature = learnFeature(sctx, { turn: tryTurn, now: () => clock, log: () => {} });
 const call = async (method, p, body = {}, extra = {}) => {
   const u = new URL(p, 'http://x');
   for (const [m, re, fn] of feature.routes) {
     const match = re.exec(u.pathname);
-    if (match && m === method) return fn(Object.assign(Readable.from([]), { body, headers: extra.headers || {}, caller: extra.caller }), match, u.searchParams);
+    if (match && m === method) return fn(Object.assign(Readable.from([]), { body, headers: extra.headers || {}, caller: extra.caller, card: extra.card }), match, u.searchParams);
   }
   throw new Error(`no route ${method} ${p}`);
 };
@@ -736,3 +736,64 @@ async function until(fn, ms = 5000) {
   }
   assert.fail('it did not happen in time');
 }
+
+// Last in the file: it installs and undoes in the brain, and leaves those commits unpushed.
+test('her door reads the learned skills without his words, and changes one only by his card for exactly that act and skill', async () => {
+  turnOn();
+  resetLedger();
+  const d = await draftFrom(GOOD, 'door-task');
+  const self = (card) => ({ caller: 'self', ...(card ? { card } : {}) });
+  const card = (action, learnedId = d.id, more = {}) => ({ id: 'c_1', tool: 'manage_skills', input: { action, learned: learnedId, ...more } });
+  // The read: ids, names and the text; not the owner's words, the task's title or the cost.
+  const seen = (await call('GET', '/api/skills/learned', undefined, self())).drafts.find((x) => x.id === d.id);
+  assert.equal(seen.name, 'tests-before-done');
+  assert.equal(seen.skillMd, d.skillMd);
+  for (const k of ['source', 'why', 'cost', 'tests', 'findings', 'diff']) assert.equal(k in seen, false, k);
+  assert.equal(JSON.stringify(seen).includes('always run the tests before you say done'), false, 'his words reach her door');
+  // The page still gets the whole draft; her token gets nothing.
+  assert.ok((await call('GET', '/api/skills/learned')).drafts.find((x) => x.id === d.id).source);
+  await rejects(call('GET', '/api/skills/learned', undefined, { headers: { authorization: 'Bearer tia_0123' } }), 403);
+  // A change: never without his card, nor with a card for another act, skill, tool or computer.
+  const n0 = commits();
+  const refusedHer = async (c) => rejects(call('POST', `/api/skills/learned/${d.id}/install`, {}, self(c)), 403, 'owner-only');
+  await refusedHer(null);
+  await refusedHer(card('learned_discard'));
+  await refusedHer(card('learned_undo'));
+  await refusedHer(card('learned_install', 'b'.repeat(24)));
+  await refusedHer(card('learned_install', d.id, { computer: 'box2' }));
+  await refusedHer({ ...card('learned_install'), tool: 'manage_computer' });
+  await refusedHer({ id: 'c_1', tool: 'manage_skills', input: null });
+  await rejects(call('POST', `/api/skills/learned/${d.id}/install`, {}, { headers: { authorization: 'Bearer tia_0123' }, card: card('learned_install') }), 403);
+  assert.equal(commits(), n0, 'a refused install changed the brain');
+  assert.equal(learned.readDraft(d.id).state, 'ready');
+  // A look and the settings stay his whatever card runs.
+  await rejects(call('POST', '/api/skills/learned/look', { run: 'x' }, self(card('learned_install'))), 403);
+  await rejects(call('POST', '/api/skills/learn/settings', { on: false }, self(card('learned_install'))), 403);
+  await rejects(call('GET', '/api/skills/learn', undefined, self(card('learned_install'))), 403);
+  // His card for exactly this act and skill: it runs, as his press would.
+  const r = await call('POST', `/api/skills/learned/${d.id}/install`, {}, self(card('learned_install', d.id, { computer: 'this' })));
+  assert.equal(commits(), n0 + 1);
+  assert.equal(r.commit, git('rev-parse', 'HEAD'));
+  await rejects(call('POST', `/api/skills/learned/${d.id}/undo`, {}, self(card('learned_install'))), 403, 'owner-only');
+  await call('POST', `/api/skills/learned/${d.id}/undo`, {}, self(card('learned_undo')));
+  assert.equal(commits(), n0 + 2);
+  await rejects(call('POST', `/api/skills/learned/${d.id}/discard`, {}, self(card('learned_undo'))), 403, 'owner-only');
+  assert.deepEqual(await call('POST', `/api/skills/learned/${d.id}/discard`, {}, self(card('learned_discard'))), { id: d.id, discarded: true });
+  resetLedger();
+});
+
+test('her card does not install a way round that Install would make again on the text there now', async () => {
+  const { makeWayRound } = await import('../../src/field/wayround.mjs');
+  const a = makeWayRound('the kit for php failed: a package was missing', 'installing it with the system package manager first', { brain: t.brain });
+  const b = makeWayRound('the clone of a project failed: the network was down', 'cloning again after the network came back', { brain: t.brain });
+  await call('POST', `/api/skills/learned/${a.id}/install`);
+  const n0 = commits();
+  const her = { caller: 'self', card: { id: 'c_2', tool: 'manage_skills', input: { action: 'learned_install', learned: b.id } } };
+  await rejects(call('POST', `/api/skills/learned/${b.id}/install`, {}, her), 409, 'remade');
+  assert.equal(commits(), n0, 'a text her card did not show was installed');
+  // The draft made again waits under its own id: his press installs it, as before.
+  const again = learned.listDrafts().find((x) => x.state === 'ready' && x.name === 'ways-round');
+  assert.ok(again && again.id !== b.id);
+  await call('POST', `/api/skills/learned/${again.id}/install`);
+  assert.equal(commits(), n0 + 1);
+});

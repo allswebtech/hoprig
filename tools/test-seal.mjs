@@ -75,8 +75,8 @@
 //    the product for the installed version (claudeVersionQuick, resolveClaude) gets the version of the contributor's
 //    own install, or none. Such a test hands the version it plays (`{ version: TOOL_VERSION }`) or a stand-in of its own
 //    first on PATH, laid out as …/claude/versions/<version>; test/providers/check.test.mjs does the first.
-//  - The preload loads CommonJS only, which every supported Node (22.11 and newer, src/nodefloor.mjs) can require;
-//    the whole suite, the seal's test with it, runs on Node 22.11.0 as well as on the newest.
+//  - The preload loads CommonJS only, which every supported Node (24.13.1 and newer, src/nodefloor.mjs) can require;
+//    the whole suite, the seal's test with it, runs on Node 24.13.1 as well as on the newest.
 //  - On macOS, a LOGIN SHELL (what tmux starts in a pane) rebuilds PATH with the system's folders first, so inside a
 //    pane the traps come after /usr/bin. The wrap seals the environment a test hands over, but a program a pane's
 //    shell starts from its own rebuilt PATH is not sealed. Proof: run the suite in a pane on macOS and read the trap
@@ -96,4 +96,4 @@
 //    internalBinding today, but no rule holds that. What would: a grep rule over src/ and test/ that names them.
 import { createRequire } from 'node:module';
 
-export const { trapAlong, systemAlong, logForbidden, allowFullPath } = createRequire(import.meta.url)('./test-seal.cjs');
+export const { trapAlong, systemAlong, logForbidden, allowFullPath, windowsTrap } = createRequire(import.meta.url)('./test-seal.cjs');

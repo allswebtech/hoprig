@@ -203,3 +203,27 @@ test('scan without a folder named looks at nothing: it only proposes the usual p
   assert.deepEqual(j.proposed, [path.join(t.home, 'code')]);
   assert.ok(!out.join('').includes('package.json'));
 });
+
+test('hoprig adopt plan --name: the project gets the name given, checked by the rule of a new project', async () => {
+  const before = allOf(m.dirs.tools);
+  const out = [];
+  const ui = makeUi({ interactive: false, write: (s) => out.push(s) });
+  for (const args of [['plan', m.dirs.tools, '--name', 'My Tools'], ['plan', m.dirs.tools, '--name', '-x'], ['plan', 'all', '--in', m.place, '--name', 'toolbox']]) {
+    out.length = 0;
+    assert.equal(await main(args, { ui, write: (s) => out.push(s) }), 2, args.join(' '));
+    assert.match(out.join(''), args[1] === 'all' ? /--name names one project/ : /a project name is letters, digits, "\.", "_" and "-"/);
+  }
+  assert.ok(!fs.existsSync(planFile('My Tools')) && !fs.existsSync(planFile('toolbox')), 'no plan is written for a refused name');
+  out.length = 0;
+  assert.equal(await main(['plan', m.dirs.tools, '--name', 'toolbox', '--json'], { ui, write: (s) => out.push(s) }), 0, out.join(''));
+  const p = JSON.parse(out.join('')).plans[0];
+  assert.equal(p.name, 'toolbox');
+  assert.equal(p.to, path.join(projects, 'toolbox'));
+  assert.deepEqual(p.repos.map((r) => r.to), ['code/toolbox'], 'a folder that is its repository: the repository gets the name too');
+  assert.equal(readPlan('toolbox', { projects }).from, m.dirs.tools);
+  await assert.rejects(makePlan(m.dirs.tools, { projects, home: t.home, claude: t.claude, name: 'a b' }), { code: 'ENAME' });
+  const r = await applyPlan('toolbox', { projects, workspace: ws, identity: who });
+  assert.ok(r.ok, JSON.stringify(r.lines.filter((l) => !l.ok)));
+  assert.ok(fs.existsSync(path.join(projects, 'toolbox', 'code', 'toolbox', 'package.json')));
+  assert.deepEqual(allOf(m.dirs.tools), before, 'the old folder is the same');
+});

@@ -147,6 +147,7 @@
 @media (max-width: 599px) { .chat-limitslot .chat-banner > span:not(.chat-banner-actions) { min-width: 0; flex: 1 1 calc(100% - 40px); } }
 /* Why a desktop app key is another one here: its own line under what the key does, quieter. */
 .chat-keys-why { display: block; margin-top: 2px; color: var(--muted); font-size: var(--fs-xs); }
+.chat-keys-note { margin: 0 0 8px; color: var(--muted); font-size: var(--fs-xs); }
 /* Lead model's chip, on: marked as ultracode's is. */
 .chat-lead[aria-pressed='true'] { background: var(--accent-soft); color: var(--accent-soft-text); border-color: var(--accent); }
 .chat-lead[aria-pressed='true'] .chat-chip-k { color: inherit; }

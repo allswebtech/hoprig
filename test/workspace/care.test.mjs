@@ -16,7 +16,7 @@ const { ensureCommand, commandCheck, wrapperText, MARK } = await import('../../s
 const H = 3600_000;
 
 test('the rule: off by default; every few hours; pushes only when that is on too; tells a list once', async () => {
-  assert.deepEqual(DEFAULTS.workspace, { map: true, commitMap: null, memory: false, sync: false, push: false, pushBranches: {}, everyHours: 6, credentials: false }, 'commitMap: never chosen, it follows the brain; memory and pushing the other branches off');
+  assert.deepEqual(DEFAULTS.workspace, { map: true, commitMap: null, memory: false, sync: false, push: false, pushBranches: {}, everyHours: 6, credentials: false, onlyHere: false, servers: false }, 'commitMap: never chosen, it follows the brain; memory and pushing the other branches off');
   assert.deepEqual(rule.decide({ data: {}, now: 10 * H, settings: DEFAULTS.workspace }).actions, [{ type: 'map', commit: false, push: false, memory: false }], 'only the map upkeep is on by default');
   const on = { sync: true, push: false, everyHours: 6 };
   const d = rule.decide({ data: {}, now: 10 * H, settings: on });

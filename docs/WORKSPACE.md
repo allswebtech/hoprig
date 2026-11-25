@@ -110,6 +110,8 @@ hoprig adopt scan                          # looks at nothing: names the usual f
 hoprig adopt scan --in ~/code [--json]     # Look: changes nothing, never fetches, never enters a private folder
 hoprig adopt plan ~/code/blog              # Suggest: one plan file per project (in Hoprig's state folder)
 hoprig adopt plan all --in ~/code          #   … for every project found there
+hoprig adopt plan ~/code/blog --copy-installed   # copy installed packages and build output too
+hoprig adopt plan ~/code/blog --name blog-site  # the project's name (else made from the folder's name)
 hoprig adopt apply blog --dry-run          # what Arrange would do; nothing is written
 hoprig adopt apply blog --name "Alex" --email alex@example.com   # Arrange: copy, then prove the copy
 hoprig adopt verify blog                   # prove the copy against the original again
@@ -147,7 +149,9 @@ A project counts as **already in the layout** only by Hoprig's own marks: a repo
 `AGENTS.md` and `code/.gitignore`. A `project.json` of another tool (an Nx app) or an `AGENTS.md` beside a submodule
 in `code/` is not the layout: such a folder is planned as the repository it is.
 
-**Suggest** writes one file, `<state folder>/adopt/<name>.json`, and nothing else. It says which repositories go to
+**Suggest** writes one file, `<state folder>/adopt/<name>.json`, and nothing else. The project's name is made from the
+folder's name unless you give one (`--name`, or the name field of the page's plan, which makes the plan again under
+it); a name given is checked by the rule of `hoprig project new`: letters, digits, `.`, `_` and `-`. It says which repositories go to
 `code/<name>` (a linked worktree with its repository, as `code/<name>.<worktree>` when it lies outside), where each
 neighbour goes by its kind (AI tools' files and notes to `ai_brain/`, the project's own scripts to `scripts/`, data
 copies and dumps to `test-data/`), what stays (installed packages, a folder whose git folder is elsewhere), the other
@@ -157,6 +161,14 @@ hooks, `.vscode/launch.json`, `.claude/settings.json`, other tools' files). Noth
 session may edit the plan; apply reads it strictly (every place inside the new project folder, a worktree only one
 its repository names) and takes it only while the folder is still as the plan saw it: a file added or edited (every
 file is compared by its content, a touch alone is no change), a commit, a moved branch, and apply asks for a new plan.
+Installed packages and build output inside a repository (a folder of the list that `hoprig drop` also lets go without a
+word: `node_modules`, `vendor`, `.next`, `.venv`, `dist`, `build`, `target` and the like, and only where git ignores it as
+a whole) are **left out of the copy** by default: the plan names each with its size and the command that makes it
+again from the lockfile beside it (`npm ci` for a `package-lock.json`, `pnpm install --frozen-lockfile`, `composer
+install`, `npm run build` for build output, ...), and Arrange says the same under what still needs you. A folder of
+that name that git tracks, or does not ignore, is copied; so is one that holds a repository of its own. The proof
+counts a folder left out as left out, never as missing. `--copy-installed` (on the page: **Copy them all the same**)
+makes a plan that copies them with the rest.
 Comparing by content reads every file outside installed packages: about one second for 20,000 files of 10 KB
 (measured on Linux, warm disk cache), where a listing by size and time took a fifth of that.
 
@@ -166,11 +178,13 @@ the page), never guessed from the address. Another server, no sign-in or no answ
 and a dry run never ask. Untracked folders inside a repository that hold another project (their own `.git` or a
 project's sign, up to three folders down) are listed by name: a first push could take them, so you decide.
 
-A project already in the layout brings its own folders (`ai_brain/`, `scripts/`, `docs/`) into the new project as
-they are. Where Hoprig's template has a file of the same name (`AGENTS.md`, `project.json`, `ai_brain/learnings.md`,
-`docs/README.md`), yours goes to `from-the-old-folder/` under the same path and is named for you to compare and merge:
-neither copy is overwritten. A parent that is itself a repository keeps its own history where it was (the new project
-starts its own); that `.git` is named as staying.
+A project already in the layout keeps every file of its own at its own place: its `AGENTS.md`, `CLAUDE.md`,
+`.gitignore`, `project.json`, `decisions.md`, `ai_brain/` (its learnings, its active context, its memory), `scripts/`
+and `docs/` are copied as they are, and none is moved aside, replaced or written into. Hoprig adds only the files of its
+layout that the old folder lacks, and the plan says which of the two it found and lists them. Where its `AGENTS.md` is
+its own, the table of what was where goes to `ai_brain/moved-here.md` instead, and the parent's first commit holds only
+what Hoprig added (none, when the layout lacked nothing). A parent that is itself a repository keeps its own history
+where it was (the new project starts its own); that `.git` is named as staying.
 
 **Arrange** makes the project from Hoprig's own template, with the commit identity you give for that command
 (`--name`, `--email`: handed to git for its own commit only; nothing global is set). It copies each repository whole
@@ -208,7 +222,13 @@ copy again itself**, trusting nothing that was said before (not the plan, not ap
 repositories in the original folder again and checks that the copy holds HEAD, every branch, tag and other ref (or a
 newer commit that has it as an ancestor), each stash entry, every worktree, and every working file with the same
 content. What is missing stops it with one line that counts each kind (`1 branch, 1 stash entry, 1 working file`),
-and nothing is removed. Another project's clone in the same place that borrows objects from an original (`--shared`) stops it too; for such a clone anywhere else retire can only warn, since it never looks at the whole disk.
+and nothing is removed. The one exception is a folder that apply left out of the copy (installed packages, build
+output): its files are not counted as missing only when both the plan and apply's own record name it AND, asked again
+at that moment in the old folder, it is still a folder of drop's list that git ignores as a whole, with no file git
+tracks and no repository of its own in it. Before the name is typed, retire (and the page's sheet) names each such
+folder with its size and file count, says that it was not copied and goes with the old folder, and gives the command
+that makes it again in the new place. A recorded folder that no longer passes, or one that only the plan or only the
+record names, stops retire and is named. Another project's clone in the same place that borrows objects from an original (`--shared`) stops it too; for such a clone anywhere else retire can only warn, since it never looks at the whole disk.
 
 **Remove the old folders** (on a project's card after Arrange, and on Arrange's result) is the same retire from the
 page. Its sheet shows retire's own lines (what goes, what stays and why), says "There is no undo: nothing can bring
@@ -482,6 +502,15 @@ page. **Keep (I back it up)** and **Ignore** answer a folder's question; **Check
 into the look. **Push my other branches** pushes the committed work of every branch that is not the default
 branch, in every repository of the map, through the same gates as the upkeep's push; it never pushes a default
 branch. Only your own page may press it, and two presses never run at once.
+
+Two looks can run by themselves, both off until you turn them on (Settings → Workspace → By itself). **Look once a
+day at what is only on this computer** runs this check without asking any git server and keeps only how many things
+it found, by kind: never a name or a path. When that number changes it writes one line in Work → Activity, and it
+tells you when something exists only here. **Look once a week at the git servers** asks the git server of each
+repository of the map that is on this computer whether it still has it and still names its main branch as this
+computer knows it. Both only read: nothing is fetched, changed or uploaded, a server that cannot be asked counts as
+not looked, and whether a server's history was replaced is not told (that cannot be known without fetching).
+`hoprig doctor` shows what the looks found as a suggestion.
 
 The routes: `GET /api/workspace/leave` (starts the whole check, or polls it with `?run=<id>`),
 `POST /api/workspace/onlyhere/push` (the press, your own page only) and `POST /api/workspace/leave/mark`

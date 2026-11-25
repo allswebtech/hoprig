@@ -72,7 +72,7 @@ test('install.sh: npm 12 gets the flag that allows the address it installs from;
 // A computer with nothing on it but what the installer itself needs to run: real basic tools by name, and
 // stand-ins for the package manager, sudo, npm and the installed hoprig. `uname` says Linux, so the package step is
 // exercised on any system. The stand-ins that could read their input do read it, as a package's question does.
-function bareComputer(name) {
+function bareComputer(name, { first = [], env = {} } = {}) {
   const dir = path.join(s.tmp, name);
   const pfx = path.join(dir, 'prefix');
   const rec = path.join(dir, 'record.log');
@@ -100,7 +100,7 @@ esac`,
     const real = which(tool, { PATH: '/usr/bin:/bin' }, process.platform); // seal: a value no program is started with
     if (real) fs.symlinkSync(real, path.join(b, tool));
   }
-  return { env: sealed({ PATH: pathWith(s.tmp, b), HOME: s.env.HOME, REC: rec, HOPRIG_SOURCE: 'hoprig' }), record: () => fs.readFileSync(rec, 'utf8') };
+  return { env: sealed({ PATH: pathWith(s.tmp, ...first, b), HOME: s.env.HOME, REC: rec, HOPRIG_SOURCE: 'hoprig', ...env }), record: () => fs.readFileSync(rec, 'utf8') };
 }
 
 /** Run install.sh without a terminal (its own session, so /dev/tty cannot be opened): from the file, or piped. */
@@ -287,4 +287,34 @@ test('install.sh as root inside a container (the variable container): stays on r
   assert.match(r.out, /^· This is root, inside a container \(container=podman\): Hoprig stays on root here\./m);
   assert.ok(r.out.indexOf('This is root') < r.out.indexOf('To install:'));
   assert.match(r.out, /hoprig-stand-in setup --yes\n/);
+});
+
+test('install.sh with a Node.js 22 installed: says in one line what it found, installs the newest LTS with nvm for this user, and goes on with it', { skip: posixOnly }, async () => {
+  const floor = /\n  MIN_NODE=(\S+) /.exec(fs.readFileSync(path.join(ROOT, 'install.sh'), 'utf8'))[1];
+  const fixture = path.join(ROOT, 'test', 'fixtures', 'runner', 'node-version.mjs');
+  const dir = path.join(s.tmp, 'old-node');
+  // A node that reports 22.11.0 first on PATH; nvm a stand-in that writes down what it is asked and, on `use`, puts a
+  // node that reports a newer LTS first on PATH, as the real nvm does. Nothing is downloaded or installed.
+  const old = fakeBin(path.join(dir, 'old'), { node: `SEAL_FAKE_NODE=22.11.0 exec ${JSON.stringify(process.execPath)} --import ${JSON.stringify(fixture)} "$@"` });
+  const lts = fakeBin(path.join(dir, 'lts'), { node: `SEAL_FAKE_NODE=26.1.0 exec ${JSON.stringify(process.execPath)} --import ${JSON.stringify(fixture)} "$@"` });
+  const nvmDir = path.join(dir, 'nvm');
+  fs.mkdirSync(nvmDir, { recursive: true });
+  fs.writeFileSync(path.join(nvmDir, 'nvm.sh'), `nvm() {\n  printf 'nvm %s\\n' "$*" >> "$REC"\n  case $1 in use) PATH=${JSON.stringify(lts)}:$PATH; export PATH ;; esac\n  return 0\n}\n`);
+  const pc = bareComputer('old-node-pc', { first: [old], env: { NVM_DIR: nvmDir } });
+  const r = await installBare(pc, { piped: false });
+  assert.equal(r.code, 0, r.out);
+  const found = r.out.split('\n').filter((l) => l.startsWith('Found Node.js'));
+  assert.deepEqual(found, [`Found Node.js 22.11.0, older than ${floor}, the lowest Hoprig runs on: the newest long-term release of Node.js goes in its place, for you only, with nvm.`]);
+  assert.ok(r.out.indexOf('Found Node.js') < r.out.indexOf('To install:'), 'said before the list of what is installed');
+  assert.match(r.out, /\n {2}Node\.js LTS, for you only, with nvm v[\d.]+ in /);
+  assert.deepEqual(pc.record().split('\n').filter((l) => l.startsWith('nvm ')), ['nvm install --lts --no-progress', 'nvm use --lts']);
+  assert.match(r.out, /\n✓ Node\.js v\d+/);
+  assert.match(r.out, /hoprig-stand-in setup --yes\n/, 'hoprig is installed and set up with the new Node.js');
+  // A Node.js at the floor is kept: no line about it and no nvm.
+  const keep = fakeBin(path.join(dir, 'floor'), { node: `SEAL_FAKE_NODE=${floor} exec ${JSON.stringify(process.execPath)} --import ${JSON.stringify(fixture)} "$@"` });
+  const again = bareComputer('floor-node-pc', { first: [keep], env: { NVM_DIR: nvmDir } });
+  const r2 = await installBare(again, { piped: false });
+  assert.equal(r2.code, 0, r2.out);
+  assert.doesNotMatch(r2.out, /Found Node\.js|Node\.js LTS/);
+  assert.ok(!/^nvm /m.test(again.record()), 'nvm is not asked');
 });

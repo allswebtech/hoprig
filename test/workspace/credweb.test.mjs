@@ -29,7 +29,7 @@ async function world(tc, name, { v2 = true } = {}) {
   fs.writeFileSync(path.join(c, 'shop', `${NAME}.env`), `API_KEY=${VALUE}\n`);
   fs.chmodSync(c, 0o700);
   fs.mkdirSync(path.join(w.server, 'other'), { recursive: true });
-  fs.appendFileSync(w.env.GIT_CONFIG_GLOBAL, `[url "${path.join(w.server, 'other')}/"]\n\tinsteadOf = https://git.example.test/\n`);
+  fs.appendFileSync(w.env.GIT_CONFIG_GLOBAL, `[url "${String(path.join(w.server, 'other')).replaceAll('\\', '/')}/"]\n\tinsteadOf = https://git.example.test/\n`);
   w.bare = (rel) => execFileSync('git', ['init', '-q', '--bare', '-b', 'main', path.join(w.server, rel)]);
   w.creds = c;
   w.said = [];

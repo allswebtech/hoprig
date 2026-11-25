@@ -28,7 +28,7 @@ const tryGit = (env, cwd, ...args) => {
 export function gitSettings(home, server) {
   const file = path.join(home, '.gitconfig');
   fs.mkdirSync(home, { recursive: true });
-  fs.writeFileSync(file, `[user]\n\tname = Example Owner\n\temail = owner@example.invalid\n[init]\n\tdefaultBranch = main\n[commit]\n\tgpgsign = false\n[url "${server}/"]\n\tinsteadOf = ${SERVER}\n[protocol]\n\tallow = never\n[protocol "file"]\n\tallow = always\n`);
+  fs.writeFileSync(file, `[user]\n\tname = Example Owner\n\temail = owner@example.invalid\n[init]\n\tdefaultBranch = main\n[commit]\n\tgpgsign = false\n[url "${String(server).replaceAll('\\', '/')}/"]\n\tinsteadOf = ${SERVER}\n[protocol]\n\tallow = never\n[protocol "file"]\n\tallow = always\n`);
   return file;
 }
 

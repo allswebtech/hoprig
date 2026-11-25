@@ -112,7 +112,7 @@ The **Operator** is one page of the dashboard that lists what needs you now, the
 
 ### How ready is it?
 
-Its tests run on Linux and macOS with Node.js 22, 24 and 26 on every change. Hoprig needs Node.js 22.11 or newer, and the install adds it. The newer parts (the chat, the editor, the desktop, Work) were tried by hand on Linux only, not on a real Mac, and the last checks of this version ran on stand-ins for the coding tools, not on real Claude Code or OpenCode. Everything that is not built or not proven yet is on one page: [Not built, or not proven yet](/docs/not-proven-yet/).
+Its tests run on Linux and macOS with Node.js 24 and 26 on every change. Hoprig needs Node.js 24.13.1 or newer, and the install adds it. The newer parts (the chat, the editor, the desktop, Work) were tried by hand on Linux only, not on a real Mac, and the last checks of this version ran on stand-ins for the coding tools, not on real Claude Code or OpenCode. Everything that is not built or not proven yet is on one page: [Not built, or not proven yet](/docs/not-proven-yet/).
 :::
 
 ## Start now

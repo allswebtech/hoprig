@@ -68,6 +68,18 @@ export const deletableHere = (store) => ((store.all || []).find((m) => (m.machin
 export const isCurrent = (s, current) => !!current && s.kind === 'chat' && s.chatId === current.chat && (s.machine ?? null) === (current.machine ?? null);
 
 /**
+ * The session `d` rows on from the open one (1: the next, -1: the previous) in the list's order as drawn (`groups`:
+ * sideGroups), round at the ends, as the desktop app's Ctrl+Shift+] and [ go. Null with fewer than two sessions.
+ */
+export function sessionAfter(groups, current, d) {
+  const rows = (groups || []).flatMap((g) => g.sessions);
+  if (rows.length < 2) return null;
+  const i = rows.findIndex((s) => isCurrent(s, current));
+  if (i < 0) return d > 0 ? rows[0] : rows[rows.length - 1];
+  return rows[(i + (d > 0 ? 1 : -1) + rows.length) % rows.length];
+}
+
+/**
  * o: { store (store.js: all, multi, subscribe), current: { chat, machine }, newSession() (the "+ New" button) }
  * → { el, stop() }
  */
@@ -228,6 +240,11 @@ export function createSidebar(o) {
   const unsubscribe = o.store.subscribe(() => paint());
   return {
     el,
+    /** Open the next (1) or the previous (-1) session of the list (the keys Ctrl+Shift+] and [). */
+    go(d) {
+      const s = sessionAfter(sideGroups(o.store.all || [], { group, sort, multi: !!o.store.multi }), o.current, d);
+      if (s) location.hash = sessionHref(s);
+    },
     stop() {
       unsubscribe();
       closeMenuOf(menu);

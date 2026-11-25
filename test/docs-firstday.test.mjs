@@ -48,7 +48,7 @@ test('the changelog says it under 0.3.4, in "Easier when you are not a programme
   const at = log.indexOf('\n## 0.3.4 ');
   const block = log.slice(at, log.indexOf('\n## ', at + 1));
   const easier = part('site/content/changelog.md', 'Easier when you are not a programmer');
-  assert.ok(block.includes(easier), 'the section stands in the unreleased block');
+  assert.ok(block.includes(easier), 'the section stands in the 0.3.4 block');
   const line = easier.split('\n').find((l) => l.startsWith('- **After the install line, a first day needs no terminal.**'));
   assert.ok(line, 'its own item');
   assert.ok(line.includes("Home's Get started → **Sign in to Claude** for the sign-in to Claude, and a computer's **Health** tab, with its **Fix** buttons, for the checks (`hoprig doctor` stays the other way)."));

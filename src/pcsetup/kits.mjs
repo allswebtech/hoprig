@@ -37,9 +37,24 @@
 //                        its archive and sha256. The lists give no size: the Linux 3.50.1 archive was 1,518,418,752 bytes
 //                        (a HEAD request, 24 Nov 2026). The Linux packages Flutter needs: https://docs.flutter.dev/install/manual
 //                        ("curl git unzip xz-utils zip libglu1-mesa", read 24 Nov 2026), shown for the owner to install.
+//   Android SDK          the list sdkmanager itself reads, https://dl.google.com/android/repository/repository2-3.xml
+//                        (https://developer.android.com/tools/sdkmanager): the package "cmdline-tools;latest" on the
+//                        stable channel, its archive per host-os (and host-arch on macOS), with its size and sha1 (the
+//                        only checksum the list gives), relative to https://dl.google.com/android/repository/. Read 25 Nov
+//                        2026: the Linux archive 181,052,239 bytes, served from that host (200, no redirect), one
+//                        cmdline-tools/ folder that goes to <sdk>/cmdline-tools/latest/ (the sdkmanager page says so).
+//                        The licence and the packages (platform-tools, platforms, build-tools) stay the owner's: the
+//                        plan shows `sdkmanager --licenses` and `sdkmanager --install …` for him to type.
+//   Android Studio       not downloaded (its own installer, and Google's update list gives no checksum):
+//                        https://developer.android.com/studio; one that is here is found and used where it is.
 //   winget ids           https://github.com/microsoft/winget-pkgs (manifests/<letter>/<Publisher>/<Name>)
 //   VS Build Tools       winget id Microsoft.VisualStudio.BuildTools (2026); workload id Microsoft.VisualStudio.Workload.VCTools
 //                        https://learn.microsoft.com/visualstudio/install/workload-component-id-vs-build-tools
+//   Windows without a    each kit's own official installer page (WIN_INSTALLERS below), named instead of a winget step:
+//   working winget       https://git-scm.com/downloads/win, https://visualstudio.microsoft.com/visual-cpp-build-tools/,
+//                        https://nodejs.org/en/download, https://www.python.org/downloads/windows/, https://cli.github.com,
+//                        https://github.com/BurntSushi/ripgrep/releases, https://jqlang.org/download/,
+//                        https://docs.docker.com/desktop/setup/install/windows-install/
 
 export const NVM_VERSION = 'v0.40.8'; // the same pinned release as install.sh
 export const NVM_INSTALL = `https://raw.githubusercontent.com/nvm-sh/nvm/${NVM_VERSION}/install.sh`;
@@ -49,6 +64,25 @@ import { shellValue } from '../setup/localbin.mjs';
 
 const GH_KEYRING = '/etc/apt/keyrings/githubcli-archive-keyring.gpg';
 
+/** Windows: the official installer page of each item a winget step installs, named when winget does not start. */
+export const WIN_INSTALLERS = Object.freeze({
+  git: 'https://git-scm.com/downloads/win',
+  build: 'https://visualstudio.microsoft.com/visual-cpp-build-tools/',
+  node: 'https://nodejs.org/en/download',
+  npm: 'https://nodejs.org/en/download',
+  python: 'https://www.python.org/downloads/windows/',
+  pip: 'https://www.python.org/downloads/windows/',
+  venv: 'https://www.python.org/downloads/windows/',
+  gh: 'https://cli.github.com',
+  ripgrep: 'https://github.com/BurntSushi/ripgrep/releases',
+  jq: 'https://jqlang.org/download/',
+  docker: 'https://docs.docker.com/desktop/setup/install/windows-install/',
+});
+
+/** Windows, winget known not to start (sysFacts: `winget`): no winget step, the item's own installer is named. */
+const noWinget = (sys) => sys.platform === 'win32' && !!sys.winget && !sys.winget.starts;
+const viaInstaller = (item) => ({ ...item, cannot: () => `winget does not work here, so Hoprig cannot install it: get it from its official installer, ${WIN_INSTALLERS[item.id] || 'its own website'}` });
+
 /**
  * Flutter's checked download (fetchkit.mjs): ONLY this data names its addresses. `list` has `<os>` for linux or macos;
  * the archive is taken from the list, on `host` over https. `ceiling` is the most a download may be (the list gives no
@@ -56,6 +90,7 @@ const GH_KEYRING = '/etc/apt/keyrings/githubcli-archive-keyring.gpg';
  */
 export const FLUTTER = Object.freeze({
   host: 'storage.googleapis.com',
+  prefix: '/flutter_infra_release/releases/', // every address and every redirect stays under this folder of the host
   list: 'https://storage.googleapis.com/flutter_infra_release/releases/releases_<os>.json', // https://docs.flutter.dev/install/archive
   listCeiling: 8_000_000, // the Linux list was 273,704 bytes on 24 Nov 2026
   ceiling: 3_000_000_000,
@@ -63,6 +98,22 @@ export const FLUTTER = Object.freeze({
   disk: 3_000_000_000, // an estimate (Flutter publishes none): the unpacked SDK, before its first run fills bin/cache
   unpackCeiling: 6_000_000_000, // the most an archive may unpack to (the sum of its entries' sizes): twice `disk`
   packages: ['curl', 'git', 'unzip', 'xz-utils', 'zip', 'libglu1-mesa'], // https://docs.flutter.dev/install/manual (apt)
+});
+/**
+ * The Android SDK command-line tools' checked download: ONLY this data names its addresses. The list gives each
+ * archive's exact size and its sha1; the archive's name in it is relative to `base`.
+ */
+export const ANDROID = Object.freeze({
+  host: 'dl.google.com',
+  prefix: '/android/repository/', // every address and every redirect stays under this folder of the host
+  list: 'https://dl.google.com/android/repository/repository2-3.xml', // what sdkmanager reads
+  base: 'https://dl.google.com/android/repository/',
+  listCeiling: 8_000_000, // the list was 435,058 bytes on 25 Nov 2026
+  ceiling: 600_000_000,
+  download: 185_000_000, // Linux, 25 Nov 2026: 181,052,239 bytes
+  disk: 185_000_000, // the archive is stored, not compressed: it unpacks to about its own size
+  unpackCeiling: 1_500_000_000,
+  studio: 'https://developer.android.com/studio',
 });
 const GH_REPO_RPM = 'https://cli.github.com/packages/rpm/gh-cli.repo';
 
@@ -216,6 +267,28 @@ export const KITS = [
       },
     ],
   },
+  {
+    id: 'android',
+    title: 'Android',
+    summary: 'Google\'s Android SDK command-line tools, in the workspace\'s development/sdk/android-sdk. An Android SDK or an Android Studio that is here already is used where it is; Android Studio itself is not downloaded. Optional.',
+    defaultOn: false,
+    windows: false,
+    after: 'Open a new terminal before you use the SDK\'s tools, so it reads your shell start files. Google\'s licence and the SDK\'s packages stay yours: Hoprig shows the commands when they are due and runs none of them.',
+    items: [
+      {
+        id: 'android-sdk', name: 'Android SDK', bins: ['sdkmanager'],
+        detect: (sys) => import('./devplaces.mjs').then((d) => d.detectAndroidSdk(sys)),
+        steps: androidSteps,
+        cannot: () => 'Set up the workspace first (hoprig workspace setup): the Android SDK goes into its development/ folder.',
+      },
+      {
+        // Found, never installed: a missing one is said with where to get it, never offered as something to set up.
+        id: 'android-studio', name: 'Android Studio', foundOnly: true,
+        detect: (sys) => import('./devplaces.mjs').then((d) => d.detectStudio(sys)),
+        cannot: () => `Hoprig does not download Android Studio (it is large and has its own installer): get it from ${ANDROID.studio}, and Hoprig finds it afterwards.`,
+      },
+    ],
+  },
 ];
 
 export const KIT_IDS = KITS.map((k) => k.id);
@@ -297,6 +370,21 @@ function flutterSteps(sys) {
   }];
 }
 
+/**
+ * The Android kit's install: one step that is not a command (devinstall.mjs). Only with a workspace; the list says
+ * which archive fits this computer.
+ */
+function androidSteps(sys) {
+  if (sys.platform === 'win32' || !sys.ws) return null;
+  const place = `${sys.ws}/${DEV_PLACES.androidSdk.rel}`;
+  return [{
+    do: 'android-sdk', admin: false, why: 'the Android SDK command-line tools',
+    words: `download the Android SDK command-line tools (the ones ${ANDROID.list} names) from ${ANDROID.host} over https, ${sizeAbout(ANDROID.download)}, check their sha1 (the only checksum Google's list gives), unpack them into ${tildeAt(place, sys.home)}/cmdline-tools/latest`,
+    download: { what: 'the Android SDK command-line tools', host: ANDROID.host, list: ANDROID.list, download: ANDROID.download, disk: ANDROID.disk, checksum: 'sha1' },
+    place, ws: sys.ws, home: sys.home, platform: sys.platform, arch: sys.arch, data: ANDROID, tools: { platform: sys.platform, has: sys.has },
+  }];
+}
+
 /** Titles as one list in words: "A", "A and B", "A, B and C". */
 export const listWords = (xs) => (xs.length > 1 ? `${xs.slice(0, -1).join(', ')} and ${xs.at(-1)}` : xs.join(''));
 
@@ -333,6 +421,21 @@ function devSteps(id, results, plan, sys, named, cannot = []) {
     const coming = (r.state === 'ok' && (!r.adopt || named.includes(id))) || plan.steps.some((s) => s.do === 'flutter');
     if (coming && r.shellLine) add({ key: 'flutter', var: 'PATH', prepend: true }, `${sys.ws}/${DEV_PLACES.flutter.rel}/bin`);
   }
+  if (id === 'android') {
+    const r = (results || []).find((x) => x.id === 'android-sdk') || {};
+    const s = (results || []).find((x) => x.id === 'android-studio') || {};
+    if (r.adopt) link(r.adopt, 'The Android SDK', 'android-sdk');
+    if (s.adopt) link(s.adopt, 'Android Studio', 'android-studio');
+    // ANDROID_HOME and the SDK's tools on PATH, at the place: only when the SDK is (or will be) there and no
+    // ANDROID_HOME of the owner's names another folder.
+    const coming = (r.state === 'ok' && (!r.adopt || named.includes(id))) || plan.steps.some((x) => x.do === 'android-sdk');
+    if (coming && r.shellLine) {
+      const sdk = `${sys.ws}/${DEV_PLACES.androidSdk.rel}`;
+      add({ key: 'android-home', var: 'ANDROID_HOME' }, sdk);
+      add({ key: 'android-tools', var: 'PATH', prepend: true }, `${sdk}/cmdline-tools/latest/bin`);
+      add({ key: 'android-adb', var: 'PATH', prepend: true }, `${sdk}/platform-tools`);
+    }
+  }
   if (id === 'node' && sys.nvm) {
     // An nvm found elsewhere keeps its own lines (they set NVM_DIR to where it is): only the link is added. A new one
     // at the place, or one that is there already, gets NVM_DIR in the block.
@@ -356,6 +459,13 @@ function devSteps(id, results, plan, sys, named, cannot = []) {
 
 /** Whether this runs in an SSH session (OpenSSH for Windows sets these as it does elsewhere). */
 export const sshSession = (env = {}) => !!(env.SSH_CONNECTION || env.SSH_CLIENT || env.SSH_TTY);
+
+/**
+ * Windows: whether this session has no desktop, where the Python install manager installs no Python: an SSH session,
+ * and one Windows gives no SESSIONNAME (a service, a scheduled task, a remote shell without SSH's variables) or names
+ * "Services". A desktop session has one: "Console" at the computer, "RDP-Tcp#<n>" over Remote Desktop.
+ */
+export const noDesktop = (env = {}) => sshSession(env) || !env.SESSIONNAME || /^services$/i.test(env.SESSIONNAME);
 
 /** The command a person types in a window of their own to finish the Python kit (see pyWin). */
 export const PY_INSTALL = ['pymanager', 'install', 'default'];
@@ -382,10 +492,13 @@ function pyWin(sys) {
   // The install manager alone gives no Python: its first `python` would install one, but not in a session without a
   // desktop, and its docs advise an explicit install. `pymanager` (not `py`: an older launcher may hold that name). In
   // an SSH session the install manager only updates itself, so that step is left to the person, in a window of their
-  // own on that computer (setup.mjs says so at the end); the Path folder is added either way.
+  // own on that computer (setup.mjs says so at the end); so in any session without a desktop (noDesktop). The Path
+  // folder is added either way. An install manager that is here already is not installed again (winget would fail
+  // with "already installed", and the kit's later steps would be skipped).
+  const here = typeof sys.has === 'function' && sys.has('pymanager');
   return [
-    { argv: ['winget', 'install', '9NQ7512CXL7T', '-e', '--accept-package-agreements', '--disable-interactivity'], admin: false, why: 'the Python install manager' },
-    ...(sshSession(sys.env) ? [] : [{ argv: PY_INSTALL, admin: false, why: 'the newest Python, for you only' }]),
+    ...(here ? [] : [{ argv: ['winget', 'install', '9NQ7512CXL7T', '-e', '--accept-package-agreements', '--disable-interactivity'], admin: false, why: 'the Python install manager' }]),
+    ...(noDesktop(sys.env) ? [] : [{ argv: PY_INSTALL, admin: false, why: 'the newest Python, for you only' }]),
     { argv: ps, admin: false, why: `${PY_BIN.replace(/\\\\/g, '\\')} on your Path` },
   ];
 }
@@ -475,6 +588,11 @@ export function kitSteps(kit, missing, sys) {
   for (const item of missing) {
     if (item.kind) continue; // identity and sign-in are asked, not installed
     const custom = item.steps ? item.steps(sys) : null;
+    // Windows without a winget that starts: neither a winget step nor one that needs what winget would have installed.
+    if (noWinget(sys) && (item.winget || (custom && custom.some((s) => s.argv && s.argv[0] === 'winget')))) {
+      cannot.push(viaInstaller(item));
+      continue;
+    }
     if (custom) {
       const key = JSON.stringify(custom.map((s) => s.argv || s.do));
       if (!seen.has(key)) {
