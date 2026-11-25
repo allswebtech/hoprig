@@ -118,3 +118,18 @@ export async function refreshPath(env = process.env, { run } = {}) {
   if (added.length) env.PATH = path;
   return added;
 }
+
+/** How often a look of its own reads the registry again (a dashboard looks for tools often): once a minute at most. */
+export const PATH_EVERY = 60_000;
+const lastRead = new WeakMap();
+
+/**
+ * refreshPath, kept cheap for a process that looks often: the registry is read again for the same `env` at most once
+ * per `every` ms, and always when `force` is set (after an install this process ran). Returns the folders added.
+ */
+export async function pathNow(env = process.env, { run, force = false, now = Date.now(), every = PATH_EVERY } = {}) {
+  const at = lastRead.get(env);
+  if (!force && at !== undefined && now - at < every) return [];
+  lastRead.set(env, now);
+  return refreshPath(env, { run });
+}

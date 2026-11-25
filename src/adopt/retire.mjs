@@ -8,9 +8,12 @@
 // nothing is left in it.
 import fs from 'node:fs';
 import path from 'node:path';
-import { doneFile, copies } from './apply.mjs';
+import { doneFile, copies, leftOutOf } from './apply.mjs';
 import { recheck } from './recheck.mjs';
-import { fingerprint, readPlan } from './plan.mjs';
+import { fingerprint, readPlan, sizeOf } from './plan.mjs';
+import { holderOf, withoutAWord } from '../workspace/dropsilent.mjs';
+import { gitRead } from '../gitread.mjs';
+import { leftAt } from './apply.mjs';
 import { borrowedStores, isPrivate, nameOf, proveRepo, treeDiff, treeOf } from './proof.mjs';
 import { SKIP_DIRS, commonDir, projectRepos } from './scan.mjs';
 
@@ -120,7 +123,7 @@ export async function verifyProject(name, { projects }) {
   const map = cs.filter((c) => c.kind === 'repo' || c.kind === 'worktree').map((c) => [c.from, c.to]);
   for (const c of cs.filter((x) => x.kind === 'repo')) {
     const wtMap = new Map((c.repo.worktrees || []).map((w) => [w.from, w.inside ? path.join(c.to, path.relative(c.from, w.from)) : path.join(plan.to, w.to)]));
-    for (const p of await proveRepo(c.from, c.to, { wtMap, map, root: plan.to })) lines.push({ ...p, words: `${path.relative(plan.to, c.to) || '.'}: ${p.words}` });
+    for (const p of await proveRepo(c.from, c.to, { wtMap, map, root: plan.to, leave: leftOutOf(plan) })) lines.push({ ...p, words: `${path.relative(plan.to, c.to) || '.'}: ${p.words}` });
   }
   for (const c of cs.filter((x) => x.kind === 'neighbour')) {
     const st = fs.lstatSync(c.from);
@@ -129,6 +132,57 @@ export async function verifyProject(name, { projects }) {
   }
   return lines;
 }
+
+/**
+ * The folders apply left out of the copy (installed packages, build output), asked again now in the OLD folder. Each
+ * must be one the plan names AND the done record of apply names, still a real folder, still what drop's rule calls made
+ * again (dropsilent.mjs: of its list, ignored by git as a whole), with no file git tracks and no repository of its own
+ * in it. Only then are its files not counted as missing by retire's last check: it goes with the old folder.
+ * → { ok: [{ dir, bytes, files, remake, at }], bad: [{ dir, why }] }
+ */
+export async function leftOutNow(plan, done) {
+  const want = [...new Set((plan.leftOut || []).map((l) => l.dir))];
+  const had = new Set(Array.isArray(done.leftOut) ? done.leftOut : []);
+  const ok = [];
+  const bad = [];
+  for (const d of had) if (!want.includes(d)) bad.push({ dir: d, why: 'apply left it out of the copy, and the plan does not say so any more' });
+  const checkouts = plan.repos.flatMap((r) => [r.from, ...(r.worktrees || []).map((w) => w.from)]);
+  for (const d of want) {
+    const l = plan.leftOut.find((x) => x.dir === d);
+    if (!had.has(d)) {
+      bad.push({ dir: d, why: 'the plan names it as left out, but apply did not leave it out' });
+      continue;
+    }
+    const st = fs.lstatSync(d, { throwIfNoEntry: false });
+    if (!st || !st.isDirectory()) {
+      bad.push({ dir: d, why: 'it is not a folder there any more' });
+      continue;
+    }
+    if (!(await withoutAWord(d, { repos: checkouts, isDir: true }))) {
+      bad.push({ dir: d, why: 'git no longer ignores it as a whole as installed packages or build output' });
+      continue;
+    }
+    const holder = holderOf(d, checkouts);
+    const tracked = holder ? await gitRead(holder, ['ls-files', '-z', '--', `:(literal)${path.relative(holder, d).split(path.sep).join('/')}`], { timeout: 60_000 }) : null;
+    if (!tracked || !tracked.ok || tracked.stdout) {
+      bad.push({ dir: d, why: tracked && tracked.ok ? 'git tracks a file in it now' : 'git could not say whether it tracks a file in it' });
+      continue;
+    }
+    const sz = sizeOf(d);
+    if (sz.repo) {
+      bad.push({ dir: d, why: 'it holds a repository of its own now' });
+      continue;
+    }
+    ok.push({ dir: d, bytes: sz.bytes, files: sz.files, remake: l.remake ?? null, at: path.join(plan.to, path.dirname(leftAt(plan, d))) });
+  }
+  return { ok, bad };
+}
+
+/** A size in plain words, and the count of files. */
+const sizeWords = (l) => `${l.bytes < 1e6 ? `${Math.max(1, Math.round(l.bytes / 1e3))} KB` : l.bytes < 1e9 ? `${(l.bytes / 1e6).toFixed(1)} MB` : `${(l.bytes / 1e9).toFixed(1)} GB`}, ${l.files} file${l.files === 1 ? '' : 's'}`;
+export const LEFT_HEAD = 'These were not copied (installed packages or build output that git ignores): they are removed with the old folder, and made again in the new place by their command:';
+/** One such folder in retire's words. */
+export const leftWords = (l) => `${l.dir} (${sizeWords(l)}): not copied, removed with the old folder; ${l.remake ? `make it again with ${l.remake} in ${l.at}` : `the project's own build or install makes it again in ${l.at}`}`;
 
 /**
  * What retire would remove and what stays. → { go: [path], keep: { path: [private folders kept in it, as bytes] }, stay:
@@ -140,6 +194,7 @@ export async function retirePlan(name, { projects }) {
   const plan = readPlan(name, { projects });
   const now = await fingerprint(plan.from, plan.repos); // as it is now: the page's sheet is bound to it
   const changed = now !== done.fingerprint;
+  const left = await leftOutNow(plan, done);
   const cs = copies(plan);
   const go = cs.filter((c) => c.kind !== 'private').map((c) => c.from);
   const keep = Object.fromEntries(go.map((g) => [g, privatesBelow(g)]).filter(([, k]) => k.length));
@@ -150,18 +205,18 @@ export async function retirePlan(name, { projects }) {
   ];
   // A parent in the layout that is a repository: its own history was not copied, so it stays.
   if (!plan.repos.some((r) => r.from === plan.from) && fs.existsSync(path.join(plan.from, '.git'))) stay.push({ path: path.join(plan.from, '.git'), why: 'the old folder\'s own git history: the new project has a history of its own, so this one stays' });
-  for (const c of cs) if (!fs.existsSync(c.to)) return { go: [], keep: {}, stay, changed, fingerprint: now, missing: c.to, plan };
+  for (const c of cs) if (!fs.existsSync(c.to)) return { go: [], keep: {}, stay, changed, fingerprint: now, leftOut: left.ok, leftBad: left.bad, missing: c.to, plan };
   // A copy that borrows objects from a store outside the new folder breaks when that store goes.
   const inNew = (b) => b === plan.to || b.startsWith(plan.to + path.sep);
   for (const c of cs.filter((x) => x.kind === 'repo')) {
     const out = borrowedStores(c.to).find((b) => !inNew(b));
-    if (out) return { go: [], keep: {}, stay, changed, fingerprint: now, borrows: { copy: c.to, store: out }, plan };
+    if (out) return { go: [], keep: {}, stay, changed, fingerprint: now, leftOut: left.ok, leftBad: left.bad, borrows: { copy: c.to, store: out }, plan };
   }
   // Another project's repository that borrows from an original's store (a clone --shared of it) breaks when it goes.
   const stores = cs.filter((x) => x.kind === 'repo').map((x) => commonDir(x.from)).filter(Boolean).map((d) => path.join(d, 'objects'));
   const borrowedBy = borrowersIn(path.dirname(plan.from), plan.from, stores);
-  if (borrowedBy.length) return { go: [], keep: {}, stay, changed, fingerprint: now, borrowedBy, plan };
-  return { go, keep, stay, changed, fingerprint: now, plan };
+  if (borrowedBy.length) return { go: [], keep: {}, stay, changed, fingerprint: now, leftOut: left.ok, leftBad: left.bad, borrowedBy, plan };
+  return { go, keep, stay, changed, fingerprint: now, leftOut: left.ok, leftBad: left.bad, plan };
 }
 
 export const COMPARES = 'Before anything goes, Hoprig compares each of them with its copy again: every commit, branch, tag, stash entry, worktree and working file.';
@@ -171,6 +226,7 @@ export function refusalWords(name, r) {
   if (r.missing) return `${r.missing} (its copy) is not there: nothing is removed`;
   if (r.borrows) return `${r.borrows.copy} borrows objects from ${r.borrows.store}, outside the project: its history would break without it, so nothing is removed`;
   if (r.borrowedBy) return `${r.borrowedBy[0].repo} borrows objects from ${r.borrowedBy[0].store}, an original that would go: its history would break, so nothing is removed. In it, run git repack -a -d, then remove its .git/objects/info/alternates, and retire again`;
+  if (r.leftBad && r.leftBad.length) return `${r.leftBad.map((b) => `${b.dir}: ${b.why}`).join('; ')}. Apply left it out of the copy, so nothing is removed: retire goes on only while each folder left out is as it was when the project was arranged`;
   if (r.changed) return `${r.plan.from} changed since it was copied (a file, a commit or a branch), so its copy may not hold everything: nothing is removed. Look with hoprig adopt verify ${name}`;
   return null;
 }
@@ -179,6 +235,7 @@ export function refusalWords(name, r) {
 export function retireLines(r) {
   const out = ['These originals would be removed (their copies are in the project):'];
   for (const g of r.go) out.push(`  ${g}${r.keep[g] ? `  (all but the private folder${r.keep[g].length === 1 ? '' : 's'} in it)` : ''}`);
+  if (r.leftOut && r.leftOut.length) out.push(LEFT_HEAD, ...r.leftOut.map((l) => `  ${leftWords(l)}`));
   out.push(SHARED_WORDS, COMPARES);
   if (r.stay.length) out.push('These stay:');
   for (const s of r.stay) out.push(`  ${s.path}: ${s.why}`);
@@ -202,7 +259,10 @@ export async function retireProject(name, { projects, ask = null, say = () => {}
   const done = readDone(name);
   const pairs = (done.copies || []).map((c) => [c.from, c.to]);
   if (!pairs.length) for (const c of copies(r.plan)) pairs.push([c.from, c.to]);
-  const again = await recheck({ root: r.plan.from, go: r.go, pairs });
+  // The folders left out, asked again right before anything goes (the name may have been typed minutes later).
+  const left = await leftOutNow(r.plan, done);
+  if (left.bad.length) return { ok: false, removed: [], words: refusalWords(name, { ...r, leftBad: left.bad }) };
+  const again = await recheck({ root: r.plan.from, go: r.go, pairs, leave: new Set(left.ok.map((l) => l.dir)) });
   say(again.words);
   if (!again.ok) return { ok: false, removed: [], words: again.words, counts: again.counts };
   const removed = [];

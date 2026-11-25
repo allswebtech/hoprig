@@ -4,9 +4,9 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { capture, detectPackageManager, isRoot, npmArgv, showCommand, which } from '../setup/system.mjs';
-import { KITS, askingInstall, itemHere, kitById, kitCovered } from './kits.mjs';
-import { refreshPath } from '../setup/winpath.mjs';
+import { capture, detectPackageManager, isRoot, npmArgv, showCommand, which, wingetState } from '../setup/system.mjs';
+import { KITS, PY_INSTALL, askingInstall, itemHere, kitById, kitCovered, noDesktop } from './kits.mjs';
+import { pathNow } from '../setup/winpath.mjs';
 import { kitsBlockHas } from '../setup/localbin.mjs';
 import { isDir, workspaceDir } from '../workspace/layout.mjs';
 import { findNvm } from './devplaces.mjs';
@@ -30,12 +30,18 @@ export async function sysFacts(over = {}) {
   const env = over.env || process.env;
   const platform = over.platform || process.platform;
   // Windows: every look starts from the Path the system has now (winpath.mjs), so a program installed since this
-  // process started (by pc setup, or by hand while the dashboard runs) is found. Tests hand in their own refresh.
-  const refresh = over.refreshPath || (platform === 'win32' && process.platform === 'win32' && !over.has ? refreshPath : null);
+  // process started (by pc setup, or by hand while the dashboard runs) is found. A process that looks often (the
+  // dashboard) reads the registry at most once a minute (pathNow), and always after an install it ran (refreshPath
+  // below, forced). `registry`: the run that reads it (tests hand in a made-up one, so Windows' answers are given on
+  // any system); without one the registry is read only on Windows itself. Tests may hand in their own refresh too.
+  const reads = platform === 'win32' && (over.registry || (process.platform === 'win32' && !over.has));
+  const refresh = over.refreshPath || (reads ? (e, o = {}) => pathNow(e, { run: over.registry || undefined, ...(over.clock ? { now: over.clock() } : {}), ...o }) : null);
   if (refresh) await refresh(env);
   const has = over.has || ((cmd) => !!which(cmd, env, platform));
   const run = over.run || ((argv, o) => capture(argv, { env, timeout: 15_000, ...o }));
-  let pm = over.pm !== undefined ? over.pm : platform === 'win32' ? (has('winget') ? 'winget' : null) : detectPackageManager(platform, has);
+  // Windows: winget counts only when it starts (`winget --version` ran): a registered one may not (spawn EACCES).
+  const winget = platform !== 'win32' ? null : over.winget || (over.pm !== undefined ? { here: over.pm === 'winget', starts: over.pm === 'winget', version: null, why: '' } : await wingetState({ has, run, env }));
+  let pm = over.pm !== undefined ? over.pm : platform === 'win32' ? (winget.starts ? 'winget' : null) : detectPackageManager(platform, has);
   if (pm === 'brew' && platform !== 'darwin') pm = null;
   let dnf5 = over.dnf5;
   if (dnf5 === undefined && pm === 'dnf') dnf5 = /dnf5|^5\./m.test((await run(['dnf', '--version'])).stdout);
@@ -50,7 +56,7 @@ export async function sysFacts(over = {}) {
     ws,
     nvm: over.nvm !== undefined ? over.nvm : platform === 'win32' ? null : findNvm({ env, home, ws, exists }),
     blockHas: over.blockHas || ((line) => kitsBlockHas(line, { home, shell: env.SHELL || '', platform })),
-    env, platform, has, run, pm, dnf5: Boolean(dnf5), clt: clt !== false,
+    env, platform, has, run, pm, winget, dnf5: Boolean(dnf5), clt: clt !== false,
     root: over.root ?? isRoot(),
     user: over.user ?? safeUser(),
     arch: over.arch || process.arch,
@@ -62,7 +68,7 @@ export async function sysFacts(over = {}) {
     // Where a program on PATH is, and the names in a folder ([] when it cannot be read): tests pass their own.
     which: over.which || ((cmd) => which(cmd, env, platform)),
     // Read the system's Path again (after an install): the folders added, [] when none.
-    refreshPath: refresh ? () => refresh(env) : async () => [],
+    refreshPath: refresh ? () => refresh(env, { force: true }) : async () => [],
     // Where a link leads in the end (java on PATH is often /usr/bin/java → /usr/lib/jvm/<jdk>/bin/java), or null.
     realpath: over.realpath || ((p) => {
       try {
@@ -194,8 +200,16 @@ export async function detectWinPython(item, sys) {
     if (STORE_STUB.test(`${r.stdout || ''}${r.stderr || ''}`) || r.code === 9009) stub = true;
     else if (cmd === 'python' && !r.ok && !sys.has('py')) return { state: 'missing', version: null, detail: tail(r) };
   }
+  // The install manager without a Python (its last step left to the person): what is here, what is not, the next step.
+  if (sys.has('pymanager')) return { state: 'missing', version: null, detail: item.id === 'python' ? pyNext(sys.env) : 'comes with Python itself, which is not installed yet (see python3)' };
   return { state: 'missing', version: null, detail: stub ? "only Windows' stand-in python is here: it opens the Microsoft Store and runs nothing" : '' };
 }
+
+/**
+ * Windows, the Python install manager here and no Python yet: what a person reads, with the one next step. Without a
+ * desktop (kits.mjs noDesktop) that step is the person's, in a window of their own; with one, pc setup runs it.
+ */
+export const pyNext = (env = {}) => `only the Python install manager is here: Python itself, pip and venv are not installed yet. Next: ${noDesktop(env) ? `in a PowerShell window of your own on this computer, run ${showCommand(PY_INSTALL)}, then hoprig pc setup again` : `hoprig pc setup installs it (${showCommand(PY_INSTALL)})`}`;
 
 /** Every item of the given kits: { kitId: [result] }. Items run in parallel. */
 export async function detectKits(sys, kitIds = KITS.map((k) => k.id)) {

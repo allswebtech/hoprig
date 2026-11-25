@@ -9,7 +9,7 @@
 //                            retireProject then reads everything again, removes nothing when it is not what the sheet
 //                            showed, when the original changed or when the copy lacks anything
 import crypto from 'node:crypto';
-import { refusalWords, retireLines, retirePlan, retireProject } from './retire.mjs';
+import { LEFT_HEAD, leftWords, refusalWords, retireLines, retirePlan, retireProject } from './retire.mjs';
 
 export const TICKET_MS = 10 * 60_000;
 export const NO_UNDO = 'There is no undo: nothing can bring these folders back from Hoprig. The copy in your workspace stays as it is.';
@@ -19,7 +19,7 @@ const TICKET_RE = /^[0-9a-f]{64}$/;
 /** What the sheet showed, as one id: the original's fingerprint as retire reads it, and what goes and what stays. */
 export function sheetKey(r) {
   const keep = Object.entries(r.keep || {}).map(([g, list]) => [g, list.map((b) => b.toString('hex'))]);
-  return crypto.createHash('sha256').update(JSON.stringify([r.fingerprint, r.go, keep, r.stay])).digest('hex');
+  return crypto.createHash('sha256').update(JSON.stringify([r.fingerprint, r.go, keep, r.stay, (r.leftOut || []).map((l) => l.dir)])).digest('hex');
 }
 
 /** The page's retire. `projects()`: the projects folder; `tilde(text)`: paths as ~ for the page; `now()` for tests. */
@@ -41,6 +41,8 @@ export function pageRetire({ projects, tilde: tildeOf = (s) => s, now = () => Da
       lines: no ? [] : retireLines(r).map(tilde),
       go: r.go.map((g) => ({ path: tilde(g), keeps: (r.keep[g] || []).length })),
       stay: r.stay.map((s) => ({ path: tilde(s.path), why: s.why })),
+      // Not copied, removed with the old folder, made again by their command: said on the sheet before the press.
+      leftOut: no ? [] : (r.leftOut || []).map((l) => ({ path: tilde(l.dir), bytes: l.bytes, files: l.files, remake: l.remake, at: tilde(l.at), words: tilde(leftWords(l)) })), leftHead: LEFT_HEAD,
     };
     if (!no && r.go.length) {
       sweep();

@@ -30,8 +30,11 @@ fs.mkdirSync(SHOP, { recursive: true });
 fs.mkdirSync(path.dirname(configFile()), { recursive: true });
 fs.mkdirSync(stateDir(), { recursive: true });
 
+// Hands-off is not offered on Windows (src/launch.mjs gives no PreToolUse hook there), so this file has nothing to
+// run on Windows.
+const POSIX = { skip: process.platform === 'win32' ? 'the wall\'s shell-gated PreToolUse hook is never installed on Windows' : false };
 const settings = hookSettings({ offered: true, version: '2.1.330' });
-const preCmd = settings.hooks.PreToolUse[0].hooks[0].command;
+const preCmd = POSIX.skip ? '' : settings.hooks.PreToolUse[0].hooks[0].command;
 const mark = path.join(stateDir(), 'handsoff-active');
 // Run the installed PreToolUse command exactly as Claude Code's shell runs it, with the session's run file in the env.
 const decision = (file, command) => {
@@ -50,12 +53,12 @@ const start = () => {
   return file;
 };
 
-test('the PreToolUse command is gated by a cheap test on the state-folder marker, not a per-run .handsoff mark', () => {
+test('the PreToolUse command is gated by a cheap test on the state-folder marker, not a per-run .handsoff mark', POSIX, () => {
   assert.ok(preCmd.startsWith('if [ -e "${HOPRIG_RUN_FILE%/runs/*}/handsoff-active" ]; then '), preCmd);
   assert.doesNotMatch(preCmd, /\.handsoff/); // no per-run mark that a session could move or delete
 });
 
-test('a session started after the project switch is on is held — the marker is present (finding 1)', () => {
+test('a session started after the project switch is on is held — the marker is present (finding 1)', POSIX, () => {
   switchOn(true); setMarker(true); // turning the project switch on writes the marker (server/handsoff.mjs)
   const file = start();
   assert.equal(fs.existsSync(`${file}.handsoff`), false, 'no per-run mark is written');
@@ -74,7 +77,7 @@ test('the session cannot switch the wall off by removing the marker (findings 3,
   assert.ok(held(`mv ${mark} /tmp/x`), 'moving the marker away is held');
 });
 
-test('the hook is the authority: with the marker present but the switch off (or stale) it holds nothing', () => {
+test('the hook is the authority: with the marker present but the switch off (or stale) it holds nothing', POSIX, () => {
   setMarker(true); // the marker only decides whether to START the hook; the config decides whether to hold
   switchOn(false);
   const file = start();

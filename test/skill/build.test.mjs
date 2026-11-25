@@ -102,7 +102,7 @@ test('the hoprig-skill package carries the generated skill, Hoprig\'s version an
   assert.equal(pkg.version, version);
   assert.equal(pkg.name, 'hoprig-skill');
   assert.deepEqual(pkg.dependencies, undefined, 'no dependency');
-  assert.equal(pkg.engines.node, '>=22.11', 'the lowest Node.js Hoprig supports (src/nodefloor.mjs)');
+  assert.equal(pkg.engines.node, '>=24.13.1','the lowest Node.js Hoprig supports (src/nodefloor.mjs)');
   assert.equal(built['packages/hoprig-skill/skill/SKILL.md'], built['templates/skills/hoprig/SKILL.md']);
   assert.equal(built['packages/hoprig-skill/LICENSE'], fs.readFileSync(path.join(ROOT, 'LICENSE'), 'utf8'));
 });

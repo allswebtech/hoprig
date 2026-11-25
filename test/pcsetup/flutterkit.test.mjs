@@ -170,6 +170,7 @@ const refusals = (archive) => ({
   'http in the list': { routes: { [LIST]: { body: listFor(archive, (l) => (l.base_url = `http://${FLUTTER.host}/flutter_infra_release/releases`)) } }, why: /is not https/ },
   'a redirect to another host': { routes: { [LIST]: { body: listFor(archive) }, [ARCHIVE]: { status: 302, headers: { location: 'https://example.com/flutter.tar.xz' } } }, why: /sent the download on to example\.com/ },
   'a redirect to http': { routes: { [LIST]: { body: listFor(archive) }, [ARCHIVE]: { status: 302, headers: { location: `http://${FLUTTER.host}${ARCHIVE}` } } }, why: /which is not its own host over https/ },
+  'a redirect on the host, outside its folder': { routes: { [LIST]: { body: listFor(archive) }, [ARCHIVE]: { status: 302, headers: { location: `https://${FLUTTER.host}/somewhere/else/flutter.tar.xz` } } }, why: /outside \/flutter_infra_release\/releases\/ on storage\.googleapis\.com: refused/ },
   'an archive entry with ..': { bad: [...SDK, { name: 'flutter/../../evil', type: 'file', data: 'x' }], why: /a path with \.\.|an absolute path or a \.\. in a name/ },
   'an archive entry with an absolute path': { bad: [...SDK, { name: '/tmp/evil', type: 'file', data: 'x' }], why: /an absolute path/ },
   'an archive link that points outside': { bad: [...SDK, { name: 'flutter/out', type: 'link', link: '../../../..' }], why: /a link that points outside/ },

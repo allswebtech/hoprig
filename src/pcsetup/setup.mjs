@@ -10,10 +10,10 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { capture, forThisUser, osName, showCommand, stream } from '../setup/system.mjs';
+import { capture, forThisUser, osName, showCommand, stream, wingetWords } from '../setup/system.mjs';
 import { bold, dim, yours } from '../setup/ui.mjs';
 import { detectKits, preselect, sysFacts } from './detect.mjs';
-import { KITS, KIT_IDS, PY_INSTALL, afterText, buildPlan, kitById, kitCovered, sshSession, stepLine } from './kits.mjs';
+import { KITS, KIT_IDS, PY_INSTALL, afterText, buildPlan, kitById, kitCovered, noDesktop, sshSession, stepLine } from './kits.mjs';
 import { progressWords, runInside } from './devinstall.mjs';
 import { brokenText, javaHomeText } from './java.mjs';
 import { extraSteps, optionalExtras } from './optional.mjs';
@@ -68,7 +68,9 @@ export function formatKits(found, chosen, extras = null, { personal = false } = 
     const mark = miss.length ? (kit.defaultOn ? '✗' : '·') : old.length ? '!' : '✓';
     const have = items.filter((i) => i.state === 'ok' || i.state === 'offpath').map((i) => `${i.name}${i.version ? ` ${i.version}` : ''}`).join(', ');
     const own = personal && miss.length && miss.every((i) => PERSONAL[i.id]);
-    const pick = chosen.includes(kit.id) && miss.length ? bold(own ? ' ← yours to do (listed at the end)' : ' ← will set up') : '';
+    // An item that is only found, never installed (Android Studio), is not "will set up".
+    const due = miss.filter((i) => !(kit.items.find((x) => x.id === i.id) || {}).foundOnly);
+    const pick = chosen.includes(kit.id) && due.length ? bold(own ? ' ← yours to do (listed at the end)' : ' ← will set up') : '';
     lines.push(`  ${mark} ${bold(kit.title)}${opt}${miss.length ? `: missing ${miss.map((i) => i.name).join(', ')}` : ''}${old.length ? `${miss.length ? ';' : ':'} old ${old.map((i) => `${i.name} ${i.version}`).join(', ')}` : ''}${have ? dim(`  (${have})`) : ''}${pick}`);
     for (const i of items) if (i.detail && i.state === 'ok' && !kit.defaultOn) lines.push(`      ${dim(`${i.name}: ${i.detail}`)}`);
     if (!extras) continue;
@@ -369,6 +371,9 @@ export async function runPcSetup({ ui, yes = false, dryRun = false, kits = null,
     plan.steps.push(...ownSteps);
     plan.admin = plan.admin || ownSteps.some((x) => x.admin);
   }
+  // Windows: winget registered but not starting (or not here) is said once, with why and what to do, before each item
+  // it would have installed names its own installer.
+  if (sys.platform === 'win32' && sys.winget && !sys.winget.starts && plan.cannot.length) ui.line('warn', wingetWords(sys.winget));
   for (const c of plan.cannot) ui.line('warn', `${c.name} (${kitById(c.kit).title}): ${c.why || 'no way to install it here automatically'}`);
   // The owner's own steps of a chosen kit (packages that need administrator rights): shown with the command, never run.
   for (const y of yourSteps(chosen, found, sys)) {
@@ -413,6 +418,10 @@ export async function runPcSetup({ ui, yes = false, dryRun = false, kits = null,
     if (go) results = await runSteps(plan.steps, { ui, interactive: ui.interactive, runner, onStep, get, signal, stopOn });
     else if (!ui.dryRun) ui.note('Nothing installed.');
   }
+  // On Windows the Path is read again from the system right after the installs: what was just installed (gh for the
+  // GitHub sign-in below, npm for the coding tools, every kit in the summary) is found in this same run, and by a
+  // dashboard that runs this, in its own process from now on.
+  if (results.some((x) => x.ok) && sys.refreshPath) await sys.refreshPath();
   // A stop (Ctrl-C, a kill) ends the run here: nothing more is installed, asked or cloned.
   if (results.some((x) => x.stopped)) {
     ui.out(`\n${bold('Stopped')}  ${dim('run it again when you want it: hoprig pc setup')}`);
@@ -470,9 +479,7 @@ export async function runPcSetup({ ui, yes = false, dryRun = false, kits = null,
     }
     if (proj.cloned.length) changed = true;
   }
-  // Summary: what is ready, what failed (with the exact command to retry), what needs a new shell or login. On
-  // Windows the Path is read again from the system first: what was just installed is found in this same run.
-  if (results.some((x) => x.ok) && sys.refreshPath) await sys.refreshPath();
+  // Summary: what is ready, what failed (with the exact command to retry), what needs a new shell or login.
   const after = await detectKits(sys, chosen);
   ui.out(`\n${bold(ui.dryRun ? 'Dry run: nothing was changed' : 'Done')}`);
   // Set-up's own extra steps (lingering) say what came of them themselves (setup/linger.mjs lingerOutcome): no retry
@@ -480,15 +487,26 @@ export async function runPcSetup({ ui, yes = false, dryRun = false, kits = null,
   const own = results.filter((x) => !ownSteps.includes(x.step));
   const failed = own.filter((x) => !x.ok);
   const missing = [];
+  // Windows: installed now, and still not found with the system's own Path: Windows shows it to programs only after a
+  // new sign-in.
+  // Only a kit whose every step went through: one with a failed step shows that failure and its retry line, and a new
+  // sign-in would not help it.
+  const allOk = (k) => results.some((x) => x.step.kit === k) && results.filter((x) => x.step.kit === k).every((x) => x.ok);
+  // Python in a session without a desktop (SSH, a service, a scheduled task): the install manager is there, Python is
+  // not, and the last step is the person's, in a window of their own.
+  const pyLeft = sys.platform === 'win32' && chosen.includes('python') && noDesktop(sys.env) && allOk('python') && (after.python || []).some((i) => i.state === 'missing');
   for (const k of chosen) {
     const kit = kitById(k);
     if (!kitCovered(kit, sys.platform)) continue;
-    const miss = (after[k] || []).filter((i) => i.state === 'missing');
+    // An item that is only found (Android Studio) is not "still missing": where to get it was said before the yes.
+    const only = (i) => (kit.items.find((x) => x.id === i.id) || {}).foundOnly;
+    const miss = (after[k] || []).filter((i) => i.state === 'missing' && !only(i));
     missing.push(...miss.map((i) => `${k}.${i.id}`));
     // What is in the closing list already is not said here again.
     const said = miss.filter((i) => !(personal && PERSONAL[i.id] && ui.todos.has(PERSONAL[i.id])));
     if (said.length < miss.length && !said.length) continue;
-    ui.line(said.length ? 'warn' : 'ok', `${kit.title}: ${said.length ? `still missing ${said.map((i) => i.name).join(', ')}` : 'ready'}`);
+    const what = k === 'python' && pyLeft ? 'the Python install manager is installed; Python itself, pip and venv are not there yet (the step left is below)' : `still missing ${said.map((i) => i.name).join(', ')}`;
+    ui.line(said.length ? 'warn' : 'ok', `${kit.title}: ${said.length ? what : 'ready'}`);
     // A kit with a service (MariaDB) says its sentence and start commands only when the service was installed now.
     const service = results.some((x) => x.ok && x.step.kit === k && x.step.items.includes('mariadb'));
     if (kit.after && results.some((x) => x.ok && x.step.kit === k) && (!kit.start || service)) {
@@ -510,15 +528,10 @@ export async function runPcSetup({ ui, yes = false, dryRun = false, kits = null,
     if (ui.todo) ui.todo('terminal');
     else ui.note('Open a new terminal (or log in again) so every new program is found.');
   }
-  // Windows: installed now, and still not found with the system's own Path: Windows shows it to programs only after a
-  // new sign-in.
-  // Only a kit whose every step went through: one with a failed step shows that failure and its retry line, and a new
-  // sign-in would not help it.
-  const allOk = (k) => results.some((x) => x.step.kit === k) && results.filter((x) => x.step.kit === k).every((x) => x.ok);
-  const pyLeft = sys.platform === 'win32' && chosen.includes('python') && sshSession(sys.env) && allOk('python') && (after.python || []).some((i) => i.state === 'missing');
   const unseen = sys.platform === 'win32' ? chosen.filter((k) => !(k === 'python' && pyLeft) && allOk(k) && (after[k] || []).some((i) => i.state === 'missing')) : [];
-  // In an SSH session the install manager only updates itself: the last step is the person's, in a window of their own.
-  if (pyLeft) ui.note(`Python: one step is left, and it cannot be done over SSH. On that computer, in a window of your own (PowerShell from the Start menu), run:\n    ${showCommand(PY_INSTALL)}\n  Then run hoprig pc setup again: it looks once more.`);
+  // Without a desktop the install manager only updates itself: the last step is the person's, in a window of their own.
+  const where = sshSession(sys.env) ? 'over SSH' : 'in a session without a desktop (a service, a scheduled task or a remote shell)';
+  if (pyLeft) ui.note(`Python: the Python install manager is installed; Python itself, pip and venv are not there yet. The one step left cannot be done ${where}. On that computer, in a window of your own (PowerShell from the Start menu), run:\n    ${showCommand(PY_INSTALL)}\n  Then run hoprig pc setup again: it looks once more.`);
   if (unseen.length) ui.note(`${unseen.map((k) => kitById(k).title).join(', ')}: installed, but Windows shows ${unseen.length > 1 ? 'them' : 'it'} to programs only after you sign out of Windows and sign in again (or restart the computer). Then run hoprig pc setup again: it checks once more.`);
   if (hold && ui.interactive) await ui.ask('\nPress Enter to close. ');
   const code = failed.length || (proj && proj.failed.length) || toolsFailed.length ? 1 : 0;

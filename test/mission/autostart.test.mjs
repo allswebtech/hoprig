@@ -254,6 +254,36 @@ test('Tia at "Ask me": Auto starts nothing (each start of hers is his card first
   said.splice(0);
 });
 
+test('a busy computer: Auto starts nothing and says once in Activity that a ready task waits; calm again, it starts', async () => {
+  cfg.missions = structuredClone(ON);
+  const id = await add({ title: 'A note for a calm hour', note: 'DO:slow\nFiles: calm.md' });
+  await changeDoc(place().file, (doc) => {
+    doc.items = [...doc.items.filter((x) => x.id === id), ...doc.items.filter((x) => x.id !== id)];
+  });
+  let machine = { cpus: 4, load1: 8.04 };
+  let clock = Date.parse('2026-11-25T10:00:00Z');
+  const logs = [];
+  const e = engineOf({ machine: () => machine, now: () => new Date(clock), log: (l) => logs.push(l) });
+  const n = autos().length;
+  said.splice(0);
+  for (let i = 0; i < 3; i++) await e.tick();
+  assert.equal(autos().length, n, 'nothing starts on a busy computer');
+  const line = 'Tia (Auto) waits with "A note for a calm hour" in shop: this computer is overloaded (load 8.0 on 4 CPUs)';
+  assert.deepEqual(said.map((a) => a.did), [line], 'said once, not at every look');
+  assert.deepEqual(logs, ['Auto starts nothing: this computer is overloaded (load 8.0 on 4 CPUs)']);
+  clock += 59 * 60_000;
+  await e.tick();
+  assert.equal(said.length, 1, 'not again within the hour');
+  clock += 60_000;
+  await e.tick();
+  assert.equal(said.length, 2, 'again after an hour while it lasts');
+  machine = { cpus: 4, load1: 0.5 };
+  await e.tick();
+  assert.equal(autos().filter((x) => x.tasks[0].id === id).length, 1, 'calm again: it starts');
+  await endAll(e);
+  said.splice(0);
+});
+
 test('two looks at once (two dashboards of this computer) start a ready task once', async () => {
   cfg.missions = structuredClone(ON);
   const id = await add({ title: 'A twice-looked note', note: 'DO:slow\nFiles: twice.md' });

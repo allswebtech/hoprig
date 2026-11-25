@@ -117,7 +117,7 @@ test('nothing offers the demo command to someone who has not installed: it exist
   assert.doesNotMatch(read('site/lib/seo.mjs'), /Just looking/);
 });
 
-test('the Node.js versions: the floor is 22.11, and the versions named are the ones the tests run on', () => {
+test('the Node.js versions: the floor is 24.13.1, and the versions named are the ones the tests run on', () => {
   const { MIN_NODE_TEXT } = await_floor;
   const ready = section('How ready is it?');
   assert.ok(ready.includes(`Hoprig needs Node.js ${MIN_NODE_TEXT} or newer, and the install adds it.`), ready);

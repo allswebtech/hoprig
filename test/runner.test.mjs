@@ -90,12 +90,12 @@ test('below the lowest Node.js Hoprig supports the runner says so in one line an
     c.on('error', reject);
     c.on('close', (code) => resolve({ code, out }));
   });
-  for (const v of ['22.0.0', '22.10.9']) {
+  for (const v of ['22.11.0', '24.13.0']) {
     const r = await play(v);
     assert.equal(r.code, 1, r.out);
-    assert.equal(r.out, `The tests need Node.js 22.11 or newer, the lowest Hoprig supports; this is Node.js ${v}. Run them with a newer Node.js.\n`);
+    assert.equal(r.out, `The tests need Node.js 24.13.1 or newer, the lowest Hoprig supports; this is Node.js ${v}. Run them with a newer Node.js.\n`);
   }
-  for (const v of ['22.11.0', '24.1.0']) {
+  for (const v of ['24.13.1', '26.1.0']) {
     const r = await play(v);
     assert.equal(r.code, 0, r.out);
     assert.equal(total(r.out), 1, v);

@@ -132,6 +132,25 @@ async function story() {
   }
 }
 
+// A message about a ticket: a made-up MCP server "tickets" asks you which project it goes to (an MCP question, as
+// Claude Code passes one on: src/chat/mcpask.mjs), and the reply says what it got.
+async function ticket() {
+  await assistant([{ type: 'text', text: 'I will open the ticket with the tickets server. It asks you a question first.' }]);
+  const rid = `mcp-${++calls}`;
+  out({ type: 'control_request', request_id: rid, request: {
+    subtype: 'elicitation', mcp_server_name: 'tickets', mode: 'form', elicitation_id: `e${calls}`,
+    message: 'Which project should the new ticket go to?',
+    requested_schema: { type: 'object', required: ['project'], properties: {
+      project: { type: 'string', title: 'Project', enum: ['shop-frontend', 'api-server'] },
+      urgent: { type: 'boolean', title: 'Mark it urgent' },
+    } },
+    property_order: ['project', 'urgent'],
+  } });
+  const answer = await new Promise((resolve) => waiting.set(rid, resolve));
+  const project = answer && answer.action === 'accept' && answer.content ? answer.content.project : null;
+  await assistant([{ type: 'text', text: project ? `The ticket is in ${project}.` : 'You declined, so no ticket was opened.' }]);
+}
+
 let busy = false;
 const queue = [];
 async function pump() {
@@ -142,7 +161,9 @@ async function pump() {
     init();
     if (replay) out({ type: 'user', message: { role: 'user', content: m.content }, parent_tool_use_id: null, session_id: sessionId, uuid: m.uuid, isReplay: true });
     record('user', m.content, m.uuid ? { uuid: m.uuid } : {});
+    const said = m.content.map((c) => c.text || '').join(' ');
     if (told++ === 0 && storyHere()) await story();
+    else if (/\bticket\b/i.test(said)) await ticket();
     else await assistant([{ type: 'text', text: '(demo) This chat talks to no model. In a real chat, Claude Code answers here.' }]);
     result();
   }

@@ -97,7 +97,7 @@ test('with default settings nothing of drop runs by itself: a dashboard start an
   const wasWs = process.env.HOPRIG_WORKSPACE_DIR;
   process.env.HOPRIG_WORKSPACE_DIR = A.ws;
   const app = createServer({ dashboardFile: false });
-  await app.listen(Number(process.env.DROP_QUIET_PORT || 8061), '127.0.0.1');
+  await app.listen(Number(process.env.DROP_QUIET_PORT || 0), '127.0.0.1'); // a free port: two suites on one computer at the same moment must not meet
   const store = path.join(A.env.HOPRIG_STATE_DIR, 'automation', 'workspace.json');
   let ticked = false;
   try {

@@ -212,6 +212,22 @@ export function automationFeature(sctx, opts = {}) {
     ['GET', /^\/api\/updates\/log$/, async (req, m, q) => updater().log(Number(q && q.get('from')) || 0)],
     // Restart the dashboard to use a version just updated, without a terminal (updater.restart, selfrestart.mjs).
     ['POST', /^\/api\/updates\/restart$/, async () => updater().restart()],
+    // Health's "Restart the dashboard": the same restart at any time, from the owner's own page only (here, or a hub of
+    // his relayed with its page's mark), never Tia's door or a token; `confirm` names this computer, as a Fix's does.
+    ['POST', /^\/api\/health\/restart$/, async (req) => {
+      const { ownerPageOnly } = await import('../workspace/whomay.mjs');
+      const { tokenIdOf } = await import('../machines/index.mjs');
+      const { defaultHubLabel } = await import('../machines/hub.mjs');
+      try {
+        await ownerPageOnly(req, sctx, 'Restarting the dashboard from Health', { tokenId: tokenIdOf });
+      } catch (e) {
+        throw Object.assign(fail(403, e.message), { details: { code: 'owner-page' } });
+      }
+      const b = await readJson(req);
+      only(b, ['confirm']);
+      if (b.confirm !== defaultHubLabel()) throw fail(400, `confirm it for this computer: send confirm with its name (${defaultHubLabel()})`);
+      return updater().restart();
+    }],
     ['POST', /^\/api\/automation\/settings$/, async (req) => {
       const b = await readJson(req);
       return asBad(() => ({ settings: live().changeSettings(b) }));
@@ -244,7 +260,7 @@ export function automationFeature(sctx, opts = {}) {
     start() {
       // Work's runs that end by themselves (src/work/schedfeature.mjs), when the server has Work: `opts.work()` gives its hooks.
       const work = opts.work ? { alone: (s2, a) => opts.work().alone(s2, a), work: { itemRuns: () => opts.work().itemRuns(), startItem: (id) => opts.work().startItem(id), drain: () => opts.work().drain() } } : {};
-      auto = createAutomation(opts.ctx || { ...serverAdapter(sctx, { chat: opts.chat, ...(opts.log ? { log: opts.log } : {}) }), ...work, ...(opts.now ? { now: opts.now } : {}), ...(opts.updateItems ? { updateItems: opts.updateItems } : {}) });
+      auto = createAutomation(opts.ctx || { ...serverAdapter(sctx, { chat: opts.chat, ...(opts.log ? { log: opts.log } : {}) }), ...work, ...(opts.now ? { now: opts.now } : {}), ...(opts.updateItems ? { updateItems: opts.updateItems } : {}), ...(opts.restarter ? { restarter: opts.restarter } : {}) });
       if (opts.tick !== false) auto.start();
       return auto;
     },

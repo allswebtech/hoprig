@@ -69,7 +69,7 @@ export async function makeWorld(name, { groups = false, find = false, kits = fal
   const tmp = path.join(root, 'tmp');
   for (const d of [home, server, bin, tmp, path.join(server, 'alex'), path.join(server, 'team')]) fs.mkdirSync(d, { recursive: true });
   const gitcfg = path.join(root, 'gitconfig');
-  fs.writeFileSync(gitcfg, `[user]\n\tname = Test Dev\n\temail = dev@example.invalid\n[init]\n\tdefaultBranch = main\n[commit]\n\tgpgsign = false\n[url "${server}/"]\n\tinsteadOf = https://github.com/\n[protocol "file"]\n\tallow = always\n`);
+  fs.writeFileSync(gitcfg, `[user]\n\tname = Test Dev\n\temail = dev@example.invalid\n[init]\n\tdefaultBranch = main\n[commit]\n\tgpgsign = false\n[url "${String(server).replaceAll('\\', '/')}/"]\n\tinsteadOf = https://github.com/\n[protocol "file"]\n\tallow = always\n`);
   fs.writeFileSync(path.join(bin, 'gh'), `#!/bin/sh\nexec "${process.execPath}" "${FAKE_GH}" "$@"\n`, { mode: 0o755 });
   const env = {
     HOME: home, USERPROFILE: home, HOPRIG_CONFIG_DIR: path.join(home, '.config', 'hoprig'), HOPRIG_STATE_DIR: path.join(home, '.local', 'state', 'hoprig'),

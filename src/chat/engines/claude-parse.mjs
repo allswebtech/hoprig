@@ -18,6 +18,7 @@
 import { clipInput, clipText, plainText } from '../events.mjs';
 import { localNotice, localOutput, newTodos, ownMessage, todoStep, toolResults } from './claude-content.mjs';
 import { askWhy, ownerOnly, sessionGrant, settledByRule } from './claude-lines.mjs';
+import { mcpAsk } from '../mcpask.mjs';
 
 const KINDS = {
   Edit: 'edit', MultiEdit: 'edit', Write: 'edit', NotebookEdit: 'edit', Bash: 'shell', BashOutput: 'shell', KillShell: 'shell', Monitor: 'shell',
@@ -268,6 +269,8 @@ export class ClaudeParser {
         return [{ kind: 'limits', window: str(r.rateLimitType, 40) || 'unknown', status: str(r.status, 40), utilization: num(r.utilization), resetsAt: num(r.resetsAt) }];
       }
       case 'control_request':
+        // A question an MCP server asks the person (elicitation): a card of its own, answered only by him (mcpask.mjs).
+        if (m.request && m.request.subtype === 'elicitation' && m.request_id) return [mcpAsk(String(m.request_id), m.request)];
         return m.request && m.request.subtype === 'can_use_tool' && m.request_id ? [this.#ask(String(m.request_id), m.request)] : [];
       case 'control_cancel_request':
         return m.request_id ? [{ kind: 'ask-cancelled', request: String(m.request_id) }] : [];

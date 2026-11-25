@@ -16,7 +16,7 @@ const remotes = path.join(t.root, 'remotes');
 const bin = path.join(t.root, 'bin');
 fs.mkdirSync(remotes);
 fs.mkdirSync(bin);
-fs.appendFileSync(process.env.GIT_CONFIG_GLOBAL, `[url "${remotes}/"]\n\tinsteadOf = https://github.com/\n\tinsteadOf = git@github.com:\n[protocol "file"]\n\tallow = always\n`);
+fs.appendFileSync(process.env.GIT_CONFIG_GLOBAL, `[url "${String(remotes).replaceAll('\\', '/')}/"]\n\tinsteadOf = https://github.com/\n\tinsteadOf = git@github.com:\n[protocol "file"]\n\tallow = always\n`);
 const fakeGh = fileURLToPath(new URL('./fake-gh.mjs', import.meta.url));
 fs.writeFileSync(path.join(bin, 'gh'), `#!/bin/sh\nexec "${process.execPath}" "${fakeGh}" "$@"\n`, { mode: 0o755 });
 Object.assign(process.env, { PATH: `${bin}${path.delimiter}${process.env.PATH}`, FAKE_GH_ROOT: remotes, FAKE_GH_USER: 'alex', FAKE_GH_ORGS: 'team', HOPRIG_WORKSPACE_DIR: t.ws });

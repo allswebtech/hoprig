@@ -26,15 +26,18 @@ function cpError(code, message, dest) {
 }
 const taken = (dest) => cpError('ERR_FS_CP_EEXIST', `Target already exists: cp returned EEXIST (${shown(dest)} already exists)`, dest);
 
-/** Copy `from` to `to` (strings or Buffers). `times: false` leaves the copy's times as the copy made them. */
-export function copyTree(from, to, { times = true } = {}) {
+/**
+ * Copy `from` to `to` (strings or Buffers). `times: false` leaves the copy's times as the copy made them. `skip`: a Set
+ * of folders below `from` (absolute paths, as strings) that are not copied.
+ */
+export function copyTree(from, to, { times = true, skip = null } = {}) {
   const src = bytes(from);
   const dest = bytes(to);
   // A copy into itself would never end.
   if (dest.equals(src) || (dest.length > src.length && dest.subarray(0, src.length + SEP.length).equals(Buffer.concat([src, SEP])))) {
     throw cpError('ERR_FS_CP_EINVAL', `cannot copy ${shown(src)} to a subdirectory of self ${shown(dest)}`, dest);
   }
-  copyEntry(src, dest, times);
+  copyEntry(src, dest, times, skip && skip.size ? skip : null);
 }
 
 function setTimes(src, dest) {
@@ -43,14 +46,18 @@ function setTimes(src, dest) {
   fs.utimesSync(dest, now.atimeMs / 1000, now.mtimeMs / 1000);
 }
 
-function copyEntry(src, dest, times) {
+function copyEntry(src, dest, times, skip) {
   const st = fs.lstatSync(src);
   const special = !st.isDirectory() && !st.isSymbolicLink() && !st.isFile() && !st.isCharacterDevice() && !st.isBlockDevice();
   if (special) return; // a socket or a pipe: not copied
   if (fs.lstatSync(dest, { throwIfNoEntry: false })) throw taken(dest);
   if (st.isDirectory()) {
     fs.mkdirSync(dest);
-    for (const name of fs.readdirSync(src, { encoding: 'buffer' })) copyEntry(Buffer.concat([src, SEP, name]), Buffer.concat([dest, SEP, name]), times);
+    for (const name of fs.readdirSync(src, { encoding: 'buffer' })) {
+      const from = Buffer.concat([src, SEP, name]);
+      if (skip && skip.has(shown(from)) && fs.lstatSync(from).isDirectory()) continue;
+      copyEntry(from, Buffer.concat([dest, SEP, name]), times, skip);
+    }
     if (times) setTimes(src, dest);
     fs.chmodSync(dest, st.mode & 0o7777);
     return;

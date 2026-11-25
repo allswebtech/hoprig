@@ -180,16 +180,43 @@ const isLink = (f) => {
   }
 };
 
+/**
+ * The value the owner gives `name` himself in a start file, outside the kits block: { file, value } (`value`: an
+ * absolute path, $HOME or ~ read as the home; null when it cannot be read without a shell), or null when no start file
+ * sets it. Start files read one another (.profile reads .bashrc), so one that sets it sets it for all of them.
+ */
+export function ownValue(name, { home = os.homedir(), shell = process.env.SHELL || '', platform = process.platform } = {}) {
+  if (platform === 'win32' || !/^[A-Z_][A-Z0-9_]*$/.test(name)) return null;
+  const re = new RegExp(`(?:^|[\\s;])(?:export\\s+)?${name}=("([^"]*)"|'([^']*)'|([^\\s;]*))|set\\s+-gx\\s+${name}\\s+("([^"]*)"|(\\S+))`);
+  for (const s of shellFiles({ home, shell, platform })) {
+    const { at, all } = readBlock(read(s.file) || '');
+    const outside = at ? [...all.slice(0, at[0]), ...all.slice(at[1] + 1)] : all;
+    for (const x of outside) {
+      if (/^\s*#/.test(x)) continue;
+      const m = re.exec(x);
+      if (!m) continue;
+      let v = [m[2], m[3], m[4], m[6], m[7]].find((y) => y !== undefined) ?? '';
+      if (m[3] === undefined) v = v.replace(/^(\$HOME|\$\{HOME\}|~)(?=\/|$)/, home);
+      return { file: s.file, value: path.isAbsolute(v) && !/[$`\\]/.test(v) ? path.normalize(v) : null };
+    }
+  }
+  return null;
+}
+
 /** Each start file and what it needs for `lines`: [{ file, link, own: [key], due: [line] }]. */
 function blockPlan({ home, shell, platform, lines }) {
+  // A variable the owner sets himself in any start file is his in all of them: a block in another file, read after
+  // his, would set it over his value.
+  const anyOwn = new Set(lines.filter((l) => !l.prepend && ownValue(l.var, { home, shell, platform })).map((l) => l.key));
   return shellFiles({ home, shell, platform }).map((s) => {
     const fish = s.file.endsWith('.fish');
     if (isLink(s.file)) return { ...s, fish, link: true, own: [], due: [] };
     const { at, lines: have, all, broken } = readBlock(read(s.file) || '');
     if (broken) return { ...s, fish, link: false, broken: true, own: [], due: [] };
-    const own = lines.filter((l) => ownLine(all, at, l)).map((l) => l.key);
+    const here = lines.filter((l) => ownLine(all, at, l)).map((l) => l.key);
+    const own = [...here, ...lines.filter((l) => anyOwn.has(l.key) && !here.includes(l.key)).map((l) => l.key)];
     const due = lines.filter((l) => !own.includes(l.key) && have.get(l.key) !== blockLine(l, fish));
-    return { ...s, fish, link: false, own, due };
+    return { ...s, fish, link: false, own, here, due };
   });
 }
 
@@ -214,7 +241,10 @@ export function ensureKitsBlock({ home = os.homedir(), shell = process.env.SHELL
       kept.push(`${t(f.file)} has a hoprig kits block without its end line, or two begin lines: left as it is (mend or remove the block, then run this again)`);
       continue;
     }
-    for (const k of f.own) kept.push(`${t(f.file)} sets ${lines.find((l) => l.key === k).var} itself: your line is left as it is`);
+    for (const k of f.own) {
+      const v = lines.find((l) => l.key === k).var;
+      kept.push(f.here.includes(k) ? `${t(f.file)} sets ${v} itself: your line is left as it is` : `${t(f.file)}: no ${v} line is written, because another of your start files sets it`);
+    }
     if (!f.due.length) continue;
     did.push(`${dryRun ? 'would write' : 'wrote'} the kits block in ${t(f.file)}`);
     if (dryRun) continue;

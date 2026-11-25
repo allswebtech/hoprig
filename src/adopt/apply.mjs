@@ -22,8 +22,9 @@ import { MANIFEST, builtinFiles, linkMemories, mergeInto, readManifest, writeMan
 import { parseRepo } from '../pcsetup/projects.mjs';
 import { insideOr, mkdirIn, readIn, removeIn, writeIn } from '../workspace/inside.mjs';
 import { copySessions, projectDir } from '../sessions.mjs';
-import { bitingIn, fingerprint, plansDir, readPlan, takenWords } from './plan.mjs';
+import { MOVED_FILE, addsOf, bitingIn, fingerprint, plansDir, readPlan, takenWords } from './plan.mjs';
 import { alternatesIn, isPrivate, movedPath, proveRepo, rewritten, treeDiff, treeOf } from './proof.mjs';
+import { withoutAWord } from '../workspace/dropsilent.mjs';
 import { RECENT_MS, noSignIn, walk } from './scan.mjs';
 import { secretCount } from './secrets.mjs';
 import { copyTree } from '../copytree.mjs';
@@ -42,6 +43,9 @@ export async function busyIn(dirs, platform = process.platform) {
   if (platform !== 'linux') return null;
   return (await import('../server/platform/linux.mjs')).workingIn(dirs);
 }
+
+/** The folders a plan leaves out of the copy (installed packages and build output), as a Set of absolute paths. */
+export const leftOutOf = (plan) => new Set((plan.leftOut || []).map((l) => l.dir));
 
 /** What a plan's original folders are, absolute: [{ from, to, kind }] (to: absolute inside the new folder). */
 export function copies(plan) {
@@ -126,6 +130,7 @@ export function pointerSkill(text, rel, tool) {
 export async function applyPlan(name, { projects, workspace, identity = null, dryRun = false, cleanStopped = false, say = () => {}, hooks = {}, now = new Date() } = {}) {
   const plan = readPlan(name, { projects });
   const root = plan.to;
+  const adds = addsOf(plan);
   const at = { root: projects, dir: workspace, projects };
   // The run's marker, taken before anything else and only by one run at a time: it names the folder this run makes, its
   // process (pid and identity: a pid is handed out again after a restart) and a token that this run also writes into
@@ -183,6 +188,11 @@ export async function applyPlan(name, { projects, workspace, identity = null, dr
     if ((await fingerprint(plan.from, plan.repos)) !== plan.fingerprint) throw fail('ECHANGED', `${plan.from} changed since its plan was made (a file, a commit or a branch): make a new plan with hoprig adopt plan ${plan.from}`);
     const cs = copies(plan);
     for (const c of cs) if (!fs.existsSync(c.from)) throw fail('ECHANGED', `${c.from} is not there any more: make a new plan`);
+    // A folder left out must still be one git ignores as a whole, of installed packages or build output (an edited
+    // plan, or a .gitignore changed since): else nothing is copied.
+    const leave = leftOutOf(plan);
+    const checkouts = plan.repos.flatMap((r) => [r.from, ...(r.worktrees || []).map((w) => w.from)]);
+    for (const d of leave) if (!fs.existsSync(d) || !(await withoutAWord(d, { repos: checkouts, isDir: true }))) throw fail('ECHANGED', `${d} is not a folder of installed packages or build output that git ignores as a whole: make a new plan with hoprig adopt plan ${plan.from}`);
     const busy = await busyIn([plan.from, ...cs.map((c) => c.from)]);
     if (busy) throw fail('EBUSY', `a program is working in ${plan.from} now (${busy} process${busy === 1 ? '' : 'es'}): a copy is not safe while it writes. End it, then run this again`);
     const recent = cs.reduce((n, c) => n + (fs.lstatSync(c.from).isDirectory() ? walk(c.from, { since: now.getTime() - RECENT_MS }).recent : 0), 0);
@@ -201,8 +211,9 @@ export async function applyPlan(name, { projects, workspace, identity = null, dr
       say(l);
     };
     if (dryRun) {
-      line('plan', true, `would make ${root} from Hoprig's own template, with commits by ${who.name}`);
+      line('plan', true, `would make ${root} ${madeWords(plan, adds)}, with commits by ${who.name}`);
       for (const c of cs) line('copy', true, `would copy ${c.from} to ${path.relative(root, c.to) || '.'}${c.kind === 'private' ? ` (${PRIVATE_COPY})` : ''}`);
+      for (const l of plan.leftOut || []) line('left out', true, leftLine(plan, l, true));
       if (recent) line('recent', true, recentWords(recent), true);
       line('proof', true, 'would prove each copy against its original (HEAD, every ref, status and diff by hash, stashes, remote, each worktree, the file set, git fsck), then commit the parent, bring the sessions and the memory');
       return { ok: true, dryRun: true, lines, needs: [], plan };
@@ -222,8 +233,8 @@ export async function applyPlan(name, { projects, workspace, identity = null, dr
       }
       made = true;
       fs.writeFileSync(path.join(root, RUN_TOKEN), `${token}\n`, { flag: 'wx', mode: 0o600 });
-      writeTemplate(root, builtinFiles(), plan.name, at, { into: true });
-      line('template', true, `made ${root} from Hoprig's own template`);
+      writeTemplate(root, builtinFiles().filter((f) => adds.includes(f.rel)), plan.name, at, { into: true });
+      line('template', true, `made ${root} ${madeWords(plan, adds)}`);
       for (const c of cs) {
         insideOr(projects, path.dirname(c.to), at);
         // The plan's own check (readPlan) already refuses a place of the template; this is the second line, for what is
@@ -231,16 +242,18 @@ export async function applyPlan(name, { projects, workspace, identity = null, dr
         const there = fs.lstatSync(c.to, { throwIfNoEntry: false });
         if (there) throw fail('ETAKEN', takenWords(path.relative(root, c.to), c.from, there.isDirectory()));
         mkdirIn(at, path.dirname(c.to));
-        copyTree(c.from, c.to); // by the names' bytes, times kept (src/copytree.mjs): a name that is not UTF-8 too
+        // By the names' bytes, times kept (src/copytree.mjs): a name that is not UTF-8 too; without the folders left out.
+        copyTree(c.from, c.to, { skip: c.kind === 'repo' || c.kind === 'worktree' ? leave : null });
         line('copy', true, `copied ${c.from} to ${path.relative(root, c.to) || '.'}${c.kind === 'private' ? ` (${PRIVATE_COPY})` : ''}`);
       }
+      for (const l of plan.leftOut || []) line('left out', true, leftLine(plan, l, false));
       const map = cs.filter((c) => c.kind === 'repo' || c.kind === 'worktree').map((c) => [c.from, c.to]);
       relink(cs, map);
       if (hooks.afterCopy) await hooks.afterCopy(cs);
       let ok = true;
       for (const c of cs.filter((x) => x.kind === 'repo')) {
         const wtMap = new Map((c.repo.worktrees || []).map((w) => [w.from, w.inside ? path.join(c.to, path.relative(c.from, w.from)) : path.join(root, w.to)]));
-        for (const p of await proveRepo(c.from, c.to, { wtMap, map, root })) {
+        for (const p of await proveRepo(c.from, c.to, { wtMap, map, root, leave })) {
           line(p.what, p.ok, `${path.relative(root, c.to) || '.'}: ${p.words}`, !!p.warn);
           ok &&= p.ok;
         }
@@ -256,16 +269,24 @@ export async function applyPlan(name, { projects, workspace, identity = null, dr
       }
       // Hoprig's own files of the parent, then its first commit (only those: what was copied is the owner's to commit).
       const repos = plan.repos.map((r) => ({ r, url: gitUrl(r.from) })).filter((x) => x.url && parseRepo(x.url) && x.r.to !== '.').map((x) => ({ dir: x.r.to, url: x.url }));
-      const mem = (await readManifest(root)).manifest.memories;
-      writeManifest(root, { name: plan.name, repos, memories: mem }, at);
-      const agents = path.join(root, 'AGENTS.md');
-      const cur = (readIn(at, agents) || Buffer.from('')).toString('utf8');
-      writeIn(at, agents, `${cur.replace(/\n*$/, '\n\n')}${movedTable(plan, now)}`);
+      // A file of the old folder's own (its project.json, its AGENTS.md) is never written into: only what Hoprig added.
+      if (adds.includes(MANIFEST)) {
+        const mem = (await readManifest(root)).manifest.memories;
+        writeManifest(root, { name: plan.name, repos, memories: mem }, at);
+      }
+      if (adds.includes('AGENTS.md')) {
+        const agents = path.join(root, 'AGENTS.md');
+        const cur = (readIn(at, agents) || Buffer.from('')).toString('utf8');
+        writeIn(at, agents, `${cur.replace(/\n*$/, '\n\n')}${movedTable(plan, now)}`);
+      } else if (adds.includes(MOVED_FILE)) {
+        mkdirIn(at, path.dirname(path.join(root, MOVED_FILE)));
+        writeIn(at, path.join(root, MOVED_FILE), `${movedTable(plan, now)}`, { excl: true });
+      }
       const run = (argv, o = {}) => capture(argv, { ...o, env: { ...process.env, GIT_AUTHOR_NAME: who.name, GIT_AUTHOR_EMAIL: who.email, GIT_COMMITTER_NAME: who.name, GIT_COMMITTER_EMAIL: who.email } });
-      const own = ['.gitignore', 'code/.gitignore', MANIFEST, 'AGENTS.md', ...builtinFiles().map((f) => f.rel)];
-      const init = await initOwn(root, `Arrange ${plan.name} from ${path.basename(plan.from)}`, own, run, { ...at, root });
+      // Only what Hoprig added: a file of the old folder's own at the same place is what was copied, and stays uncommitted.
+      const init = await initOwn(root, `Arrange ${plan.name} from ${path.basename(plan.from)}`, adds, run, { ...at, root });
       if (!init.ok) throw fail('ECOMMIT', `git could not make the parent's first commit: ${init.error}`);
-      line('commit', true, `the parent's first commit holds Hoprig's own files, by ${who.name}; what was copied stays uncommitted for you to look at`);
+      line('commit', true, init.none ? 'the parent is a new git repository with no commit yet: Hoprig added none of its files, and what was copied stays uncommitted for you to look at' : `the parent's first commit holds Hoprig's own files, by ${who.name}; what was copied stays uncommitted for you to look at`);
     } catch (e) {
       if (made) undo(`stopped: ${e.message}`);
       if (e.code) throw e;
@@ -275,11 +296,31 @@ export async function applyPlan(name, { projects, workspace, identity = null, dr
     // memory, the sessions, the pointers) still leaves a folder that the next apply knows as its half-made copy.
     const needs = await afterProof(plan, cs, line);
     if (hooks.beforeDone) await hooks.beforeDone(root);
-    fs.writeFileSync(doneFile(name), `${JSON.stringify({ name, at: now.toISOString(), from: plan.from, to: root, fingerprint: plan.fingerprint, copies: cs.map((c) => ({ kind: c.kind, from: c.from, to: c.to })) }, null, 2)}\n`, { mode: 0o600 });
+    fs.writeFileSync(doneFile(name), `${JSON.stringify({ name, at: now.toISOString(), from: plan.from, to: root, fingerprint: plan.fingerprint, copies: cs.map((c) => ({ kind: c.kind, from: c.from, to: c.to })), leftOut: [...leave] }, null, 2)}\n`, { mode: 0o600 });
     fs.rmSync(path.join(root, RUN_TOKEN), { force: true });
     line('done', true, `${plan.name} is arranged in ${root}. Your old folders are untouched: ${plan.from} is as it was`);
     return { ok: true, lines, needs, plan };
   }
+}
+
+/** How the new folder is made, in words: the whole template, or (a project in the layout) only what it lacked. */
+export function madeWords(plan, adds) {
+  if (!plan.layout) return 'from Hoprig\'s own template';
+  return adds.length ? `keeping every file of the old folder's own, adding only what the layout lacked: ${adds.join(', ')}` : 'keeping every file of the old folder\'s own: the layout lacked nothing';
+}
+
+/** Where a folder that is left out would be in the copy (relative to the new folder). */
+export function leftAt(plan, dir) {
+  const map = copies(plan).filter((c) => c.kind === 'repo' || c.kind === 'worktree').map((c) => [c.from, c.to]);
+  return path.relative(plan.to, movedPath(dir, map)).split(path.sep).join('/');
+}
+
+/** One folder left out, in words: where, its size, and the command that makes it again (in the folder beside it). */
+export function leftLine(plan, l, would) {
+  const at = leftAt(plan, l.dir);
+  const size = `${l.bytes < 1e6 ? `${Math.max(1, Math.round(l.bytes / 1e3))} KB` : l.bytes < 1e9 ? `${(l.bytes / 1e6).toFixed(1)} MB` : `${(l.bytes / 1e9).toFixed(1)} GB`}, ${l.files} file${l.files === 1 ? '' : 's'}`;
+  const again = l.remake ? `make it again with ${l.remake} in ${path.posix.dirname(at)}` : 'the project\'s own build or install makes it again';
+  return `${at} (${size}): installed packages or build output, ${would ? 'would be left out' : 'left out'} of the copy; ${again}`;
 }
 
 const recentWords = (n) => `${n} file${n === 1 ? ' was' : 's were'} changed within the hour in what this copies (its repositories, worktrees and neighbours together): if someone is still writing, the proof after the copy shows that change as a difference and the run is undone`;
@@ -361,6 +402,7 @@ async function initOwn(dir, message, files, run, at) {
   const i = await gitIn(at, dir, ['init', '-q', '-b', 'main'], run);
   if (!i.ok) return { ok: false, error: i.stderr.trim() };
   const there = [...new Set(files)].filter((f) => fs.existsSync(path.join(dir, f)));
+  if (!there.length) return { ok: true, none: true };
   const a = await gitIn(at, dir, ['add', '--', ...there], run);
   if (!a.ok) return { ok: false, error: a.stderr.trim() };
   const c = await gitIn(at, dir, ['-c', 'core.hooksPath=/dev/null', 'commit', '-q', '--no-verify', '-m', message], run);
@@ -403,7 +445,8 @@ async function afterProof(plan, cs, line) {
     const relDir = path.relative(root, path.dirname(where)).split(path.sep).join('/');
     if (relDir.startsWith('.claude/skills/')) continue;
     const dest = path.join(root, '.claude', 'skills', s.name, 'SKILL.md');
-    if (fs.existsSync(dest)) {
+    // A folder of that name is there (his own skill, copied): nothing is written into it.
+    if (fs.lstatSync(path.dirname(dest), { throwIfNoEntry: false })) {
       needs.push({ kind: 'skill', words: `the skill ${s.name} (${s.tool}) has no pointer: .claude/skills/${s.name} is there already` });
       continue;
     }
@@ -413,6 +456,7 @@ async function afterProof(plan, cs, line) {
   }
   for (const r of plan.tools.rules) needs.push({ kind: 'rules', words: `${locateRel(plan, r.file)} (${r.tool}): a rules file to read with the owner: what is about him goes to the brain's rules, what is about the project stays` });
   for (const h of plan.tools.hooks) needs.push({ kind: 'hook', words: `${locateRel(plan, h.file)}${h.event ? ` (${h.event})` : ''}: a hook of ${h.tool}. If it guards something, Claude Code needs its equal; it was not run and not dropped` });
+  for (const l of plan.leftOut || []) needs.push({ kind: 'left out', words: leftLine(plan, l, false) });
   for (const n of plan.nested || []) needs.push({ kind: 'another project inside', words: `${locateRel(plan, n)}: an untracked folder that looks like another project (its own git folder or project file). It came along as it was; decide whether it belongs in this repository before any first push` });
   // The old paths where they bite, in the copy.
   const forms = [...new Set(cs.flatMap((c) => rules.forms(c.from)).concat(rules.forms(plan.from)))];

@@ -50,7 +50,7 @@ jobs:
           fetch-depth: 0 # main's history: the tag's commit must be on it
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: 22
+          node-version: 24
       - name: The tag is the version, and the changelog has its section
         run: node tools/release-notes.mjs "$TAG" --out "$RUNNER_TEMP/notes.md"
       - name: The tag's commit is on main
@@ -78,7 +78,7 @@ jobs:
           ref: refs/tags/${{ env.TAG }}
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: 22
+          node-version: 24
       - name: The release notes, from the changelog
         run: node tools/release-notes.mjs "$TAG" --out "$RUNNER_TEMP/notes.md"
       - name: The release (skipped when it is there already)

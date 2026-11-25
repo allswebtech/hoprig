@@ -4,7 +4,7 @@
 #   & ([scriptblock]::Create((irm <address of this file>))) --yes               takes every default
 #
 # What it does, asking first each time:
-#   1. Node.js 22.11 or newer. When missing it is installed with WinGet (built into Windows 10 1809+ and 11), as the
+#   1. Node.js 24.13.1 or newer. When missing it is installed with WinGet (built into Windows 10 1809+ and 11), as the
 #      official "Node.js LTS" package (OpenJS.NodeJS.LTS) that nodejs.org lists for Windows. Windows may ask for
 #      permission once (the Node.js installer is for all users).
 #   2. hoprig itself, with npm: from the repository's main branch by default, or from $env:HOPRIG_SOURCE (a .tgz file, a folder or a
@@ -16,7 +16,7 @@
 param([Parameter(ValueFromRemainingArguments = $true)][string[]]$SetupArgs = @())
 
 $ErrorActionPreference = 'Stop'
-$MinNode = '22.11' # the same as src/nodefloor.mjs (major.minor)
+$MinNode = '24.13.1' # the same as src/nodefloor.mjs (major.minor.patch)
 # Until the package is on npm the default is the repository's main branch as a tarball, which npm installs directly.
 # The same address as hoprigSource() in src/paths.mjs, which the update and its version lookup read.
 $Source = if ($env:HOPRIG_SOURCE) { $env:HOPRIG_SOURCE } else { 'https://github.com/allswebtech/hoprig/archive/refs/heads/main.tar.gz' }
@@ -33,7 +33,7 @@ function Confirm-Step($question) {
 }
 
 # The version of the node on PATH, or $null when there is none (or it does not start). Compared as a [version], so
-# major and minor both count: 22.5 is too old, 22.11 and 23.0 are not.
+# major, minor and patch all count: 24.13.0 is too old, 24.13.1 and 25.0 are not.
 function Get-NodeVersion {
     if (-not (Get-Command node -ErrorAction SilentlyContinue)) { return $null }
     try { return [version](& node -p "process.versions.node") } catch { return $null }
@@ -56,7 +56,7 @@ $found = Get-NodeVersion
 if (Test-NodeOk $found) {
     Say "Found Node.js $(& node --version). Nothing to do."
 } else {
-    if ($null -ne $found) { Say "Found Node.js $(& node --version): too old." } else { Say 'Node.js is not installed.' }
+    if ($null -ne $found) { Say "Found Node.js $found, older than $MinNode (the lowest Hoprig runs on): the newest Node.js LTS goes in its place." } else { Say 'Node.js is not installed.' }
     if (-not (Get-Command winget -ErrorAction SilentlyContinue)) {
         Fail "WinGet is not available here. Install Node.js LTS from https://nodejs.org, then run this installer again."
     }

@@ -115,11 +115,13 @@ export function rewritten(text, rewrite = []) {
  * Every entry below `root`, never into a private folder: { entries: { rel: 'kind size mode mtimeMs hash' }, privates }.
  * Links are not followed (their text is the entry). A folder's own mtime is left out: a copy writes into it.
  * `rewrite`: [[original folder, copy's folder]] for the git link files (GITLINK). `skipDirs`: folder names not
- * entered (a fingerprint leaves out installed packages); `contents: false`: no hashes (a quick fingerprint).
+ * entered (a fingerprint leaves out installed packages); `contents: false`: no hashes (a quick fingerprint). `leave`:
+ * a Set of folders (absolute paths) that a plan left out of the copy: neither listed nor entered, but counted (`left`).
  */
-export function treeOf(root, { rewrite = [], skipDirs = null, contents = true } = {}) {
+export function treeOf(root, { rewrite = [], skipDirs = null, contents = true, leave = null } = {}) {
   const entries = {};
   let privates = 0;
+  let left = 0;
   let hardLinked = 0; // files outside .git that share their content with another name (a copy makes them separate)
   const sep = Buffer.from(path.sep);
   // Names are read as bytes: a name that is not UTF-8 would otherwise come back changed, and an lstat of the changed
@@ -151,6 +153,7 @@ export function treeOf(root, { rewrite = [], skipDirs = null, contents = true } 
       const mode = (st.mode & 0o7777).toString(8);
       try {
         if (st.isSymbolicLink()) entries[rel] = `link ${nameOf(fs.readlinkSync(p, { encoding: 'buffer' }))}`;
+        else if (st.isDirectory() && leave && leave.has(p.toString('utf8'))) left++;
         else if (st.isDirectory()) {
           entries[rel] = `dir ${mode}`;
           if (!(skipDirs && skipDirs.has(name))) walk(p, rel);
@@ -166,7 +169,7 @@ export function treeOf(root, { rewrite = [], skipDirs = null, contents = true } 
     }
   };
   walk(Buffer.from(root), '');
-  return { entries, privates, hardLinked };
+  return { entries, privates, hardLinked, left };
 }
 
 /**
@@ -212,12 +215,15 @@ export async function fsck(dir, run = capture) {
 }
 export { SAFE as GIT_SAFE };
 
+/** The proof's words for folders a plan left out: counted as left out, never as missing. */
+const leftWords = (n) => (n ? `; ${n} folder${n === 1 ? '' : 's'} of installed packages or build output left out, as the plan says: not missing, made again by their command` : '');
+
 /**
  * Compare a repository's copy with its original. `wtMap`: original worktree folder → its copy's folder. `map`: every
  * [original, copy] of the plan (a store borrowed from another copied repository). `root`: the new project folder (a
  * borrowed store must lie in it). → [{ what, ok, words }], one line per proof, in the order the brief names them.
  */
-export async function proveRepo(from, to, { wtMap = new Map(), map = [], root = null } = {}) {
+export async function proveRepo(from, to, { wtMap = new Map(), map = [], root = null, leave = null } = {}) {
   wtMap = new Map(wtMap);
   const [a, b] = [await repoState(from), await repoState(to)];
   const lines = [];
@@ -234,16 +240,17 @@ export async function proveRepo(from, to, { wtMap = new Map(), map = [], root = 
   });
   say('worktrees', okWt, okWt ? `each worktree is the same (${a.worktrees.length})` : 'a worktree differs or was not copied');
   const rewrite = [...map, [from, to], ...wtMap];
-  const ta = treeOf(from, { rewrite });
+  const ta = treeOf(from, { rewrite, leave });
   const tb = treeOf(to);
   const d = treeDiff(ta, tb);
-  say('files', !d.length, d.length ? `${d.length} file${d.length === 1 ? '' : 's'} differ, first: ${d[0].rel}` : `the file set is the same (${Object.keys(ta.entries).length} entries${ta.privates ? `, ${ta.privates} private folder${ta.privates === 1 ? '' : 's'} copied but not looked into: ${ta.privates === 1 ? 'its' : 'their'} contents are not checked` : ''})`);
+  say('files', !d.length, d.length ? `${d.length} file${d.length === 1 ? '' : 's'} differ, first: ${d[0].rel}` : `the file set is the same (${Object.keys(ta.entries).length} entries${ta.privates ? `, ${ta.privates} private folder${ta.privates === 1 ? '' : 's'} copied but not looked into: ${ta.privates === 1 ? 'its' : 'their'} contents are not checked` : ''}${leftWords(ta.left)})`);
   if (ta.hardLinked) say('links', true, `${ta.hardLinked} hard-linked file${ta.hardLinked === 1 ? ' was' : 's were'} copied as separate files: the same contents, but a change to one no longer changes the other`, true);
   for (const w of a.worktrees) {
     const c = wtMap.get(w.dir);
     if (!c) continue;
-    const dw = treeDiff(treeOf(w.dir, { rewrite }), treeOf(c));
-    say('worktree files', !dw.length, dw.length ? `the worktree ${path.basename(w.dir)}: ${dw.length} files differ, first: ${dw[0].rel}` : `the worktree ${path.basename(w.dir)}: the file set is the same`);
+    const tw = treeOf(w.dir, { rewrite, leave });
+    const dw = treeDiff(tw, treeOf(c));
+    say('worktree files', !dw.length, dw.length ? `the worktree ${path.basename(w.dir)}: ${dw.length} files differ, first: ${dw[0].rel}` : `the worktree ${path.basename(w.dir)}: the file set is the same${tw.left ? ` (${leftWords(tw.left).slice(2)})` : ''}`);
   }
   const borrowed = borrowedStores(to);
   const outside = borrowed.filter((b) => !root || !(b === root || b.startsWith(root + path.sep)));

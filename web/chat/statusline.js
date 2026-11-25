@@ -8,7 +8,7 @@ import { copyBranch } from './rail.js';
 import { billed, contextPercent, hasPlan, limitsLine, money, toolWord, turnRuns } from './words.js';
 
 const ACTIVITY = { requesting: (who) => `${who} is thinking`, compacting: () => 'Shortening the conversation to make room', retrying: () => 'Retrying' };
-const ASKING = { permission: () => 'Needs your OK', question: (who) => `${who} asks you a question`, plan: () => 'A plan waits for your OK' };
+const ASKING = { permission: () => 'Needs your OK', question: (who) => `${who} asks you a question`, plan: () => 'A plan waits for your OK', mcp: () => 'An MCP server asks you a question' };
 
 /** The tool of the main conversation that runs now (written whole, not yet answered), or null. */
 const runningTool = (v) => (v.live || []).find((b) => b.kind === 'tool' && b.written && !b.agent) || null;

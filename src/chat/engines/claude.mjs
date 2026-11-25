@@ -16,7 +16,7 @@ import { readProfile } from '../../profiles.mjs';
 import { mapEnv, mapSettings, sessionMap } from '../../providers/sessionmap.mjs';
 import { withExtras } from '../../workspace/needs.mjs';
 import { projectDir, sessionsIn } from '../../sessions.mjs';
-import { CHAT_ENV, allowLine, chatArgs, controlLine, denyLine, grantSettings, interruptLine, sdkMode, userLine } from './claude-lines.mjs';
+import { CHAT_ENV, allowLine, chatArgs, controlLine, denyLine, elicitLine, grantSettings, interruptLine, sdkMode, userLine } from './claude-lines.mjs';
 import { ClaudeParser } from './claude-parse.mjs';
 import { endPoint, forkPoint, readTranscript } from './claude-transcript.mjs';
 import { WHOLE_MAX, readEarlier, readTail, todosBefore } from './claude-pieces.mjs';
@@ -209,6 +209,7 @@ class ClaudeSession {
   }
   /** a: { allow, input, permissions (allow: session rule changes), message (deny) } */
   answer(request, a) {
+    if (a.mcp) return this.#write(elicitLine(request, a.mcp.action, a.mcp.content));
     this.#write(a.allow ? allowLine(request, a.input, a.permissions) : denyLine(request, a.message));
   }
   interrupt() {

@@ -63,11 +63,20 @@ git's name and e-mail, and restoring or starting your workspace) and then the wo
 | **PHP + database** (optional, off by default) | PHP's command line, Composer, MariaDB (server) | the package manager (apt `php-cli composer mariadb-server`, dnf/yum the same, pacman `php composer mariadb`, zypper `php8 php-composer2 mariadb`, apk `php85 composer mariadb mariadb-client`, brew `php composer mariadb`); not on Windows |
 | **Flutter versions (fvm)** (optional, off by default) | fvm | `dart pub global activate fvm`, for you only; only for work on several Flutter versions at once; Flutter (its `dart`) comes first; not on Windows |
 | **Flutter** (optional, off by default) | Flutter (the stable release) | into `development/flutter/flutter` of your workspace, for you only: Flutter's own release list is read, the archive comes only from storage.googleapis.com over https, its size is held against a ceiling and its sha256 checked before it is unpacked; a Flutter you already have (on your PATH, in `~/flutter`) is used where it is, through a link; its `bin` goes on PATH in the kits block of your shell start files; the packages it needs on Linux are shown as your own step; needs a workspace; not on Windows |
+| **Android** (optional, off by default) | Android SDK (its command-line tools), Android Studio (found, never downloaded) | into `development/sdk/android-sdk` of your workspace, for you only: the list sdkmanager itself reads (`repository2-3.xml`) is read, the archive comes only from dl.google.com over https, its size is held against the list's own and a ceiling and its sha1 (the only checksum Google's list gives) checked before it is unpacked into `cmdline-tools/latest`; an Android SDK you already have (`ANDROID_HOME`, `~/Android/Sdk`, on macOS `~/Library/Android/sdk`) and an Android Studio (`~/android-studio`, `/opt/android-studio`, JetBrains Toolbox, on macOS `Android Studio.app`) are used where they are, through a link (on macOS Android Studio is only shown); `ANDROID_HOME` and the SDK's tools go on PATH in the kits block, unless your own `ANDROID_HOME` names another folder; Google's licence and the SDK's packages stay yours, shown with the command to type; Android Studio is not downloaded (get it from developer.android.com/studio); needs a workspace; not on Windows |
 
 An optional kit is installed only when you choose it: `--kits php,fvm` (or a tick on the Setup part, or a recipe that
 names it). `--yes` never takes one by itself. On the Setup part an optional kit's **Install…** opens "Set up this
 computer" with only that kit ticked, so its commands come before the one yes; nothing is installed from its row. A kit
 that has nothing to install here (fvm without Flutter's `dart`) has no button, only what comes first.
+
+The Android kit puts only the SDK's command-line tools in place. Google's licence for the SDK is yours to read and
+accept: Hoprig never accepts it and never runs `sdkmanager`. The sheet and `pc setup` show the two commands you type
+yourself, in a new terminal (sdkmanager needs Java: Android Studio's own, or a JDK):
+`"$HOME/Workspace/development/sdk/android-sdk/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$HOME/Workspace/development/sdk/android-sdk" --licenses`,
+then the same with `--install platform-tools` (and the platform and build tools your app names; `--list` shows them).
+Android Studio is not downloaded: it is large and has its own installer. Get it from developer.android.com/studio;
+the next `pc setup` finds it and uses it where it is.
 
 **Suggested kits.** `pc setup`, `pc status` and the Setup part name an optional kit that a project already on this
 computer would use, with the reason ("shop has composer.json"), and leave it unticked:
@@ -127,7 +136,13 @@ Apple's own `/usr/bin/java`), or, where that cannot be told, the advice to remov
 are not covered, and say so.
 
 Package managers: apt, dnf (4 and 5), yum, pacman, zypper, apk, Homebrew (offered first on a Mac without it) and
-winget. "Old" (`!`) means past the end of life the project itself publishes (Node.js, Python).
+winget. "Old" (`!`) means past the end of life the project itself publishes (Node.js, Python). On Windows winget
+counts only when `winget --version` runs: a winget that is registered but does not start is named by `hoprig doctor`
+with the error and what to do (App Installer from the Microsoft Store), and `hoprig pc setup` then installs nothing
+with it and names each tool's own official installer instead. The Python kit on Windows installs the Python install
+manager and then Python itself; in a session without a desktop (SSH, a scheduled task, a service) the install manager
+installs no Python, so the kit says what was installed, that Python, pip and venv are not there yet, and the one line
+to type in a PowerShell window of your own on that computer (`pymanager install default`), then `hoprig pc setup` again.
 
 Every command is written next to its source in `src/pcsetup/kits.mjs` (nodejs.org and nvm, cli.github.com,
 docs.docker.com, brew.sh, docs.python.org, the winget package index, the distributions' package pages, fvm.app).
@@ -331,5 +346,7 @@ nothing, cloning and installing a project, a project workspace with two code rep
 second computer, and the memory moving between the two. macOS was checked read-only (status and a dry run).
 The PHP + database and fvm kits and the Java search were checked by unit tests and dry runs only: no real install of
 PHP, Composer, MariaDB, Dart or fvm, no real Android Studio, and no macOS or other distribution was run for them.
+The Flutter and Android kits were checked against a stand-in of the vendor's host, with trimmed copies of its lists
+and tiny archives made by the tests: no real Flutter or Android SDK was downloaded by a test.
 Windows was **not run**: its commands (winget ids, the Visual Studio workload, the Python install manager) are
 checked against their vendors' pages and by unit tests only.

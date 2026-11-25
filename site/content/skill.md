@@ -26,7 +26,7 @@ The skill is made from Hoprig itself at every version: a short hand-written part
 
 ## How to add it
 
-**Without Hoprig**, into any coding tool's skills folder, with Node.js 22.11 or newer:
+**Without Hoprig**, into any coding tool's skills folder, with Node.js 24.13.1 or newer:
 
 ```sh
 npx hoprig-skill --claude

@@ -15,7 +15,8 @@ export function retireView(c) {
   return h('div.adopt-retire',
     h('p', 'These old folders would be removed (their copies are in the project):'),
     h('ul.adopt-plan', c.go.map((g) => h('li', h('span.mono', g.path), g.keeps ? ` (all but the private folder${g.keeps === 1 ? '' : 's'} in it)` : ''))),
-    c.lines.filter((l) => !l.startsWith('  ') && !/^These (originals would be removed|stay)/.test(l)).map((l) => h('p.hint', l)),
+    c.leftOut && c.leftOut.length ? [h('p', { style: { marginTop: '12px' } }, c.leftHead), h('ul.adopt-plan', c.leftOut.map((l) => h('li', l.words)))] : null,
+    c.lines.filter((l) => !l.startsWith('  ') && l !== c.leftHead && !/^These (originals would be removed|stay)/.test(l)).map((l) => h('p.hint', l)),
     c.stay.length ? h('p', { style: { marginTop: '12px' } }, 'These stay:') : null,
     c.stay.length ? h('ul.adopt-plan', c.stay.map((s) => h('li', h('span.mono', s.path), `: ${s.why}`))) : null);
 }

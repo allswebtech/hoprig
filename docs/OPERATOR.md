@@ -404,7 +404,7 @@ page on GitHub.
 
 ## What Tia can do, and what she cannot
 
-Every act of Hoprig is one row of `src/assistant/inventory.json`: 337 in all (43 commands, 287 changes in the dashboard, 7 skills). Tia does 100 of them with a tool of hers, 7 more by another route of the same effect, and 230 are not hers. A test holds the file to the code: a new command or route without a row fails it.
+Every act of Hoprig is one row of `src/assistant/inventory.json`: 338 in all (43 commands, 288 changes in the dashboard, 7 skills). Tia does 101 of them with a tool of hers, 7 more by another route of the same effect, and 230 are not hers. A test holds the file to the code: a new command or route without a row fails it.
 
 ### What she does
 
@@ -475,6 +475,7 @@ Every act of Hoprig is one row of `src/assistant/inventory.json`: 337 in all (43
 | `POST /api/workspace/sync` | manage_project workspace_sync, manage_project workspace_sync_from | asks you when the facts say so (the rest is yours: publishing commits, into a default branch too, is your own press on the Workspace page; her sync only fetches and fast-forwards) |
 | `POST /api/workspace/settings` | manage_project workspace_places | always asks you |
 | `POST /api/workspace/forget` | manage_project workspace_forget | always asks you |
+| `POST /api/skills/learned/<id>/(install|discard|undo)` | manage_skills learned_install, manage_skills learned_discard, manage_skills learned_undo | always asks you |
 | `POST /api/field/twice/<id>/(dismiss|draft)` | manage_skills twice_dismiss, manage_skills twice_draft | always asks you |
 | `POST /api/work/items` | manage_work add | asks you when the facts say so |
 | `POST /api/work/items/<id>` | manage_work edit, manage_work undo | asks you when the facts say so; does it |
@@ -722,6 +723,7 @@ Every act of Hoprig is one row of `src/assistant/inventory.json`: 337 in all (43
 - `hoprig sessions`: Moving the coding tool's conversations to a new folder follows the adopt plan you read and writes outside every project.
 - `POST /api/folders/extras/accept`: A project's need is allowed only by your press on its page, after you read what it opens.
 - `POST /api/parts/<id>/answer`: Your yes or no to a part a Lead session asks to hand to another provider is your own tap on that card.
+- `POST /api/health/restart`: Restarting the dashboard from Health is your own press, after its sheet says what happens to your sessions; her card restarts it only after an update.
 - `POST /api/pcsetup/project/needs`: A project's needs are got and opened to its sessions only by your press after Get, once you read what each one is.
 - `POST /api/workspace/group/remove`: These are your own presses on the Workspace page after you read what they change.
 - `POST /api/workspace/find/add`: Adding what the git server has to the map is your own press after you read the list it will add.
@@ -738,7 +740,6 @@ Every act of Hoprig is one row of `src/assistant/inventory.json`: 337 in all (43
 - `POST /api/workspace/credentials`: Making the credentials folder a private repository pushes every key in it, so it is your own typed yes on the Workspace page after you read the cost.
 - `POST /api/workspace/mylink`: Naming a link as your own is your own press on the project's page, after the sheet showed where it leads.
 - `POST /api/workspace/leave/mark`: What the look before a format keeps, ignores or leaves out is your own word on its page, after you read what it found.
-- `POST /api/skills/learned/<id>/(install|discard|undo)`: A learned skill is installed, discarded or taken back by your own press after you read it.
 - `POST /api/work/settings`: Tidy, the doubles and where Work lives are your presses after you read the difference.
 - `POST /api/work/plans`: A plan is written from a proposal you read and accepted on the Work page.
 - `POST /api/work/plans/<id>`: A plan is written from a proposal you read and accepted on the Work page.

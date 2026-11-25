@@ -7,7 +7,7 @@ import path from 'node:path';
 import { after, before, test } from 'node:test';
 import { tempHome, writeTree } from '../workspace/helpers.mjs';
 import { allOf, git, madeUpComputer, repo, snapshot, traps } from './fixture.mjs';
-import { makePlan, planFile, readPlan, writePlan } from '../../src/adopt/plan.mjs';
+import { foundWords, makePlan, planFile, readPlan, writePlan } from '../../src/adopt/plan.mjs';
 import { RUN_TOKEN, applyPlan } from '../../src/adopt/apply.mjs';
 import { treeOf } from '../../src/adopt/proof.mjs';
 import { oddNamesSkip } from '../oddnames.mjs';
@@ -363,28 +363,66 @@ test('a project in the layout with a worktree outside it: the worktree goes besi
   assert.equal(git(wt, 'rev-parse', '--show-toplevel'), wt, 'the copied worktree is linked to the copied repository');
 });
 
-test('a project in the layout brings its own rules, brain, scripts and docs; where the template has the same file, both are kept', async () => {
+test('a project in the layout keeps every file of its own at its place; only what the layout lacks is added', async () => {
   const den = layoutProject('den', { worktree: false });
+  // His own rules and memory, at the places of Hoprig's template.
+  const his = { 'CLAUDE.md': 'his claude\n', 'GEMINI.md': 'his gemini\n', '.gitignore': 'his-ignore\n', 'decisions.md': 'his decisions\n', 'ai_brain/active_context.md': 'his context\n', 'code/.gitignore': 'his code ignore\n' };
+  writeTree(den, his);
+  const before = allOf(den);
   const p = await makePlan(den, opts());
   writePlan(p);
+  assert.equal(p.layout, true);
+  assert.match(foundWords(p), /already laid out as a Hoprig project: every file of its own keeps its place.*Its own AGENTS\.md stays as it is/);
   const where = Object.fromEntries(p.neighbours.map((n) => [n.from, n.to]));
-  assert.equal(where.scripts, 'scripts');
-  assert.equal(where['ai_brain/notes'], 'ai_brain/notes');
-  assert.equal(where['docs/design.md'], 'docs/design.md');
-  assert.equal(where['AGENTS.md'], 'from-the-old-folder/AGENTS.md');
-  assert.equal(where['project.json'], 'from-the-old-folder/project.json');
-  assert.equal(where['ai_brain/learnings.md'], 'from-the-old-folder/ai_brain/learnings.md');
-  assert.equal(where['docs/README.md'], 'from-the-old-folder/docs/README.md');
+  for (const [from, to] of Object.entries(where)) assert.equal(to, from, `${from} keeps its place`);
+  for (const f of ['AGENTS.md', 'project.json', 'ai_brain/learnings.md', 'docs/README.md', 'docs/design.md', 'scripts', 'ai_brain/notes', ...Object.keys(his)]) assert.equal(where[f], f, f);
+  assert.ok(!JSON.stringify(p).includes('from-the-old-folder'));
+  // What is added: exactly the template's files he does not have, and the table's own file (his AGENTS.md stays his).
+  assert.deepEqual([...p.adds].sort(), ['.aiignore', '.claude/settings.json', '.claudeignore', '.copilotignore', '.cursorignore', '.geminiignore', 'ai_brain/claude-memory.json', 'ai_brain/claude-memory/.gitkeep', 'ai_brain/daily_logs/.gitkeep', 'ai_brain/moved-here.md']);
   const r = await applyPlan('den', { projects, workspace: ws, identity: { name: 'Alex', email: 'alex@example.invalid' } });
   assert.ok(r.ok, JSON.stringify(r.lines.filter((l) => !l.ok)));
+  assert.deepEqual(allOf(den), before, 'the old folder is the same');
   const root = path.join(projects, 'den');
   const read = (f) => fs.readFileSync(path.join(root, f), 'utf8');
-  assert.equal(read('scripts/deploy.sh'), 'echo deploy\n');
-  assert.equal(read('ai_brain/notes/learned.md'), 'learned\n');
-  assert.equal(read('docs/design.md'), '# design\n');
-  assert.equal(read('from-the-old-folder/AGENTS.md'), '# den rules of alex\n');
-  assert.equal(read('from-the-old-folder/ai_brain/learnings.md'), 'his learnings\n');
-  assert.ok(r.needs.some((n) => n.kind === 'rules' && n.words.startsWith('from-the-old-folder/AGENTS.md')), 'his old rules file is named to read with him');
+  for (const f of ['AGENTS.md', 'project.json', 'ai_brain/learnings.md', 'docs/README.md', 'scripts/deploy.sh', ...Object.keys(his)]) assert.equal(read(f), fs.readFileSync(path.join(den, f), 'utf8'), `${f} is his, byte for byte`);
+  assert.ok(!fs.existsSync(path.join(root, 'from-the-old-folder')));
+  assert.match(read('ai_brain/moved-here.md'), /## Moved here/);
+  assert.equal(read('.claudeignore'), 'test-data/\n.env\n.env.*\n', 'a missing file of the layout is added');
+  // The first commit holds only what Hoprig added; his files stay uncommitted.
+  assert.deepEqual(git(root, 'ls-files').split('\n').sort(), [...p.adds].sort());
+  const { verifyProject } = await import('../../src/adopt/retire.mjs');
+  const v = await verifyProject('den', { projects });
+  assert.ok(v.every((l) => l.ok), JSON.stringify(v.filter((l) => !l.ok)));
+  // A second apply writes nothing into the folder that is there.
+  const after1 = snapshot(root);
+  await assert.rejects(applyPlan('den', { projects, workspace: ws, identity: { name: 'Alex', email: 'alex@example.invalid' } }), { code: 'EEXISTS' });
+  assert.deepEqual(snapshot(root), after1);
+});
+
+test('a project in the layout that has every file of the layout: nothing is added, and nothing of his is committed', async () => {
+  const full = layoutProject('full', { worktree: false });
+  const { BUILTIN_TEMPLATE } = await import('../../src/pcsetup/workspace.mjs');
+  writeTree(full, Object.fromEntries([...Object.keys(BUILTIN_TEMPLATE), 'ai_brain/moved-here.md'].map((f) => [f, `his ${f}\n`])));
+  const before = allOf(full);
+  const p = await makePlan(full, opts());
+  writePlan(p);
+  assert.deepEqual(p.adds, []);
+  assert.match(foundWords(p), /lacks nothing, so Hoprig adds none of its files\.$/);
+  const r = await applyPlan('full', { projects, workspace: ws, identity: { name: 'Alex', email: 'alex@example.invalid' } });
+  assert.ok(r.ok, JSON.stringify(r.lines.filter((l) => !l.ok)));
+  assert.deepEqual(allOf(full), before);
+  const root = path.join(projects, 'full');
+  for (const f of [...Object.keys(BUILTIN_TEMPLATE), 'ai_brain/moved-here.md']) assert.equal(fs.readFileSync(path.join(root, f), 'utf8'), `his ${f}\n`, f);
+  assert.equal(git(root, 'ls-files'), '', 'no file of his is committed');
+});
+
+test('an edited plan of a project in the layout may not add a file where one of his goes', async () => {
+  const p = readPlan('full', { projects });
+  fs.writeFileSync(planFile('full'), JSON.stringify({ ...p, adds: ['AGENTS.md'] }));
+  assert.throws(() => readPlan('full', { projects }), (e) => e.code === 'EPLAN' && /AGENTS\.md is a file of the template/.test(e.message));
+  fs.writeFileSync(planFile('full'), JSON.stringify({ ...p, adds: ['../outside.md'] }));
+  assert.throws(() => readPlan('full', { projects }), { code: 'EPLAN' });
+  writePlan(p);
 });
 
 test('a project in the layout whose parent is itself a repository: its repositories are planned and arranged, its own history stays', async () => {
@@ -403,7 +441,8 @@ test('a project in the layout whose parent is itself a repository: its repositor
   const r = await applyPlan('bistro', { projects, workspace: ws, identity: { name: 'Alex', email: 'alex@example.invalid' } });
   assert.ok(r.ok, JSON.stringify(r.lines.filter((l) => !l.ok)));
   assert.equal(fs.readFileSync(path.join(projects, 'bistro', 'code', 'bistro', 'index.html'), 'utf8'), 'hi\n');
-  assert.equal(fs.readFileSync(path.join(projects, 'bistro', 'from-the-old-folder', 'AGENTS.md'), 'utf8'), '# Bistro rules\n');
+  assert.equal(fs.readFileSync(path.join(projects, 'bistro', 'AGENTS.md'), 'utf8'), '# Bistro rules\n', 'his own rules keep their place');
+  assert.equal(fs.readFileSync(path.join(projects, 'bistro', '.gitignore'), 'utf8'), 'code/*\n!code/.gitignore\n');
   assert.deepEqual(allOf(cafe), before, 'the original is untouched');
   const { retirePlan } = await import('../../src/adopt/retire.mjs');
   const rp = await retirePlan('bistro', { projects });
@@ -449,4 +488,149 @@ test('a neighbour that would land on a folder of the template is refused by the 
   await assert.rejects(applyPlan('atelier', { projects, workspace: ws, identity: { name: 'Alex', email: 'alex@example.invalid' } }), (e) => e.code === 'EPLAN' && e.message === `the plan is not one apply takes: ${words}`);
   assert.equal(fs.existsSync(path.join(projects, 'atelier')), false, 'no new project folder is made');
   assert.deepEqual(allOf(atelier, ws, t.claude), before, 'the original and the workspace are untouched');
+});
+
+/** A repository with installed packages and build output git ignores, and folders of those names it does not ignore. */
+function installedProject(name) {
+  const dir = repo(path.join(m.place, name), null, { '.gitignore': 'node_modules/\n.next/\n', 'package.json': '{ "name": "x", "scripts": { "build": "next build" } }\n', 'package-lock.json': '{}\n', 'vendor/lib.php': '<?php\n', 'src/a.js': 'a\n' });
+  writeTree(dir, { 'node_modules/pkg/index.js': 'x'.repeat(2000), 'node_modules/pkg/package.json': '{}\n', '.next/cache/a.bin': 'y'.repeat(500), 'build/out.txt': 'not ignored\n', 'node_modules/.bin/tool': 'z\n' });
+  return dir;
+}
+
+test('installed packages and build output git ignores are left out by default, named with sizes and their command; the proof counts them as left out', async () => {
+  const dir = installedProject('shelf');
+  const before = allOf(dir);
+  const p = await makePlan(dir, opts());
+  writePlan(p);
+  assert.deepEqual(p.leftOut.map((l) => [path.relative(dir, l.dir), l.files, l.remake]), [['.next', 1, 'npm run build'], ['node_modules', 3, 'npm ci']]);
+  assert.equal(p.leftOut.find((l) => l.dir.endsWith('node_modules')).bytes, 2005);
+  assert.equal(p.copyInstalled, false);
+  const dry = await applyPlan('shelf', { projects, workspace: ws, dryRun: true, identity: { name: 'Alex', email: 'alex@example.invalid' } });
+  assert.ok(dry.lines.some((l) => l.what === 'left out' && /^code\/shelf\/node_modules \(2 KB, 3 files\): installed packages or build output, would be left out of the copy; make it again with npm ci in code\/shelf$/.test(l.words)), JSON.stringify(dry.lines));
+  const r = await applyPlan('shelf', { projects, workspace: ws, identity: { name: 'Alex', email: 'alex@example.invalid' } });
+  assert.ok(r.ok, JSON.stringify(r.lines.filter((l) => !l.ok)));
+  assert.deepEqual(allOf(dir), before, 'the old folder is the same');
+  const copy = path.join(projects, 'shelf', 'code', 'shelf');
+  assert.ok(!fs.existsSync(path.join(copy, 'node_modules')) && !fs.existsSync(path.join(copy, '.next')));
+  for (const f of ['vendor/lib.php', 'build/out.txt', 'src/a.js']) assert.ok(fs.existsSync(path.join(copy, f)), `${f}: not ignored, so copied`);
+  const files = r.lines.find((l) => l.what === 'files');
+  assert.ok(files.ok && /2 folders of installed packages or build output left out, as the plan says: not missing/.test(files.words), files.words);
+  assert.ok(r.needs.some((n) => n.kind === 'left out' && n.words.includes('npm ci in code/shelf')), JSON.stringify(r.needs));
+  const { verifyProject } = await import('../../src/adopt/retire.mjs');
+  const v = await verifyProject('shelf', { projects });
+  assert.ok(v.every((l) => l.ok), JSON.stringify(v.filter((l) => !l.ok)));
+});
+
+test('one switch copies installed packages and build output all the same', async () => {
+  const dir = installedProject('rack');
+  const before = allOf(dir);
+  const p = await makePlan(dir, { ...opts(), copyInstalled: true });
+  writePlan(p);
+  assert.deepEqual(p.leftOut, []);
+  assert.equal(p.copyInstalled, true);
+  const r = await applyPlan('rack', { projects, workspace: ws, identity: { name: 'Alex', email: 'alex@example.invalid' } });
+  assert.ok(r.ok, JSON.stringify(r.lines.filter((l) => !l.ok)));
+  assert.deepEqual(allOf(dir), before);
+  const copy = path.join(projects, 'rack', 'code', 'rack');
+  assert.equal(fs.readFileSync(path.join(copy, 'node_modules', 'pkg', 'index.js'), 'utf8'), 'x'.repeat(2000));
+  assert.ok(fs.existsSync(path.join(copy, '.next', 'cache', 'a.bin')));
+});
+
+test('an edited plan cannot leave out anything but ignored installed packages or build output', async () => {
+  const dir = installedProject('crate');
+  const p = await makePlan(dir, opts());
+  writePlan(p);
+  const before = allOf(dir, ws);
+  for (const bad of [path.join(dir, 'src'), path.join(t.root, 'node_modules'), `${dir}/x/../node_modules`]) {
+    fs.writeFileSync(planFile('crate'), JSON.stringify({ ...p, leftOut: [...p.leftOut, { dir: bad, bytes: 1, files: 1, remake: null }] }));
+    assert.throws(() => readPlan('crate', { projects }), { code: 'EPLAN' }, bad);
+  }
+  // vendor/ is of the list by its name, but tracked: apply refuses before anything is made.
+  fs.writeFileSync(planFile('crate'), JSON.stringify({ ...p, leftOut: [...p.leftOut, { dir: path.join(dir, 'vendor'), bytes: 1, files: 1, remake: null }] }));
+  await assert.rejects(applyPlan('crate', { projects, workspace: ws, identity: { name: 'Alex', email: 'alex@example.invalid' } }), (e) => e.code === 'ECHANGED' && /vendor is not a folder of installed packages/.test(e.message));
+  assert.deepEqual(allOf(dir, ws), before);
+  writePlan(p);
+});
+
+test('a folder of installed packages that holds a repository of its own is copied, not left out', async () => {
+  const dir = installedProject('bin');
+  repo(path.join(dir, 'node_modules', 'gitdep'), null, { 'i.js': 'i\n' });
+  const p = await makePlan(dir, opts());
+  assert.deepEqual(p.leftOut.map((l) => path.basename(l.dir)), ['.next']);
+});
+
+test('retire goes through with the folders left out: it names each with its size and command before, and removes them with the old folder', async () => {
+  const dir = path.join(m.place, 'shelf');
+  const { LEFT_HEAD, retirePlan, retireLines, retireProject } = await import('../../src/adopt/retire.mjs');
+  const r = await retirePlan('shelf', { projects });
+  assert.equal(r.leftBad.length, 0, JSON.stringify(r.leftBad));
+  assert.deepEqual(r.leftOut.map((l) => [path.basename(l.dir), l.files, l.remake]), [['.next', 1, 'npm run build'], ['node_modules', 3, 'npm ci']]);
+  const lines = retireLines(r);
+  assert.ok(lines.includes(LEFT_HEAD));
+  assert.ok(lines.includes(`  ${path.join(dir, 'node_modules')} (2 KB, 3 files): not copied, removed with the old folder; make it again with npm ci in ${path.join(projects, 'shelf', 'code', 'shelf')}`), lines.join('\n'));
+  const { pageRetire } = await import('../../src/adopt/retireweb.mjs');
+  const c = await pageRetire({ projects: () => projects }).check('shelf');
+  assert.equal(c.refusal, null);
+  assert.equal(c.leftHead, LEFT_HEAD);
+  assert.ok(c.leftOut.some((l) => l.words.includes('npm ci') && l.files === 3), JSON.stringify(c.leftOut));
+  const said = [];
+  const done = await retireProject('shelf', { projects, ask: async () => 'shelf', say: (x) => said.push(x) });
+  assert.ok(done.ok, done.words);
+  assert.ok(said.includes(LEFT_HEAD));
+  assert.equal(fs.existsSync(dir), false, 'the old folder went, its installed packages with it');
+  assert.ok(fs.existsSync(path.join(projects, 'shelf', 'code', 'shelf', 'src', 'a.js')), 'the copy stays');
+});
+
+/** A project with installed packages, planned and arranged (they are left out). */
+const arranged = async (name) => {
+  const dir = installedProject(name);
+  writePlan(await makePlan(dir, opts()));
+  const r = await applyPlan(name, { projects, workspace: ws, identity: { name: 'Alex', email: 'alex@example.invalid' } });
+  assert.ok(r.ok, JSON.stringify(r.lines.filter((l) => !l.ok)));
+  return dir;
+};
+const retireRefuses = async (name, dir, words) => {
+  const { retireProject } = await import('../../src/adopt/retire.mjs');
+  const before = allOf(dir);
+  const r = await retireProject(name, { projects, ask: async () => name });
+  assert.equal(r.ok, false, r.words);
+  assert.match(r.words, words);
+  assert.deepEqual(allOf(dir), before, 'the old folder is the same');
+};
+
+test('a working file missing from the copy outside a folder left out still stops retire', async () => {
+  const dir = await arranged('bench');
+  fs.rmSync(path.join(projects, 'bench', 'code', 'bench', 'src', 'a.js'));
+  await retireRefuses('bench', dir, /1 working file\b/);
+});
+
+test('a folder left out that git no longer ignores stops retire, and is named', async () => {
+  const dir = await arranged('stool');
+  fs.writeFileSync(path.join(dir, '.gitignore'), '.next/\n');
+  await retireRefuses('stool', dir, new RegExp(`${path.join(dir, 'node_modules').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}: git no longer ignores it as a whole`));
+});
+
+test('a plan or a record edited to name another folder as left out stops retire', async () => {
+  const dir = await arranged('desk');
+  const p = readPlan('desk', { projects });
+  // build/ is of drop's list by its name but was copied: the plan now says it was left out.
+  fs.writeFileSync(planFile('desk'), JSON.stringify({ ...p, leftOut: [...p.leftOut, { dir: path.join(dir, 'build'), bytes: 1, files: 1, remake: null }] }));
+  await retireRefuses('desk', dir, /build: the plan names it as left out, but apply did not leave it out/);
+  writePlan(p);
+  // The record of apply edited: it no longer names node_modules.
+  const { doneFile } = await import('../../src/adopt/apply.mjs');
+  const rec = JSON.parse(fs.readFileSync(doneFile('desk'), 'utf8'));
+  fs.writeFileSync(doneFile('desk'), JSON.stringify({ ...rec, leftOut: rec.leftOut.filter((d) => !d.endsWith('node_modules')) }));
+  await retireRefuses('desk', dir, /node_modules: the plan names it as left out, but apply did not leave it out/);
+});
+
+test('a plan made to copy everything retires as before: nothing is said left out', async () => {
+  const dir = path.join(m.place, 'rack');
+  const { LEFT_HEAD, retirePlan, retireLines, retireProject } = await import('../../src/adopt/retire.mjs');
+  const r = await retirePlan('rack', { projects });
+  assert.deepEqual([r.leftOut, r.leftBad], [[], []]);
+  assert.ok(!retireLines(r).includes(LEFT_HEAD));
+  const done = await retireProject('rack', { projects, ask: async () => 'rack' });
+  assert.ok(done.ok, done.words);
+  assert.equal(fs.existsSync(dir), false);
 });

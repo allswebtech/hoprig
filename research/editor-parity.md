@@ -32,9 +32,9 @@ each to try and write (about 11 hours), then the fixes, the rows a VS Code user 
 (priority "first") before the rest. The rows "not reached" are where the time ran out. Sizes: S under an hour, M a few
 hours, L a day or more.
 
-The editor component is monaco-editor 0.57.0 (MIT licence, copyright Microsoft Corporation; the package carries
+The editor component is monaco-editor 0.58.0 (MIT licence, copyright Microsoft Corporation; the package carries
 LICENSE and ThirdPartyNotices.txt). Nothing of it was changed: its files are served as installed, with their own
-header comments (for example /vendor/monaco/0.57.0/vs/loader.js begins with its copyright and "Released under the
+header comments (for example /vendor/monaco/0.58.0/vs/loader.js begins with its copyright and "Released under the
 MIT license"). Nothing sends a file's content outside the dashboard: Monaco is loaded from the dashboard's own
 files, formatting is Monaco's own, the terminal is the dashboard's own shell route, and the content security
 policy is as it was.

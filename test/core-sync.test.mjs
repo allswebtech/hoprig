@@ -254,7 +254,7 @@ test('the guide and the changelog say what the tool does, and the pin file stays
   const log = fs.readFileSync(path.join(REPO, 'site/content/changelog.md'), 'utf8').replace(/\r\n?/g, '\n');
   const from = log.indexOf('\n## 0.3.4 ');
   const block = log.slice(from, log.indexOf('\n## ', from + 1)).replace(/\s+/g, ' ');
-  assert.ok(block.includes('**Built-in skills can be taken from a shared core, by version.**'), 'a line in the unreleased block');
+  assert.ok(block.includes('**Built-in skills can be taken from a shared core, by version.**'), 'a line in the 0.3.4 block');
   assert.ok(block.includes('A skill changed here is never overwritten'));
   // Hoprig does not read core.json when it runs, so the package does not carry it.
   const files = JSON.parse(fs.readFileSync(path.join(REPO, 'package.json'), 'utf8')).files;

@@ -21,7 +21,8 @@ const { makeUi } = await import('../../src/setup/ui.mjs');
 const MACHINE = 'C:\\WINDOWS\\system32;C:\\WINDOWS;C:\\Program Files\\Git\\cmd;';
 const USER_BEFORE = '%USERPROFILE%\\AppData\\Local\\Microsoft\\WindowsApps;';
 const RG = '%LOCALAPPDATA%\\Microsoft\\WinGet\\Packages\\BurntSushi.ripgrep.MSVC\\ripgrep-14.1.1';
-const ENV = { USERPROFILE: 'C:\\Users\\alex', LOCALAPPDATA: 'C:\\Users\\alex\\AppData\\Local' };
+// SESSIONNAME: a session with a desktop (kits.mjs noDesktop), where the Python install manager installs Python.
+const ENV = { USERPROFILE: 'C:\\Users\\alex', LOCALAPPDATA: 'C:\\Users\\alex\\AppData\\Local', SESSIONNAME: 'Console' };
 const asciiJson = (o) => JSON.stringify(o).replace(/[^\x00-\x7f]/g, (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, '0')}`);
 const MACHINE_KEY = 'HKLM\\SYSTEM\\CurrentControlSet\\Control\\Session Manager\\Environment';
 const USER_KEY = 'HKCU\\Environment';

@@ -10,7 +10,7 @@
 // is killed cannot do that: the next install removes such a folder once its process is gone (sweepLeftovers).
 import fs from 'node:fs';
 import path from 'node:path';
-import { FetchError, chooseFlutter, download, httpsGet, readList, sizeWords } from './fetchkit.mjs';
+import { FetchError, chooseAndroid, chooseFlutter, download, httpsGet, readList, sizeWords } from './fetchkit.mjs';
 import { KIND_WORDS, placeKind, tildeOf } from './devplaces.mjs';
 import { missingTools, unpackChecked } from './unpack.mjs';
 import { ensureKitsBlock } from '../setup/localbin.mjs';
@@ -71,8 +71,8 @@ const alive = (pid) => {
 
 /**
  * Remove the temporary folders a run that was killed left in development/ (`.hoprig-tmp-<pid>-<random>`, the
- * process gone): only a real folder, holding nothing but Hoprig's own names (the archive flutter.<kind>, the folder
- * into/). Anything else is left as it is. → how many were removed
+ * process gone): only a real folder, holding nothing but Hoprig's own names (the archive flutter.<kind> or
+ * android.zip, the folders into/ and sdk/). Anything else is left as it is. → how many were removed
  */
 export function sweepLeftovers(dev) {
   let names;
@@ -91,7 +91,7 @@ export function sweepLeftovers(dev) {
       if (!fs.lstatSync(d).isDirectory()) continue;
       const ours = fs.readdirSync(d).every((x) => {
         const st = fs.lstatSync(path.join(d, x));
-        return (x === 'into' && st.isDirectory()) || (/^flutter\.(tar\.xz|zip)$/.test(x) && st.isFile());
+        return (['into', 'sdk'].includes(x) && st.isDirectory()) || (/^(flutter\.(tar\.xz|zip)|android\.zip)$/.test(x) && st.isFile());
       });
       if (!ours) continue;
       fs.rmSync(d, { recursive: true, force: true });
@@ -103,16 +103,35 @@ export function sweepLeftovers(dev) {
   return removed;
 }
 
-/** Put the current stable Flutter at `step.place` from Flutter's own list. → { ok, said } */
-async function installFlutter(step, { get, signal, onProgress, home }) {
-  const { place, ws, data } = step;
+/** Flutter's pick: the current stable release from Flutter's own list. */
+async function pickFlutter(step, { get, signal }) {
+  const { data } = step;
   const os = step.platform === 'darwin' ? 'macos' : 'linux';
+  const listText = await readList(data.list.replace('<os>', os), { host: data.host, prefix: data.prefix, ceiling: data.listCeiling, get, signal });
+  const p = chooseFlutter(listText, { platform: step.platform, arch: step.arch, host: data.host });
+  return { ...p, name: 'Flutter', file: 'flutter', top: 'flutter', size: null, checksum: { type: 'sha256', hex: p.sha256 }, said: `Flutter ${p.version} is` };
+}
+
+/**
+ * The Android SDK command-line tools' pick from the list sdkmanager reads. Their archive holds one cmdline-tools/
+ * folder; sdkmanager wants it at <sdk>/cmdline-tools/latest (`nest`), so the SDK folder is put together inside the
+ * temporary folder and still becomes the place by one rename.
+ */
+async function pickAndroid(step, { get, signal }) {
+  const { data } = step;
+  const listText = await readList(data.list, { host: data.host, prefix: data.prefix, ceiling: data.listCeiling, get, signal });
+  const p = chooseAndroid(listText, { platform: step.platform, arch: step.arch, base: data.base, ceiling: data.ceiling });
+  return { ...p, name: 'the Android SDK command-line tools', file: 'android', kind: 'zip', top: 'cmdline-tools', nest: ['cmdline-tools', 'latest'], checksum: { type: 'sha1', hex: p.sha1 }, said: `The Android SDK command-line tools${p.version ? ` ${p.version}` : ''} are` };
+}
+
+/** Put a kit's checked download at `step.place`: `pickIt` reads the vendor's list and says what to fetch. → { ok, said } */
+async function installChecked(step, pickIt, { get, signal, onProgress, home }) {
+  const { place, ws, data } = step;
   placeFree(place, home);
   const swept = sweepLeftovers(path.join(ws, 'development'));
-  const listText = await readList(data.list.replace('<os>', os), { host: data.host, ceiling: data.listCeiling, get, signal });
-  const pick = chooseFlutter(listText, { platform: step.platform, arch: step.arch, host: data.host });
+  const pick = await pickIt(step, { get, signal });
   const lack = missingTools(pick.kind, step.tools);
-  if (lack.length) throw new FetchError('tools', `${lack.join(' and ')} ${lack.length > 1 ? 'are' : 'is'} not installed, and Flutter's archive needs ${lack.length > 1 ? 'them' : 'it'}: nothing was downloaded`, `Install ${lack.join(' and ')}, then run this again.`);
+  if (lack.length) throw new FetchError('tools', `${lack.join(' and ')} ${lack.length > 1 ? 'are' : 'is'} not installed, and the archive of ${pick.name} needs ${lack.length > 1 ? 'them' : 'it'}: nothing was downloaded`, `Install ${lack.join(' and ')}, then run this again.`);
   const made = [];
   let tmp = null;
   try {
@@ -120,18 +139,26 @@ async function installFlutter(step, { get, signal, onProgress, home }) {
     makeWay(folderWay(ws, path.dirname(place)), made);
     // The process id in the name: a later run removes the folder of a run that was killed (sweepLeftovers).
     tmp = fs.mkdtempSync(path.join(dev, `${TMP_PREFIX}${process.pid}-`));
-    const file = path.join(tmp, `flutter.${pick.kind}`);
-    await download(pick.url, { host: data.host, ceiling: data.ceiling, checksum: { type: 'sha256', hex: pick.sha256 }, file, get, signal, onProgress });
+    const file = path.join(tmp, `${pick.file}.${pick.kind}`);
+    await download(pick.url, { host: data.host, prefix: data.prefix, ceiling: data.ceiling, size: pick.size, checksum: pick.checksum, file, get, signal, onProgress });
     if (signal && signal.aborted) throw new FetchError('stopped', 'the install was stopped', 'Start it again when you want it.');
     const into = path.join(tmp, 'into');
     fs.mkdirSync(into);
-    const top = await unpackChecked(file, pick.kind, into, 'flutter', { signal, most: data.unpackCeiling });
+    const top = await unpackChecked(file, pick.kind, into, pick.top, { signal, most: data.unpackCeiling });
     if (signal && signal.aborted) throw new FetchError('stopped', 'the install was stopped', 'Start it again when you want it.');
+    // The folder that becomes the place: the archive's top folder, or (nest) a new folder `sdk` with it inside.
+    let ready = top;
+    if (pick.nest) {
+      ready = path.join(tmp, 'sdk');
+      const inner = path.join(ready, ...pick.nest);
+      fs.mkdirSync(path.dirname(inner), { recursive: true });
+      fs.renameSync(top, inner);
+    }
     placeFree(place, home); // looked at again just before the one rename
-    fs.renameSync(top, place);
+    fs.renameSync(ready, place);
     fs.rmSync(tmp, { recursive: true, force: true });
     tmp = null;
-    return { ok: true, said: `Flutter ${pick.version} is in ${tildeOf(place, home)}${swept ? ` (and the half download of an earlier run that was stopped is removed)` : ''}` };
+    return { ok: true, said: `${pick.said} in ${tildeOf(place, home)}${swept ? ` (and the half download of an earlier run that was stopped is removed)` : ''}` };
   } catch (e) {
     undo(tmp, made);
     throw e;
@@ -159,7 +186,8 @@ function makeLink(step, { home }) {
 export async function runInside(step, { get = httpsGet, signal, onProgress = () => {} } = {}) {
   const { home, shell = '', platform = process.platform } = step;
   try {
-    if (step.do === 'flutter') return await installFlutter(step, { get, signal, onProgress, home });
+    if (step.do === 'flutter') return await installChecked(step, pickFlutter, { get, signal, onProgress, home });
+    if (step.do === 'android-sdk') return await installChecked(step, pickAndroid, { get, signal, onProgress, home });
     if (step.do === 'link') return makeLink(step, { home });
     if (step.do === 'shell') {
       const r = ensureKitsBlock({ home, shell, platform, lines: step.lines });

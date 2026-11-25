@@ -14,7 +14,7 @@ import { gitWorld, quietUi } from '../workspace/gitfix.mjs';
 const w = gitWorld('get-group-rules');
 test.after(() => w.cleanup());
 // Nothing in these tests may reach a real server: GitHub addresses go to a folder that is not there.
-fs.appendFileSync(path.join(w.root, 'gitconfig'), `[url "${path.join(w.root, 'no-such-server')}/"]\n\tinsteadOf = https://github.com/\n`);
+fs.appendFileSync(path.join(w.root, 'gitconfig'), `[url "${String(path.join(w.root, 'no-such-server')).replaceAll('\\', '/')}/"]\n\tinsteadOf = https://github.com/\n`);
 const C = w.computer('box two'); // a space in every path of this computer
 C.use();
 process.env.HOPRIG_WORKSPACE_DIR = C.ws;

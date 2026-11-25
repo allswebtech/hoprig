@@ -5,7 +5,7 @@
 #   curl -fsSL <address of this file> | sh -s -- --yes     no questions
 #
 # It finds what is missing, lists it, asks once, installs it, installs hoprig and runs `hoprig setup`.
-#   Node.js 22.11+ for you only (no administrator rights) with nvm, the version manager nodejs.org lists for macOS
+#   Node.js 24.13.1+ for you only (no administrator rights) with nvm, the version manager nodejs.org lists for macOS
 #                 and Linux; on Alpine (musl: nvm has no ready-made Node there) with `apk add nodejs npm`.
 #   system bits   only on Linux, with the system package manager: curl when there is no downloader, libatomic
 #                 (Node's official Linux builds need it), and the C++ build tools the terminal module (node-pty)
@@ -26,7 +26,7 @@ main() {
   # From here on no command gets this file as its input: input is the terminal when there is one, else nothing.
   if can_ask; then exec </dev/tty; else exec </dev/null; fi
 
-  MIN_NODE=22.11 # the same as src/nodefloor.mjs (major.minor)
+  MIN_NODE=24.13.1 # the same as src/nodefloor.mjs (major.minor.patch)
   NVM_VERSION=v0.40.8 # https://github.com/nvm-sh/nvm/releases (pinned: a release several weeks old)
   # Until the package is on npm the default is the repository's main branch as a tarball, which npm installs directly.
   # The same address as hoprigSource() in src/paths.mjs, which the update and its version lookup read.
@@ -196,9 +196,10 @@ main() {
     fi
   fi
 
-  # Whether the node on PATH is MIN_NODE or newer, major and minor both (22.5 is too old, 22.11 and 23.0 are not).
+  # Whether the node on PATH is MIN_NODE or newer, major, minor and patch all (24.13.0 is too old, 24.13.1 and 25.0.0
+  # are not).
   node_ok() {
-    node -e 'const [a, b] = process.versions.node.split(".").map(Number); const [x, y] = process.argv[1].split(".").map(Number); process.exit(a > x || (a === x && b >= y) ? 0 : 1)' "$MIN_NODE" 2>/dev/null
+    node -e 'const v = process.versions.node.split(".").map(Number); const m = process.argv[1].split(".").map(Number); const d = v.map((n, i) => n - (m[i] || 0)).find((n) => n !== 0); process.exit(d === undefined || d > 0 ? 0 : 1)' "$MIN_NODE" 2>/dev/null
   }
 
   # A Node.js installed earlier with nvm is only on PATH in interactive shells: load it, so a second run finds it.
@@ -216,6 +217,10 @@ main() {
   NODE_NVM=0   # install Node.js with nvm
   if ! have curl && ! have wget; then
     case $PM in apt-get | dnf | yum | zypper) PKGS="$PKGS curl ca-certificates" ;; *) PKGS="$PKGS curl" ;; esac
+  fi
+  if have node && ! node_ok; then
+    if [ "$PM" = apk ]; then with="Alpine's own Node.js package goes in its place"; else with="the newest long-term release of Node.js goes in its place, for you only, with nvm"; fi
+    say "Found Node.js $(node -p process.versions.node 2>/dev/null || echo '(it does not start)'), older than $MIN_NODE, the lowest Hoprig runs on: $with."
   fi
   if ! have node || ! node_ok; then
     if [ "$PM" = apk ]; then

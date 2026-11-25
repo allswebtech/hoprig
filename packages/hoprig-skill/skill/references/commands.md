@@ -1,4 +1,4 @@
-# Hoprig 0.3.4: every command
+# Hoprig 0.3.5: every command
 
 Each command's own help, as the program prints it (`hoprig` and `hop` are the same command). Made by
 tools/build-skill.mjs at every build of the skill, so it matches this version.
@@ -181,7 +181,7 @@ usage:
 ```text
 usage:
   hoprig pc status [--json] [--offline]       what this computer has, what is missing, what needs attention
-  hoprig pc setup [--yes] [--dry-run] [--kits basics,node,python,github,extras,docker,php,fvm,flutter] [--recipe <file|https address>]
+  hoprig pc setup [--yes] [--dry-run] [--kits basics,node,python,github,extras,docker,php,fvm,flutter,android] [--recipe <file|https address>]
   hoprig pc recipe save [file] [--with-email]  write a recipe to set up another computer like this one
   hoprig pc clone <git address | owner/repo>…  clone into the projects folder
   hoprig pc leave --check [--also <folder>]… [--json]  what exists only on this computer, before a format (reads only)
@@ -192,7 +192,7 @@ usage:
 `hoprig pc setup --help` prints:
 
 ```text
-usage: hoprig pc setup [--yes] [--dry-run] [--kits basics,node,python,github,extras,docker,php,fvm,flutter] [--recipe <file or https address>] [--no-projects] [--rules | --remove-rules]
+usage: hoprig pc setup [--yes] [--dry-run] [--kits basics,node,python,github,extras,docker,php,fvm,flutter,android] [--recipe <file or https address>] [--no-projects] [--rules | --remove-rules]
 ```
 
 ## hoprig pc leave
@@ -241,6 +241,8 @@ usage: hoprig drop <name | place/name>… [--check] [--dry-run] [--json]
 usage: hoprig adopt scan [--in <folder>]… [--json]     look at the projects in the folders you name (changes nothing)
        hoprig adopt plan <folder | all --in <folder>…> [--json]   a plan per project, as a file; nothing else is written
                     (it asks GitHub, with this computer's sign-in, whether each repository there is public or private)
+                    [--name <name>]                      the project's name (else made from the folder's name)
+                    [--copy-installed]                   copy installed packages and build output too (left out by default)
        hoprig adopt apply <project> [--dry-run] [--name <n> --email <e>]   copy it into your workspace and prove the copy
                     [--clean-stopped]                    first remove the half-made copy of an apply that stopped partway
        hoprig adopt verify <project>                         prove the copy against the original again
@@ -396,6 +398,7 @@ usage:
                                                its id with another computer (a copied home folder)
   hoprig workspace auto [--map on|off] [--commit on|off] [--memory on|off] [--sync on|off] [--push on|off]
                        [--push-branches <place>=on|off] [--credentials on|off]
+                       [--only-here on|off] [--servers on|off]
                        [--every <hours>] [--json]
                                                the upkeep the dashboard does by itself: show or set its switches
 ```

@@ -42,7 +42,7 @@ const recorder = () => {
 };
 /** The command lines `pc setup` printed under "Will run" (a step Hoprig runs itself reads "(Hoprig) …"; the shell lines
  * shown under it, indented further, are left out: `blockLines` gives them). */
-const blockLines = (text) => text.split('\n').filter((l) => l.startsWith('        ') && /# [a-z]+$/.test(l)).map((l) => l.trim());
+const blockLines = (text) => text.split('\n').filter((l) => l.startsWith('        ') && /# [a-z][a-z-]*$/.test(l)).map((l) => l.trim());
 const willRun = (text) => {
   const lines = text.split('\n');
   const at = lines.findIndex((l) => l.startsWith('Will run'));
@@ -140,5 +140,29 @@ test('pc setup --kits flutter --dry-run on a home with a workspace: nothing chan
   // The packages Flutter's own page names are the owner's to install: shown with the command, never planned.
   assert.match(r.text, /Flutter: yours to do: Flutter needs [^\n]*libglu1-mesa[^\n]*\n {4}sudo apt-get install [^\n]*libglu1-mesa/);
   assert.doesNotMatch(willRun(r.text).join('\n'), /sudo|apt-get/);
+  for (const c of w.kitCalls()) assert.match(c, /^(php -v|apt-cache (policy|pkgnames|depends) \S+|java -version)$/, c);
+});
+
+test('pc setup --kits android --dry-run on a home with a workspace: nothing changes, nothing is fetched, no licence is answered', async (tc) => {
+  const w = await dryWorld(tc, 'kitsandroid', { kits: true });
+  const sys = await sysFor(w);
+  const asked = [];
+  const get = async (url) => {
+    asked.push(url);
+    throw new Error('a dry run asked the network');
+  };
+  const r = await w.unchanged('pc setup --dry-run --kits android', () => runCli((a, o) => pcSetup(a, { ...o, sys, get }), ['--dry-run', '--kits', 'android']));
+  assert.equal(r.code, 0, r.text);
+  assert.deepEqual(asked, [], 'nothing was fetched');
+  assert.deepEqual(willRun(r.text), [
+    '(Hoprig) download the Android SDK command-line tools (the ones https://dl.google.com/android/repository/repository2-3.xml names) from dl.google.com over https, about 185 MB, check their sha1 (the only checksum Google\'s list gives), unpack them into ~/Workspace/development/sdk/android-sdk/cmdline-tools/latest',
+    '(Hoprig) write ANDROID_HOME=$HOME/Workspace/development/sdk/android-sdk, $HOME/Workspace/development/sdk/android-sdk/cmdline-tools/latest/bin on PATH, $HOME/Workspace/development/sdk/android-sdk/platform-tools on PATH into the hoprig kits block of your shell start files (once, replaced in place)',
+  ]);
+  assert.equal(blockLines(r.text)[0], 'export ANDROID_HOME="$HOME/Workspace/development/sdk/android-sdk"  # android-home');
+  assert.match(r.text, /\(dry run\) would ask: Install these 2 steps now\? — nothing is changed/);
+  // Google's licence and the packages are the owner's: shown with the command to type, never planned, never run.
+  assert.match(r.text, /Android: yours to do: Google's licence for the Android SDK is yours to read and accept: Hoprig never accepts it for you[^\n]*\n {4}"\$HOME\/Workspace\/development\/sdk\/android-sdk\/cmdline-tools\/latest\/bin\/sdkmanager" --sdk_root="\$HOME\/Workspace\/development\/sdk\/android-sdk" --licenses/);
+  assert.match(r.text, /Android Studio \(Android\): Hoprig does not download Android Studio[^\n]*developer\.android\.com\/studio/);
+  assert.doesNotMatch(willRun(r.text).join('\n'), /sdkmanager|--licenses|sudo|apt-get/);
   for (const c of w.kitCalls()) assert.match(c, /^(php -v|apt-cache (policy|pkgnames|depends) \S+|java -version)$/, c);
 });

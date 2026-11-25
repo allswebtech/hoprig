@@ -2,16 +2,17 @@
 // Runs the tests: every `*.test.mjs` under the given folders (default: `test`), and nothing else.
 //
 // Why not `node --test test/`: on Node 20 a folder argument means "run every .mjs in it", so the fixtures
-// (stand-in servers that never exit) were started as tests and the run hung for ever. Newer Node versions only
-// pick test-named files, and a glob needs Node 21 or a shell that expands it (not Windows). Listing the files
-// here behaves the same on every supported Node version and system.
+// (stand-in servers that never exit) were started as tests and the run hung for ever. So a folder goes to
+// `node --test` as a pattern of test-named files (`test/**/*.test.mjs`), which Node expands itself on every
+// supported version and system, and the runner lists the same files itself to count their results
+// (tools/test-plan.mjs; one path per file made a line too long for Windows).
 //
 //   node tools/test.mjs                 all tests
 //   node tools/test.mjs test/server     one area
 //   node tools/test.mjs --test-only     arguments starting with "-" go to `node --test` unchanged
 
 import { spawn } from 'node:child_process';
-import { closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, readSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, readSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { delimiter, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -19,6 +20,7 @@ import { changes, guardOn, realPlaces, snapshot, writtenDuring } from './home-gu
 import { createRequire } from 'node:module';
 import { extraTraps, makeTraps, reached, UNKNOWN_FILE } from './test-traps.mjs';
 import { MIN_NODE_TEXT, belowFloor } from '../src/nodefloor.mjs';
+import { longTemp, partOfPlan, testArgs, unlisted } from './test-plan.mjs';
 
 // Below the lowest Node.js Hoprig supports the suite proves nothing that counts (and its proof that every result
 // arrived needs each file's own summary, which Node sends from 22.10): one plain line, and no test is started.
@@ -31,23 +33,32 @@ const { writeStandIns } = createRequire(import.meta.url)('./seal-standins.cjs');
 
 const root = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const args = process.argv.slice(2);
-const flags = args.filter((a) => a.startsWith('-'));
+// `--part=2/3`: the second of three parts of the files (every third file of the sorted list), for a run split into
+// jobs side by side. The runner takes the part itself, so its own count of results knows which files it started
+// (Node's --test-shard would start fewer files than the count expects).
+const partArg = args.find((a) => /^--part=\d+\/\d+$/.test(a));
+const [partNo, partOf] = partArg ? partArg.slice(7).split('/').map(Number) : [1, 1];
+if (partArg && !(partOf >= 1 && partNo >= 1 && partNo <= partOf)) {
+  console.error(`--part=${partNo}/${partOf} is no part: write --part=<n>/<of>, with n from 1 to <of>.`);
+  process.exit(1);
+}
+const flags = args.filter((a) => a.startsWith('-') && a !== partArg);
 const places = args.filter((a) => !a.startsWith('-'));
 
-/** Every `*.test.mjs` under `place` (a folder, or one file), sorted so a run is the same each time. */
-function testFiles(place) {
-  const full = resolve(root, place);
-  if (statSync(full).isFile()) return [full];
-  return readdirSync(full, { recursive: true, withFileTypes: true })
-    .filter((e) => e.isFile() && e.name.endsWith('.test.mjs'))
-    .map((e) => join(e.parentPath ?? e.path, e.name))
-    .filter((f) => !f.split(/[\\/]/).includes('node_modules'))
-    .sort();
-}
-
-const files = (places.length ? places : ['test']).flatMap(testFiles);
+// A folder goes to `node --test` as one glob pattern, not as its files one by one: about 1,100 paths are longer than
+// the command line Windows allows, and both Windows jobs ended at the start with `spawn ENAMETOOLONG`
+// (tools/test-plan.mjs says how, and how the files it means to run are still known one by one). A part names its own
+// files (a pattern would run them all).
+const whole = testArgs(places, { root });
+const plan = partOfPlan(whole, partNo, partOf, { root });
+const { files } = plan;
+if (partArg) console.error(`part ${partNo} of ${partOf}: ${files.length} of ${whole.files.length} test files`);
 if (!files.length) {
   console.error('No test files found.');
+  process.exit(1);
+}
+if (plan.tooLong) {
+  console.error(plan.tooLong);
   process.exit(1);
 }
 
@@ -70,6 +81,9 @@ if (!flags.includes('--test-force-exit')) limit.push('--test-force-exit');
 // fresh temporary folder, and git has a test identity. A test that forgets to set up its own folders then still never
 // reads or changes the real ones (one rewrote the real workspace map once, 15 Nov 2026). What a session of Claude Code
 // or Hoprig puts in the environment (a provider's address and key, the run file) is left out for the same reason.
+// Windows: the temporary folder by its long name first (tools/test-plan.mjs longTemp), so the sandbox, every test and
+// every child name it as git and the system's real path do.
+Object.assign(process.env, longTemp(process.env, { realpath: realpathSync.native }) || {});
 const sandbox = mkdtempSync(join(tmpdir(), 'hoprig-tests-'));
 const home = join(sandbox, 'home');
 mkdirSync(home);
@@ -203,7 +217,7 @@ const rootBefore = new Set(readdirSync(root));
 const watchNpmLogs = !priorTraps || process.env.SEAL_WATCH_NPM_LOGS === '1';
 const realNpmLogs = join(process.env.USERPROFILE || process.env.HOME || home, '.npm', '_logs');
 const npmLogsBefore = new Set(watchNpmLogs ? listNames(realNpmLogs) : []);
-const child = spawn(process.execPath, [...imports, '--test', ...limit, ...reporters, ...flags, ...files], { cwd: root, stdio: out, env });
+const child = spawn(process.execPath, [...imports, '--test', ...limit, ...reporters, ...flags, ...plan.args], { cwd: root, stdio: out, env });
 if (live) {
   closeSync(live.fd);
   live.reader = openSync(live.path, 'r');
@@ -317,5 +331,8 @@ function incomplete() {
     if (!c || !c.summary) out.push(`${name}: its own summary never came (${c ? `${c.results} result(s) came${c.asFile ? `, and the runner's line for the whole file says ${c.asFile}` : ''}` : 'nothing came'})`);
     else if (c.results !== c.summary.tests || c.suites !== c.summary.suites) out.push(`${name}: ${c.results} result(s) and ${c.suites} suite(s) came of the ${c.summary.tests} and ${c.summary.suites} it ran`);
   }
+  // Node expands a folder's pattern itself: a file it ran that the runner's own list does not hold would add to the
+  // totals unchecked, so it fails the run by name as well.
+  for (const file of unlisted(files, Object.keys(seen))) out.push(`${file.startsWith(root + sep) ? relative(root, file) : file}: Node ran it, but it is not among the files this run meant to run`);
   return out;
 }

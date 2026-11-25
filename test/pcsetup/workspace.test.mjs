@@ -17,7 +17,7 @@ const remotes = path.join(tmp, 'remotes');
 fs.mkdirSync(remotes);
 // "https://git.test/<owner>/<repo>.git" goes to a bare repository in the scratch folder, so the addresses look
 // like a real host's and pass the validators, but nothing leaves this computer.
-fs.writeFileSync(gitcfg, `[user]\n\tname = Test Dev\n\temail = dev@example.com\n[init]\n\tdefaultBranch = main\n[url "${remotes}/"]\n\tinsteadOf = https://git.test/\n[protocol "file"]\n\tallow = always\n`);
+fs.writeFileSync(gitcfg, `[user]\n\tname = Test Dev\n\temail = dev@example.com\n[init]\n\tdefaultBranch = main\n[url "${String(remotes).replaceAll('\\', '/')}/"]\n\tinsteadOf = https://git.test/\n[protocol "file"]\n\tallow = always\n`);
 Object.assign(process.env, { GIT_CONFIG_GLOBAL: gitcfg, GIT_CONFIG_NOSYSTEM: '1', HOME: home, USERPROFILE: home, HOPRIG_CONFIG_DIR: path.join(tmp, 'cfg'), HOPRIG_STATE_DIR: path.join(tmp, 'state') });
 const W = await import('../../src/pcsetup/workspace.mjs');
 const { cloneRepo } = await import('../../src/pcsetup/projects.mjs');

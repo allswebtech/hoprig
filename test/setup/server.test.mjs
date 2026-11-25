@@ -77,7 +77,7 @@ test('the ssh forward line: the real user, the ssh port, a host only when it is 
   assert.equal(SV.localPortFor(60000), 59000, 'still a port');
 });
 
-test('a desktop is a local graphical session of this user; a display socket alone (Xvfb, VNC) is not one', () => {
+test('a desktop is a local graphical session of this user; a display socket alone (Xvfb, VNC) is not one', { skip: process.platform === 'win32' && "Linux's login sessions, by the uid Windows does not have" }, async () => {
   const dir = fs.mkdtempSync(path.join(s.tmp, 'sessions-'));
   const me = process.getuid();
   const session = (name, f) => fs.writeFileSync(path.join(dir, name), Object.entries(f).map(([k, v]) => `${k}=${v}`).join('\n') + '\n');

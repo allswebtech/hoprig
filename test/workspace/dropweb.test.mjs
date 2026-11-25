@@ -125,7 +125,13 @@ test('one implementation: no file outside the drop modules decides what a drop m
     'workspace/leavewalk.mjs',
     // The whole-computer check puts every repository through drop's own check (lookAt, checkRepo) so that it names
     // exactly what a drop would refuse, with drop's words; it only reads and removes nothing.
-    'workspace/leave.mjs', 'workspace/leaveitems.mjs']);
+    'workspace/leave.mjs', 'workspace/leaveitems.mjs',
+    // Adopt's plan and apply ask dropsilent.mjs which folders inside a repository a build or an install makes again
+    // (installed packages, build output), to leave them out of a copy with its words: no second list; they remove nothing.
+    'adopt/plan.mjs', 'adopt/apply.mjs',
+    // Adopt's retire asks dropsilent.mjs again, in the old folder, whether each folder apply left out is still one a
+    // build or an install makes again before its last check accepts that the copy lacks it: the same rule, not a second.
+    'adopt/retire.mjs']);
   const bad = [];
   for (const e of fs.readdirSync(src, { recursive: true, withFileTypes: true })) {
     if (!e.isFile() || !e.name.endsWith('.mjs')) continue;

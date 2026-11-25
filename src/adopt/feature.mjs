@@ -7,7 +7,9 @@
 //   POST /api/adopt/scan { places } look in these folders (the owner's yes): each an absolute folder, not a disk's root
 //   POST /api/adopt/home {}         find the projects of the home folder (his press): a look with a budget, then the
 //                                   same look as above in the folders it found (src/adopt/home.mjs)
-//   POST /api/adopt/plan { dir }    the plan of a project the last look found (no other folder is taken)
+//   POST /api/adopt/plan { dir, name?, copyInstalled? }   the plan of a project the last look found (no other folder
+//                                   is taken); name: the project's (the rule of project new); copyInstalled: copy
+//                                   installed packages and build output too
 //   GET  /api/adopt/plan?name=<n>   a plan, as the page shows it
 //   POST /api/adopt/apply { name, dryRun?, identity? }   apply it (dryRun: what it would do, nothing written)
 //   POST /api/adopt/retire/check { name }   retire's own look: what goes, what stays and why, and a one-use ticket
@@ -24,8 +26,8 @@ import { NAME_RE } from '../pcsetup/workspace.mjs';
 import { claudeDir, hoprigOwnDirs } from '../paths.mjs';
 import { workspaceDir } from '../workspace/layout.mjs';
 import { scanPlaces } from './scan.mjs';
-import { makePlan, planFile, readPlan, writePlan } from './plan.mjs';
-import { applyPlan, busyIn, doneFile } from './apply.mjs';
+import { NAME_WORDS, addsOf, foundWords, makePlan, planFile, planNameOf, readPlan, writePlan } from './plan.mjs';
+import { applyPlan, busyIn, doneFile, leftAt, leftLine } from './apply.mjs';
 import { usualPlaces } from './cli.mjs';
 import { pageRetire } from './retireweb.mjs';
 import { ownerPageOnly } from '../workspace/whomay.mjs';
@@ -84,11 +86,11 @@ export function adoptFeature(ctx, opts = {}) {
 
   const shown = (projects) => projects.map((p) => ({
     name: p.name, dir: t(p.dir), layout: p.layout, ai: p.ai, neighbours: p.neighbours, privates: p.privates,
-    planned: fs.existsSync(planFile(safeName(p.name))),
-    ...arrangedOf(safeName(p.name)),
+    planName: planNameOf(p.dir), planned: fs.existsSync(planFile(planNameOf(p.dir))),
+    ...arrangedOf(planNameOf(p.dir)),
     repos: p.repos.map((r) => ({ ...r, dir: t(path.relative(p.dir, r.dir) || '.'), remote: r.remote ? t(r.remote) : null })),
   }));
-  const safeName = (n) => (NAME_RE.test(n) ? n : 'project');
+
   /** Whether apply arranged this project, and where (its record, doneFile). */
   const arrangedOf = (n) => {
     try {
@@ -101,9 +103,10 @@ export function adoptFeature(ctx, opts = {}) {
 
   /** A plan for the page: paths with ~, nothing of a private folder (a plan never holds anything of one). */
   const planView = (p) => ({
-    name: p.name, from: t(p.from), to: t(p.to), layout: p.layout, exists: fs.existsSync(p.to), made: p.made,
+    name: p.name, from: t(p.from), to: t(p.to), layout: p.layout, adds: addsOf(p), found: foundWords(p), exists: fs.existsSync(p.to), made: p.made,
     repos: p.repos.map((r) => ({ rel: r.rel, to: r.to, visibility: r.visibility || null, worktrees: r.worktrees.map((w) => ({ from: t(w.from), to: w.to })) })),
-    neighbours: p.neighbours.map((n) => ({ from: n.from, kind: n.kind, to: n.to, read: !!n.read, private: !!n.private, why: n.why || null })),
+    neighbours: p.neighbours.map((n) => ({ from: n.from, kind: n.kind, to: n.to, read: !!n.read, private: !!n.private, why: n.why || null, bytes: Number.isFinite(n.bytes) ? n.bytes : null })),
+    leftOut: (p.leftOut || []).map((l) => ({ at: leftAt(p, l.dir), bytes: l.bytes, files: l.files, remake: l.remake, words: leftLine(p, l, true) })), copyInstalled: !!p.copyInstalled,
     tools: p.tools, sessions: p.sessions, breaks: p.breaks, notes: p.notes.map(t), nested: p.nested || [],
   });
 
@@ -147,13 +150,19 @@ export function adoptFeature(ctx, opts = {}) {
     ['POST', /^\/api\/adopt\/plan$/, async (req) => {
       ownPage(req);
       const b = await ctx.readJson(req);
-      keys(b, ['dir']);
+      keys(b, ['dir', 'name', 'copyInstalled']);
+      if (b.name !== undefined && (typeof b.name !== 'string' || !NAME_RE.test(b.name))) throw fail(400, `"${String(b.name).slice(0, 100)}": ${NAME_WORDS}`, 'name');
+      if (b.copyInstalled !== undefined && typeof b.copyInstalled !== 'boolean') throw fail(400, 'copyInstalled is true or false');
       const found = last && last.projects.find((p) => t(p.dir) === b.dir || p.dir === b.dir);
       if (!found) throw fail(400, 'that is not a project of your last look: look again first');
       const w = where();
       // His press: the server is asked with this computer's sign-in whether each repository is public or private.
-      const p = await makePlan(found.dir, { projects: w.projects, home: home(), claude: w.claude, ask: opts.ask || capture });
-      writePlan(p);
+      const p = await makePlan(found.dir, { projects: w.projects, home: home(), claude: w.claude, ask: opts.ask || capture, copyInstalled: b.copyInstalled === true, name: b.name ?? null });
+      try {
+        writePlan(p);
+      } catch (e) {
+        throw e.code === 'ENAME' ? fail(400, t(e.message), 'name') : e;
+      }
       return planView(p);
     }],
     ['GET', /^\/api\/adopt\/plan$/, async (req, _m, q) => {
@@ -220,7 +229,7 @@ export function adoptFeature(ctx, opts = {}) {
         const r = await retirer.retire(b.ticket, b.typed);
         if (r.result === 'removed' || r.result === 'refused') await (await import('../field/wire.mjs')).reportRetire(r, startedAt); // a field report, as the command makes
         // Its old folder is gone: the last look no longer lists it as a project found here.
-        if (r.result === 'removed' && last) last.projects = last.projects.filter((p) => safeName(p.name) !== r.name);
+        if (r.result === 'removed' && last) last.projects = last.projects.filter((p) => planNameOf(p.dir) !== r.name);
         return r;
       } finally {
         retiring = false;

@@ -15,13 +15,14 @@ import { anyTool, enabledToolIds } from '../codetools/index.mjs';
 import { hiddenProfiles, listProfiles } from '../profiles.mjs';
 import { ensureSpawnHelper } from '../server/backends/pty-helper.mjs';
 import { tmuxNewEnough } from '../server/backends/tmuxversion.mjs';
-import { MIN_NODE, MIN_NODE_TEXT } from '../nodefloor.mjs';
+import { MIN_NODE, MIN_NODE_TEXT, installLine } from '../nodefloor.mjs';
 import { brainDir } from '../workspace/layout.mjs';
 import { dormantReason, dormantWords, notOnServer, openHost, serverReason } from './server.mjs';
 import { listensOtherwise, runningFacts, whereWords } from './running.mjs';
 import { resolveListen } from '../server/serveopts.mjs';
-import { capture, compareVersions, detectPackageManager, installCommands, isRoot, npmArgv, npmMajor, showCommand, showCommands, which } from './system.mjs';
+import { WINGET_HELP, capture, compareVersions, detectPackageManager, installCommands, isRoot, npmArgv, npmMajor, showCommand, showCommands, which, wingetState, wingetWords } from './system.mjs';
 import { rootCheck, rootFacts } from './rootfacts.mjs';
+import { ownerCheck, winRun } from './winowner.mjs';
 
 export const APP = 'hoprig';
 export { MIN_NODE }; // src/nodefloor.mjs
@@ -69,7 +70,7 @@ export const BUILD_TOOLS = {
 export function nodeCheck(version = process.versions.node) {
   const ok = compareVersions(version, MIN_NODE) >= 0;
   return result('node', 'Node.js', ok ? 'ok' : 'fail', `${version}${ok ? '' : ` (Hoprig needs ${MIN_NODE_TEXT} or newer)`}`,
-    ok ? '' : `Install Node.js ${MIN_NODE_TEXT} or newer (https://nodejs.org), then run the Hoprig installer again.`);
+    ok ? '' : installLine());
 }
 
 export function appCheck() {
@@ -116,7 +117,8 @@ export function claudeCheck(info, { onPath = true } = {}) {
     if (info.path) return result('claude', 'Claude Code', 'fail', `${tilde(info.path)} does not run`, `${APP} claude install latest`);
     return result('claude', 'Claude Code', 'fail', 'not installed', `${APP} setup   (or: ${APP} claude install latest)`);
   }
-  const how = { native: 'official installer', npm: 'npm', unknown: 'a package manager' }[info.method];
+  // "unknown" is neither the official installer nor npm: a package manager, or a copy put there by hand.
+  const how = { native: 'official installer', npm: 'npm', unknown: 'installed some other way' }[info.method];
   const latest = info.latest ? (info.updateAvailable ? `, ${info.latest} is available` : ', the newest') : ', newest version unknown (offline?)';
   if (!onPath) {
     return result('claude', 'Claude Code', 'warn', `${info.installed} at ${tilde(info.path)} (${how}), but its folder is not on PATH`,
@@ -448,7 +450,12 @@ export async function allChecks({ sys = sysInfo(), offline = false } = {}) {
     }
   }
   if (listen) list.push(await portCheck(listen.host, listen.port, sys.probe));
-  list.push(accessCheck(cfg, await tailscaleState(sys), serverReason(sys), sys, running, listen?.port), ...dirsCheck(sys.platform), ...(await longPathsChecks(sys)));
+  list.push(accessCheck(cfg, await tailscaleState(sys), serverReason(sys), sys, running, listen?.port), ...dirsCheck(sys.platform), ...(await longPathsChecks(sys)), ...(await wingetChecks(sys)));
+  const gitHttps = offline ? null : await gitHttpsCheck(sys);
+  if (gitHttps) list.push(gitHttps);
+  // Windows: folders an elevated set-up left to the Administrators group (winowner.mjs).
+  const owner = await ownerCheck(sys);
+  if (owner) list.push(owner);
   // On a server: a gateway Hoprig started that listens beyond this computer (gatewaycheck.mjs).
   try {
     const [{ gatewayChecks }, { gatewayAddons }] = await Promise.all([import('./gatewaycheck.mjs'), import('../addons/gateways.mjs')]);
@@ -487,6 +494,18 @@ export function shownPath(p, platform = process.platform, homeDir = os.homedir()
   return lower === h.toLowerCase() || lower.startsWith(h.toLowerCase() + '\\') ? `%USERPROFILE%${p.slice(h.length)}` : p;
 }
 
+/**
+ * Windows only: winget, the package manager set-up installs the kits with. It counts only when `winget --version` ran
+ * (system.mjs wingetState): a registered winget may not start (spawn EACCES), and then every kit would fail. Not
+ * there or not starting: what is wrong and what to do. `run(argv)` → capture()'s answer (tests hand in their own).
+ */
+export async function wingetChecks(sys, run = sys.run || ((argv) => capture(argv, { env: sys.env, timeout: 15_000 }))) {
+  if (sys.platform !== 'win32') return [];
+  const w = await wingetState({ has: sys.has, run, env: sys.env });
+  if (w.starts) return [result('winget', 'winget (installs the coding tools)', 'ok', w.version || 'starts')];
+  return [result('winget', 'winget (installs the coding tools)', 'warn', `${wingetWords(w)}. Until then hoprig pc setup installs nothing with it and names each tool's own installer`, `Install App Installer from the Microsoft Store, then run winget --version in a new PowerShell window (${WINGET_HELP})`)];
+}
+
 export const LONGPATHS_KEY = 'HKLM\\SYSTEM\\CurrentControlSet\\Control\\FileSystem';
 
 /** `reg query … /v LongPathsEnabled` output → true, false, or null when it does not say. */
@@ -500,7 +519,7 @@ export function parseLongPaths(out) {
  * Windows allows them, and git needs its own setting too. One line each, with the one command that turns it on;
  * nothing is changed by doctor. `run(argv)` → { ok, stdout } (tests hand in made-up answers).
  */
-export async function longPathsChecks(sys, run = (argv) => capture(argv, { env: sys.env, timeout: 10_000 })) {
+export async function longPathsChecks(sys, run = sys.run || ((argv) => capture(argv, { env: sys.env, timeout: 10_000 }))) {
   if (sys.platform !== 'win32') return [];
   const out = [];
   const r = await run(['reg', 'query', LONGPATHS_KEY, '/v', 'LongPathsEnabled']);
@@ -517,6 +536,33 @@ export async function longPathsChecks(sys, run = (argv) => capture(argv, { env: 
       : result('gitlongpaths', 'Long paths in git', 'info', 'off (the default): git cannot check out or list a file whose path is longer than 260 characters', 'git config --global core.longpaths true'));
   }
   return out;
+}
+
+/** The one small public repository git reads over HTTPS to see that it can (only its HEAD). */
+export const GIT_HTTPS_PROBE = ['git', 'ls-remote', 'https://github.com/git/git.git', 'HEAD'];
+export const SSL_BACKEND_FIX = 'git config --global http.sslBackend schannel';
+export const SSL_BACKEND_UNDO = 'git config --global --unset http.sslBackend';
+const CERT_TROUBLE = /certificate verify locations|unable to get local issuer certificate|SSL certificate problem/i;
+
+/**
+ * Windows only: can git read over HTTPS? Git for Windows whose certificate folder is empty fails every clone and
+ * fetch ("error setting certificate verify locations") while everything else works. One read of one public
+ * repository's HEAD, no questions asked; a certificate failure names the line that makes git use Windows' own
+ * certificates, and how to undo it. Hoprig never sets it. Any other failure (offline, a proxy) says nothing about
+ * certificates. `run(argv, opts)` → { ok, stdout, stderr } (tests hand in made-up answers). null: not checked.
+ */
+export async function gitHttpsCheck(sys, run = winRun(sys)) {
+  if (sys.platform !== 'win32' || !run || !sys.has('git')) return null;
+  const r = await run(GIT_HTTPS_PROBE, { env: { ...sys.env, GIT_TERMINAL_PROMPT: '0' }, timeout: 10_000 });
+  if (r.ok) return result('githttps', 'git over HTTPS', 'ok', 'reads from https://github.com');
+  const said = String(r.stderr || '');
+  if (CERT_TROUBLE.test(said)) {
+    const line = said.split(/\r?\n/).find((l) => CERT_TROUBLE.test(l)).trim();
+    return result('githttps', 'git over HTTPS', 'warn',
+      `git cannot check certificates, so every clone, fetch and push over HTTPS fails (${line}). Hoprig changes nothing: the line below makes git use the certificates of Windows itself (undo: ${SSL_BACKEND_UNDO})`,
+      SSL_BACKEND_FIX);
+  }
+  return result('githttps', 'git over HTTPS', 'info', 'not checked: https://github.com could not be reached (offline, or a proxy?)');
 }
 
 /** doctor's exit code: 0 only when nothing needed is broken. */

@@ -30,6 +30,7 @@ import { dormantReason, dormantWords, forgetServer, forwardLine, liveReason, not
 import { stepHttps, stepHttpsVerify } from './hubsetup.mjs';
 import { PARTS, reportParts, runParts } from './firstrun.mjs';
 import { ensureCommand } from './localbin.mjs';
+import { elevatedEnd, elevatedStart } from './winowner.mjs';
 import { listensOtherwise, runningFacts, whereWords } from './running.mjs';
 import { qrText } from './qr.mjs';
 import { tmuxNewEnough } from '../server/backends/tmuxversion.mjs';
@@ -725,6 +726,9 @@ export async function setup(args = [], { ui: givenUi, sys = sysInfo(), parts: pa
     if (r) ui.line(r.status, `${r.label}: ${r.detail}${r.fix ? `. Next: ${r.fix}` : ''}`);
     state.root = r; // said again at the end (stepSummary), where the person reads
   }
+  // Windows: run as administrator, the folders it makes belong to the Administrators group (winowner.mjs). Said
+  // here, and the line that hands them back at the end. Hoprig changes no owner itself.
+  if (sys.platform === 'win32') state.elevated = await elevatedStart(ui, sys);
   const node = nodeCheck();
   ui.line(node.status, `Node.js ${node.detail}`);
   if (node.status !== 'ok') {
@@ -793,6 +797,10 @@ export async function setup(args = [], { ui: givenUi, sys = sysInfo(), parts: pa
   reportParts(ui, parts);
   state.hub = hub;
   if (doBase) await stepSummary(ui, state, sys);
+  if (state.elevated) {
+    const back = await elevatedEnd(sys);
+    if (back) ui.line('warn', back);
+  }
   closingList(ui);
   if (opts.dryRun) return 0;
   if (summary) Object.assign(summary, summarize(state, { claude: claudeOk, term: termOk, pw: pwOk, https: httpsOk, access: accessOk, base: doBase }, parts));

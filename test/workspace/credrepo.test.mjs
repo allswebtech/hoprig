@@ -29,7 +29,7 @@ async function world(tc, name) {
   fs.chmodSync(c, 0o700);
   // Another server ("git.example.test") for addresses that are not GitHub's.
   fs.mkdirSync(path.join(w.server, 'other'), { recursive: true });
-  fs.appendFileSync(w.env.GIT_CONFIG_GLOBAL, `[url "${path.join(w.server, 'other')}/"]\n\tinsteadOf = https://git.example.test/\n`);
+  fs.appendFileSync(w.env.GIT_CONFIG_GLOBAL, `[url "${String(path.join(w.server, 'other')).replaceAll('\\', '/')}/"]\n\tinsteadOf = https://git.example.test/\n`);
   w.bareRepo = (rel) => {
     const d = path.join(w.server, rel);
     execFileSync('git', ['init', '-q', '--bare', '-b', 'main', d]);

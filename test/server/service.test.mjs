@@ -153,7 +153,7 @@ const silent = async (fn) => {
   }
 };
 
-test('service restart exists on Linux and macOS and asks only the service manager', async () => {
+test('service restart exists on Linux and macOS and asks only the service manager', { skip: process.platform === 'win32' && 'systemd and launchd, by the uid Windows does not have' }, async () => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'svc-restart-'));
   const saved = process.env.XDG_CONFIG_HOME;
   process.env.XDG_CONFIG_HOME = path.join(home, '.config');

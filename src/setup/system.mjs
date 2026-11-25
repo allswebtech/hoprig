@@ -193,6 +193,34 @@ export function which(cmd, env = process.env, platform = process.platform) {
   return null;
 }
 
+/** Where winget is explained, with how to get it (App Installer from the Microsoft Store). */
+export const WINGET_HELP = 'https://learn.microsoft.com/windows/package-manager/winget/';
+const wingetStarted = new WeakMap();
+
+/**
+ * Windows: whether winget starts. which() counts an App Execution Alias as found, and winget is one, but a registered
+ * winget may not start at all (`spawn winget EACCES` when App Installer is broken or not set up for this account). So
+ * "winget is there" means `winget --version` ran: { here, starts, version, why } (`why`: the error, or the exit code).
+ * One call: a winget that started is kept for this `env` (the process), one that did not is asked again next time (it
+ * may be mended meanwhile). `run(argv)` is capture() (tests hand in their own answers).
+ */
+export async function wingetState({ has, run, env = null }) {
+  if (!has('winget')) return { here: false, starts: false, version: null, why: 'not found' };
+  if (env && wingetStarted.has(env)) return wingetStarted.get(env);
+  const r = await run(['winget', '--version']);
+  if (!r || !r.ok) return { here: true, starts: false, version: null, why: r && r.error ? `spawn winget ${r.error}` : `exit code ${r && r.code != null ? r.code : '?'}` };
+  const state = { here: true, starts: true, version: (/(\d+\.\d+(?:\.\d+)*)/.exec(String(r.stdout || '')) || [])[1] || null, why: '' };
+  if (env) wingetStarted.set(env, state);
+  return state;
+}
+
+/** What a person reads when winget is not usable here (wingetState): why, and what to do. '' when it starts. */
+export function wingetWords(w) {
+  if (!w || w.starts) return '';
+  const fix = `install App Installer from the Microsoft Store (or repair it in Settings > Apps), see ${WINGET_HELP}`;
+  return w.here ? `winget is registered but does not start (${w.why}): ${fix}` : `winget is not on this computer: ${fix}`;
+}
+
 /** True when this process runs as root (POSIX). Windows: false. */
 export const isRoot = () => typeof process.getuid === 'function' && process.getuid() === 0;
 

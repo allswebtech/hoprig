@@ -10,7 +10,10 @@
 //   tool-result   { id, ok, text, diff?: [{ oldStart, oldLines, newStart, newLines, lines }] }
 //   ask           { request, toolId, type: permission | question | plan, tool, title, description, input, plan?,
 //                   why, canAlways, always, alwaysText, canProject }   a tool call waits for the owner
-//   ask-closed    { request, outcome: allowed | allowed-always | allowed-project | denied | cancelled | hoprig (allowed by the hook) }
+//                 type: mcp { server, title, message, mode: form | url, url, fields }   an MCP server asks him
+//                   (src/chat/mcpask.mjs: its words are the server's, shown as plain text; only he answers it)
+//   ask-closed    { request, outcome: allowed | allowed-always | allowed-project | denied | cancelled | hoprig (allowed by the hook)
+//                   | mcp-accepted | mcp-declined }
 //   allowed       { tool, what, folder? }                 allowed by Hoprig in bypass mode (the hook: src/chat/asks.mjs)
 //   turn-start    { auto, messageId? }                    auto: the coding tool went on by itself (a task ended)
 //   turn-end      { ok, subtype, error, turnCostUsd, usage, durationMs, stopped }
@@ -75,6 +78,8 @@ const ASK_VERBS = { Bash: 'run', Write: 'write', Edit: 'change', MultiEdit: 'cha
  */
 export function askNote(ask, cwd, who = 'Claude') {
   if (ask.type === 'question') return `${who} asks you a question`;
+  // The server's own words stay out of the note: Home, notifications and Tia read it.
+  if (ask.type === 'mcp') return 'An MCP server asks you a question';
   if (ask.type === 'plan') return `${who} has a plan for you to approve`;
   if (ask.known === false) return `${who} wants to use ${oneLine(ask.subject, 300)}`; // its subject: the tool's name and its input
   const base = String(cwd || '').replace(/\/+$/, '');

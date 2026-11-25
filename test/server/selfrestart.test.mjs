@@ -39,6 +39,37 @@ test('restartAfterExit: no pid (or a bad one) restarts without waiting', async (
   }
 });
 
+test('restartAfterExit: what the restart said and its outcome reach the activity log, as its own output goes nowhere', async () => {
+  const quiet = console.error;
+  console.error = () => {}; // the helper also says it, to a stdio the dashboard ignored
+  try {
+    for (const [code, said, did, outcome] of [
+      [1, ['The new dashboard did not answer within 30 seconds of its start, so this did not work.', 'The last lines of its log:', 'EADDRINUSE'], /could not start the dashboard again/, /^failed \(exit 1\): The new dashboard did not answer within 30 seconds/],
+      [0, ['The dashboard started again. It answers at http://127.0.0.1:7433 (process 9100).'], /started the dashboard again/, /^ok$/],
+    ]) {
+      const added = [];
+      const got = await restartAfterExit(undefined, {
+        runService: async (s) => {
+          assert.equal(s, 'restart');
+          for (const line of said) (code ? console.error : console.log)(line);
+          return code;
+        },
+        log: { add: (e) => added.push(e) },
+      });
+      assert.equal(got, code);
+      assert.equal(added.length, 1, 'one line in the activity log');
+      assert.equal(added[0].automation, 'updates');
+      assert.match(added[0].did, did);
+      assert.match(added[0].outcome, outcome);
+    }
+    const added = [];
+    assert.equal(await restartAfterExit(undefined, { runService: async () => { throw new Error('schtasks is missing'); }, log: { add: (e) => added.push(e) } }), 1);
+    assert.match(added[0].outcome, /^failed \(exit 1\): schtasks is missing/);
+  } finally {
+    console.error = quiet;
+  }
+});
+
 test('spawnServiceRestart: a detached, unref\'d `__service-restart <pid>` helper, its stdio ignored', () => {
   const calls = [];
   let unreffed = false;

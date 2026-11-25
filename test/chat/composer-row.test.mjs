@@ -143,10 +143,70 @@ test('a second press of its control closes the menu; Tab closes it too', async (
 // A page never gets these: the browser acts first. Judged from the published list, not by sending keys to a page.
 const CHROME_KEEPS = {
   linux: ['Ctrl+O', 'Ctrl+Shift+M', 'Ctrl+Shift+D', 'Ctrl+Shift+J', 'Ctrl+Shift+N', 'Ctrl+Shift+T', 'Ctrl+Shift+W', 'Ctrl+Shift+B', 'Ctrl+Shift+O', 'Ctrl+Shift+G', 'Ctrl+Shift+R', 'Ctrl+Shift+I', 'Alt+Shift+I'],
-  mac: ['Cmd+O', 'Cmd+Shift+M', 'Cmd+Shift+I', 'Cmd+Shift+D', 'Cmd+Shift+J', 'Cmd+Shift+N', 'Cmd+Shift+T', 'Cmd+Shift+W', 'Cmd+Shift+B', 'Cmd+Shift+G', 'Cmd+Shift+R', 'Cmd+Shift+H', 'Cmd+Option+I'],
+  mac: ['Cmd+O', 'Cmd+Shift+M', 'Cmd+Shift+I', 'Cmd+Shift+D', 'Cmd+Shift+J', 'Cmd+Shift+N', 'Cmd+Shift+T', 'Cmd+Shift+W', 'Cmd+Shift+B', 'Cmd+Shift+G', 'Cmd+Shift+R', 'Cmd+Shift+H', 'Cmd+Option+I', 'Cmd+Shift+]', 'Cmd+Shift+['],
 };
 // The desktop app's keys (code.claude.com/docs/en/desktop, Keyboard shortcuts; Cmd is Ctrl on Windows and Linux).
-const DESKTOP = { shortcuts: 'Cmd+/', mode: 'Cmd+Shift+M', model: 'Cmd+Shift+I', effort: 'Cmd+Shift+E', view: 'Ctrl+O', diff: 'Cmd+Shift+D' };
+const DESKTOP = { shortcuts: 'Cmd+/', mode: 'Cmd+Shift+M', model: 'Cmd+Shift+I', effort: 'Cmd+Shift+E', view: 'Ctrl+O', diff: 'Cmd+Shift+D', next: 'Cmd+Shift+]', prev: 'Cmd+Shift+[' };
+
+// The App's other keys with a modifier, outside keys.js: they must stay theirs.
+const OTHER_PAGE_KEYS = [
+  { what: 'undo a delete (deletes.js)', code: 'KeyZ', ctrlKey: true, shiftKey: false, altKey: false },
+  { what: 'send every diff comment (diffpane.js)', code: 'Enter', ctrlKey: true, shiftKey: false, altKey: false },
+];
+
+for (const os of ['linux', 'mac']) {
+  test(`on ${os} a key does one thing: no two of the App's keys are the same press, and none is another key of the page`, () => {
+    const mac = os === 'mac';
+    const sig = (p) => [p.code, !!p.ctrlKey, !!p.metaKey, !!p.shiftKey, !!p.altKey].join(' ');
+    const seen = new Map();
+    for (const k of K.desktopKeys(mac)) {
+      const s = sig(K.pressOf(k, mac));
+      assert.ok(!seen.has(s), `${k.id} and ${seen.get(s)} are the same press (${k.keys})`);
+      seen.set(s, k.id);
+    }
+    const asCmd = (p) => (mac ? { ...p, metaKey: p.ctrlKey, ctrlKey: false } : p);
+    for (const p of OTHER_PAGE_KEYS) assert.ok(!seen.has(sig(asCmd(p))), `${p.what} stays the page's own`);
+    // And each key's own press is that key and no other.
+    platform = mac ? 'MacIntel' : 'Linux x86_64';
+    for (const k of K.desktopKeys(mac)) {
+      const hits = K.desktopKeys(mac).filter((x) => K.isKey({ ...K.pressOf(k, mac), key: K.pressOf(k, mac).key || 'x' }, x)).map((x) => x.id);
+      assert.deepEqual(hits, [k.id], `${k.keys}`);
+    }
+    platform = 'Linux x86_64';
+    const rows = K.shortcuts(mac).map(([keys]) => keys);
+    assert.equal(new Set(rows).size, rows.length, 'the sheet lists each key once');
+    const kept = K.browserKeeps(mac).map(([keys]) => keys);
+    for (const k of kept) assert.ok(!rows.includes(k), `${k} is kept by the browser, not one of the App's keys`);
+    assert.deepEqual(kept, mac ? ['Cmd+N', 'Cmd+W', 'Ctrl+Tab'] : ['Ctrl+N', 'Ctrl+W', 'Ctrl+Tab']);
+  });
+}
+
+test('inside a window of the desktop, a key the desktop takes for its windows says so on its row, and only there', () => {
+  // The default keys (Alt+Shift) take none of the App's.
+  for (const k of K.desktopKeys(false)) assert.equal(K.deskTakes(k, 'alt-shift', false), null, k.keys);
+  assert.ok(K.shortcuts(false, 'alt-shift').every(([, , why]) => !/the desktop's \(/.test(why || '')));
+  // With Ctrl+Alt chosen, Ctrl+Alt+M is the desktop's Minimise: the mode menu's row says so.
+  const mode = K.desktopKeys(false).find((k) => k.id === 'mode');
+  assert.equal(K.deskTakes(mode, 'ctrl-alt', false).act, 'min');
+  const row = K.shortcuts(false, 'ctrl-alt').find(([keys]) => keys === 'Ctrl+Alt+M');
+  assert.match(row[2], /switching browser users\. In a window of the desktop this key is the desktop's \(Minimise\); Settings → Appearance can give the desktop other keys\.$/);
+  assert.equal(K.shortcuts(false, 'ctrl-alt').filter(([, , why]) => /the desktop's \(/.test(why || '')).length, 1, 'only that one');
+  assert.ok(K.shortcuts(false, 'off').every(([, , why]) => !/the desktop's \(/.test(why || '')), 'the desktop\'s keys off: none');
+  // A window of the desktop has no session list: no keys for it there.
+  assert.ok(!K.shortcuts(false, 'alt-shift').some(([keys]) => keys === 'Ctrl+Shift+]'));
+  assert.ok(K.shortcuts(false).some(([keys]) => keys === 'Ctrl+Shift+]'));
+});
+
+test('Ctrl+Shift+] and [ go to the next and the previous session of the list; a session list that is not drawn does nothing', () => {
+  const did = [];
+  const unkeys = K.installKeys({ working: () => false, stop() {}, openAsk: () => null, box: null, nextMode() {}, go: (d) => did.push(d) });
+  assert.ok(press(']', { ctrlKey: true, shiftKey: true, code: 'BracketRight' }).defaultPrevented);
+  press('}', { ctrlKey: true, shiftKey: true, code: 'BracketRight' }); // a US keyboard reports } with Shift
+  press('[', { ctrlKey: true, shiftKey: true, code: 'BracketLeft' });
+  assert.ok(!press(']', { ctrlKey: true, code: 'BracketRight' }).defaultPrevented, 'Ctrl+] without Shift is left alone');
+  assert.deepEqual(did, [1, 1, -1]);
+  unkeys();
+});
 
 for (const os of ['linux', 'mac']) {
   test(`the desktop app's keys on ${os}: its own where the browser leaves it, else the nearest free one with its reason`, () => {

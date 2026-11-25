@@ -67,7 +67,7 @@ export function byKey(isAlive, done) {
       if (e.code === 'not-installed' && e.data.canInstall && e.data.pending) {
         return fill(msg,
           errorBox(`${APP_NAME} is not installed on ${s.shown} yet.`),
-          h('p.hint', `This page can install it there with the same key. It needs Node.js 22.11 or newer there.`),
+          h('p.hint', `This page can install it there with the same key. It needs Node.js 24.13.1 or newer there.`),
           h('div.savebar.start', btn('primary', { icon: 'download', label: `Install ${APP_NAME} on ${s.shown}`, onclick: async () => {
             if (await confirmSheet({ title: `Install ${APP_NAME} on ${s.shown}?`, text: `The installer runs on ${s.shown} as the user you gave. Its lines show here as they come.`, ok: `Install on ${s.shown}` })) install(e.data.pending, s);
           } })));

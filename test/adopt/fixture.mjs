@@ -6,9 +6,16 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { writeTree } from '../workspace/helpers.mjs';
 
-// The real git, found before any trap is put on PATH (the fixture builds its tree with it).
-export const REAL_GIT = execFileSync('sh', ['-c', 'command -v git'], { encoding: 'utf8' }).trim();
-export const git = (cwd, ...args) => execFileSync(REAL_GIT, args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+// The real git, found before any trap is put on PATH (the fixture builds its tree with it). On Windows the `sh` of Git
+// for Windows answers `command -v git` with a path of its own world (/ucrt64/bin/git) that Node cannot start, so there
+// git.exe is looked for on PATH the way Windows finds it.
+const onWindowsPath = () => (process.env.PATH || process.env.Path || '').split(path.delimiter).filter(Boolean).map((d) => path.join(d, 'git.exe')).find((f) => fs.existsSync(f));
+export const REAL_GIT = process.platform === 'win32' ? onWindowsPath() || 'git' : execFileSync('sh', ['-c', 'command -v git'], { encoding: 'utf8' }).trim();
+// No maintenance in the background: a commit or a fetch of the fixture may start git's own upkeep as a detached
+// process, and its lock file then comes and goes while a snapshot walks the tree (seen on macOS: ENOENT on
+// .git/objects/maintenance.lock in the middle of a walk).
+const QUIET = ['-c', 'maintenance.auto=false', '-c', 'gc.auto=0'];
+export const git = (cwd, ...args) => execFileSync(REAL_GIT, [...QUIET, ...args], { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
 
 /** A repository at `dir` with one commit and a bare "server" beside it as origin. */
 export function repo(dir, server, files = { 'README.md': '# x\n' }) {

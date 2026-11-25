@@ -28,7 +28,7 @@ async function world(tc, name) {
   // ssh -G as an SSH settings file with "Host github-work / HostName github.com" answers (never this computer's own).
   fs.writeFileSync(path.join(w.root, 'bin', 'ssh'), '#!/bin/sh\n[ "$1" = "-G" ] || exit 255\ncase "$2" in github-work) echo "hostname github.com";; *) echo "hostname $2";; esac\necho "port 22"\n', { mode: 0o755 });
   // git reaches the stand-in GitHub under each spelling, as it reaches github.com itself.
-  for (const s of ['git@github-work:', 'ssh://git@ssh.github.com:443/', 'https://www.github.com/']) fs.appendFileSync(w.env.GIT_CONFIG_GLOBAL, `[url "${w.server}/"]\n\tinsteadOf = ${s}\n`);
+  for (const s of ['git@github-work:', 'ssh://git@ssh.github.com:443/', 'https://www.github.com/']) fs.appendFileSync(w.env.GIT_CONFIG_GLOBAL, `[url "${String(w.server).replaceAll('\\', '/')}/"]\n\tinsteadOf = ${s}\n`);
   w.creds = c;
   w.bare = (rel) => {
     const d = path.join(w.server, rel);
@@ -129,7 +129,7 @@ test('a branch push remote: sync pushes the credentials to the map\'s address on
 test('a pushInsteadOf rule that sends the map\'s address elsewhere: not pushed', async (tc) => {
   const w = await pushedWorld(tc, 'cp-pushinstead');
   // https://github.com/alex/credentials.git is pushed to <server>/mallory/open.git; it is still fetched from alex's.
-  fs.appendFileSync(w.env.GIT_CONFIG_GLOBAL, `[url "${path.join(w.server, 'mallory', 'open')}"]\n\tpushInsteadOf = https://github.com/alex/credentials\n`);
+  fs.appendFileSync(w.env.GIT_CONFIG_GLOBAL, `[url "${String(path.join(w.server, 'mallory', 'open')).replaceAll('\\', '/')}"]\n\tpushInsteadOf = https://github.com/alex/credentials\n`);
   assert.equal(w.sh(w.creds, 'remote', 'get-url', '--push', 'origin'), w.other, 'the rule really sends a push there');
   w.change();
   const u = await upkeepCredentials({ dir: w.ws });
@@ -192,7 +192,7 @@ test('git\'s own text of a failed push or fetch is never passed on: plain words 
 // An insteadOf rule that sends the map's GitHub address to another owner's repository: visibility is asked of one
 // repository, so the address git really reaches must be that one. alex/credentials is private, mallory/credentials
 // public; the rule sends https://github.com/alex/ to mallory's.
-const toMallory = (w) => `[url "${w.server}/mallory/"]\n\tinsteadOf = https://github.com/alex/\n`;
+const toMallory = (w) => `[url "${String(w.server).replaceAll('\\', '/')}/mallory/"]\n\tinsteadOf = https://github.com/alex/\n`;
 
 test('an insteadOf rule that sends the address to a public repository of another owner: the command refuses it', async (tc) => {
   const w = await world(tc, 'cp-io-cmd');

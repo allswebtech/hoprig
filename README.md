@@ -149,7 +149,7 @@ curl -fsSL https://raw.githubusercontent.com/allswebtech/hoprig/main/install.sh 
 ```
 
 The line fetches Hoprig's installer from GitHub and runs it on your computer.
-It installs what is missing (Node.js 22.11 or newer when it is missing or older, and on Linux the build tools, with sudo),
+It installs what is missing (Node.js 24.13.1 or newer when it is missing or older, and on Linux the build tools, with sudo),
 after asking once, then Hoprig itself from the main branch of this repository, then runs `hoprig setup`. Setup asks
 before it installs Claude Code, sets up the rest step by step, and ends with a QR code (on a server: how to reach it
 from your own computer): scan it and your phone is signed in to the dashboard. Until everything is set up, Home
@@ -168,7 +168,10 @@ Just want to look? `hoprig demo` opens the dashboard with sample data: no coding
 On Windows, the PowerShell line and what was tried there are in [docs/INSTALL.md](docs/INSTALL.md) (the line
 above does not run in PowerShell). Everything else: [docs/INSTALL.md](docs/INSTALL.md).
 Check a computer at any time on its **Health** tab (**Computers** → the computer → **Health**), where a problem that
-one press can fix has a **Fix** button (or, in a terminal, `hoprig doctor`). The command is `hoprig`, or `hop` for short.
+one press can fix has a **Fix** button (or, in a terminal, `hoprig doctor`). Where the dashboard runs as a background
+service, **Restart the dashboard** there restarts it; its sheet first says what happens to that computer's sessions
+(kept by tmux (a program that keeps terminals running when the dashboard stops), they go on; in the built-in
+terminals they end, and come back only if "Reopen sessions after a restart" is on). Only your own page restarts it, never Tia or a token. The command is `hoprig`, or `hop` for short.
 
 ## Code in a chat
 
@@ -217,6 +220,13 @@ From a terminal on that computer, `hop chat [folder]` prints the chat's address 
   by state or computer: **Group and sort** on its heading, where **Archived** lists this computer's archived App
   sessions to continue one), what needs you marked; a right-click on a row has **Open in new window** and, for an App
   session, **Archive** and **Delete** (the desktop app's Split view has no counterpart here); a phone keeps Back to Home.
+  Ctrl+Shift+] and Ctrl+Shift+[ open the next and the previous session of that list. **Keyboard shortcuts** (Ctrl+/,
+  or `?` outside the message box) lists every key of the App, and under "Kept by the browser" the desktop app's keys
+  a page never gets (Ctrl+N, Ctrl+W, Ctrl+Tab) with where the App has them.
+- **A question an MCP server asks you** (an MCP server is a program that gives the coding tool more tools) shows as a
+  card in the chat, as Claude Code's own questions do: the server's name, its words as plain text in a box of their
+  own, its fields (or the one web address it asks you to open), **Send** and **Decline**. Only you answer it: no
+  permission mode, Hands-off or Tia does, and Home and notifications say only "An MCP server asks you a question".
 - **A session's name is Claude Code's own name for the conversation**, in the session list, the title bar, the
   tab, Home, notifications and a terminal session's card: its first words until Claude Code writes its title, then
   that title. **The person's newest rename wins, wherever it was typed** (**Rename** here, a click on the title, or
@@ -550,10 +560,11 @@ nothing else (not Tia, not an automation, not another computer) types into that 
   Agent) that fit your projects are offered with the reason; nothing is added without you.
 - **Working rules**: a starting set, such as the right model and effort for the task and "done means proven".
 - **Kits**: Basics, Node.js, Python, GitHub and Terminal extras are set up by default; Docker, PHP + database,
-  Flutter versions (fvm) and Flutter are optional, off until you choose them. Flutter goes into the workspace's
-  `development/` folder, downloaded only from Google's own host and checked against Flutter's own release list; one
-  you already have is used where it is. The sheet says what it downloads, how big it is and what it changes before
-  the one yes.
+  Flutter versions (fvm), Flutter and Android are optional, off until you choose them. Flutter and the Android SDK's
+  command-line tools go into the workspace's `development/` folder, downloaded only from Google's own hosts and checked
+  against the vendor's own list; one you already have (and an Android Studio) is used where it is. Android Studio is
+  not downloaded, and Google's licence stays yours to accept. The sheet says what it downloads, how big it is and
+  what it changes before the one yes.
 
 <p align="center">
   <img src="docs/screenshots/projects-desktop-light.webp" alt="The Workspace page: every project, each with its sessions under it" width="760">
@@ -946,8 +957,8 @@ The dashboard is a remote control for your computer, and it is built that way:
 | macOS | run and tested | run and tested (built-in terminals) before this version; what is new in it was not run there (see above); the launchd service is written, not yet installed for real | checked read-only; installs not yet run |
 | Windows | used by hand once (Claude Code, a subscription and a gateway on the computer); the tests do not pass on Windows yet | used by hand once (built-in terminals, a chat, the Task Scheduler service); not tried: updates, the desktop, the editor, other computers, the public link | `pc setup` with winget used once; `install.ps1` itself not tried |
 
-Requires Node.js 22.11 or newer (Node 20 is past its end of life, and it aborts when a terminal is closed under it;
-`hoprig` says so in one sentence on an older Node.js). The tests run on Linux and macOS with Node 22, 24 and 26 on
+Requires Node.js 24.13.1 or newer (Node.js 22 and older are not supported; `hoprig` says so in one sentence on an
+older Node.js, with the line that installs the newest one). The tests run on Linux and macOS with Node 24 and 26 on
 every change, and on Windows as a job that is allowed to fail: they do not pass there yet, so Windows is not
 supported, only used. tmux is used from
 version 3.2 on; with an older one (or none) the built-in terminals are used. With npm 12 there is nothing to do

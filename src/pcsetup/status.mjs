@@ -186,7 +186,8 @@ export function kitChecks(found, sys, extras = null) {
       // A kit whose plan installs nothing here (fvm without Flutter's dart, no package manager) gets no button: its
       // row says what comes first instead of offering an Install that installs nothing. Only an optional kit's row
       // becomes a note: a default kit's missing item (git with no package manager) stays among the things to fix.
-      const nothing = it.state === 'missing' && !plan.steps.length;
+      const only = (kit.items.find((x) => x.id === it.id) || {}).foundOnly; // found, never installed (Android Studio)
+      const nothing = it.state === 'missing' && (only || !plan.steps.length);
       const none = nothing && optional;
       const why0 = nothing ? (plan.cannot.find((c) => c.item === it.id) || plan.cannot[0] || {}).why : null;
       const fix = it.state === 'missing'

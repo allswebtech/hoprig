@@ -17,13 +17,7 @@ function resolve(specifier, context, next) {
   return SWITCH.test(new URL(r.url).pathname) ? { url: STAND_IN, shortCircuit: true } : r;
 }
 
-/** Swap the switch for every later import of src/ in this process (Node 22.15+: in-thread hooks; Node 20: register). */
+/** Swap the switch for every later import of src/ in this process (in-thread hooks, which every supported Node has). */
 export function offerEveryTool() {
-  if (module.registerHooks) {
-    module.registerHooks({ resolve });
-    return;
-  }
-  const hooks = `export async function resolve(s, c, next) { const r = await next(s, c);
-    return ${SWITCH}.test(new URL(r.url).pathname) ? { url: ${JSON.stringify(STAND_IN)}, shortCircuit: true } : r; }`;
-  module.register(`data:text/javascript,${encodeURIComponent(hooks)}`);
+  module.registerHooks({ resolve });
 }

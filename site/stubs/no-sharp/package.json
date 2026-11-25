@@ -1,8 +1,8 @@
 {
   "name": "sharp",
-  "version": "0.0.0-not-used",
+  "version": "99.0.0-not-sharp",
   "private": true,
-  "description": "Stands in for sharp, which Next lists as optional for its image server. The site exports plain files with images unoptimised, so sharp is never loaded; its libvips binaries are LGPL and are kept out of the lock.",
+  "description": "Stands in for sharp, which Next lists as optional for its image server. The site exports plain files with images unoptimised, so sharp is never loaded; its libvips binaries are LGPL and are kept out of the lock. The version is one no release of sharp has, so a security notice about sharp is not shown for this empty stand-in.",
   "license": "Apache-2.0",
   "main": "index.js"
 }

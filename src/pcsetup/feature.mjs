@@ -144,7 +144,8 @@ export function pcsetupFeature(sctx, opts = {}) {
       ui.line('warn', `Skills that fit its technology could not be looked for: ${e.message}`);
     }
   }
-  const facts = () => (opts.sys ? Promise.resolve(opts.sys) : sysFacts());
+  // `opts.facts`: what sysFacts is handed (a test gives Windows' answers: platform, a made-up registry, a clock).
+  const facts = () => (opts.sys ? Promise.resolve(opts.sys) : sysFacts(opts.facts || {}));
   const pdir = () => (opts.projectsDir ? opts.projectsDir() : projectsDir());
   const computer = opts.computer || (() => defaultHubLabel()); // the name a Fix's confirmation must give
   let job = null; // one background job at a time: { kind, running, lines, steps, result }

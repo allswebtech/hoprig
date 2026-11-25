@@ -6,7 +6,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { BLOCK_BEGIN, BLOCK_END, MARK, ensureCommand, ensureKitsBlock, kitsBlockHas, shellValue } from '../../src/setup/localbin.mjs';
+import { BLOCK_BEGIN, BLOCK_END, MARK, ensureCommand, ensureKitsBlock, kitsBlockHas, ownValue, shellValue } from '../../src/setup/localbin.mjs';
 
 const homeOf = (tc) => {
   const h = fs.mkdtempSync(path.join(os.tmpdir(), 'kitsblock-'));
@@ -102,6 +102,21 @@ test('fish gets its own form; a dry run writes nothing; the PATH line of hoprig 
   assert.match(fish, /contains -- \$HOME\/Workspace\/development\/flutter\/flutter\/bin \$PATH; or set -gx PATH \$HOME\/Workspace\/development\/flutter\/flutter\/bin \$PATH  # flutter/);
   assert.equal(count(fish, MARK), 1);
   assert.equal(count(fs.readFileSync(path.join(home, '.profile'), 'utf8'), MARK), 1);
+});
+
+test('a variable the owner sets in one start file is his in all of them: no other file gets a line that would set it over his', (tc) => {
+  const home = homeOf(tc);
+  fs.writeFileSync(path.join(home, '.bashrc'), 'export ANDROID_HOME="$HOME/mysdk"\n');
+  fs.writeFileSync(path.join(home, '.profile'), '. "$HOME/.bashrc"\n');
+  const HOMELINE = { key: 'android-home', var: 'ANDROID_HOME', value: '$HOME/Workspace/development/sdk/android-sdk' };
+  assert.deepEqual(ownValue('ANDROID_HOME', { home, shell: '/bin/bash', platform: 'linux' }), { file: path.join(home, '.bashrc'), value: path.join(home, 'mysdk') });
+  assert.equal(kitsBlockHas(HOMELINE, { home, shell: '/bin/bash', platform: 'linux' }), true);
+  const r = ensureKitsBlock({ home, shell: '/bin/bash', platform: 'linux', lines: [HOMELINE] });
+  assert.deepEqual(r.did, []);
+  assert.deepEqual(r.kept, ['~/.profile: no ANDROID_HOME line is written, because another of your start files sets it', '~/.bashrc sets ANDROID_HOME itself: your line is left as it is']);
+  assert.equal(fs.readFileSync(path.join(home, '.profile'), 'utf8'), '. "$HOME/.bashrc"\n');
+  // A PATH folder is not a variable of his: only his own file counts for it, as before.
+  assert.equal(ownValue('PATH', { home, shell: '/bin/bash', platform: 'linux' }), null);
 });
 
 test('a value: the home as $HOME; a path a shell would read otherwise is refused', () => {

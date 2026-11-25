@@ -13,8 +13,10 @@
 //   POST /api/skills/learned/look { run, dryRun? }   "Learn from this" on an accepted task's run (dryRun: the prompt only)
 //   POST /api/skills/learned/<id>/install | discard | undo
 //
-// Behind the owner's login like every /api route. Tia's token and the server's own requests on her behalf are
-// refused: a skill is installed only by the owner's press on the page (or on another dashboard of his).
+// Behind the owner's login like every /api route. Tia's token is refused. The server's own requests on her behalf
+// (her door) read the learned skills (a view without the owner's words or the task's title), and install, discard or
+// undo one only as the act of her card that he confirmed for exactly that act and that skill on this computer. The
+// settings and a look (a paid model call) stay his presses alone.
 import { listProfiles, publicProfile } from '../profiles.mjs';
 import { MODELS } from '../config.mjs';
 import { readDoc } from '../work/store.mjs';
@@ -35,6 +37,12 @@ const forPage = (d) => ({
   id: d.id, createdAt: d.createdAt, state: d.state, kind: d.kind, name: d.name, description: d.description, why: d.why,
   source: d.source, skillMd: d.skillMd, diff: d.diff, findings: d.findings, counts: d.counts, risky: d.risky, riskyWhy: d.riskyWhy,
   tests: d.tests, cost: d.cost, installed: d.installed, undone: d.undone,
+});
+/** A draft for Tia's door: what her cards show, without the owner's words, the task's title or the cost. */
+const forTia = (d) => ({
+  id: d.id, createdAt: d.createdAt, state: d.state, kind: d.kind, name: d.name, description: d.description, skillMd: d.skillMd,
+  risky: d.risky === true, riskyWhy: Array.isArray(d.riskyWhy) ? d.riskyWhy : [],
+  installed: d.installed ? { at: d.installed.at } : null, undone: d.undone ? { at: d.undone.at } : null,
 });
 
 /** `opts`: { turn (a stand-in for the model turn), now(), places() ({ workspace, projects }), log }. */
@@ -61,6 +69,18 @@ export function learnFeature(sctx, opts = {}) {
   const ownerOnly = (req) => {
     if (/^Bearer\s+tia_/i.test(String((req.headers && req.headers.authorization) || ''))) throw fail(403, 'learned skills are the owner\'s only');
     if (sctx.caller && sctx.caller(req) === 'self') throw fail(403, 'learned skills are installed by the owner\'s own press only');
+  };
+  // The learned skills themselves: as ownerOnly, but her door may read them, and change one (`act` on draft `id`) only
+  // while a card of hers that he confirmed for exactly that act and that draft on this computer runs.
+  const learnedGate = (req, id = null, act = null) => {
+    if (/^Bearer\s+tia_/i.test(String((req.headers && req.headers.authorization) || ''))) throw fail(403, 'learned skills are the owner\'s only');
+    if (!sctx.caller || sctx.caller(req) !== 'self') return false;
+    if (!act) return true;
+    const c = sctx.ownerCard ? sctx.ownerCard(req) : null;
+    const i = c && c.input && typeof c.input === 'object' ? c.input : null;
+    const mine = !!i && c.tool === 'manage_skills' && i.action === `learned_${act}` && i.learned === id && (i.computer === undefined || i.computer === 'this');
+    if (!mine) throw fail(403, 'a learned skill is installed, discarded or taken back by your own press, or by her card you confirmed for it', 'owner-only');
+    return true;
   };
 
   /**
@@ -168,7 +188,7 @@ export function learnFeature(sctx, opts = {}) {
       return writeLearnSettings(b, { providers: providerNames() });
     }],
     ['GET', /^\/api\/skills\/learned$/, async (req) => {
-      ownerOnly(req);
+      if (learnedGate(req)) return { drafts: listDrafts().map((d) => forTia(settledView(d, now()))) };
       const s = readLearnSettings();
       return { on: s.on, looking: busy.size > 0, drafts: listDrafts().map((d) => forPage(settledView(d, now()))), recent: readLedger().looks.slice(-5).reverse().map((x) => ({ at: x.at, trigger: x.trigger, result: lastWord(x) })) };
     }],
@@ -194,11 +214,16 @@ export function learnFeature(sctx, opts = {}) {
       return first && first.skipped ? first : { started: true };
     }],
     ['POST', /^\/api\/skills\/learned\/([0-9a-f]{24})\/(install|discard|undo)$/, async (req, m) => {
-      ownerOnly(req);
+      const hers = learnedGate(req, m[1], m[2]);
       await sctx.readJson(req);
       if (m[2] === 'discard') return discard(m[1], { brain: brain() });
       // A way round (src/field/wayround.mjs) made on an older text of its skill is made again on the text there now.
-      if (m[2] === 'install') return install(freshWayRound(m[1], { brain: brain() }), { brain: brain() });
+      // Her card showed the old draft's text: the new one is not installed on it, she reads it again first.
+      if (m[2] === 'install') {
+        const id = freshWayRound(m[1], { brain: brain() });
+        if (hers && id !== m[1]) throw fail(409, 'this draft was made again on the skill\'s text there now, so nothing was installed: read it again on Skills → Learned', 'remade');
+        return install(id, { brain: brain() });
+      }
       const r = await undo(m[1], { brain: brain() });
       try {
         noteCorrection(cfg(), { kind: 'undo', about: { skill: readDraft(m[1]).name } });

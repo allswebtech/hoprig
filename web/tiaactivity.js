@@ -76,7 +76,7 @@ const UNIT = { upload_max_mb: 'MB', auto_cooldown_minutes: 'minutes' };
 const valueWords = (v, unit) => (v === null ? 'the default' : v === true ? 'on' : v === false ? 'off' : Array.isArray(v) ? `${v.length} item${v.length === 1 ? '' : 's'}`
   : typeof v === 'object' ? 'a new value' : typeof v === 'number' && unit ? `${v} ${unit}` : String(v));
 // The kits of Set up this computer by their titles (src/pcsetup/kits.mjs; a test keeps the two the same).
-export const KIT_TITLES = { basics: 'Basics', node: 'Node.js', python: 'Python', github: 'GitHub', extras: 'Terminal extras', docker: 'Docker', php: 'PHP + database', fvm: 'Flutter versions (fvm)', flutter: 'Flutter' };
+export const KIT_TITLES = { basics: 'Basics', node: 'Node.js', python: 'Python', github: 'GitHub', extras: 'Terminal extras', docker: 'Docker', php: 'PHP + database', fvm: 'Flutter versions (fvm)', flutter: 'Flutter', android: 'Android' };
 const kitWords = (id) => KIT_TITLES[id] || human(id);
 const ITEM = (id) => (id === 'all' ? 'everything that has an update' : id === 'hoprig' ? APP_NAME : id === 'cloudflared' ? 'the helper for the public link (cloudflared)' : TOOL_NAMES[id] || 'an item of Updates');
 const RULE = {
@@ -141,6 +141,8 @@ const ACTIONS = {
     update_review: (a) => `review an update of the skill ${a.skill || ''}`.trim(), install: () => 'install the skill she reviewed', remove: (a) => `remove the skill ${a.skill || ''}`.trim(),
     cancel_review: () => 'cancel a skill review of hers', undo_update: (a) => `put back the kept version of the skill ${a.skill || ''}`.trim(),
     twice: () => 'look at what went wrong twice', twice_dismiss: () => 'hide a line of what went wrong twice', twice_draft: () => 'make a skill draft of what went wrong twice',
+    learned: () => 'look at the skills learned from your work', learned_install: () => 'install a skill learned from your work',
+    learned_discard: () => 'discard a skill draft learned from your work', learned_undo: () => 'take back a skill learned from your work',
   },
   manage_procedures: { find: () => 'look up how to do it', draft: (a) => `write down how to do "${a.name || 'it'}"` },
   // A task by its title where the entry kept one (its result: a task's id may be cut off), else by its id.

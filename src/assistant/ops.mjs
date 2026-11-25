@@ -315,6 +315,8 @@ export function createOps(o) {
     fieldTwice: ({ computer }) => get(computer, '/api/field/twice'),
     // The line's key is <kind>:<class>; the route reads the ":" as it is (the page sends it so), each side encoded.
     fieldTwiceAct: ({ computer, line, act }) => post(computer, `/api/field/twice/${String(line).split(':').map(enc).join(':')}/${act === 'draft' ? 'draft' : 'dismiss'}`, {}),
+    skillsLearned: ({ computer }) => get(computer, '/api/skills/learned'),
+    skillLearnedAct: ({ computer, id, act }) => post(computer, `/api/skills/learned/${enc(id)}/${['install', 'discard', 'undo'].includes(act) ? act : 'none'}`, {}),
 
     projectsFolder: ({ computer, dir: d }) => post(computer, '/api/pcsetup/projects-dir', { dir: dir(computer, d) }),
     workingRules: ({ computer, add }) => post(computer, '/api/pcsetup/rules', { action: add ? 'add' : 'remove' }),

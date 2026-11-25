@@ -72,9 +72,14 @@
 /* ---------- a card that waits for you ---------- */
 .chat-ask { border: 1.5px solid var(--warn); border-radius: 12px; background: var(--warn-soft); padding: 12px; display: grid; gap: 8px; content-visibility: visible; }
 .chat-ask:focus { outline: none; box-shadow: 0 0 0 3px var(--accent-soft); }
-.chat-ask.chat-ask-question, .chat-ask.chat-ask-plan { border-color: var(--accent); background: var(--accent-soft); }
+.chat-ask.chat-ask-question, .chat-ask.chat-ask-plan, .chat-ask.chat-ask-mcp { border-color: var(--accent); background: var(--accent-soft); }
+/* An MCP server's question: its own words in a box of their own, so they never read as the page's. */
+.chat-mcp-said { padding: 8px 12px; border-radius: 10px; background: var(--surface); border: 1px solid var(--border); white-space: pre-wrap; overflow-wrap: anywhere; }
+.chat-mcp-field { display: grid; gap: 4px; }
+.chat-mcp-label { font-weight: 600; }
+.chat-mcp-url { margin: 0; overflow-wrap: anywhere; }
 .chat-ask-head { display: flex; align-items: center; gap: 8px; color: var(--warn); }
-.chat-ask.chat-ask-question .chat-ask-head, .chat-ask.chat-ask-plan .chat-ask-head { color: var(--accent); }
+.chat-ask.chat-ask-question .chat-ask-head, .chat-ask.chat-ask-plan .chat-ask-head, .chat-ask.chat-ask-mcp .chat-ask-head { color: var(--accent); }
 .chat-ask-head strong { color: var(--text); }
 .chat-ask-body { display: grid; gap: 8px; min-width: 0; }
 .chat-ask-actions { display: flex; gap: 8px; flex-wrap: wrap; }

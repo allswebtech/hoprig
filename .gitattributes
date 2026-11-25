@@ -1,0 +1,5 @@
+# Every text file is checked out with LF line endings, on Windows too. Git for Windows turns LF into CRLF by default
+# (core.autocrlf), and then the product read its own pages, data files and templates line by line with a CR at the
+# end of each: a sentence or a row no longer matched what the code and the tests expect. No file here needs CRLF
+# (there is no .cmd or .bat file; PowerShell reads LF as well). Pictures and other binary files are left as they are.
+* text=auto eol=lf

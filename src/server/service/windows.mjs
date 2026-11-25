@@ -16,7 +16,10 @@ import path from 'node:path';
 import { binFile, stateDir } from '../../paths.mjs';
 import { APP_NAME } from '../brand.mjs';
 import { carried } from './env.mjs';
-import { endOldDashboard, refusedFromInside } from '../takeover.mjs';
+import { endOldDashboard, insideWords, portBase, readRecord, refusedFromInside } from '../takeover.mjs';
+import { stateKey } from '../dashboardfile.mjs';
+import { clearPort, insideTree, readTree, tail, treeOf, waitForNew } from './wintree.mjs';
+import { WHOAMI, parseWhoami } from '../platform/win32.mjs';
 
 export const TASK = APP_NAME;
 
@@ -26,8 +29,11 @@ export const serviceDir = () => path.join(stateDir(), 'service');
 export const scriptFile = () => path.join(serviceDir(), 'dashboard-service.ps1');
 export const logFile = () => path.join(stateDir(), 'dashboard.log');
 
-/** A PowerShell single-quoted string: only the quote itself needs doubling. */
-export const psQuote = (s) => `'${String(s).replace(/'/g, "''")}'`;
+/**
+ * A PowerShell single-quoted string: only a quote needs doubling. PowerShell takes the typographic quotes
+ * U+2018 to U+201B as single quotes too (about_Quoting_Rules), so a folder named Bob’s would end the string early.
+ */
+export const psQuote = (s) => `'${String(s).replace(/['‘-‛]/g, '$&$&')}'`;
 
 /** The startup script. Pure, so it can be tested. */
 export function scriptText({ node = process.execPath, bin = binFile(), env = process.env, home = os.homedir(), log = logFile() } = {}) {
@@ -102,14 +108,7 @@ export function taskXml({ user, script = scriptFile(), home = os.homedir() }) {
 /** schtasks reads XML task files as UTF-16; a BOM says which byte order. */
 export const utf16 = (text) => Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from(text, 'utf16le')]);
 
-/** `whoami /user /fo csv /nh` argv: one CSV line, no header, so the display language changes nothing in it. */
-export const WHOAMI = ['whoami', ['/user', '/fo', 'csv', '/nh']];
-
-/** That line → { name: "pc\\me", sid: "S-1-5-21-…" }, or null when it is not such a line. */
-export function parseWhoami(out) {
-  const m = /^\s*"((?:[^"]|"")*)","(S-1-\d+(?:-\d+)+)"\s*$/m.exec(String(out || ''));
-  return m ? { name: m[1].replace(/""/g, '"'), sid: m[2] } : null;
-}
+export { WHOAMI, parseWhoami };
 
 /** Who this process really is, asked of the system (never USERDOMAIN): { name, sid } or null. */
 export async function whoAmI(runner = run) {
@@ -160,6 +159,64 @@ async function endOld(run, deps) {
   return !r.why;
 }
 
+const realSleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * Before the task is ended: the old dashboard's port (its record's, else the settings' or the default 7433) and the
+ * process table, read while the PowerShell wrapper still links the old `serve` to this task.
+ */
+async function lookBefore(run, deps) {
+  const rec = readRecord(deps.file);
+  let port = rec && (typeof rec.state !== 'string' || rec.state === stateKey()) ? rec.port : null;
+  if (!Number.isInteger(port)) {
+    try {
+      port = (await import('../../config.mjs')).loadConfig().server?.port;
+    } catch {
+      port = null;
+    }
+  }
+  if (!Number.isInteger(port)) port = 7433; // the dashboard's default (server.mjs DEFAULT_PORT)
+  const snap = await readTree(port, run);
+  const old = new Set([...(rec ? [rec.pid] : []), ...treeOf(snap, scriptFile()).members.map((p) => p.pid)]);
+  return { port, snap, old };
+}
+
+/**
+ * Typed in a terminal of the old dashboard when it has no record (refusedFromInside cannot see it then): the table read
+ * before shows it. True after saying so; nothing was ended or changed.
+ */
+function insideOld(b, deps) {
+  const pid = insideTree(b.snap, scriptFile(), deps.kept);
+  if (pid) console.error(insideWords(pid));
+  return !!pid;
+}
+
+/** After the old one was ended: its port is free, or each holder is named and false comes back. */
+const portFreed = (b, run, deps, me) => clearPort({ port: b.port, before: b.snap, run, me, script: scriptFile(), kept: deps.kept, sleep: deps.sleep || realSleep });
+
+const WAIT_MS = 30_000;
+
+/** After `schtasks /Run`: the new dashboard answers on its port, or the log and the status are shown and false comes back. */
+async function answers(run, deps, b, done) {
+  const waitMs = deps.waitNewMs ?? WAIT_MS;
+  const rec = await waitForNew({ old: b.old, file: deps.file, fetchImpl: deps.fetchImpl, sleep: deps.sleep || realSleep, now: deps.now, waitMs });
+  if (rec) {
+    console.log(`${done} It answers at ${portBase(rec)} (process ${rec.pid}).`);
+    return true;
+  }
+  console.error(`The new dashboard did not answer within ${Math.round(waitMs / 1000)} seconds of its start, so this did not work.`);
+  const t = tail(logFile());
+  console.error(t ? `The last lines of its log (${logFile()}):\n${t}` : `Its log (${logFile()}) has nothing in it.`);
+  console.error(`${APP_NAME} service status:\n${statusText(await run('schtasks', schtasksArgs.query()))}`);
+  return false;
+}
+
+const statusText = (r) => {
+  if (!r.ok) return 'not installed';
+  const q = parseQuery(r.out);
+  return q.status ? `${TASK}: ${q.status}\nlast run: ${q.lastRun} (result ${q.lastResult})\nlog: ${logFile()}` : r.out;
+};
+
 /**
  * `deps.run(cmd, args)` → { ok, out, err }: how the programs are started; the rest goes to takeover.mjs (tests hand
  * in a made-up Windows).
@@ -182,9 +239,11 @@ export async function service(sub, { run: runner = run, ...deps } = {}) {
         console.error('Could not find out which Windows account this is (whoami /user gave no answer). Nothing was installed.');
         return 1;
       }
+      const b = await lookBefore(run, deps);
+      if (insideOld(b, deps)) return 1;
       await run('schtasks', schtasksArgs.end()); // a running previous version, if any
       // A dashboard that runs and could not be ended keeps the port: a new task would only fail beside it.
-      if (!(await endOld(run, deps))) {
+      if (!(await endOld(run, deps)) || !(await portFreed(b, run, deps, me))) {
         console.error(`Nothing was installed. ${AGAIN}`);
         return 1;
       }
@@ -201,9 +260,12 @@ export async function service(sub, { run: runner = run, ...deps } = {}) {
         return 1;
       }
       const started = await run('schtasks', schtasksArgs.run());
-      if (!started.ok) console.error(`The task is installed but did not start now: ${started.err || started.out}`);
-      console.log(`Scheduled task "${TASK}" installed: the dashboard starts at every logon. Log: ${logFile()}`);
-      console.log(`See it with: ${APP_NAME} service status`);
+      if (!started.ok) {
+        console.error(`The task is installed but did not start now: ${started.err || started.out}`);
+        return 1;
+      }
+      if (!(await answers(run, deps, b, `Scheduled task "${TASK}" installed: the dashboard starts at every logon.`))) return 1;
+      console.log(`Log: ${logFile()}. See it with: ${APP_NAME} service status`);
       return 0;
     }
     case 'restart': {
@@ -212,14 +274,20 @@ export async function service(sub, { run: runner = run, ...deps } = {}) {
         console.error(`The service is not installed. Install it with: ${APP_NAME} service install`);
         return 3;
       }
+      const b = await lookBefore(run, deps);
+      if (insideOld(b, deps)) return 1;
       await run('schtasks', schtasksArgs.end());
       if (!(await endOld(run, deps))) return 1;
+      if (!(await portFreed(b, run, deps, null))) {
+        console.error(`Nothing was started. ${AGAIN}`);
+        return 1;
+      }
       const started = await run('schtasks', schtasksArgs.run());
       if (!started.ok) {
         console.error(`The task did not start: ${started.err || started.out}`);
         return 1;
       }
-      console.log(`The dashboard is starting again. See it with: ${APP_NAME} service status`);
+      if (!(await answers(run, deps, b, 'The dashboard started again.'))) return 1;
       return 0;
     }
     case 'uninstall': {
@@ -235,13 +303,8 @@ export async function service(sub, { run: runner = run, ...deps } = {}) {
     }
     case 'status': {
       const r = await run('schtasks', schtasksArgs.query());
-      if (!r.ok) {
-        console.log('not installed');
-        return 3;
-      }
-      const q = parseQuery(r.out);
-      console.log(q.status ? `${TASK}: ${q.status}\nlast run: ${q.lastRun} (result ${q.lastResult})\nlog: ${logFile()}` : r.out);
-      return 0;
+      console.log(statusText(r));
+      return r.ok ? 0 : 3;
     }
     default:
       console.error(`usage: ${APP_NAME} service install | uninstall | status | restart`);

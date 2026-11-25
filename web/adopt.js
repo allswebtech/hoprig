@@ -125,8 +125,8 @@ function viewAdopt({ frame }) {
   function found(s, from = null) {
     const cards = s.projects.map((p) => h('section.card.adopt-project', { 'aria-label': p.name },
       h('div.card-top', h('span.card-name', p.name), p.arranged ? h('span.badge.ok', 'arranged') : p.layout ? h('span.badge.soft', 'already in the layout') : null),
-      p.arranged ? h('p.hint', 'Arranged into ', h('span.mono', p.arrangedTo), '. Its old folder stays until you remove it (here, or on a terminal: ', h('span.mono', `hoprig adopt retire ${p.name}`), ').') : null,
-      p.arranged ? h('div.btnrow', { style: { marginTop: '8px' } }, btn('small danger', { icon: 'trash', label: RETIRE_LABEL, onclick: async () => ((await retireSheet(p.name)) ? load(p.name) : null) })) : null,
+      p.arranged ? h('p.hint', 'Arranged into ', h('span.mono', p.arrangedTo), '. Its old folder stays until you remove it (here, or on a terminal: ', h('span.mono', `hoprig adopt retire ${p.planName || p.name}`), ').') : null,
+      p.arranged ? h('div.btnrow', { style: { marginTop: '8px' } }, btn('small danger', { icon: 'trash', label: RETIRE_LABEL, onclick: async () => ((await retireSheet(p.planName || p.name)) ? load(p.name) : null) })) : null,
       h('div.card-meta', h('span.card-path.mono', p.dir)),
       h('ul.adopt-repos', p.repos.map((r) => {
         const l = repoLine(r);
@@ -136,8 +136,8 @@ function viewAdopt({ frame }) {
       p.neighbours.length ? h('p.hint', `Beside it: ${p.neighbours.join(', ')}`) : null,
       p.privates ? h('p.hint', `${plural(p.privates, 'private folder')}: never looked into; copied, but its contents are not checked.`) : null,
       h('div.card-actions', p.arranged
-        ? h('a.btn.primary', { href: link(`#/workspace/project/${encodeURIComponent(p.name)}`) }, icon('folder', { size: 18 }), h('span', 'Open the project'))
-        : btn('primary', { icon: 'sparkle', label: p.planned ? 'See its plan again' : 'Suggest a plan', onclick: () => suggest(p) }))));
+        ? h('a.btn.primary', { href: link(`#/workspace/project/${encodeURIComponent(p.planName || p.name)}`) }, icon('folder', { size: 18 }), h('span', 'Open the project'))
+        : btn('primary', { icon: 'sparkle', label: p.planned ? 'See its plan again' : 'Suggest a plan', onclick: () => suggest(p, p.planned && p.planName ? { name: p.planName } : {}) }))));
     fill(box, stepHeader(STEPS, 0),
       s.home ? okBox(`Looked through your home folder (${plural(s.home.folders, 'folder')}): ${plural(s.projects.length, 'project')} found. Nothing was opened, changed or fetched, and nothing is planned until you choose.`)
         : okBox(`Looked in ${s.places.filter((x) => x.ok).map((x) => x.dir).join(', ')}: ${plural(s.projects.length, 'project')} found. Nothing was changed and nothing was fetched.`),
@@ -150,18 +150,18 @@ function viewAdopt({ frame }) {
   }
 
   // ---- Suggest: the plan as a page ----
-  async function suggest(p) {
+  async function suggest(p, extra = {}) {
     fill(box, stepHeader(STEPS, 1), h('div.inline-busy', h('div.spinner.small', { 'aria-hidden': 'true' }), h('span', `Making a plan for ${p.name}… (only a plan file in Hoprig's own folder is written)`)));
     let plan;
     try {
-      plan = await api('/api/adopt/plan', { dir: p.dir });
+      plan = await api('/api/adopt/plan', { dir: p.dir, ...extra });
     } catch (e) {
       if (!alive) return;
-      fill(box, stepHeader(STEPS, 1), errorBox(e), h('div.pj-next', btn('secondary', { icon: 'back', label: 'Back to the list', onclick: () => found(state, p.name) })));
+      fill(box, stepHeader(STEPS, 1), errorBox(e), h('div.pj-next', btn('secondary', { icon: 'back', label: 'Back to the list', onclick: () => found(state, (state.projects.find((x) => x.dir === p.dir) || p).name) })));
       return void focusOn(box.querySelector('.banner'));
     }
     // The list shows it as planned from now on (its card offers the plan again, not a new one).
-    for (const x of state.projects) if (x.name === plan.name) x.planned = true;
+    for (const x of state.projects) if (x.dir === plan.from) Object.assign(x, { planned: true, planName: plan.name });
     if (alive) showPlan(plan);
   }
 
@@ -169,14 +169,32 @@ function viewAdopt({ frame }) {
   function showPlan(plan, idError = '') {
     const rows = (items) => h('ul.adopt-plan', items);
     const goes = [
-      ...plan.repos.map((r) => h('li', h('span.mono', r.rel === '.' ? 'the repository' : r.rel), ' → ', h('span.mono', r.to), h('span.hint', ' copied whole: its history, stashes, uncommitted and ignored files'),
+      ...plan.repos.map((r) => h('li', h('span.mono', r.rel === '.' ? 'the repository' : r.rel), ' → ', h('span.mono', r.to), h('span.hint', (plan.leftOut || []).length ? ' copied: its history, stashes, uncommitted and ignored files, except what is left out below' : ' copied whole: its history, stashes, uncommitted and ignored files'),
         r.visibility ? h('div.hint', r.visibility.state === 'local' ? '' : 'On its server: ', r.visibility.state === 'public' ? h('strong', r.visibility.words) : r.visibility.words) : null,
         ...r.worktrees.map((w) => h('div.hint', 'with its worktree ', h('span.mono', w.from), ' → ', h('span.mono', w.to))))),
       ...plan.neighbours.filter((n) => n.to).map((n) => h('li', h('span.mono', n.from), ' → ', h('span.mono', n.to), h('span.hint', ` ${KIND[n.kind] || n.kind}${n.private ? ': copied, never looked into, so its contents are not checked' : n.why ? `: ${n.why}` : ''}`))),
     ];
-    const stays = plan.neighbours.filter((n) => !n.to).map((n) => h('li', h('span.mono', n.from), h('span.hint', ` ${n.why || 'not part of the project'}`)));
+    const stays = plan.neighbours.filter((n) => !n.to).map((n) => h('li', h('span.mono', n.from), h('span.hint', ` ${n.why || 'not part of the project'}${n.bytes !== null && n.bytes !== undefined ? ` (${sizeText(n.bytes)})` : ''}`)));
+    const left = (plan.leftOut || []).map((l) => h('li', h('span.mono', l.at), h('span.hint', ` ${sizeText(l.bytes)}, ${plural(l.files, 'file')}: `), l.remake ? ['made again with ', h('span.mono', l.remake)] : 'made again by the project\'s own build or install'));
+    const copyAll = btn('secondary', { label: 'Copy them all the same', onclick: () => suggest({ name: plan.name, dir: plan.from }, { copyInstalled: true, name: plan.name }) });
+    // The project's name: the plan is made again under the name typed (the server checks it by the rule of a new project).
+    const nameField = h('input.field', { value: plan.name, autocomplete: 'off', spellcheck: 'false', 'aria-label': 'The project\'s name' });
+    const nameErr = h('p.form-error', { role: 'alert' });
+    const rename = btn('secondary', { label: 'Use this name', onclick: async () => {
+      const name = nameField.value.trim();
+      if (name === plan.name) return;
+      rename.disabled = true;
+      try {
+        const again = await api('/api/adopt/plan', { dir: plan.from, name, ...(plan.copyInstalled ? { copyInstalled: true } : {}) });
+        for (const x of state.projects) if (x.dir === again.from) Object.assign(x, { planned: true, planName: again.name });
+        if (alive) showPlan(again);
+      } catch (x) {
+        rename.disabled = false;
+        nameErr.textContent = x.message;
+      }
+    } });
     const reads = [
-      ...plan.neighbours.filter((n) => n.read).map((n) => h('li', h('span.mono', n.from), n.kind === 'own' ? `: yours and the template's are both kept (yours in ${n.to}): compare and merge them` : [': is it the plan the project came from, or a log with secrets in it? Arrange puts it in ', h('span.mono', n.to), ' unless you change the plan first.'])),
+      ...plan.neighbours.filter((n) => n.read).map((n) => h('li', h('span.mono', n.from), n.kind === 'own' ? `: yours, kept in ${n.to}` : [': is it the plan the project came from, or a log with secrets in it? Arrange puts it in ', h('span.mono', n.to), ' unless you change the plan first.'])),
       ...plan.tools.rules.map((r) => h('li', h('span.mono', r.file), ` (${r.tool}): a rules file. Arrange copies it as it is; afterwards, decide what in it is about you (for the brain's rules) and what is about the project (it stays).`)),
       ...(plan.nested || []).map((x) => h('li', h('span.mono', x), ': an untracked folder inside a repository that looks like another project. It is copied with the repository; decide whether it belongs there before any first push.')),
       ...plan.tools.hooks.map((x) => h('li', h('span.mono', x.file), ` (${x.tool}): a hook. It is copied and never run; if it guards something, Claude Code needs its equal.`)),
@@ -198,16 +216,20 @@ function viewAdopt({ frame }) {
     fill(box, stepHeader(STEPS, 1),
       h('h2.adopt-title', `Plan for ${plan.name}`),
       h('p.hint', 'From ', h('span.mono', plan.from), ' into ', h('span.mono', plan.to), '. Nothing has been done yet.'),
+      h('label.fieldrow', h('span.field-label', 'Project name'), nameField), h('p.hint', 'Letters, digits, ".", "_" and "-". The plan is made again under the name you give.'), nameErr, h('div.btnrow', rename),
+      plan.found ? h('p.hint.adopt-found', plan.found) : null,
       plan.exists ? errorBox(`${plan.to} is there already: Arrange makes a new folder and never writes into one that exists.`) : null,
       panel({ icon: 'folderPlus', title: 'What goes where' }, rows(goes)),
       tools.length ? panel({ icon: 'book', title: 'Other tools\' files and sessions' }, rows(tools)) : null,
       stays.length ? panel({ icon: 'folder', title: 'What stays where it is' }, rows(stays)) : null,
+      left.length ? panel({ icon: 'folder', title: 'Left out of the copy', desc: 'Installed packages and build output that git ignores: they are not copied, and each is made again with its command in the new folder. The proof counts them as left out.' }, rows(left), h('div.btnrow', copyAll))
+        : plan.copyInstalled ? h('p.hint', 'Installed packages and build output are copied with the rest.') : null,
       breaks.length ? panel({ icon: 'alert', title: 'What would break when the old folder goes', desc: 'These files name the old place. They are listed, never changed by themselves: change each when you are ready.' }, rows(breaks)) : null,
       reads.length ? panel({ icon: 'eye', title: 'What to read before or after', desc: 'Arrange does not wait for these: it does with each what is said here. To change that first, edit the plan file, or read them with a coding session that follows the adopt-projects skill.' }, rows(reads)) : null,
       panel({ icon: 'check', title: 'Arrange', desc: 'Arrange copies everything above into the new folder, then compares each copy with its original (its commits, branches, stashes, uncommitted work, worktrees, every file, git fsck). If anything differs, it stops and removes only what it made. Your old folders are not changed, renamed or deleted, and nothing is committed for you, fetched or pushed.' },
         h('p.hint', 'The new folder gets one first commit of Hoprig\'s own files. Under which name? (empty: git\'s own)'),
         h('div.adopt-who', identity.name, identity.email), err,
-        h('div.pj-next', arrange, btn('secondary', { label: 'See what it would do', onclick: () => run(plan, who(), true) }), btn('ghost', { icon: 'back', label: 'Back to the list', onclick: () => found(state, plan.name) }))));
+        h('div.pj-next', arrange, btn('secondary', { label: 'See what it would do', onclick: () => run(plan, who(), true) }), btn('ghost', { icon: 'back', label: 'Back to the list', onclick: () => found(state, (state.projects.find((x) => x.dir === plan.from) || plan).name) }))));
     box.querySelector('h2').setAttribute('tabindex', '-1');
     (idError ? identity.name : box.querySelector('h2')).focus();
   }
@@ -223,7 +245,7 @@ function viewAdopt({ frame }) {
       const changed = e.code === 'ECHANGED';
       if (!alive) return;
       fill(box, stepHeader(STEPS, 2), errorBox(e),
-        h('div.pj-next', changed ? btn('primary', { icon: 'refresh', label: 'Make the plan again', onclick: () => suggest({ name: plan.name, dir: plan.from }) }) : null, btn('secondary', { icon: 'back', label: 'Back to the plan', onclick: () => showPlan(plan) })));
+        h('div.pj-next', changed ? btn('primary', { icon: 'refresh', label: 'Make the plan again', onclick: () => suggest({ name: plan.name, dir: plan.from }, { name: plan.name, ...(plan.copyInstalled ? { copyInstalled: true } : {}) }) }) : null, btn('secondary', { icon: 'back', label: 'Back to the plan', onclick: () => showPlan(plan) })));
       return void focusOn(box.querySelector('.banner'));
     }
     if (!alive) return;

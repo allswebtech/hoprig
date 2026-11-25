@@ -24,9 +24,9 @@ export function askCard(ev, o) {
   const actions = h('div.chat-ask-actions');
   const body = h('div.chat-ask-body');
   const extra = h('div.chat-ask-extra'); // the deny reason, the plan note
-  const title = askTitle(ev.tool, ev.input || {}, who);
+  const title = ev.type === 'mcp' ? `The MCP server ${ev.server} asks you` : askTitle(ev.tool, ev.input || {}, who);
   const el = h(`section.chat-item.chat-ask.chat-ask-${ev.type || 'permission'}`, { 'aria-label': title, tabindex: '-1' },
-    h('div.chat-ask-head', icon(ev.type === 'question' ? 'info' : ev.type === 'plan' ? 'book' : 'alert', { size: 18 }), h('strong', title)),
+    h('div.chat-ask-head', icon(ev.type === 'question' || ev.type === 'mcp' ? 'info' : ev.type === 'plan' ? 'book' : 'alert', { size: 18 }), h('strong', title)),
     ev.description && !FILE_TOOLS.includes(ev.tool) ? h('p.chat-hint', ev.description) : null,
     body,
     ev.why ? h('p.chat-hint.chat-ask-why', icon('info', { size: 14 }), h('span', ev.why)) : null,
@@ -42,7 +42,8 @@ export function askCard(ev, o) {
     busy = true;
     for (const b of el.querySelectorAll('button')) b.disabled = true;
     try {
-      await api(`${o.A}/answer`, { request: ev.request, allow, ...(ev.card && ev.card.key ? { key: ev.card.key } : {}), ...more });
+      // An MCP server's question takes only its own answer: { request, mcp } (src/chat/feature.mjs).
+      await api(`${o.A}/answer`, ev.type === 'mcp' ? { request: ev.request, mcp: more.mcp } : { request: ev.request, allow, ...(ev.card && ev.card.key ? { key: ev.card.key } : {}), ...more });
       o.after?.();
     } catch (e) {
       busy = false;
@@ -67,7 +68,10 @@ export function askCard(ev, o) {
     });
   };
 
-  if (ev.type === 'question' && Array.isArray((ev.input || {}).questions)) {
+  if (ev.type === 'mcp') {
+    mcpBody(ev, { body, actions, extra, answer });
+    el.keys = () => false; // typed in its own fields: no number answers it
+  } else if (ev.type === 'question' && Array.isArray((ev.input || {}).questions)) {
     // Each question with its choices; the answers go back the way Claude Code expects them (several joined by ", ").
     const chosen = new Map();
     const others = new Map();
@@ -181,6 +185,58 @@ export function askCard(ev, o) {
   return el;
 }
 
+/**
+ * An MCP server's question (src/chat/mcpask.mjs): its words as plain text in a box that says whose they are, its form's
+ * fields (or the one address it asks you to open), Send and Decline. Only your press answers it.
+ */
+function mcpBody(ev, { body, actions, answer }) {
+  const values = new Map();
+  const fields = (ev.fields || []).map((f) => {
+    const id = `mcp-${ev.request}-${f.name}`.replace(/[^\w-]/g, '_');
+    const label = h('label.chat-mcp-label', { for: id }, f.label, f.required ? h('span.chat-hint', ' (needed)') : null);
+    let input;
+    if (f.kind === 'text') {
+      input = h('input.field', { id, type: f.format === 'email' ? 'email' : f.format === 'date' ? 'date' : 'text', maxlength: String(f.maxLength || 4000), value: f.default || '' });
+      if (f.default) values.set(f.name, f.default);
+      input.addEventListener('input', () => values.set(f.name, input.value));
+    } else if (f.kind === 'number') {
+      input = h('input.field', { id, type: 'number', step: f.integer ? '1' : 'any', ...(f.minimum !== null ? { min: String(f.minimum) } : {}), ...(f.maximum !== null ? { max: String(f.maximum) } : {}), value: f.default ?? '' });
+      if (f.default !== null) values.set(f.name, f.default);
+      input.addEventListener('input', () => values.set(f.name, input.value === '' ? undefined : Number(input.value)));
+    } else if (f.kind === 'yesno' || f.kind === 'choice' || f.kind === 'choices') {
+      const opts = f.kind === 'yesno' ? [{ value: true, label: 'Yes' }, { value: false, label: 'No' }] : f.options;
+      const many = f.kind === 'choices';
+      const set = new Set(many ? f.default || [] : f.default !== null && f.default !== undefined ? [f.default] : []);
+      const btns = opts.map((op) => h('button.chat-choice', { type: 'button', role: many ? 'checkbox' : 'radio', 'aria-checked': String(set.has(op.value)), onclick: () => {
+        if (many) set.has(op.value) ? set.delete(op.value) : set.add(op.value);
+        else {
+          const had = set.has(op.value);
+          set.clear();
+          if (!had) set.add(op.value);
+        }
+        for (const [i, b] of btns.entries()) b.setAttribute('aria-checked', String(set.has(opts[i].value)));
+        values.set(f.name, many ? [...set] : set.size ? [...set][0] : undefined);
+      } }, h('span.chat-choice-label', op.label)));
+      if (set.size) values.set(f.name, many ? [...set] : [...set][0]);
+      input = h('div.chat-q-opts', { id, role: many ? 'group' : 'radiogroup', 'aria-label': f.label }, btns);
+    } else {
+      input = h('p.chat-hint', 'This field cannot be filled in here. Decline the question, or answer it where the server offers another way.');
+    }
+    return h('div.chat-mcp-field', label, f.hint ? h('p.chat-hint', f.hint) : null, input);
+  });
+  fill(body,
+    h('p.ho-from', `From the MCP server ${ev.server}, in its own words:`),
+    ev.message ? h('div.chat-mcp-said', ev.message) : null,
+    ev.mode === 'url' ? (ev.url
+      ? h('p.chat-mcp-url', h('a', { href: ev.url, target: '_blank', rel: 'noopener noreferrer' }, ev.url))
+      : h('p.chat-hint', 'The server gave no web address that can be opened. Decline the question.')) : null,
+    fields);
+  const send = () => answer(true, { mcp: ev.mode === 'url' ? { action: 'accept' } : { action: 'accept', content: Object.fromEntries([...values].filter(([, x]) => x !== undefined && x !== '')) } });
+  fill(actions,
+    h('button.btn.primary', { type: 'button', disabled: ev.mode === 'url' && !ev.url, onclick: send }, icon('send', { size: 16 }), h('span', ev.mode === 'url' ? 'Done, I opened it' : 'Send')),
+    h('button.btn.secondary', { type: 'button', onclick: () => answer(false, { mcp: { action: 'decline' } }) }, 'Decline'));
+}
+
 const KINDS = { Edit: 'edit', MultiEdit: 'edit', Write: 'edit', NotebookEdit: 'edit', Bash: 'shell', Read: 'read', Grep: 'search', Glob: 'search', WebFetch: 'web', WebSearch: 'web' };
 const kindOf = (tool) => KINDS[tool] || 'other';
 
@@ -193,4 +249,6 @@ export const OUTCOME = {
   cancelled: ['No longer waiting', false],
   hoprig: ['Allowed by Hoprig in bypass mode', true], // the hook allowed it after the card showed (src/chat/asks.mjs)
   handsoff: ['Answered by Hoprig (Hands-off)', true], // src/chat/handsoff.mjs: the line under it says what and why
+  'mcp-accepted': ['You answered the MCP server', true],
+  'mcp-declined': ['You declined the MCP server\'s question', false],
 };

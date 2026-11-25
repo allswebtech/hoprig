@@ -90,8 +90,8 @@ test('GET /api/pcsetup/kits: the new kits unticked by default, with the suggesti
 test('Windows: the new kits are not offered, and the page is told so in one line', async () => {
   const { call } = harness({ platform: 'win32', pm: 'winget' });
   const d = await call('GET', '/api/pcsetup/kits');
-  assert.ok(!d.kits.some((k) => ['php', 'fvm', 'flutter'].includes(k.id)));
-  assert.deepEqual(d.notCovered, ['PHP + database', 'Flutter versions (fvm)', 'Flutter']);
+  assert.ok(!d.kits.some((k) => ['php', 'fvm', 'flutter', 'android'].includes(k.id)));
+  assert.deepEqual(d.notCovered, ['PHP + database', 'Flutter versions (fvm)', 'Flutter', 'Android']);
   assert.match(d.java.text, /not looked for on Windows/);
 });
 
@@ -169,7 +169,7 @@ test('the page\'s summary: a PHP note or the Java line is never "to fix"; status
   assert.equal(setupSummary([...notes, { group: 'kit:docker', id: 'docker.docker', label: 'Docker', status: 'info', detail: '', setupKit: 'docker' }]).offers.length, 1);
   assert.equal(s.text, 'Everything needed is installed');
   const win = extraChecks({ php: [], java: null }, 'win32');
-  assert.deepEqual(win.map((c) => c.detail), ['PHP + database, Flutter versions (fvm) and Flutter: not covered on Windows (Hoprig does not set them up there)']);
+  assert.deepEqual(win.map((c) => c.detail), ['PHP + database, Flutter versions (fvm), Flutter and Android: not covered on Windows (Hoprig does not set them up there)']);
 });
 
 test('the sheet keeps the Java line\'s height: in its flex column a .rows list would shrink to nothing (seen in a browser)', () => {

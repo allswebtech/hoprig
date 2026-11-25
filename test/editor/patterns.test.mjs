@@ -189,6 +189,7 @@ test('over the route: while such a search runs, GET /login is answered within 50
       .then(async (r) => ({ status: r.status, json: await r.json() })).finally(() => { done = true; });
     const times = [];
     await new Promise((r) => setTimeout(r, 100));
+    const loop = performance.eventLoopUtilization();
     while (!done && times.length < 20) {
       const t0 = performance.now();
       const r = await fetch(`${base}/login`);
@@ -196,12 +197,18 @@ test('over the route: while such a search runs, GET /login is answered within 50
       times.push(performance.now() - t0);
       await new Promise((res) => setTimeout(res, 50));
     }
+    const busy = performance.eventLoopUtilization(loop).utilization;
     const res = await asked;
     assert.equal(res.status, 200);
     assert.equal(res.json.engine, 'walk');
     assert.deepEqual(res.json.matches.map((m) => m.line), [1]);
     assert.ok(times.length >= 3, `the search ran long enough to ask ${times.length} times`);
-    assert.ok(Math.max(...times) < 50, `GET /login took ${times.map(Math.round).join(', ')} ms`);
+    // The server's thread is not held by the search: measured as the share of the search its event loop was busy (the
+    // server runs in this process), not as the time of an answer, which a computer shared with other runs stretches
+    // (two other programs on its one CPU: 58 to 65 ms with the count in the worker). Measured on 25 Nov 2026: with the
+    // count in the worker, 26 % beside those two programs; with the thread held for 1.5 s of the search, 64 %; with the
+    // count itself on the thread, the search never ends (the test runs out of time). Half lies between.
+    assert.ok(busy < 0.5, `the server's thread was busy ${Math.round(busy * 100)} % of the search (GET /login took ${times.map(Math.round).join(', ')} ms)`);
   } finally {
     await app.close();
     fs.rmSync(path.join(plain, 'redos.txt'), { force: true });

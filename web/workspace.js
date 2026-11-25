@@ -12,6 +12,7 @@ import { computerPanel, githubPath } from './wscomputer.js';
 import { mapExtras } from './workspacemap.js';
 import { findPlaces } from './workspacefind.js';
 import { credsIsRepo, credsToggle } from './wscredsauto.js';
+import { looksToggles } from './wslooks.js';
 
 const plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -498,6 +499,7 @@ function autoPanel(onMap = () => {}) {
       toggle('Also upload', !!w.push, (v) => save({ push: v }),
         'Uploads what is only ahead here: the map\'s commit and, with keeping in step, those repositories. With the map saved too, a map another computer changed is brought in step by itself. Off: nothing leaves this computer by itself.'),
       credsToggle(w, save),
+      ...looksToggles(w, save),
       branchToggles(w, save),
       h('label.fieldrow', h('span.field-label', 'Every how many hours'), h('div.inlineform', hours, btn('small secondary', { label: 'Save', onclick: async () => {
         const n = Number(hours.value);
@@ -506,7 +508,7 @@ function autoPanel(onMap = () => {}) {
       } }))));
   };
   api('/api/automation').then(async (st) => {
-    w = { map: true, commitMap: false, memory: false, sync: false, push: false, pushBranches: {}, everyHours: 6, credentials: false, ...((st.settings && st.settings.workspace) || {}) };
+    w = { map: true, commitMap: false, memory: false, sync: false, push: false, pushBranches: {}, everyHours: 6, credentials: false, onlyHere: false, servers: false, ...((st.settings && st.settings.workspace) || {}) };
     w.credsRepo = await credsIsRepo(api);
     w.places = await api('/api/pcsetup/projects').then((d) => (Array.isArray(d.places) && d.places.length ? d.places : [{ id: '' }]).filter((p) => p.members !== 'group'), () => [{ id: '' }]);
     why = st.commitMap && st.commitMap.chosen === false ? st.commitMap : null;

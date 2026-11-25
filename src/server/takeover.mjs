@@ -213,7 +213,7 @@ export async function insideOf(pid, deps = {}) {
   return chain ? chain.includes(pid) : !!(deps.env || process.env).HOPRIG_TERM_ID;
 }
 
-const insideWords = (pid) =>
+export const insideWords = (pid) =>
   `This runs in a terminal of the dashboard it would end (process ${pid}): ending that dashboard ends this command too, before anything starts again. Nothing was changed. Run it in a window of its own (on Windows: open PowerShell from the Start menu), not in the dashboard's terminal.`;
 
 /** Words when the recorded dashboard of this state folder is above this process (see insideOf), else null. */
@@ -252,7 +252,8 @@ export async function askHolder(rec, { fetchImpl = globalThis.fetch, ms = 3000 }
 /** Whether the record is of the old format: written by a version before the key (no key, no state folder). */
 export const oldFormat = (rec) => !!rec && typeof rec.key !== 'string' && typeof rec.state !== 'string';
 
-const portBase = (rec) => {
+/** The address a record's dashboard answers on, for this computer. */
+export const portBase = (rec) => {
   const h = !rec.host || rec.host === '0.0.0.0' ? '127.0.0.1' : rec.host === '::' ? '::1' : rec.host;
   return `http://${h.includes(':') ? `[${h}]` : h}:${rec.port}`;
 };

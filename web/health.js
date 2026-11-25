@@ -84,6 +84,19 @@ export function unreachedWords(r, label) {
   };
 }
 
+/**
+ * The restart sheet's text: what happens to the sessions of computer `where`, from its automation status `st`
+ * (restoreDefault: built-in terminals, which end with the dashboard; restoreOn: "Reopen sessions after a restart").
+ */
+export function restartWords(st, where) {
+  const sessions = !st
+    ? 'Sessions kept by tmux go on through the restart; sessions in the built-in terminals end with it, and come back only if "Reopen sessions after a restart" is on.'
+    : st.restoreDefault
+      ? `Its sessions run in the built-in terminals, which end with the restart; "Reopen sessions after a restart" is ${st.restoreOn ? 'on, so they come back' : 'off, so they do not come back'} (their conversations can be continued).`
+      : 'Its sessions are kept by tmux: they go on through the restart.';
+  return `${sessions} A reply an App session is writing at that moment is cut off. This page loses ${where} for a few seconds.`;
+}
+
 export function healthSection(ctx) {
   const name = machine.current;
   const top = h('div', { role: 'status' }, busy('Asking for its health…'));
@@ -91,6 +104,8 @@ export function healthSection(ctx) {
   // The answer to the last press stays while the list under it is drawn again.
   const msg = h('div', { role: 'status' });
   const refresh = btn('secondary small', { icon: 'refresh', label: 'Refresh', onclick: () => load() });
+  // Shown once that computer said it runs as a background service: only then can it restart itself.
+  const restart = btn('secondary small hidden', { icon: 'power', label: 'Restart the dashboard', onclick: () => restartDashboard() });
   let computerName = null; // the name that computer gives itself (its health answer): a Fix's confirmation sends it
   let signedIn = []; // the loopback names the owner is signed in under here (GET /api/gatewayhost)
 
@@ -102,6 +117,25 @@ export function healthSection(ctx) {
       toast(ENTER_HINT, { ms: 8000 });
     } catch (e) {
       fill(msg, errorBox(e));
+    }
+  }
+
+  // "Restart the dashboard": the sheet says what happens to the sessions there first (POST /api/health/restart).
+  async function restartDashboard() {
+    let st = null;
+    try {
+      st = await api('/api/automation');
+    } catch {
+      /* said in general words below */
+    }
+    const where = ctx.label();
+    if (!(await confirmSheet({ title: `Restart the dashboard of ${where}?`, text: restartWords(st, where), ok: 'Restart the dashboard' }))) return;
+    try {
+      const r = await api('/api/health/restart', { confirm: computerName });
+      if (r && r.restarting) fill(msg, okBox(`The dashboard of ${where} is restarting. Reload this page in a few seconds.`));
+      else fill(msg, errorBox((r && r.why) || 'The dashboard could not restart itself.'));
+    } catch (e) {
+      fill(msg, errorBox(e.status === 404 ? `The ${APP_NAME} on ${where} is too old to restart from here. Update it there.` : e));
     }
   }
 
@@ -171,6 +205,7 @@ export function healthSection(ctx) {
     }
     const hl = r.health;
     computerName = hl.computer || null;
+    restart.classList.toggle('hidden', !(hl.service && hl.service.status === 'ok'));
     const v = hl.versions;
     fill(top,
       h('p.hint', `As it said ${ago(r.seenAt)}.`),
@@ -315,5 +350,5 @@ export function healthSection(ctx) {
   }
 
   load();
-  return h('div.cp-health', h('div.savebar.start', refresh), top, gwBox);
+  return h('div.cp-health', h('div.savebar.start', refresh, restart), top, gwBox);
 }

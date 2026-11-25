@@ -66,6 +66,36 @@ test('the owner\'s page: look in the folder he named, a plan, a dry run, then Ar
   assert.equal(g2.json.projects.find((x) => x.name === 'blog').arranged, false);
 });
 
+test('the plan step takes the project\'s name: a name the rule refuses is a 400 and writes no plan; the list follows the name', async () => {
+  await call('/api/adopt/scan', { places: [m.place] });
+  for (const name of ['My Shop', '', '.shop', 42]) {
+    const r = await call('/api/adopt/plan', { dir: m.dirs.shop, name });
+    assert.equal(r.status, 400, JSON.stringify(r.json));
+  }
+  const { planFile } = await import('../../src/adopt/plan.mjs');
+  assert.ok(!fs.existsSync(planFile('My Shop')) && !fs.existsSync(planFile('.shop')), 'no plan is written for a refused name');
+  assert.equal((await call('/api/adopt/plan', { dir: m.dirs.shop, copyInstalled: 'yes' })).status, 400);
+  const p = await call('/api/adopt/plan', { dir: m.dirs.shop, name: 'storefront' });
+  assert.equal(p.status, 200, JSON.stringify(p.json));
+  assert.equal(p.json.name, 'storefront');
+  assert.match(p.json.to, /storefront$/);
+  assert.match(p.json.found, /already laid out as a Hoprig project/);
+  const g = await call('/api/adopt');
+  const shop = g.json.projects.find((x) => x.name === 'shop');
+  assert.equal(shop.planned, true);
+  assert.equal(shop.planName, 'storefront');
+  const a = await call('/api/adopt/apply', { name: 'storefront', identity: { name: 'Alex', email: 'alex@example.invalid' } });
+  assert.equal(a.status, 200, JSON.stringify(a.json));
+  assert.ok(a.json.ok, JSON.stringify(a.json.lines.filter((l) => !l.ok)));
+  const g2 = await call('/api/adopt');
+  assert.equal(g2.json.projects.find((x) => x.name === 'shop').arranged, true, 'arranged under the name he gave');
+  // Another folder may not take the name of a project arranged from this one: its plan is what verify and retire read.
+  const taken = await call('/api/adopt/plan', { dir: m.dirs.tools, name: 'storefront' });
+  assert.equal(taken.status, 400, JSON.stringify(taken.json));
+  assert.match(taken.json.error, /storefront is the name of a project arranged from/);
+  assert.equal((await call('/api/adopt/plan?name=storefront')).json.from.endsWith('shop'), true, 'its plan stays');
+});
+
 test('a folder that changed after its plan: the page gets the code ECHANGED and words without a terminal command', async () => {
   await call('/api/adopt/scan', { places: [m.place] });
   const p = await call('/api/adopt/plan', { dir: m.dirs.blog });
