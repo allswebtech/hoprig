@@ -288,7 +288,8 @@ test('the look keeps to its budget also while it matches and checks: a costly gl
     for (const command of [`rm -f long/*${'a'.repeat(120)}b*`, `rm -f long/${'*a'.repeat(120)}b`, `rm -f ${Array.from({ length: 7 }, () => `long/*${'a'.repeat(125)}b*`).join(' ')}`]) {
       const t = performance.now();
       assert.equal(at(command), false, command.slice(0, 40));
-      assert.ok(performance.now() - t < 300, `${(performance.now() - t).toFixed(0)} ms`);
+      // "soon": without the budget such a glob runs for many seconds; 300 ms was 323 ms once on a loaded macOS runner
+      assert.ok(performance.now() - t < 1500, `${(performance.now() - t).toFixed(0)} ms`);
     }
   } finally {
     fs.rmSync(base, { recursive: true, force: true });

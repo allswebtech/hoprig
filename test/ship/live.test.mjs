@@ -123,7 +123,9 @@ test('a step killed in the middle of its update: the next look waits for the upd
   };
   const oldServer = pidOf('server.pid');
   fs.rmSync(path.join(shop, 'run', 'deploy.pid'), { force: true });
-  const child = spawn(process.execPath, [CHILD, shop, r.id], { env: { ...process.env, SHOP_SLOW: '5' }, stdio: 'ignore' });
+  const child = spawn(process.execPath, [CHILD, shop, r.id], { env: { ...process.env, SHOP_SLOW: '25' }, stdio: 'ignore' });
+  // 25 s: on a slow runner the new server took so long to answer that an update of 5 s had ended before the look below
+  // came (seen on macOS and on Windows: the look then rightly closed the step, and this test failed).
   const until = Date.now() + 15_000;
   for (;;) {
     const j = readJournal(gitDir);
@@ -151,7 +153,7 @@ test('a step killed in the middle of its update: the next look waits for the upd
       return false;
     }
   };
-  for (let i = 0; i < 150 && alive(); i++) await new Promise((res) => setTimeout(res, 100));
+  for (let i = 0; i < 400 && alive(); i++) await new Promise((res) => setTimeout(res, 100));
   assert.equal(alive(), false, 'the deploy ended by itself');
   const done = await finishCut(shop);
   assert.equal(done.outcome, 'update-cut', done.why);

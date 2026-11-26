@@ -10,9 +10,10 @@
 //   node tools/test.mjs                 all tests
 //   node tools/test.mjs test/server     one area
 //   node tools/test.mjs --test-only     arguments starting with "-" go to `node --test` unchanged
+//   node tools/test.mjs --again         a file with a failing test runs once more by itself (failedAgain below)
 
 import { spawn, spawnSync } from 'node:child_process';
-import { closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, readSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { appendFileSync, closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, readSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { delimiter, dirname, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -42,7 +43,11 @@ if (partArg && !(partOf >= 1 && partNo >= 1 && partNo <= partOf)) {
   console.error(`--part=${partNo}/${partOf} is no part: write --part=<n>/<of>, with n from 1 to <of>.`);
   process.exit(1);
 }
-const flags = args.filter((a) => a.startsWith('-') && a !== partArg);
+// `--again` (or HOPRIG_TEST_AGAIN=1), off by default: after the run, each file with a failing test is run once more by
+// itself, and one that then passes whole does not fail the run, said loudly (failedAgain below). The workflows of every
+// push turn it on; a release runs without it.
+const againOn = args.includes('--again') || process.env.HOPRIG_TEST_AGAIN === '1';
+const flags = args.filter((a) => a.startsWith('-') && a !== partArg && a !== '--again');
 const places = args.filter((a) => !a.startsWith('-'));
 
 // A folder goes to `node --test` as one glob pattern, not as its files one by one: about 1,100 paths are longer than
@@ -261,9 +266,15 @@ child.on('exit', (code, signal) => {
   }
   // The count first, and the second run of each file whose own summary never came (lostAgain), before the traps' log,
   // the real home and the repository root are read: what that second run does is checked as the first run is.
-  const lost = ownReporters ? [] : incomplete();
-  const again = summaryNeverCame.length ? lostAgain(summaryNeverCame) : '';
-  const asked = reached(forbidden);
+  const counted = ownReporters ? [] : incomplete();
+  const second = summaryNeverCame.length ? lostAgain(summaryNeverCame) : { text: '', rescued: [] };
+  // --again: each file with a failing test runs once more by itself (failedAgain), before the seal's marks are read too.
+  const again = againOn && !ownReporters ? failedAgain() : null;
+  // A file whose own summary never came and whose second run by itself passed whole is not a lost result: its counts
+  // are that run's, said in one line of its own (lostAgain). Every other line stays lost and fails the run.
+  const rescuedLines = new Set(second.rescued.map((x) => lostLine.get(x.file)));
+  const lost = counted.filter((l) => !rescuedLines.has(l));
+  const { asked, npmLogs, touched, strayRoot } = sealMarks();
   const special = new Set(['knock', 'fullpath', 'registry']); // log lines that are not a trapped program name
   for (const r of asked.filter((x) => !special.has(x.program))) console.error(`\n✖ A TEST REACHED THE REAL ${r.program}: ${r.file} (it asked: ${r.program}${r.args ? ` ${r.args}` : ''}; stopped by the runner's trap)`);
   if (asked.some((x) => !special.has(x.program))) console.error('  The traps stopped it: the real program did not run. Give the test a stand-in of its own, in its temporary folder (os.tmpdir()) or under test/, first on PATH, or build the PATH with sealedPath() from test/seal.mjs. To play a computer WITHOUT the program, give the product facts that say so, or a PATH of the test\'s own empty folder: the trap is a program of that name, and the product would take it for an installed one (AGENTS.md, "The suite cannot touch the computer").');
@@ -277,13 +288,11 @@ child.on('exit', (code, signal) => {
   for (const r of asked.filter((x) => x.program === 'registry')) console.error(`\n✖ A TEST ASKED A PUBLIC REGISTRY: ${r.file} (it ran: npm ${r.args}; refused on this computer, nothing left it)`);
   if (asked.some((x) => x.program === 'registry')) console.error('  No test asks a registry that is not on this computer. Hand the product the answer it needs (a run of its own, as `toolRun` or `run`), or give the test a registry of its own on 127.0.0.1 (npm_config_registry).');
   const ranAt = runsOf();
-  const npmLogs = (watchNpmLogs ? listNames(realNpmLogs) : []).filter((n) => !npmLogsBefore.has(n)).map((n) => join(realNpmLogs, n)).filter(namesThisRun);
   for (const p of npmLogs) {
     const who = writtenDuring(p, ranAt);
     console.error(`\n✖ NPM WROTE INTO THE REAL HOME: ${who.length ? who.join(', ') : UNKNOWN_FILE} (it made ${p})`);
   }
   if (npmLogs.length) console.error('  An npm of a test got past the npm trap, which gives every call a cache and log folder of the test\'s own: start npm by its name (the trap is first on PATH), not by a full path, and keep the environment the test was given.');
-  const touched = homeGuard ? changes(homeGuard.before, snapshot(homeGuard.places)) : [];
   if (touched.length) {
     const by = (t) => {
       const who = writtenDuring(t.replace(/^\w+: /, ''), ranAt);
@@ -291,24 +300,54 @@ child.on('exit', (code, signal) => {
     };
     console.error(`\n✖ REAL HOME CHANGED: a test wrote outside its temporary home (a child's environment without USERPROFILE?):\n${touched.map((t) => `  ${t}${by(t)}`).join('\n')}`);
   }
+  if (strayRoot.length) console.error(`\n✖ WORKTREE ROOT CHANGED: a test made ${strayRoot.length} new entr${strayRoot.length === 1 ? 'y' : 'ies'} in the repository root (a Windows-style path built on POSIX, or a missing temporary home?):\n${strayRoot.map((e) => `  ${e}`).join('\n')}`);
+  const said = again ? againSaid(again, asked.length || touched.length || strayRoot.length || npmLogs.length) : null;
+  // One chain: the closing line never says more than was checked, nor the opposite of the lines above it.
+  if (ownReporters) {
+    console.error('(Reporters of your own: the count of every file\'s results is left out.)');
+    if (againOn) console.error('ℹ --again ran no file again: it needs the count of every file\'s results, which reporters of your own leave out.');
+  } else {
+    if (said) for (const b of said.blocks) console.error(`\n${b}`);
+    for (const x of second.rescued) console.error(`\n${x.line}`);
+    if (lost.length) {
+      console.error(`\n✖ RESULTS LOST: ${lost.length} test file(s) did not report all they ran, so the totals above miss tests (failing ones may be among them):\n${lost.map((l) => `  ${l}`).join('\n')}`);
+      if (second.text) console.error(second.text);
+    } else console.error(`ℹ every result arrived: ${files.length} file(s), each with its own summary${second.rescued.length ? ` (${second.rescued.length} of them from a second run by itself, said above)` : ''}`);
+    if (said) console.error(said.closing);
+  }
+  // The same list on the run's page of GitHub, where its step summary is.
+  if (said?.markdown && process.env.GITHUB_STEP_SUMMARY) {
+    try {
+      appendFileSync(process.env.GITHUB_STEP_SUMMARY, said.markdown);
+    } catch (e) {
+      console.error(`ℹ the step summary could not be written: ${e.message}`);
+    }
+  }
+  rmSync(sandbox, { recursive: true, force: true });
+  if (tmuxDir) rmSync(tmuxDir, { recursive: true, force: true });
+  // No process.exit: it would cut off what is still being written to a pipe, the very thing above prevents.
+  // With --again, a run whose only failing results were in files that then passed whole by themselves passes: Node's
+  // exit code 1 was theirs alone. Anything else keeps the exit code as without it.
+  process.exitCode = signal || asked.length || lost.length || touched.length || strayRoot.length || npmLogs.length ? 1 : said?.green && code === 1 ? 0 : (code ?? 1);
+});
+
+/**
+ * The seal's marks so far: what the traps wrote down, npm logs that appeared in the real home and name this run, the
+ * real home's changes, and new entries in the repository root. Read once the run is over (and, with --again, also
+ * before a file is run once more: a run the seal marked has no second runs).
+ */
+function sealMarks() {
+  const asked = reached(forbidden);
+  const npmLogs = (watchNpmLogs ? listNames(realNpmLogs) : []).filter((n) => !npmLogsBefore.has(n)).map((n) => join(realNpmLogs, n)).filter(namesThisRun);
+  const touched = homeGuard ? changes(homeGuard.before, snapshot(homeGuard.places)) : [];
   let strayRoot = [];
   try {
     strayRoot = readdirSync(root).filter((e) => !rootBefore.has(e));
   } catch {
     /* the root could not be read again */
   }
-  if (strayRoot.length) console.error(`\n✖ WORKTREE ROOT CHANGED: a test made ${strayRoot.length} new entr${strayRoot.length === 1 ? 'y' : 'ies'} in the repository root (a Windows-style path built on POSIX, or a missing temporary home?):\n${strayRoot.map((e) => `  ${e}`).join('\n')}`);
-  // One chain: the closing line never says more than was checked, nor the opposite of the lines above it.
-  if (ownReporters) console.error('(Reporters of your own: the count of every file\'s results is left out.)');
-  else if (lost.length) {
-    console.error(`\n✖ RESULTS LOST: ${lost.length} test file(s) did not report all they ran, so the totals above miss tests (failing ones may be among them):\n${lost.map((l) => `  ${l}`).join('\n')}`);
-    if (again) console.error(again);
-  } else console.error(`ℹ every result arrived: ${files.length} file(s), each with its own summary`);
-  rmSync(sandbox, { recursive: true, force: true });
-  if (tmuxDir) rmSync(tmuxDir, { recursive: true, force: true });
-  // No process.exit: it would cut off what is still being written to a pipe, the very thing above prevents.
-  process.exitCode = signal || asked.length || lost.length || touched.length || strayRoot.length || npmLogs.length ? 1 : (code ?? 1);
-});
+  return { asked, npmLogs, touched, strayRoot };
+}
 
 /** When each test file ran ({ file: { from, to } }, from tools/test-guard.mjs), or {} when the count is not there. */
 function runsOf() {
@@ -339,33 +378,36 @@ function namesThisRun(file) {
   return [tmpdir(), sandbox, root].some((d) => text.includes(d));
 }
 
-// The files whose own summary never came (incomplete fills it): run once more by lostAgain.
+// The files whose own summary never came (incomplete fills it): run once more by lostAgain. With each, its line of the
+// lost results and what its first run sent (the count of tools/test-guard.mjs).
 const summaryNeverCame = [];
+const lostLine = new Map();
+const firstRun = new Map();
 
 /**
  * How a file whose own summary never came ends when it runs alone. All files run inside one `node --test`, which never
  * says how a file's own process ended: so each such file (three at most) is run once more by itself, as a process of
  * its own (node with the same preloads and the same sealed environment, before the run's own folder goes), and its exit
  * code (decimal and hex: a Windows crash such as 0xC0000005), its signal and the last lines of its error output and
- * output are said in one block that starts with "LOST FILE:". It changes no total and not the run's exit code.
+ * output are said in one block that starts with "LOST FILE:". The second run prints TAP (its own summary is its last
+ * lines). One that ended by itself with exit code 0, its summary there and no failing or cancelled test, for a file
+ * whose first run sent no failing result, is rescued: → { text: the blocks of the others, rescued: [{ file, line }] }.
  */
 function lostAgain(list) {
-  const LINES = 27;
-  const tail = (text) => {
-    const all = String(text || '').replace(/\s+$/, '').split(/\r?\n/);
-    const shown = all.slice(-LINES).map((l) => `    ${l.length > 300 ? `${l.slice(0, 300)}…` : l}`);
-    return { n: all.filter(Boolean).length ? all.length : 0, shown };
-  };
   const blocks = [];
+  const rescued = [];
   for (const file of list.slice(0, 3)) {
     const name = file.startsWith(root + sep) ? relative(root, file) : file;
-    const t0 = Date.now();
-    const r = spawnSync(process.execPath, [...imports, file], { cwd: root, env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 300_000, maxBuffer: 64 << 20, windowsHide: true });
-    const ms = Date.now() - t0;
-    const code = Number.isInteger(r.status) ? `exit code ${r.status} (0x${(r.status >>> 0).toString(16).toUpperCase()})` : 'no exit code';
-    const how = r.error && r.error.code === 'ETIMEDOUT' ? ', stopped by this runner after 300 s' : r.error ? `, ${r.error.message}` : '';
+    const x = runAlone(file);
+    const { r, ms, code, how, sum } = x;
     const err = tail(r.stderr);
     const out = tail(r.stdout);
+    const first = firstRun.get(file);
+    if (passedWhole(x) && !(first && first.failed > 0)) {
+      const after = first && typeof first.asFileMs === 'number' ? `after ${Math.round(first.asFileMs)} ms` : 'at a time not told';
+      rescued.push({ file, line: `⚠ LOST FILE PASSED ON ITS SECOND RUN: ${name}: its first process ended without its own summary ${after} (${first ? first.results : 0} result(s) came, none failing); run again by itself it passed whole in ${ms} ms: tests ${sum.tests}, pass ${sum.pass}, fail 0, skipped ${sum.skipped}, todo ${sum.todo}. Its results are counted from that run, and the run does not fail for it.` });
+      continue;
+    }
     blocks.push([
       `LOST FILE: ${name}: run again by itself, as a process of its own, it ended with ${code}, signal ${r.signal || 'none'}, after ${ms} ms${how}`,
       `  its error output, ${err.n ? `the last ${err.shown.length} of ${err.n} line(s)` : 'empty'}${err.n ? ':' : ''}`,
@@ -375,7 +417,142 @@ function lostAgain(list) {
     ].join('\n'));
   }
   if (list.length > 3) blocks.push(`LOST FILE: ${list.length - 3} more file(s) whose own summary never came were not run again (three at most)`);
-  return `\n${blocks.join('\n')}`;
+  return { text: blocks.length ? `\n${blocks.join('\n')}` : '', rescued };
+}
+
+/**
+ * Runs one test file once more by itself, as a process of its own: node with the same preloads and the same sealed
+ * environment as the run (before the run's own folder goes), TAP on its output (its own summary is its last lines),
+ * then `args` and `own` variables of the caller's. Stopped after 300 s. → { r, ms, code, how, sum }: `code` its exit
+ * code in decimal and hex (a Windows crash such as 0xC0000005), `how` why it was stopped or did not start, `sum` the
+ * counts of its own summary (or null).
+ */
+function runAlone(file, { args = [], own = {} } = {}) {
+  const t0 = Date.now();
+  const r = spawnSync(process.execPath, [...imports, '--test-reporter=tap', '--test-reporter-destination=stdout', ...args, file], { cwd: root, env: { ...env, ...own }, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 300_000, maxBuffer: 64 << 20, windowsHide: true });
+  const ms = Date.now() - t0;
+  const code = Number.isInteger(r.status) ? `exit code ${r.status} (0x${(r.status >>> 0).toString(16).toUpperCase()})` : 'no exit code';
+  const how = r.error && r.error.code === 'ETIMEDOUT' ? ', stopped by this runner after 300 s' : r.error ? `, ${r.error.message}` : '';
+  return { r, ms, code, how, sum: tapSummary(r.stdout) };
+}
+
+/** Whether a run of runAlone passed whole: it ended by itself with exit code 0, its summary there, tests in it, none failing or cancelled. */
+const passedWhole = ({ r, sum }) => r.status === 0 && !r.signal && !r.error && !!sum && sum.tests > 0 && sum.fail === 0 && sum.cancelled === 0;
+
+/** The last `lines` lines of a text, indented, each cut at 300 characters; `n`: how many lines it had (0 when empty). */
+function tail(text, lines = 27) {
+  const all = String(text || '').replace(/\s+$/, '').split(/\r?\n/);
+  const shown = all.slice(-lines).map((l) => `    ${l.length > 300 ? `${l.slice(0, 300)}…` : l}`);
+  return { n: all.filter(Boolean).length ? all.length : 0, shown };
+}
+
+/**
+ * --again: each file with a failing result (a test, a suite, or the runner's line for the whole file) whose own summary
+ * came is run once more by itself through runAlone, as a lost file is, with what its first run had besides: the limits
+ * (--test-timeout, --test-force-exit), its name for the traps (HOPRIG_TEST_FILE), writes that block (HOPRIG_TEST_ALONE,
+ * tools/test-flush.mjs), and the count of tools/test-guard.mjs, which names its failing tests. A lost file is left to
+ * lostAgain, which ran it once more already: no file runs a third time. None at all is run again when more than three
+ * files have a failing result (that many is no flake), nor when the seal marked the run already.
+ * → { red: the files with a failing result, note: the line that says why none was run again, runs: [{ file, name, first, x, second }] }
+ */
+function failedAgain() {
+  const out = { red: [], note: '', runs: [] };
+  let seen;
+  try {
+    seen = Object.fromEntries(Object.entries(JSON.parse(readFileSync(countFile, 'utf8'))).map(([f, c]) => [resolve(root, f), c]));
+  } catch {
+    return out; // no count: the run fails for that already (incomplete)
+  }
+  out.red = files.filter((f) => seen[f]?.red > 0);
+  if (!out.red.length) return out;
+  if (out.red.length > 3) {
+    out.note = `✖ NOT RUN AGAIN: ${out.red.length} files have failing tests, more than 3: that many at once is not a flake, so none was run a second time, and the run fails for them as without --again.`;
+    return out;
+  }
+  const m = sealMarks();
+  if (m.asked.length || m.npmLogs.length || m.touched.length || m.strayRoot.length) {
+    out.note = '✖ NOT RUN AGAIN: this run has a mark of the seal, said above (a test reached a real program, the real home, a default port, a public registry or the repository root): a failure in such a run is never rescued by a second run.';
+    return out;
+  }
+  const guardReporter = pathToFileURL(join(root, 'tools', 'test-guard.mjs')).href;
+  const limits = [...limit, ...flags.filter((f) => /^--test-(timeout|force-exit)\b/.test(f))];
+  for (const file of out.red.filter((f) => seen[f].summary)) {
+    const name = file.startsWith(root + sep) ? relative(root, file) : file;
+    const count = join(sandbox, `again-${out.runs.length + 1}.json`);
+    const x = runAlone(file, { args: [...limits, `--test-reporter=${guardReporter}`, `--test-reporter-destination=${count}`], own: { HOPRIG_TEST_FILE: name.split(sep).join('/'), HOPRIG_TEST_ALONE: '1' } });
+    out.runs.push({ file, name, first: seen[file], x, second: failsIn(count) });
+  }
+  return out;
+}
+
+/** The failing results in a count of tools/test-guard.mjs (of a file run by itself), or null when none was written. */
+function failsIn(countPath) {
+  try {
+    return Object.values(JSON.parse(readFileSync(countPath, 'utf8'))).flatMap((c) => c.fails || []);
+  } catch {
+    return null;
+  }
+}
+
+/** Failing results one under the other: the name, the first lines of its message below it. */
+const failLines = (list) => (list || []).flatMap((f) => [`    ✖ ${f.name}`, ...f.message.map((l) => `      ${l}`)]);
+
+/**
+ * What --again says. A file whose second run passed whole is rescued, in a run the seal did not mark (`marked`): a block
+ * that starts "⚠ PASSED ONLY ON ITS SECOND RUN:" with the tests that failed in the first run and the second run's
+ * counts. Every other file stays red, with the failures of both runs. → { blocks, closing (the run's last line),
+ * markdown (for GitHub's step summary, or ''), green: every file with a failing result was rescued }
+ */
+function againSaid(again, marked) {
+  const blocks = again.note ? [again.note] : [];
+  const rescued = [];
+  const firstRunFails = (c) => ['  its first run, in the whole run, failed with:', ...failLines(c.fails)];
+  for (const run of again.runs) {
+    const { x, name, first, second } = run;
+    const s = x.sum;
+    if (passedWhole(x) && marked) blocks.push(`✖ NOT RESCUED: ${name} passed on its second run, but this run has a mark of the seal, said above: a failure in such a run is never rescued by a second run.`);
+    else if (passedWhole(x)) {
+      rescued.push(run);
+      blocks.push([
+        `⚠ PASSED ONLY ON ITS SECOND RUN: ${name}`,
+        ...firstRunFails(first),
+        `  run again by itself, as a process of its own, it passed whole in ${x.ms} ms: tests ${s.tests}, pass ${s.pass}, fail 0, skipped ${s.skipped}, todo ${s.todo}`,
+        '  the run does not fail for it, but a test that passes only on its second run is a defect to look at, not a pass',
+      ].join('\n'));
+    } else {
+      const counts = s ? `: tests ${s.tests}, pass ${s.pass}, fail ${s.fail}, cancelled ${s.cancelled}, skipped ${s.skipped}, todo ${s.todo}` : ', without a summary of its own';
+      const err = tail(x.r.stderr, 10);
+      blocks.push([
+        `✖ FAILED ON ITS SECOND RUN AS WELL: ${name}`,
+        ...firstRunFails(first),
+        `  run again by itself, as a process of its own, it ended with ${x.code}, signal ${x.r.signal || 'none'}, after ${x.ms} ms${x.how}${counts}${second?.length ? '; it failed with:' : ''}`,
+        ...(second?.length ? failLines(second) : err.n ? [`  its error output, the last ${err.shown.length} of ${err.n} line(s):`, ...err.shown] : []),
+      ].join('\n'));
+    }
+  }
+  const n = rescued.length;
+  const md = (t) => String(t).replace(/`/g, "'");
+  return {
+    blocks,
+    closing: n ? `⚠ passed only on their second run: ${n} file(s), each in its block above ("⚠ PASSED ONLY ON ITS SECOND RUN:"); the run does not fail for them` : 'ℹ passed only on their second run: 0 file(s)',
+    markdown: n ? [
+      '',
+      `### ⚠ Passed only on their second run: ${n} file(s)`,
+      '',
+      'Each file below had a failing test in this run and passed whole when it ran again by itself (`--again`). The run does not fail for it, but each is a defect to look at, not a pass.',
+      '',
+      ...rescued.map((r) => `- \`${md(r.name.split(sep).join('/'))}\` (second run: tests ${r.x.sum.tests}, pass ${r.x.sum.pass}, fail 0): ${r.first.fails.map((f) => `\`${md(f.name)}\`: ${md(f.message[0])}`).join('; ')}`),
+      '',
+    ].join('\n') : '',
+    green: n > 0 && again.red.every((f) => rescued.some((r) => r.file === f)),
+  };
+}
+
+/** The counts of a TAP report's own summary (its last lines: "# tests 9", "# pass 9", ...), or null when there is none. */
+function tapSummary(text) {
+  const n = {};
+  for (const m of String(text || '').matchAll(/^# (tests|pass|fail|cancelled|skipped|todo) (\d+)\s*$/gm)) n[m[1]] = Number(m[2]);
+  return ['tests', 'pass', 'fail', 'cancelled', 'skipped', 'todo'].every((k) => Number.isInteger(n[k])) ? n : null;
 }
 
 /** The files whose results did not all arrive (tools/test-guard.mjs): one line each, saying what came. */
@@ -393,9 +570,13 @@ function incomplete() {
   for (const file of files) {
     const c = seen[file];
     const name = file.startsWith(root + sep) ? relative(root, file) : file;
-    if (!c || !c.summary) summaryNeverCame.push(file);
-    if (!c || !c.summary) out.push(`${name}: its own summary never came (${c ? `${c.results} result(s) came${c.asFile ? `, and the runner's line for the whole file says ${c.asFile}` : ''}` : 'nothing came'})`);
-    else if (c.results !== c.summary.tests || c.suites !== c.summary.suites) out.push(`${name}: ${c.results} result(s) and ${c.suites} suite(s) came of the ${c.summary.tests} and ${c.summary.suites} it ran`);
+    if (!c || !c.summary) {
+      const line = `${name}: its own summary never came (${c ? `${c.results} result(s) came${c.asFile ? `, and the runner's line for the whole file says ${c.asFile}` : ''}` : 'nothing came'})`;
+      summaryNeverCame.push(file);
+      lostLine.set(file, line);
+      if (c) firstRun.set(file, c);
+      out.push(line);
+    } else if (c.results !== c.summary.tests || c.suites !== c.summary.suites) out.push(`${name}: ${c.results} result(s) and ${c.suites} suite(s) came of the ${c.summary.tests} and ${c.summary.suites} it ran`);
   }
   // Node expands a folder's pattern itself: a file it ran that the runner's own list does not hold would add to the
   // totals unchecked, so it fails the run by name as well.

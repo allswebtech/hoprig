@@ -1,0 +1,76 @@
+name: pack-smoke
+
+# The repository's own check that the package as a user gets it (npm pack, then npm install -g) starts on Ubuntu, macOS
+# and Windows with Node.js 24 and 26: it says its version under both names, doctor and profiles answer in JSON, and the
+# demo dashboard answers its sign-in page. Everything with a home of its own. Not a step of a release (release.yml).
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    name: packed · ${{ matrix.os }} · node ${{ matrix.node }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        node: [24, 26]
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      - name: Pack and install the package as a user gets it
+        run: |
+          echo "HOPRIG_CONFIG_DIR=$RUNNER_TEMP/smoke/c" >> "$GITHUB_ENV"
+          echo "HOPRIG_STATE_DIR=$RUNNER_TEMP/smoke/s" >> "$GITHUB_ENV"
+          echo "HOPRIG_WORKSPACE_DIR=$RUNNER_TEMP/smoke/ws" >> "$GITHUB_ENV"
+          WANT=$(node -p "require('./package.json').version")
+          echo "WANT=$WANT" >> "$GITHUB_ENV"
+          npm pack --silent
+          npm install -g ./hoprig-$WANT.tgz
+      - name: It says its version under both names
+        working-directory: ${{ runner.temp }}
+        run: |
+          mkdir -p smoke && cd smoke
+          A=$(hoprig --version | head -1); B=$(hop --version | head -1)
+          echo "SMOKE version: hoprig $A, hop $B, wanted $WANT"
+          [ "$A" = "$WANT" ] && [ "$B" = "$WANT" ]
+          hoprig --help | head -3
+      - name: Doctor and profiles answer in JSON
+        working-directory: ${{ runner.temp }}
+        run: |
+          cd smoke
+          hoprig doctor --offline --json > doctor.json 2> doctor.err || echo "SMOKE doctor exit $? (things are missing on a runner: expected)"
+          node -e "const j = JSON.parse(require('fs').readFileSync('doctor.json', 'utf8')); console.log('SMOKE doctor json:', Object.keys(j).join(','))"
+          hoprig profiles --json > profiles.json
+          node -e "const j = JSON.parse(require('fs').readFileSync('profiles.json', 'utf8')); if (!Array.isArray(j)) process.exit(1); console.log('SMOKE profiles json:', j.length)"
+          hoprig pc status > status.txt 2>&1 || echo "SMOKE pc status exit $?"
+          echo "SMOKE pc status lines: $(wc -l < status.txt)"; head -12 status.txt
+      - name: The demo dashboard answers its sign-in page
+        working-directory: ${{ runner.temp }}
+        run: |
+          cd smoke
+          hoprig demo --port 17433 --no-open > demo.log 2>&1 &
+          P=$!
+          C=000
+          for i in $(seq 1 90); do
+            C=$(curl -s -o /dev/null -w '%{http_code}' --max-time 3 http://127.0.0.1:17433/login || true)
+            [ "$C" = 200 ] && break
+            sleep 1
+          done
+          R=$(curl -s -o /dev/null -w '%{http_code}' --max-time 3 http://127.0.0.1:17433/ || true)
+          A=$(curl -s -o /dev/null -w '%{http_code}' --max-time 3 http://127.0.0.1:17433/api/health || true)
+          echo "SMOKE demo: /login $C after $i tries, / $R, /api/health $A"
+          head -20 demo.log
+          kill $P 2>/dev/null || true
+          [ "$C" = 200 ]

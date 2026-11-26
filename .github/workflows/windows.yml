@@ -30,4 +30,4 @@ jobs:
         with:
           node-version: ${{ matrix.node }}
       - run: npm ci
-      - run: node tools/test.mjs ${{ github.event.inputs.files }}
+      - run: node tools/test.mjs --again ${{ github.event.inputs.files }}
