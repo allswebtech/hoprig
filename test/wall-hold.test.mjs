@@ -15,6 +15,9 @@ process.env.HOPRIG_CONFIG_DIR = path.join(tmp, 'config');
 process.env.HOPRIG_STATE_DIR = path.join(tmp, 'state');
 process.env.CLAUDE_CONFIG_DIR = path.join(tmp, 'claude');
 test.after(() => fs.rmSync(tmp, { recursive: true, force: true }));
+// Hands-off is not offered on Windows (src/handsoff.mjs handsOffOffered: the wall's hold is a POSIX shell test), so a
+// test that switches it on and expects an answer or a hold has nothing to see there.
+const OFFERED = { skip: process.platform === 'win32' && 'Hands-off is not offered on Windows' };
 
 const { preToolHold } = await import('../src/hook.mjs');
 const { hookSettings } = await import('../src/launch.mjs');
@@ -45,7 +48,7 @@ test('hookSettings installs the PreToolUse hold only when Hands-off is offered',
   assert.equal(h[0].matcher, 'Bash|Write|Edit|MultiEdit|NotebookEdit');
 });
 
-test('preToolHold: ask for a held command when on; nothing when off, not offered, or ordinary', () => {
+test('preToolHold: ask for a held command when on; nothing when off, not offered, or ordinary', OFFERED, () => {
   const run = { cwd: SHOP, status: 'working' };
   const keys = { runId: 'run-x', project: SHOP };
   const held = preToolHold(pre('sudo true'), run, { cfg: onCfg, version: V, ...keys });
@@ -61,7 +64,7 @@ test('preToolHold: ask for a held command when on; nothing when off, not offered
   assert.equal(preToolHold({ ...pre('sudo true'), hook_event_name: 'PermissionRequest' }, run, { cfg: onCfg, version: V, ...keys }), null);
 });
 
-test('the wall holds by the switch, never the stop: a loop, hour or reset stop ends the answers, not the hold', () => {
+test('the wall holds by the switch, never the stop: a loop, hour or reset stop ends the answers, not the hold', OFFERED, () => {
   const keys = { runId: 'run-x', project: SHOP };
   // A stop Hoprig made itself (a loop, the hour, or the reset of a resumed run) must not lift the hold: the owner
   // left with Hands-off on, so what is his keeps waiting for him until he turns the switch off.

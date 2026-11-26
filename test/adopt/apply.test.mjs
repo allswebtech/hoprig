@@ -9,7 +9,7 @@ import { tempHome, writeTree } from '../workspace/helpers.mjs';
 import { allOf, git, madeUpComputer, repo, snapshot, traps } from './fixture.mjs';
 import { foundWords, makePlan, planFile, readPlan, writePlan } from '../../src/adopt/plan.mjs';
 import { RUN_TOKEN, applyPlan } from '../../src/adopt/apply.mjs';
-import { treeOf } from '../../src/adopt/proof.mjs';
+import { asGitWrote, gitLinkPairs, rewritten, treeOf } from '../../src/adopt/proof.mjs';
 import { oddNamesSkip } from '../oddnames.mjs';
 
 let t, m, projects, ws, trap;
@@ -96,8 +96,11 @@ test('apply copies a repository whole and proves it; the original is untouched',
   const root = path.join(projects, 'blog');
   assert.equal(git(path.join(root, 'code', 'web'), 'stash', 'list').split('\n').length, 1);
   assert.equal(fs.readFileSync(path.join(root, 'code', 'web.web-feature', 'src', 'a.js'), 'utf8'), 'work in the worktree\n');
-  assert.equal(git(path.join(root, 'code', 'web.web-feature'), 'rev-parse', '--show-toplevel'), path.join(root, 'code', 'web.web-feature'));
-  assert.match(fs.readFileSync(path.join(root, 'AGENTS.md'), 'utf8'), /\| `.*blog\/deploy\.sh` \| `scripts\/deploy\.sh` \|/);
+  // git names a folder with / on Windows too (C:/a/b): read as a path of this system.
+  assert.equal(path.normalize(git(path.join(root, 'code', 'web.web-feature'), 'rev-parse', '--show-toplevel')), path.join(root, 'code', 'web.web-feature'));
+  // The old place is named as a path of this system (C:\\...\\blog\\deploy.sh on Windows), the new one with /.
+  const sepRe = path.sep === '\\' ? '\\\\' : '/';
+  assert.match(fs.readFileSync(path.join(root, 'AGENTS.md'), 'utf8'), new RegExp(`\\| \`.*blog${sepRe}deploy\\.sh\` \\| \`scripts/deploy\\.sh\` \\|`));
   assert.equal(git(root, 'log', '--format=%an <%ae>'), 'Alex <alex@example.invalid>');
   assert.ok(r.needs.some((n) => n.kind === 'old path' && n.words.startsWith('scripts/deploy.sh:2 ')), 'the copied script that names the old folder is said with its file and line');
   assert.deepEqual(trap.trapped(), []);
@@ -360,7 +363,64 @@ test('a project in the layout with a worktree outside it: the worktree goes besi
   const r = await applyPlan('store', { projects, workspace: ws, identity: { name: 'Alex', email: 'alex@example.invalid' } });
   assert.ok(r.ok, JSON.stringify(r.lines.filter((l) => !l.ok)));
   const wt = path.join(projects, 'store', 'code', 'store.store-hot');
-  assert.equal(git(wt, 'rev-parse', '--show-toplevel'), wt, 'the copied worktree is linked to the copied repository');
+  assert.equal(path.normalize(git(wt, 'rev-parse', '--show-toplevel')), wt, 'the copied worktree is linked to the copied repository');
+});
+
+test('a worktree link file Windows keeps hidden (no new write of it, EPERM) is changed in place, and the proof holds', async () => {
+  const store = layoutProject('hid');
+  writePlan(await makePlan(store, opts()));
+  // Windows' answer: Git for Windows marks a worktree's .git file hidden, and a hidden file opened for a new write is refused.
+  const saved = fs.writeFileSync;
+  fs.writeFileSync = function (file, ...a) {
+    if (typeof file === 'string' && path.basename(file) === '.git' && fs.existsSync(file)) throw Object.assign(new Error(`EPERM: operation not permitted, open '${file}'`), { code: 'EPERM' });
+    return saved.call(fs, file, ...a);
+  };
+  let r;
+  try {
+    r = await applyPlan('hid', { projects, workspace: ws, identity: { name: 'Alex', email: 'alex@example.invalid' } });
+  } finally {
+    fs.writeFileSync = saved;
+  }
+  assert.ok(r.ok, JSON.stringify(r.lines.filter((l) => !l.ok)));
+  const wt = path.join(projects, 'hid', 'code', 'hid.hid-hot');
+  assert.equal(path.normalize(git(wt, 'rev-parse', '--show-toplevel')), wt, 'the copied worktree is linked to the copied repository');
+});
+
+test('Git for Windows writes its link files with / (C:/a/b): the copy keeps that form, and the proof reads them so', () => {
+  assert.equal(asGitWrote('C:\\ws\\shop\\code\\web.feature\\.git', 'C:/old/shop/web-feature/.git', 'win32'), 'C:/ws/shop/code/web.feature/.git');
+  assert.equal(asGitWrote('C:\\ws\\x', 'C:\\old\\x', 'win32'), 'C:\\ws\\x', 'a file written with \\ keeps it');
+  assert.equal(asGitWrote('/ws/x', '/old/x', 'linux'), '/ws/x');
+  const pairs = gitLinkPairs([['C:\\old\\shop', 'C:\\ws\\shop']], 'win32');
+  assert.equal(rewritten('gitdir: C:/old/shop/web/.git/worktrees/f', pairs), 'gitdir: C:/ws/shop/web/.git/worktrees/f');
+  assert.equal(rewritten('C:\\old\\shop\\f\\.git', pairs), 'C:\\ws\\shop\\f\\.git');
+  assert.deepEqual(gitLinkPairs([['/a', '/b']], 'linux'), [['/a', '/b']], 'elsewhere the pairs are as they were');
+});
+
+test('the marker of another apply that ends while it is read is no crash: this apply goes on', async () => {
+  const pkg = repo(path.join(m.place, 'gone'), null, { 'a.txt': 'a\n' });
+  writePlan(await makePlan(pkg, opts()));
+  // A marker of a run with no process named (an older one), taken away right after it was read, as a run that ends does.
+  const marker = path.join(path.dirname(planFile('gone')), 'gone.applying');
+  fs.writeFileSync(marker, `${path.join(projects, 'gone')}\n\n\nan-older-token\n`);
+  const saved = fs.readFileSync;
+  let gone = false;
+  fs.readFileSync = function (file, ...a) {
+    const out = saved.call(fs, file, ...a);
+    if (file === marker && !gone) {
+      fs.rmSync(marker);
+      gone = true;
+    }
+    return out;
+  };
+  let r;
+  try {
+    r = await applyPlan('gone', { projects, workspace: ws, identity: { name: 'Alex', email: 'alex@example.invalid' } });
+  } finally {
+    fs.readFileSync = saved;
+  }
+  assert.ok(gone, 'the marker was read, then it was gone');
+  assert.ok(r.ok, JSON.stringify(r.lines.filter((l) => !l.ok)));
+  assert.ok(!fs.existsSync(marker), 'this run took its own marker and let it go');
 });
 
 test('a project in the layout keeps every file of its own at its place; only what the layout lacks is added', async () => {

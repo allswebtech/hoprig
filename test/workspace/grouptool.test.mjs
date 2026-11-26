@@ -10,6 +10,9 @@ import path from 'node:path';
 import test from 'node:test';
 import { gitWorld, quietUi } from './gitfix.mjs';
 
+// Windows gets no launcher for a group's tool (allowTool refuses there); the tests that make one are for macOS and Linux.
+const NO_LAUNCHER = { skip: process.platform === 'win32' && 'a group\'s tool gets no launcher on Windows' };
+
 const w = gitWorld('ws-grouptool');
 test.after(() => w.cleanup());
 const C = w.computer('t');
@@ -59,7 +62,7 @@ const launcher = (n = 'kit') => path.join(bin, n);
 const rcFiles = () => ['.profile', '.bashrc', '.bash_profile', '.zshenv', '.zshrc', '.config/fish'].map((f) => [f, fs.existsSync(path.join(C.home, f)) ? fs.readFileSync(path.join(C.home, f), 'utf8').length : null]);
 const rcBefore = JSON.stringify(rcFiles());
 
-test('after restore the tool only waits: no launcher; restore and status say it waits for a yes', async () => {
+test('after restore the tool only waits: no launcher; restore and status say it waits for a yes', NO_LAUNCHER, async () => {
   const { restoreWorkspace } = await import('../../src/workspace/restore.mjs');
   const q = await quietUi();
   q.ui.yes = true;
@@ -83,7 +86,7 @@ test('after restore the tool only waits: no launcher; restore and status say it 
   assert.ok(!fs.existsSync(launcher()), 'a dry run makes nothing');
 });
 
-test('after one yes: kit a "b c" --x runs the group\'s file with exactly those arguments and its exit code', async () => {
+test('after one yes: kit a "b c" --x runs the group\'s file with exactly those arguments and its exit code', NO_LAUNCHER, async () => {
   const r = await run(['allow', 'kits', '--yes']);
   assert.equal(r.code, 0, r.text);
   assert.ok(fs.readFileSync(launcher(), 'utf8').includes(T.MARK));
@@ -96,7 +99,7 @@ test('after one yes: kit a "b c" --x runs the group\'s file with exactly those a
   assert.equal(w.sh(kits, 'status', '--porcelain'), '', 'nothing written into the group\'s repository');
 });
 
-test('a run that leaves the group, a tracked link, an untracked link, hop and a command on PATH are refused', async () => {
+test('a run that leaves the group, a tracked link, an untracked link, hop and a command on PATH are refused', NO_LAUNCHER, async () => {
   const { validateMap } = M;
   const map = (t) => ({ version: 2, brain: { url: null }, groups: [{ dir: 'kits', url: w.url('kits'), tool: t }], projects: [], others: [] });
   assert.equal(validateMap(map({ name: 'kit', run: '../kit.sh' })).ok, false);
@@ -119,7 +122,7 @@ test('a run that leaves the group, a tracked link, an untracked link, hop and a 
   assert.ok(fs.existsSync(launcher('kit')), 'the launcher made before stays until a yes for another one');
 });
 
-test('a changed run or name asks again; the old launcher goes only when Hoprig made it', async () => {
+test('a changed run or name asks again; the old launcher goes only when Hoprig made it', NO_LAUNCHER, async () => {
   tool({ name: 'kit', run: 'kit2.sh' });
   const st = (await T.toolsState())[0];
   assert.equal(st.state, 'waits');
@@ -161,7 +164,7 @@ const allowKit = async () => {
   assert.equal(r.code, 0, r.text);
 };
 
-test('the yes is tied to the group\'s repository: another repository in its folder, or the group gone, and it does not start', async () => {
+test('the yes is tied to the group\'s repository: another repository in its folder, or the group gone, and it does not start', NO_LAUNCHER, async () => {
   await allowKit();
   assert.equal(kitRun(['x']).status, 3);
   // The folder is replaced by a clone of another repository with a kit.sh of its own, and the map is changed to it.
@@ -196,7 +199,7 @@ test('the yes is tied to the group\'s repository: another repository in its fold
   assert.equal(kitRun(['x']).status, 3);
 });
 
-test('a run file replaced by a link after the yes, or a group folder that is a link: it does not start, status says why', async () => {
+test('a run file replaced by a link after the yes, or a group folder that is a link: it does not start, status says why', NO_LAUNCHER, async () => {
   await allowKit();
   fs.renameSync(path.join(kits, 'kit.sh'), path.join(kits, 'kit.sh.keep'));
   fs.symlinkSync(path.join(outside, 'evil.sh'), path.join(kits, 'kit.sh'));
@@ -225,7 +228,7 @@ test('a run file replaced by a link after the yes, or a group folder that is a l
   }
 });
 
-test('the yes is what was shown: a map changed during the question makes nothing', async () => {
+test('the yes is what was shown: a map changed during the question makes nothing', NO_LAUNCHER, async () => {
   await allowKit();
   const plan = await T.allowTool('kits', { dryRun: true });
   tool({ name: 'kt', run: 'kit2.sh' }); // a sync of the brain while the question is open
@@ -234,7 +237,7 @@ test('the yes is what was shown: a map changed during the question makes nothing
   tool({ name: 'kt', run: 'kit.sh' });
 });
 
-test('the launcher\'s name: a dangling link or another group\'s launcher is never replaced; the marker names its group exactly', async () => {
+test('the launcher\'s name: a dangling link or another group\'s launcher is never replaced; the marker names its group exactly', NO_LAUNCHER, async () => {
   fs.symlinkSync('/nonexistent/owner-tool', launcher('mytool'));
   tool({ name: 'mytool', run: 'kit.sh' });
   let r = await run(['allow', 'kits', '--yes']);
@@ -253,7 +256,7 @@ test('the launcher\'s name: a dangling link or another group\'s launcher is neve
   assert.equal(r.code, 0, r.text);
 });
 
-test('"is a command now" only when its folder is on PATH; else the line to add', async () => {
+test('"is a command now" only when its folder is on PATH; else the line to add', NO_LAUNCHER, async () => {
   const before = process.env.PATH;
   process.env.PATH = before.split(path.delimiter).filter((d) => d !== bin).join(path.delimiter);
   try {
@@ -278,7 +281,7 @@ test('a group named __proto__ or constructor: every look-up is by a Map, nothing
   assert.deepEqual([st[0].state, st[0].changed], ['absent', undefined]);
 });
 
-test('the exit code and a signal reach the caller as the tool gave them', async () => {
+test('the exit code and a signal reach the caller as the tool gave them', NO_LAUNCHER, async () => {
   const s = w.clone(w.url('kits'), path.join(w.root, 'seed-kits-sig'));
   fs.writeFileSync(path.join(s, 'sig.sh'), '#!/bin/sh\nkill -TERM $$\n', { mode: 0o755 });
   w.sh(s, 'add', '-A');
@@ -294,7 +297,7 @@ test('the exit code and a signal reach the caller as the tool gave them', async 
   assert.equal(kitRun().status, 3);
 });
 
-test('where Node has no execve, the file runs as a child with the terminal and its exit code comes back', async () => {
+test('where Node has no execve, the file runs as a child with the terminal and its exit code comes back', NO_LAUNCHER, async () => {
   tool({ name: 'kt', run: 'kit.sh' });
   assert.equal((await run(['allow', 'kits', '--yes'])).code, 0);
   const keep = process.execve;
@@ -308,7 +311,7 @@ test('where Node has no execve, the file runs as a child with the terminal and i
   assert.equal(await T.runTool('nope', [], { err: () => {} }), 126);
 });
 
-test('a run file that is not the group\'s own: in another repository cloned into its folder, or one it does not track', async () => {
+test('a run file that is not the group\'s own: in another repository cloned into its folder, or one it does not track', NO_LAUNCHER, async () => {
   await allowKit();
   // The map clones another repository into kits/vendor (an "others" entry); the tool's run points into it.
   const ev = w.clone(w.bare('vendor-kit'), path.join(w.root, 'seed-vendor'));
@@ -346,7 +349,7 @@ test('a run file that is not the group\'s own: in another repository cloned into
   assert.equal(kitRun().status, 3);
 });
 
-test('a launcher that names a Node no longer on this computer: status says it cannot start, a new yes makes it again', async () => {
+test('a launcher that names a Node no longer on this computer: status says it cannot start, a new yes makes it again', NO_LAUNCHER, async () => {
   await allowKit();
   const text = fs.readFileSync(launcher('kt'), 'utf8');
   const node = process.execPath;
@@ -398,7 +401,7 @@ setTimeout(() => process.exit(0), 1500);
   w.sh(kits, 'reset', '-q', '--hard', 'HEAD~1');
 });
 
-test('the workspace rules file: its state is in status --json, and tool remove and allow say when it no longer fits', async () => {
+test('the workspace rules file: its state is in status --json, and tool remove and allow say when it no longer fits', NO_LAUNCHER, async () => {
   tool({ name: 'kt', run: 'kit.sh' });
   assert.equal((await run(['allow', 'kits', '--yes'])).code, 0);
   const statusJson = async () => {
@@ -422,7 +425,7 @@ test('the workspace rules file: its state is in status --json, and tool remove a
   fs.rmSync(st.file);
 });
 
-test('the refusals name the fix that works: a new yes only where it can succeed, never nested brackets', async () => {
+test('the refusals name the fix that works: a new yes only where it can succeed, never nested brackets', NO_LAUNCHER, async () => {
   await allowKit();
   // The map changed the run: a new yes helps, said flat.
   tool({ name: 'kt', run: 'kit2.sh' });

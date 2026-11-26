@@ -204,7 +204,7 @@ for (const kind of ['server', 'desktop']) {
 
     // The dashboard file holds the key of the local facts route, for this user only.
     const file = path.join(state, 'dashboard.json');
-    assert.equal(fs.statSync(file).mode & 0o777, 0o600);
+    if (process.platform !== 'win32') assert.equal(fs.statSync(file).mode & 0o777, 0o600);
     const { key } = JSON.parse(fs.readFileSync(file, 'utf8'));
     assert.match(key, /^[A-Za-z0-9_-]{43}$/);
     const base = `http://127.0.0.1:${port}`;

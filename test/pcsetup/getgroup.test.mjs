@@ -17,7 +17,7 @@ const M = await import('../../src/workspace/map.mjs');
 const { getProject } = await import('../../src/pcsetup/getproject.mjs');
 const { takeLock } = await import('../../src/pcsetup/leftovers.mjs');
 const { saveConfig } = await import('../../src/config.mjs');
-const { showCommand } = await import('../../src/setup/system.mjs');
+const { showFileCommand } = await import('../../src/setup/system.mjs');
 
 /** A bare parent repository with a project.json naming it `name`. */
 const parent = (repo, name) => {
@@ -85,7 +85,7 @@ test('here under another name inside a group: misnamed, with the mv inside that 
   const r = await get(U.moved, { into: 'client-work' });
   assert.equal(r.result, 'misnamed');
   assert.equal(r.ok, false);
-  assert.equal(r.fix, showCommand(['mv', path.join(cw, 'moved-workspace'), path.join(cw, 'moved')]));
+  assert.equal(r.fix, showFileCommand('mv', [path.join(cw, 'moved-workspace'), path.join(cw, 'moved')]));
   assert.ok(!fs.existsSync(path.join(cw, 'moved')), 'nothing moved, nothing cloned');
 });
 
@@ -93,7 +93,7 @@ test('folderFor in a group: a folder under the repository\'s name whose project.
   w.clone(U.wrong, path.join(cw, 'wrong'));
   const r = await get(U.wrong, { into: 'client-work' });
   assert.equal(r.result, 'misnamed');
-  assert.equal(r.fix, showCommand(['mv', path.join(cw, 'wrong'), path.join(cw, 'right')]));
+  assert.equal(r.fix, showFileCommand('mv', [path.join(cw, 'wrong'), path.join(cw, 'right')]));
 });
 
 test('one address, one place: a repository here in another place is reported with the mv, never cloned again', async () => {
@@ -101,7 +101,7 @@ test('one address, one place: a repository here in another place is reported wit
   const r = await get(U.away, { into: 'client-work' });
   assert.equal(r.result, 'misnamed');
   assert.match(r.message, /it is here already, as away/);
-  assert.equal(r.fix, showCommand(['mv', path.join(C.projects, 'away'), path.join(cw, 'away')]));
+  assert.equal(r.fix, showFileCommand('mv', [path.join(C.projects, 'away'), path.join(cw, 'away')]));
   assert.ok(!fs.existsSync(path.join(cw, 'away')));
   // and the other way round: in the group, asked for the projects folder
   assert.ok(map().projects.some((p) => p.in === 'client-work' && p.name === 'acme'), 'the first get put it into the map, in its group');
@@ -167,7 +167,8 @@ test('a memory link that conflicts in a group\'s project names it <place>/<name>
   fs.symlinkSync(path.join(w.root, 'elsewhere'), link);
   const [r] = linkMemories(root, { '.': mem }, { ref: 'client-work/acme' });
   assert.equal(r.done, 'conflict');
-  assert.match(r.fix, /hoprig project link client-work\/acme$/);
+  // PowerShell runs the second command only when the first went well: `a; if ($?) { b }`, so the line ends in a brace there
+  assert.match(r.fix, /hoprig project link client-work\/acme( \})?$/);
   const q = await quietUi();
   const { finishProject } = await import('../../src/pcsetup/project.mjs');
   await finishProject(root, { name: 'acme', repos: [], memories: { '.': mem } }, { ui: q.ui, dir: cw, ref: 'client-work/acme' });

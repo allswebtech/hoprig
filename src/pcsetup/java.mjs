@@ -12,8 +12,10 @@
 //      and an android-studio folder beside the Android SDK (ANDROID_HOME, ANDROID_SDK_ROOT or ~/Android/Sdk).
 //      macOS: /Applications/Android Studio.app/Contents/jbr/Contents/Home and the same under ~/Applications.
 //   4. a system JDK: /usr/lib/jvm/* (Linux), /Library/Java/JavaVirtualMachines/*/Contents/Home (macOS).
-// Windows is not covered, and says so.
-import path from 'node:path';
+// Windows is not covered, and says so: every place here is a Linux or macOS one, joined with `/` on any system.
+import nodePath from 'node:path';
+
+const path = nodePath.posix;
 
 const listOf = (sys, dir) => (typeof sys.list === 'function' ? sys.list(dir) : []);
 

@@ -18,13 +18,15 @@ const { projectDir } = await import('../../src/sessions.mjs');
 const TRASH = new URL('../../src/chat/trash.mjs', import.meta.url).href;
 const DAY = 86_400_000;
 
+/** `p` relative to `root`, with / between its parts on every system (Windows' own is \\). */
+const rel = (root, p) => path.relative(root, p).split(path.sep).join('/');
 /** Every file under `root` with its content's hash (links as their target), relative names. */
 function snapshot(root) {
   const out = {};
   const walk = (d) => {
     for (const e of fs.readdirSync(d, { withFileTypes: true })) {
       const p = path.join(d, e.name);
-      const r = path.relative(root, p);
+      const r = rel(root, p);
       if (e.isSymbolicLink()) out[r] = `link:${fs.readlinkSync(p)}`;
       else if (e.isDirectory()) {
         out[`${r}/`] = 'dir';
@@ -58,7 +60,7 @@ function home() {
   fs.writeFileSync(path.join(dir, 'memory', 'MEMORY.md'), '# notes\n');
   return { cwd, dir, id, other };
 }
-const mine = (h) => [path.relative(box.root, path.join(h.dir, `${h.id}.jsonl`)), path.relative(box.root, path.join(h.dir, h.id))];
+const mine = (h) => [rel(box.root, path.join(h.dir, `${h.id}.jsonl`)), rel(box.root, path.join(h.dir, h.id))];
 /** Of two snapshots, what is only in one or differs. */
 const changed = (a, b) => [...new Set([...Object.keys(a), ...Object.keys(b)])].filter((k) => a[k] !== b[k]).sort();
 
@@ -153,6 +155,11 @@ test('a path or id from a browser that leaves Claude Code\'s projects folder is 
   assert.deepEqual(snapshot(box.root), before);
 });
 
+/**
+ * Whether the process of `r` (spawnSync) was killed by its own process.kill(pid, 'SIGKILL'): its signal on POSIX; Windows
+ * has no signals, so Node ends it outright (TerminateProcess, exit code 1) and spawnSync reports no signal.
+ */
+const killedSo = (r) => (process.platform === 'win32' ? r.signal === null && r.status === 1 : r.signal === 'SIGKILL');
 /** Run `what` of the trash in another process that is killed (SIGKILL) right after journal step `at`. */
 function killedAt(what, at, args) {
   const code = `import('${TRASH}').then(async (T) => {
@@ -170,7 +177,7 @@ test('a dashboard killed at each step of a delete, a Put back and a purge: nothi
     const h = home();
     const before = snapshot(box.root);
     const r = killedAt('put', at, [h.cwd, h.id]);
-    assert.equal(r.signal, 'SIGKILL', `the delete was killed at ${at}`);
+    assert.ok(killedSo(r), `the delete was killed at ${at}: ${r.signal} ${r.status} ${r.stderr}`);
     trash().recover(); // the next start
     const after = snapshot(box.root);
     const [file] = mine(h);
@@ -189,7 +196,7 @@ test('a dashboard killed at each step of a delete, a Put back and a purge: nothi
     const entry = t.list().find((x) => x.conversationId === h.id) || t.put(h.cwd, h.id);
     const inTrash = snapshot(box.root);
     const r2 = killedAt('restore', at, [entry.id]);
-    assert.equal(r2.signal, 'SIGKILL', `the Put back was killed at ${at}`);
+    assert.ok(killedSo(r2), `the Put back was killed at ${at}: ${r2.signal} ${r2.status} ${r2.stderr}`);
     trash().recover();
     const back = snapshot(box.root);
     if (back[file]) {
@@ -208,7 +215,7 @@ test('a dashboard killed at each step of a delete, a Put back and a purge: nothi
     const e = trash({ now: () => Date.UTC(2030, 0, 1) }).put(h.cwd, h.id);
     const kept = outside(snapshot(box.root));
     const r = killedAt('purge', at, []);
-    assert.equal(r.signal, 'SIGKILL');
+    assert.ok(killedSo(r), `the purge was killed at ${at}: ${r.signal} ${r.status} ${r.stderr}`);
     trash().recover();
     assert.equal(trash().get(e.id), null, `purge killed at ${at}: it is gone for good`);
     assert.equal(fs.existsSync(path.join(trashDir(), e.id)), false);

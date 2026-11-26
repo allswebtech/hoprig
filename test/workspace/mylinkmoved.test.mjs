@@ -71,13 +71,13 @@ test('the owner\'s own link is followed while it points where it did; a pull tha
   assert.deepEqual(s.repos.find((x) => x.label === 'kits').did, ['pulled 1']);
   assert.equal(fs.readlinkSync(code), path.join(OUT, 'other'), 'the pull pointed it elsewhere');
   const t = todoOf(s);
-  assert.match(t[0].why, /your own link, but it points to .*OUT\/other now/);
+  assert.match(t[0].why, /your own link, but it points to .*OUT[\\/]other now/);
   assert.equal(t[0].command, I.myLinkCommand(code));
   assert.equal(commits(), before, 'nothing was pushed from the folder it points to now');
   assert.ok(I.leaves(kits, path.join(code, 'x')).now, 'leaves() says where it points now');
   const st = await M.mapStatus(ctx);
   assert.ok(!st.mylinks.includes(code), 'status no longer lists it as followed');
-  assert.match(st.links.find((l) => l.path === code).what, /points to .*OUT\/other now/);
+  assert.match(st.links.find((l) => l.path === code).what, /points to .*OUT[\\/]other now/);
 
   // Named again, the new place is kept and followed.
   const again = I.addMyLink(code);

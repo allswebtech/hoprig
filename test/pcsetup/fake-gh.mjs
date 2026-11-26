@@ -70,6 +70,12 @@ if (a[0] === 'api' && m) {
     done('', 1);
   }
 }
+// FAKE_GH_SAML=<owner>: that organisation's list is refused, as GitHub refuses one with single sign-on the sign-in is
+// not allowed for.
+if (a[0] === 'repo' && a[1] === 'list' && process.env.FAKE_GH_SAML && a[2] === process.env.FAKE_GH_SAML) {
+  process.stderr.write('GraphQL: Resource protected by organization SAML enforcement.\n');
+  process.exit(1);
+}
 if (a[0] === 'repo' && a[1] === 'list') {
   const dir = path.join(root, a[2]);
   const names = fs.existsSync(dir) ? fs.readdirSync(dir).filter((n) => n.endsWith('.git') && !fs.lstatSync(path.join(dir, n)).isSymbolicLink()).map((n) => n.slice(0, -4)) : [];

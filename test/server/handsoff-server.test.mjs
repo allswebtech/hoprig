@@ -10,6 +10,10 @@ import path from 'node:path';
 import { test } from 'node:test';
 import { sandbox } from './helpers.mjs';
 
+// Hands-off is not offered on Windows (src/handsoff.mjs handsOffOffered): a test that switches it on or reads its
+// answer gets 409 or nothing there.
+const OFFERED = { skip: process.platform === 'win32' && 'Hands-off is not offered on Windows' };
+
 const box = sandbox('handsoff');
 test.after(() => box.cleanup());
 process.env.HOPRIG_TERM_ID = 'pty-1'; // the run record names the built-in terminal the stand-in backend lists
@@ -71,7 +75,7 @@ function snapshot(root) {
 }
 const changes = (a, b) => [...new Set([...a.keys(), ...b.keys()])].filter((k) => a.get(k) !== b.get(k)).sort();
 
-test('the shipped state (offered, everything off): a start, a held act, a waiting question and three ticks write nothing of Hands-off and answer nothing', async () => {
+test('the shipped state (offered, everything off): a start, a held act, a waiting question and three ticks write nothing of Hands-off and answer nothing', OFFERED, async () => {
   const { file } = R.createRun({ profile: 'api', cwd: SHOP });
   const runName = path.relative(box.root, file);
   // The session carries the wall's hold in its handed settings, as a launched session does. So if a switch with no
@@ -110,7 +114,7 @@ test('the shipped state (offered, everything off): a start, a held act, a waitin
   R.removeRun(file);
 });
 
-test('a session started before this slice is not held or answered after the update turns the switch on', async () => {
+test('a session started before this slice is not held or answered after the update turns the switch on', OFFERED, async () => {
   saveConfig({ handsOff: { offered: true } }); // the update: offered now defaults on
   const { file } = R.createRun({ profile: 'api', cwd: SHOP });
   // What a session started on the wall before this slice (4ae007f2) was handed: launch.mjs is unchanged across the
@@ -183,7 +187,7 @@ test('offered:false (hidden): the switch routes answer 409 and write nothing (no
   R.removeRun(file);
 });
 
-test('the project\'s switch and note: kept with this version, a folder outside the roots refused, read back', async () => {
+test('the project\'s switch and note: kept with this version, a folder outside the roots refused, read back', OFFERED, async () => {
   saveConfig({ handsOff: { offered: true } });
   assert.equal((await call('POST', '/api/handsoff/project', { dir: '/etc', on: true })).status, 400);
   assert.equal((await call('POST', '/api/handsoff/project', { dir: SHOP, on: 'yes' })).status, 400);
@@ -203,7 +207,7 @@ test('the project\'s switch and note: kept with this version, a folder outside t
   saveConfig({ handsOff: {} });
 });
 
-test('a session\'s own switch: kept in Hoprig\'s config under its run id, read on its card; a session that is not there is 404', async () => {
+test('a session\'s own switch: kept in Hoprig\'s config under its run id, read on its card; a session that is not there is 404', OFFERED, async () => {
   saveConfig({ handsOff: { offered: true } }); // offered on this computer; the switches below decide the rest
   const { file } = R.createRun({ profile: 'api', cwd: SHOP });
   assert.equal((await call('POST', '/api/handsoff/session', { name: 'nope', on: true })).status, 404);
@@ -235,7 +239,7 @@ test('a session\'s own switch: kept in Hoprig\'s config under its run id, read o
   R.removeRun(file);
 });
 
-test('after the hour\'s stop the owner\'s Turn on starts the hour again: the next ask is answered', async () => {
+test('after the hour\'s stop the owner\'s Turn on starts the hour again: the next ask is answered', OFFERED, async () => {
   const { file } = R.createRun({ profile: 'api', cwd: SHOP });
   const { runId } = readRun(file);
   giveHold(file); // the session carries the wall's hold, so the owner's Turn on is not refused
@@ -258,7 +262,7 @@ test('after the hour\'s stop the owner\'s Turn on starts the hour again: the nex
   R.removeRun(file);
 });
 
-test('the owner\'s press lands on the session\'s own switch even when its record names another run id', async () => {
+test('the owner\'s press lands on the session\'s own switch even when its record names another run id', OFFERED, async () => {
   saveConfig({ handsOff: { offered: true } });
   const { file } = R.createRun({ profile: 'api', cwd: SHOP });
   const mine = path.basename(file, '.json');
@@ -319,7 +323,7 @@ test('two questions wait (two subagents): the card says how many, so the page ca
   R.removeRun(file);
 });
 
-test('a project folder written with ~ is the home folder\'s; a relative one is refused with the reason that is true', async () => {
+test('a project folder written with ~ is the home folder\'s; a relative one is refused with the reason that is true', OFFERED, async () => {
   const home = process.env.HOME;
   process.env.HOME = box.home; // os.homedir() reads it
   saveConfig({ handsOff: { offered: true } });
@@ -335,7 +339,7 @@ test('a project folder written with ~ is the home folder\'s; a relative one is r
   }
 });
 
-test('the project switch holds acts for a live held session with no mark, and names back one with no hold', async () => {
+test('the project switch holds acts for a live held session with no mark, and names back one with no hold', OFFERED, async () => {
   saveConfig({ handsOff: { offered: true } });
   // Distinct run files: createRun keys the id on Date.now()+pid, so two made in the same millisecond would collide.
   const held = R.createRun({ profile: 'api', cwd: SHOP, file: path.join(runsDir(), 'proj-held.json') });

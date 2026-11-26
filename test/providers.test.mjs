@@ -6,7 +6,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
 import { sandbox } from './server/helpers.mjs';
-import { sealedPath } from './seal.mjs';
+import { SHELL_STANDINS, sealedPath } from './seal.mjs';
 
 const box = sandbox('providers');
 test.after(() => box.cleanup());
@@ -66,7 +66,7 @@ test('a run\'s usage outlives the run: listed with its time while it runs, still
   assert.equal(S.profileUsage().team1, undefined);
 });
 
-test('the sign-in check leaves its answer for the page: signedIn, plan, and whether that plan reports usage', async () => {
+test('the sign-in check leaves its answer for the page: signedIn, plan, and whether that plan reports usage', { skip: SHELL_STANDINS.skip }, async () => {
   const login = { name: 'sub', kind: 'login' };
   fs.rmSync(path.join(box.state, 'claude-login.json'), { force: true });
   fs.rmSync(usageFileOfStore(), { force: true });
@@ -75,7 +75,7 @@ test('the sign-in check leaves its answer for the page: signedIn, plan, and whet
   const bin = path.join(box.root, 'bin');
   fs.mkdirSync(bin);
   const claude = (body) => fs.writeFileSync(path.join(bin, 'claude'), `#!/bin/sh\n${body}\n`, { mode: 0o755 });
-  const env = { ...process.env, PATH: sealedPath(`${bin}:/usr/bin:/bin`) };
+  const env = { ...process.env, PATH: sealedPath([bin, '/usr/bin', '/bin']) };
   claude(`echo '{"loggedIn":false,"authMethod":"none"}'; exit 1`);
   await C.claudeLoginStatus({ env });
   assert.deepEqual(S.providerFacts(login), { signedIn: false, plan: null, usageReported: null, accountAt: null });
@@ -114,7 +114,7 @@ test('the sign-in check leaves its answer for the page: signedIn, plan, and whet
   }
 });
 
-test('another account signs in: the limit marks and figures of the providers on the stored sign-in go; nothing else does', async () => {
+test('another account signs in: the limit marks and figures of the providers on the stored sign-in go; nothing else does', { skip: SHELL_STANDINS.skip }, async () => {
   const A = await import('../src/autoswitch.mjs');
   for (const f of ['claude-login.json', 'usage.json', 'limits.json']) fs.rmSync(path.join(box.state, f), { force: true });
   for (const p of P.listProfiles()) P.deleteProfile(p.name);
@@ -125,7 +125,7 @@ test('another account signs in: the limit marks and figures of the providers on 
   fs.mkdirSync(bin);
   const signedInAs = (email, org) => fs.writeFileSync(path.join(bin, 'claude'), `#!/bin/sh\necho '${JSON.stringify({ loggedIn: true, authMethod: 'claude.ai', subscriptionType: 'max', email, orgId: org, orgName: 'Org' })}'\n`, { mode: 0o755 });
   const signedOut = () => fs.writeFileSync(path.join(bin, 'claude'), `#!/bin/sh\necho '{"loggedIn":false,"authMethod":"none"}'; exit 1\n`, { mode: 0o755 });
-  const env = { ...process.env, PATH: sealedPath(`${bin}:/usr/bin:/bin`) };
+  const env = { ...process.env, PATH: sealedPath([bin, '/usr/bin', '/bin']) };
   const atLimit = () => {
     const now = Date.now();
     A.markLimited('sub', { until: now + 2 * HOUR, text: "You've hit your 5-hour limit" });

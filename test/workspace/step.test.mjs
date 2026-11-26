@@ -20,10 +20,10 @@ const ui = (o) => {
 test('dry run: says what it would create, creates nothing; the doctor line says "not set up yet"', async () => {
   const u = ui({ dryRun: true });
   await runWorkspaceStep(u);
-  assert.match(u.text, /Creates ~\/Workspace with ai_brain\//);
+  assert.match(u.text, /Creates ~[\\/]Workspace with ai_brain\//);
   assert.match(u.text, /development\/, git\/, database\/postgresql\/, database\/mysql\/ \(only you can open it\) and backups\/; nothing else is changed\./);
   assert.equal(fs.existsSync(t.ws), false);
-  assert.deepEqual(workspaceLine(workspaceStatus()), { status: 'info', detail: '~/Workspace not set up yet', fix: 'hoprig workspace setup' });
+  assert.deepEqual(workspaceLine(workspaceStatus()), { status: 'info', detail: `${path.join('~', 'Workspace')} not set up yet`, fix: 'hoprig workspace setup' });
 });
 
 test('a new computer with --yes: created; run again: only reported', async () => {
@@ -33,7 +33,7 @@ test('a new computer with --yes: created; run again: only reported', async () =>
   const again = ui({ yes: true });
   assert.deepEqual(await runWorkspaceStep(again), { ok: true, changed: false });
   assert.doesNotMatch(again.text, /Create the workspace/);
-  assert.match(again.text, /~\/Workspace · brain \(git\) · 0 projects/);
+  assert.match(again.text, /~[\\/]Workspace · brain \(git\) · 0 projects/);
   assert.equal(workspaceLine(workspaceStatus()).status, 'ok');
 });
 

@@ -46,7 +46,8 @@ function examples(md) {
 }
 
 // The session's folder and Hoprig's own folders, made up: nothing here exists on disk.
-const places = { cwd: '/w/shop', home: '/w', workspace: '/w', projects: ['/w'], hoprig: ['/w/.config/hoprig', '/w/.local/state/hoprig'], own: '/w/shop', relative: true };
+// They are POSIX places, read as on Linux everywhere: on Windows `/w` is the drive-relative `W:`, which no home is.
+const places = { platform: 'linux', cwd: '/w/shop', home: '/w', workspace: '/w', projects: ['/w'], hoprig: ['/w/.config/hoprig', '/w/.local/state/hoprig'], own: '/w/shop', relative: true };
 // git as the wall asks it: the remote's default branch (main, or not known) and the branch the session stands on.
 const gitFor = (context) => (cwd, args) => {
   const a = args.join(' ');

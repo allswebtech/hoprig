@@ -43,7 +43,7 @@ test('the store: mode 600, replace by name, rename, remove, and the token never 
   assert.deepEqual(store.loadMachines(), []);
   const m = { name: 'box2', label: 'Linux PC', via: 'ssh', target: 'devbox', remoteHost: '127.0.0.1', remotePort: 7433, token: 'hop_secret', tokenId: 'abcdefabcdef', added: 1 };
   store.putMachine(m);
-  assert.equal(fs.statSync(store.machinesFile()).mode & 0o777, 0o600);
+  if (process.platform !== 'win32') assert.equal(fs.statSync(store.machinesFile()).mode & 0o777, 0o600);
   store.putMachine({ name: 'web', via: 'url', url: 'https://pc.example', token: 'hop_other' });
   store.putMachine({ ...m, token: 'hop_new' }); // paired again: replaced, not doubled
   assert.deepEqual(store.loadMachines().map((x) => [x.name, x.token]), [['web', 'hop_other'], ['box2', 'hop_new']]);

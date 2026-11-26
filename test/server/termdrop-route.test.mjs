@@ -49,9 +49,9 @@ test('the drop route: sizes, names, two files of one name, no cookie, no such se
   assert.equal(path.dirname(one.json.path), folder);
   assert.ok(path.isAbsolute(one.json.path));
   assert.deepEqual([...fs.readFileSync(one.json.path)], [7]);
-  assert.equal((fs.statSync(one.json.path).mode & 0o777).toString(8), '600');
-  assert.equal((fs.statSync(path.join(box.state, 'drops')).mode & 0o777).toString(8), '700');
-  assert.equal((fs.statSync(folder).mode & 0o777).toString(8), '700');
+  if (process.platform !== 'win32') assert.equal((fs.statSync(one.json.path).mode & 0o777).toString(8), '600');
+  if (process.platform !== 'win32') assert.equal((fs.statSync(path.join(box.state, 'drops')).mode & 0o777).toString(8), '700');
+  if (process.platform !== 'win32') assert.equal((fs.statSync(folder).mode & 0o777).toString(8), '700');
   assert.ok(!fs.existsSync(path.join(work, '.uploads')), 'nothing in the session\'s folder');
   assert.ok(!fs.existsSync(path.join(folder, '.gitignore')), 'no ignore file: the folder is not in a repository');
 

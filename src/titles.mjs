@@ -15,6 +15,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { inTurn } from './oneturn.mjs';
 import { stateDir } from './paths.mjs';
+import { replaceFile } from './replacefile.mjs';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const CHUNK = 256 * 1024;
@@ -220,7 +221,7 @@ function writeNames(map) {
   fs.mkdirSync(path.dirname(f), { recursive: true, mode: 0o700 });
   const tmp = `${f}.${process.pid}.tmp`;
   fs.writeFileSync(tmp, `${JSON.stringify(map)}\n`, { mode: 0o600 });
-  fs.renameSync(tmp, f);
+  replaceFile(tmp, f);
   names = { file: null, mtimeMs: -1, map: {} }; // read again at the next look
 }
 

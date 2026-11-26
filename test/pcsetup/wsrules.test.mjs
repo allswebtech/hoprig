@@ -186,7 +186,7 @@ test('a rules folder that is a link (into the brain, shared with other computers
   try {
     const r = await cli(['--write', '--yes']);
     assert.equal(r.code, 1, r.text);
-    assert.match(r.text, /rules is a link to .*ai_brain\/claude\/rules: this file is made for this computer only, so it is not written there/);
+    assert.match(r.text, /rules is a link to .*ai_brain[\\/]claude[\\/]rules: this file is made for this computer only, so it is not written there/);
     assert.deepEqual(fs.readdirSync(shared), [], 'nothing went into the shared folder');
     const q = await quietUi();
     await main(['status'], { ui: q.ui, write: () => {} });
@@ -207,7 +207,7 @@ test('a Claude folder that is a link itself (a dotfiles tool links the whole fol
     assert.equal(S.rulesFileState(st), 'link');
     const r = await cli(['--write', '--yes']);
     assert.equal(r.code, 1, r.text);
-    assert.match(r.text, /\.claude is a link to .*ai_brain\/claude-home: this file is made for this computer only, so it is not written there/);
+    assert.match(r.text, /\.claude is a link to .*ai_brain[\\/]claude-home: this file is made for this computer only, so it is not written there/);
     assert.deepEqual(fs.readdirSync(shared), [], 'no rules folder, no file in the shared folder');
     assert.throws(() => S.writeWorkspaceRules({ base: C.claude, text: `${S.FIRST_LINE}\nx\n` }), /\.claude is a link to/);
     assert.deepEqual(fs.readdirSync(shared), []);

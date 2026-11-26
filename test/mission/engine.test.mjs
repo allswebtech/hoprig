@@ -167,7 +167,7 @@ test('the gate owns done: a test command that fails is never review; twice faile
     const x = m.tasks[0];
     assert.equal(x.state, 'his', x.why);
     assert.match(x.why, /gate failed twice: the tests did not pass/);
-    assert.match(x.why, /\(node -e /, 'the command by its program\'s name');
+    assert.match(x.why, /\(node(\.exe)? -e /, 'the command by its program\'s name');
     assert.ok(!JSON.stringify(readMission(place(), id)).includes(process.execPath), 'no full path of this computer in the mission file');
     assert.equal(x.gateFails, 2);
     assert.equal(x.firstPass, false);
@@ -617,7 +617,7 @@ test('the owner can "Run the tests here" on a review task whose tests a box did 
     const here = await engine.runTestsHere(id, task.id, { outside: true });
     assert.equal(here.ok, true, JSON.stringify(here));
     assert.equal(here.boxed, false, 'it says it ran outside the box');
-    assert.match(here.command, /node -e/, 'the command is named, by its program only');
+    assert.match(here.command, /node(\.exe)? -e/, 'the command is named, by its program only');
     const after = readMission(place(), id).tasks.find((x) => x.id === task.id);
     assert.ok(after.gate.here && after.gate.here.ok, 'the result is kept on the task');
     assert.ok(readMission(place(), id).line.some((l) => /You ran the tests outside the box, as you/.test(l.words)), 'the line records his press and where');

@@ -25,6 +25,7 @@ import { parseFrontMatter } from './frontmatter.mjs';
 import { HOPRIG_LEARNED, addDeclined, learnDir } from './learnset.mjs';
 import { scanDraft } from './learnscan.mjs';
 import { readManifest, safeName, sha256 } from './store.mjs';
+import { replaceFile } from '../replacefile.mjs';
 
 export const STOP_ENV = 'HOPRIG_TEST_LEARN_STOP_AFTER'; // tests: "tmp", "write", "add" or "commit" stops an install there
 const ID_RE = /^[a-f0-9]{24}$/;
@@ -132,7 +133,7 @@ export function hoprigLearnedPlace(own, o = {}) {
 function writeDraft(d) {
   const tmp = `${draftFile(d.id)}.${process.pid}.tmp`;
   fs.writeFileSync(tmp, JSON.stringify(d), { mode: 0o600 });
-  fs.renameSync(tmp, draftFile(d.id));
+  replaceFile(tmp, draftFile(d.id));
 }
 
 export function readDraft(id) {
@@ -399,7 +400,7 @@ export async function install(id, o = {}) {
       const tmp = path.join(target, tmpName(id));
       fs.writeFileSync(tmp, text);
       stop('tmp');
-      fs.renameSync(tmp, file);
+      replaceFile(tmp, file);
       stop('write');
       const at = { root: brain, dir: path.dirname(brain) };
       const msg = `Learned skill: ${d.name}\n\nMade from a Work task and installed by its owner ${marker(id)}.`;

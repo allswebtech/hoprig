@@ -9,6 +9,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { stateDir } from '../paths.mjs';
 import { FORMAT, KINDS, REPORT_MAX, SECONDS_MAX, classOf, keptSteps, reportText, strictReport, systemOf, versionOf } from './shape.mjs';
+import { replaceFile } from '../replacefile.mjs';
 
 export const KEEP_MAX = 50;
 
@@ -58,16 +59,53 @@ export function buildReport(o = {}) {
 
 const fileName = (r) => `${r.time.replace(/[-:]/g, '')}-${r.id}.json`;
 
+/**
+ * The order the reports were written in, kept in their files' times (field/wire.mjs reads "the report just before
+ * this one" by it): each new report's time is set, to the millisecond, later than every other report's. The time a
+ * file system gives a file it writes can be coarse (two reports a moment apart may get the same) or follow a clock
+ * that was set back; a time set this way reads back as it was set. Across processes (two dashboards, a command): each
+ * looks at the files there when it writes, so only two reports written at the very same moment can share one.
+ */
+// Times are compared in whole milliseconds (writtenMs): a time set goes to the file system as seconds in a double and
+// may read back a hair below what was set (…677.9999 for …678), so a time and the one before it compared unrounded
+// could meet. And the new time is read back: on a file system that keeps whole seconds (2 s on FAT) the next one is
+// set a second (then two) later, until it reads later than every other.
+export const writtenMs = (st) => Math.round(st.mtimeMs);
+
+function laterThanAll(dir, name) {
+  let newest = 0;
+  for (const n of fs.readdirSync(dir)) {
+    if (n === name || !FILE_RE.test(n)) continue;
+    try {
+      newest = Math.max(newest, writtenMs(fs.statSync(path.join(dir, n))));
+    } catch {
+      /* gone meanwhile */
+    }
+  }
+  const file = path.join(dir, name);
+  const want = Math.max(Date.now(), newest + 1);
+  for (const step of [0, 1000, 2000]) {
+    try {
+      const at = new Date(want + step);
+      fs.utimesSync(file, at, at);
+      if (writtenMs(fs.statSync(file)) > newest) return;
+    } catch {
+      return; // the file system's own time stands
+    }
+  }
+}
+
 function writeFile(dir, name, text) {
   fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
   const tmp = path.join(dir, `.${name}.${process.pid}.${crypto.randomBytes(3).toString('hex')}.tmp`);
   try {
     fs.writeFileSync(tmp, text, { mode: 0o600, flag: 'wx' });
-    fs.renameSync(tmp, path.join(dir, name));
+    replaceFile(tmp, path.join(dir, name));
   } catch (e) {
     fs.rmSync(tmp, { force: true });
     throw e;
   }
+  laterThanAll(dir, name);
 }
 
 /** The newest KEEP_MAX report files stay; older ones go (only files of the report's own name). */

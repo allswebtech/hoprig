@@ -17,14 +17,16 @@ const OPTS = { cwd: work, write: [work], timeoutMs: 20_000 };
 const real = await boxCheck();
 const skip = !real.ok && `no box here: ${real.why}`;
 
-test('the list is closed: PATH from the runtime, the box\'s HOME, a plain LANG, TERM=dumb, CI=1', () => {
+const noBox = process.platform === 'win32' && 'the box is made for Linux and macOS: Windows has none (means.mjs)';
+
+test('the list is closed: PATH from the runtime, the box\'s HOME, a plain LANG, TERM=dumb, CI=1', { skip: noBox }, () => {
   assert.deepEqual(boxEnv('/opt/node', {}, 'de_DE.UTF-8'), { PATH: '/opt/node/bin:/usr/local/bin:/usr/bin:/bin', LANG: 'de_DE.UTF-8', TERM: 'dumb', CI: '1', HOME: '/home/box' }); // seal: an expected value, no program is started with it
   for (const odd of ['$(id)', 'en_US.UTF-8; x', '../../x', '', undefined, 'a'.repeat(80)]) assert.equal(boxEnv('/n', {}, odd).LANG, 'C.UTF-8', String(odd));
   assert.equal(boxEnv('/n', { NODE_ENV: 'test' }).NODE_ENV, 'test');
   assert.equal(boxEnv('/n', { HOME: '/home/alex' }).HOME, '/home/box', 'HOME stays the box\'s own');
 });
 
-test('a name the caller gives that is not plain, or HOME, is a wrong option: nothing runs', async () => {
+test('a name the caller gives that is not plain, or HOME, is a wrong option: nothing runs', { skip: noBox }, async () => {
   for (const env of [{ HOME: '/x' }, { 'lower': 'x' }, { 'A-B': 'x' }, { '1A': 'x' }, { 'A=B': 'x' }, { '': 'x' }]) {
     assert.match(planRun(['/bin/true'], { ...OPTS, env }).why, /^env: /, JSON.stringify(env));
     let ran = 0;
@@ -35,7 +37,7 @@ test('a name the caller gives that is not plain, or HOME, is a wrong option: not
   assert.equal(planRun(['/bin/true'], { ...OPTS, env: { NODE_ENV: 'test', A_1: 'x' } }).why, undefined);
 });
 
-test('the plan carries only the closed list, whatever the caller\'s environment holds', () => {
+test('the plan carries only the closed list, whatever the caller\'s environment holds', { skip: noBox }, () => {
   process.env.BOX_TEST_MADE_UP_SECRET = 'made-up';
   try {
     const p = planRun(['/bin/true'], { ...OPTS, env: { NODE_ENV: 'test' } });

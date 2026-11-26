@@ -184,7 +184,7 @@ test('the route: the look changes nothing; Tia, her relayed mark, another site, 
     const before = snapshot(A.projects);
     const look = await post({ dryRun: true });
     assert.equal(look.status, 200, JSON.stringify(look.json));
-    assert.deepEqual(look.json.steps.map((s) => [s.folder, s.name, s.action, s.parent]), [['Shop', 'shop', 'rename', '~/Workspace/projects']]);
+    assert.deepEqual(look.json.steps.map((s) => [s.folder, s.name, s.action, s.parent]), [['Shop', 'shop', 'rename', path.join('~', 'Workspace', 'projects')]]);
     const { seen } = look.json;
     assert.ok([401, 403].includes((await post({ seen }, { Authorization: 'Bearer tia_0123456789abcdef', ...page })).status), 'Tia\'s token');
     assert.equal((await post({ seen }, { Cookie: page.Cookie, Origin: 'http://evil.example' })).status, 403, 'another site');

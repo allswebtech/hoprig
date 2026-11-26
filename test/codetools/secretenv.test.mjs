@@ -195,7 +195,7 @@ test('every place that starts npm, an install script or a download hands on none
   }
 });
 
-test('a start by launch file: the file holds the folder and the launcher\'s words only, the typed line and the pane only the state folder', async () => {
+test('a start by launch file: the file holds the folder and the launcher\'s words only, the typed line and the pane only the state folder', { skip: process.platform === 'win32' && 'tmux does not run on Windows: the next test is the start of a Windows terminal' }, async () => {
   const { Deck } = await import('../../src/server/deck.mjs');
   const { TmuxBackend } = await import('../../src/server/backends/tmux.mjs');
   const { applyLaunch } = await import('../../src/launchfile.mjs');
@@ -234,6 +234,63 @@ test('a start by launch file: the file holds the folder and the launcher\'s word
     assert.deepEqual(argv.slice(2), held.argv);
     assert.deepEqual({ ...process.env, PWD: before.PWD }, before, 'only PWD changes');
   } finally {
+    for (const k of Object.keys(process.env)) if (!(k in saved)) delete process.env[k];
+    Object.assign(process.env, saved);
+  }
+});
+
+test('a start by launch file in a Windows terminal: node.exe under C:\\Program Files starts with the file, nothing typed, no secret in its words, its file or what Hoprig adds to its environment', async () => {
+  const { Deck } = await import('../../src/server/deck.mjs');
+  const { PtyBackend } = await import('../../src/server/backends/pty.mjs');
+  const { applyLaunch } = await import('../../src/launchfile.mjs');
+  const saved = { ...process.env };
+  Object.assign(process.env, SECRETS); // the dashboard runs in an environment full of them
+  const NODE = 'C:\\Program Files\\nodejs\\node.exe';
+  const SCRIPT = 'C:\\Program Files\\nodejs\\node_modules\\hoprig\\bin\\hoprig.mjs';
+  // A stand-in for node-pty (ConPTY): what the terminal was started with, and what was typed into it.
+  const spawned = [];
+  const spawn = (file, args, opts) => {
+    const exits = [];
+    const p = {
+      file, args, opts, pid: 4100 + spawned.length, process: file, written: [],
+      onData: () => {}, onExit: (f) => exits.push(f), write: (d) => p.written.push(d), resize: () => {},
+      kill: () => setImmediate(() => exits.splice(0).forEach((f) => f({ exitCode: 0 }))),
+    };
+    spawned.push(p);
+    return p;
+  };
+  const backend = new PtyBackend({ platform: 'win32', spawn, descendants: async () => [] });
+  try {
+    const deck = new Deck({ backend, config: () => ({ launcher: [NODE, SCRIPT] }), profiles: () => [], root: false });
+    const dir = fs.mkdtempSync(path.join(tmp, 'winproj-'));
+    await deck.start({ dir, profile: { name: 'api', env: { ANTHROPIC_API_KEY: `${MARK}-p` } }, prompt: 'first message' });
+    assert.equal(spawned.length, 1);
+    const [p] = spawned;
+    assert.deepEqual([p.file, p.args.length, p.args[0], p.args[1]], [NODE, 3, SCRIPT, '--launch'], 'node.exe with its backslashes and its space, as it is');
+    assert.deepEqual(p.written, [], 'nothing typed into a Windows terminal');
+    assert.ok(!JSON.stringify([p.file, p.args]).includes(MARK), 'no secret in its words');
+    const added = Object.keys(p.opts.env).filter((k) => p.opts.env[k] !== process.env[k]);
+    for (const k of added) assert.ok(['TERM', 'COLORTERM', 'HOPRIG_TERM_ID', 'HOPRIG_TERM_NAME'].includes(k), `Hoprig added ${k}`);
+    assert.ok(!Object.values(p.opts.env).includes(`${MARK}-p`), 'the provider\'s key is not in the terminal\'s environment');
+    const file = p.args[2];
+    const text = fs.readFileSync(file, 'utf8');
+    const held = JSON.parse(text);
+    assert.deepEqual(Object.keys(held).sort(), ['argv', 'at', 'cwd', 'v'], 'no environment in the launch file');
+    assert.ok(!text.includes(MARK));
+    assert.ok(held.argv.includes('first message') && held.argv.includes('api'));
+    process.env.PWD = process.cwd();
+    const before = { ...process.env };
+    const argv = [NODE, SCRIPT, '--launch', file];
+    const cwd = process.cwd();
+    try {
+      applyLaunch(argv);
+    } finally {
+      process.chdir(cwd);
+    }
+    assert.deepEqual(argv.slice(2), held.argv);
+    assert.deepEqual({ ...process.env, PWD: before.PWD }, before, 'only PWD changes');
+  } finally {
+    await backend.close();
     for (const k of Object.keys(process.env)) if (!(k in saved)) delete process.env[k];
     Object.assign(process.env, saved);
   }

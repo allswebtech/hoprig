@@ -9,7 +9,7 @@ import { test } from 'node:test';
 import { sandbox } from '../server/helpers.mjs';
 
 const box = sandbox('gatewayproc');
-const POSIX = { skip: process.platform === 'win32' }; // wrappers are sh scripts; Windows has no process groups
+const POSIX = { skip: process.platform === 'win32' && 'a gateway and its wrappers are ended as one process group, which Windows does not have' };
 const freePort = () => new Promise((r) => { const s = net.createServer().listen(0, '127.0.0.1', () => { const p = s.address().port; s.close(() => r(p)); }); });
 const closed = (port) => new Promise((r) => { const c = net.connect(port, '127.0.0.1', () => { c.destroy(); r(false); }); c.on('error', () => r(true)); });
 const pidsFile = path.join(box.root, 'server-pids.txt');

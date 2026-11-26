@@ -135,7 +135,7 @@ test('the real terminal module works on this machine', async () => {
   assert.deepEqual(await K.ptyWorksNow(), { ok: true });
 });
 
-test('terminal: tmux or built-in, information only', async () => {
+test('terminal: tmux or built-in, information only', { skip: process.platform === 'win32' && 'tmux is POSIX only, and Linux PATH rules cannot read a Windows PATH' }, async () => {
   const none = await K.terminalCheck({ platform: 'linux', env: { PATH: pathWith(s.tmp) } }); // seal: only the test's own folders, in an environment that keeps the runner's variables
   assert.deepEqual([none.status, none.detail], ['info', 'built-in']);
   const bin = fakeBin(path.join(s.tmp, 'bin-tmux'), { tmux: 'echo "tmux 3.4"' });
@@ -185,7 +185,7 @@ test('tailscale status parsing and the access line', () => {
   assert.match(K.accessCheck({ server: { allowedOrigins: ['https://pc.tail1.ts.net'] } }, { running: true }).detail, /Tailscale https:\/\/pc\.tail1\.ts\.net\//);
 });
 
-test('folder permissions: private is ok, readable by others is a warning with chmod', { skip: process.platform === 'win32' }, () => {
+test('folder permissions: private is ok, readable by others is a warning with chmod', { skip: process.platform === 'win32' && 'file modes: Windows keeps no POSIX mode, so a folder others can read cannot be made by chmod there' }, () => {
   const before = K.dirsCheck('linux');
   assert.ok(before.every((r) => r.status === 'info'), 'not created yet');
   fs.mkdirSync(process.env.HOPRIG_CONFIG_DIR, { recursive: true, mode: 0o700 });

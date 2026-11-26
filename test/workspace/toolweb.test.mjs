@@ -10,6 +10,9 @@ import path from 'node:path';
 import test from 'node:test';
 import { gitWorld } from './gitfix.mjs';
 
+// Windows gets no launcher for a group's tool (allowTool refuses there); the tests that make one are for macOS and Linux.
+const NO_LAUNCHER = { skip: process.platform === 'win32' && 'a group\'s tool gets no launcher on Windows' };
+
 const w = gitWorld('ws-toolweb');
 const C = w.computer('t');
 C.use();
@@ -79,12 +82,12 @@ function snapshot(top = C.home) {
 test('GET /api/workspace/tools names the waiting command, what it needs, with short paths only', async () => {
   const r = await call('/api/workspace/tools');
   assert.equal(r.status, 200, JSON.stringify(r.json));
-  assert.deepEqual(r.json.tools, [{ group: 'kits', name: 'kit', run: 'kit.sh', file: '~/Workspace/kits/kit.sh', launcher: '~/.local/bin/kit', state: 'waits', missing: [{ program: 'no-such-program-here' }] }]);
+  assert.deepEqual(r.json.tools, [{ group: 'kits', name: 'kit', run: 'kit.sh', file: path.join('~', 'Workspace', 'kits', 'kit.sh'), launcher: path.join('~', '.local', 'bin', 'kit'), state: 'waits', missing: [{ program: 'no-such-program-here' }] }]);
   assert.ok(!JSON.stringify(r.json).includes(C.home), 'no full path of the home');
   assert.equal((await call('/api/workspace/tools', undefined, bearer('tia_0123456789abcdef'))).status, 401, 'Tia\'s token');
 });
 
-test('the yes: refused from Tia, her mark, a script, a hub without the mark and another site, also with a correct seen', async () => {
+test('the yes: refused from Tia, her mark, a script, a hub without the mark and another site, also with a correct seen', NO_LAUNCHER, async () => {
   const before = snapshot();
   const look = await call('/api/workspace/tools/allow', { group: 'kits', dryRun: true });
   assert.equal(look.status, 200, JSON.stringify(look.json));
@@ -107,7 +110,7 @@ test('the yes: refused from Tia, her mark, a script, a hub without the mark and 
   assert.deepEqual(snapshot(), before, 'nothing in the home changed');
 });
 
-test('Tia\'s own call in the dashboard (not over HTTP) is refused, with a correct seen', async () => {
+test('Tia\'s own call in the dashboard (not over HTTP) is refused, with a correct seen', NO_LAUNCHER, async () => {
   const { Readable } = await import('node:stream');
   const { workspaceFeature } = await import('../../src/workspace/feature.mjs');
   const f = workspaceFeature({ config: () => loadConfig(), readJson: async (req) => req.body, caller: () => 'self' });
@@ -117,7 +120,7 @@ test('Tia\'s own call in the dashboard (not over HTTP) is refused, with a correc
   assert.ok(!fs.existsSync(launcher));
 });
 
-test('a file changed between the sheet and the press is refused; the yes makes the command\'s own launcher; Remove takes it away', async () => {
+test('a file changed between the sheet and the press is refused; the yes makes the command\'s own launcher; Remove takes it away', NO_LAUNCHER, async () => {
   const look = await call('/api/workspace/tools/allow', { group: 'kits', dryRun: true });
   fs.writeFileSync(path.join(kits, 'kit.sh'), '#!/bin/sh\necho changed\n', { mode: 0o755 });
   const stale = await call('/api/workspace/tools/allow', { group: 'kits', seen: look.json.seen });

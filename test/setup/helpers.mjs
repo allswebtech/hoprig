@@ -43,6 +43,27 @@ case "$1" in
 esac`;
 
 /**
+ * A folder of fake programs written as Node scripts (`#!/usr/bin/env node`). Linux and macOS start them through the
+ * `node` on the test's PATH (pathWith puts one there); on Windows the test seal starts such a stand-in with this Node
+ * (tools/test-seal.cjs windowsStandIn), so it needs no sh on the child's PATH. `programs` maps a name to Node code.
+ */
+export function fakeNodeBin(dir, programs) {
+  fs.mkdirSync(dir, { recursive: true });
+  for (const [name, body] of Object.entries(programs)) {
+    fs.writeFileSync(path.join(dir, name), `#!/usr/bin/env node\n${body}\n`, { mode: 0o755 });
+  }
+  return dir;
+}
+
+/** fakeClaude as Node code for fakeNodeBin: the same answers. */
+export const fakeClaudeNode = ({ version = '2.1.300', loggedIn = true } = {}) => `const a = process.argv.slice(2);
+if (a[0] === '--version') console.log(${JSON.stringify(`${version} (Claude Code)`)});
+else if (a[0] === 'auth') {
+  console.log(${JSON.stringify(JSON.stringify(loggedIn ? { loggedIn: true, authMethod: 'claude.ai', email: 'someone@example.com' } : { loggedIn: false, authMethod: 'none' }))});
+  process.exitCode = ${loggedIn ? 0 : 1};
+}`;
+
+/**
  * A folder of harmless stand-ins for the programs a doctor/workspace check probes on PATH — gh (installed, not signed
  * in), docker (installed), tailscale (not running) — so a test that reads the computer's state never reaches the
  * owner's own GitHub, container daemon or private network. Put it first on PATH. Returns the folder.
@@ -103,4 +124,20 @@ export function snapshot(dir) {
   };
   walk(dir);
   return out;
+}
+
+/**
+ * `sys.run` for set-up and doctor on Windows (setup/winowner.mjs winRun): who this account is and that it does not run
+ * elevated are facts the test hands in, so Windows' own whoami (started by its full path) is never asked. Every other
+ * program runs as it would without it (capture, in `env`). Linux and macOS never ask these.
+ */
+export function windowsFacts(env = process.env) {
+  return async (argv, opts = {}) => {
+    if (/(^|[\\/])whoami(\.exe)?$/i.test(String(argv[0]))) {
+      const out = argv.includes('/groups') ? '"Mandatory Label\\Medium Mandatory Level","Label","S-1-16-8192",""\r\n' : '"pc-example\\dev","S-1-5-21-1-2-3-1001"\r\n';
+      return { ok: true, code: 0, stdout: out, stderr: '' };
+    }
+    const { capture } = await import('../../src/setup/system.mjs');
+    return capture(argv, { env, ...opts });
+  };
 }

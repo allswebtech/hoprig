@@ -3,6 +3,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { sandbox } from '../server/helpers.mjs';
+import { SHELL_STANDINS } from '../seal.mjs';
 
 const box = sandbox('lead');
 test.after(() => box.cleanup());
@@ -60,7 +61,7 @@ test('Lead with another coding tool: off, with one line why', () => {
   assert.deepEqual(leadArgs(plan), []);
 });
 
-test('a chat with Lead on starts Claude Code with its helpers; off, and an old record without the switch, without', { skip: process.platform === 'win32' && 'POSIX stand-in' }, async (t) => {
+test('a chat with Lead on starts Claude Code with its helpers; off, and an old record without the switch, without', { skip: SHELL_STANDINS.skip }, async (t) => {
   const fs = await import('node:fs');
   const path = await import('node:path');
   const crypto = await import('node:crypto');

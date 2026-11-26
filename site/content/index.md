@@ -88,7 +88,7 @@ No. One computer is enough. Your phone reaches it on the same Wi-Fi, or from any
 
 ### Does it work on Windows?
 
-Not yet. Its code is written, but the tests do not pass on Windows. Linux is run and tested. On a Mac the tests pass on every change and switching providers was tried there, but the install itself and the newer parts (the chat, the editor, the desktop, Work) have not been tried on a real Mac.
+Not yet. Its code is written and its tests pass on GitHub's Windows runners, but it has not run on real Windows computers beyond one, so Windows support is experimental. Linux is run and tested. On a Mac the tests pass on every change and switching providers was tried there, but the install itself and the newer parts (the chat, the editor, the desktop, Work) have not been tried on a real Mac.
 
 ### Does it change Claude Code?
 

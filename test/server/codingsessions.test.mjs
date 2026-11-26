@@ -60,7 +60,7 @@ async function call(p, body) {
 }
 
 const install = (tool) => {
-  const bin = path.join(process.env.HOPRIG_TOOLS_DIR, tool, 'node_modules', '.bin', tool);
+  const bin = path.join(process.env.HOPRIG_TOOLS_DIR, tool, 'node_modules', '.bin', process.platform === 'win32' ? `${tool}.cmd` : tool); // the name Windows looks for (npmtool.mjs binPath); never run
   fs.mkdirSync(path.dirname(bin), { recursive: true });
   fs.writeFileSync(bin, '#!/bin/sh\nexit 0\n', { mode: 0o755 });
 };

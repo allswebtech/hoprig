@@ -1,10 +1,9 @@
 // `hoprig drop`: every refusal, one case each, on a temporary home. A refusal names the repository (relative to the
 // workspace), the exact thing found and the command that resolves it; the project stays, byte for byte.
-import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
-import { dropOn, dropWorld, reset, treeOf } from './dropfix.mjs';
+import { Q, assert, dropOn, dropWorld, reset, treeOf } from './dropfix.mjs';
 
 const w = await dropWorld('refuse');
 test.after(() => w.cleanup());
@@ -39,7 +38,7 @@ test('a stash refuses, with git stash list', async () => {
   await refused(() => {
     fs.writeFileSync(path.join(api(), 'README.md'), 'aside\n');
     w.sh(api(), 'stash', '-q');
-  }, new RegExp(`${API}: a stash with 1 entry \\(work set aside, in no branch\\)`), { cmd: /git -C \S+shop-api stash list/, undo: () => w.sh(api(), 'stash', 'drop', '-q') });
+  }, new RegExp(`${API}: a stash with 1 entry \\(work set aside, in no branch\\)`), { cmd: new RegExp(`git -C \\S+shop-api${Q} stash list`), undo: () => w.sh(api(), 'stash', 'drop', '-q') });
 });
 
 test('a merge in progress refuses, with git merge --abort', async () => {
@@ -94,7 +93,7 @@ test('a tag only here refuses: drop never pushes a tag, it gives the command', a
 });
 
 test('git notes only here refuse: drop gives the push; once pushed, the drop goes through', async () => {
-  await refused(() => w.sh(api(), 'notes', 'add', '-m', 'a review note', 'HEAD'), new RegExp(`${API}: refs/notes/commits is only on this computer \\(1 commit not on the git server\\) \\(git notes\\)`), { cmd: /git -C \S+shop-api push origin refs\/notes\/commits/, undo: () => w.sh(api(), 'push', '-q', 'origin', 'refs/notes/commits') });
+  await refused(() => w.sh(api(), 'notes', 'add', '-m', 'a review note', 'HEAD'), new RegExp(`${API}: refs/notes/commits is only on this computer \\(1 commit not on the git server\\) \\(git notes\\)`), { cmd: new RegExp(`git -C \\S+shop-api${Q} push origin refs/notes/commits`), undo: () => w.sh(api(), 'push', '-q', 'origin', 'refs/notes/commits') });
 });
 
 test('git notes only here refuse also with a git older than 2.42 (no for-each-ref --exclude); a refs list that cannot be read refuses', async () => {
@@ -136,7 +135,7 @@ test('a linked worktree with work in it refuses; a clean one outside the project
   const out = path.join(w.root, 'outside-wt');
   await refused(() => {
     w.sh(api(), 'worktree', 'add', '-q', '--detach', out);
-  }, new RegExp(`${API}: a linked worktree of it is at ${out.replace(/[/.]/g, '\\$&')}, outside the project`), { cmd: /worktree remove/, undo: () => w.sh(api(), 'worktree', 'remove', out) });
+  }, new RegExp(`${API}: a linked worktree of it is at ${out.replace(/[\\/.^$*+?()[\]{}|]/g, '\\$&')}, outside the project`), { cmd: /worktree remove/, undo: () => w.sh(api(), 'worktree', 'remove', out) });
 });
 
 test('Claude Code\'s memory as a real folder for a folder of the project refuses: it is in no git', async () => {

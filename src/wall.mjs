@@ -40,6 +40,45 @@ const CASE_BLIND = process.platform === 'darwin' || process.platform === 'win32'
 // `sudo -e`, which is already caught because `sudo` heads it); the owner approves an editor as administrator at
 // every level, since an editor as administrator can change who may be administrator.
 const ADMIN = new Set(['sudo', 'sudoedit', 'su', 'doas', 'pkexec', 'run0']);
+// On Windows the escalator may be a program the Unix reading does not know: `gsudo`. A `sudo.exe`, `Sudo.EXE` or a
+// full path to one is read as `sudo` by baseName on win32 (either separator, any case, no .exe/.com/.bat/.cmd).
+// `runas` runs a program as another user (`runas /user:Administrator cmd`), which is how Windows asks for an
+// administrator without sudo.
+const WIN_ADMIN = new Set(['gsudo', 'runas']);
+// On Windows PowerShell runs the text of its `-c`/`-Command` as a command line, as `sh -c` does.
+const WIN_SHELLS = new Set(['powershell', 'pwsh']);
+// The switch of `cmd` that runs what follows as a command: `/c` or `/k`, in any case, as Git Bash must write it
+// (`//c`: it turns a bare `/c` into a path), behind other switches joined to it (`/s/c`, `/d/s/c`), and with the
+// command joined on (`/c"gsudo whoami"`, `/cgsudo`). Group 1: what is joined on after the switch.
+const CMD_RUNS = /^\/\/?(?:[a-z](?::[^/\s]*)?\/+)*[ck](.*)$/is;
+// PowerShell's `-Command` in every prefix it takes (`-c`, `-com`, `-Comm`, …), with one or two dashes or a slash, and
+// its `-File` the same way.
+const PS_COMMAND = /^(?:--?|\/)c(?:o(?:m(?:m(?:a(?:n(?:d)?)?)?)?)?)?(?::(.*))?$/is; // group 1: a command joined on with a colon
+const PS_FILE = /^(?:--?|\/)f(?:i(?:l(?:e)?)?)?$/i;
+// Its `-EncodedCommand` (`-e`, `-ec`, `-enc`, …): the command as base64 of UTF-16, which hides it from a reader of the
+// line. It is decoded and read as the command text it is; what does not decode to a text is held as unreadable.
+const PS_ENCODED = /^(?:--?|\/)e(?:c|n(?:c(?:o(?:d(?:e(?:d(?:c(?:o(?:m(?:m(?:a(?:n(?:d)?)?)?)?)?)?)?)?)?)?)?)?)?$/i;
+const psDecoded = (w) => {
+  if (typeof w !== 'string' || !/^[A-Za-z0-9+/]{4,}={0,2}$/.test(w) || w.length > 200_000) return null;
+  const text = Buffer.from(w, 'base64').toString('utf16le');
+  // eslint-disable-next-line no-control-regex
+  return text && !/[\u0000-\u0008\u000b\u000c\u000e-\u001f\ufffd]/.test(text) ? text : null;
+};
+// PowerShell's own switches that take no value: the word after one of them is the command or the script it runs.
+const PS_BARE = /^(?:--?|\/)(?:nop(?:rofile)?|nol(?:ogo)?|noni(?:nteractive)?|noe(?:xit)?|sta|mta|i(?:nteractive)?|l(?:ogin)?)$/i;
+// Its switches that take a value, which is never what it runs (`-ExecutionPolicy Bypass`, `-WorkingDirectory ../x`).
+const PS_VALUE = /^(?:--?|\/)(?:ex(?:ecutionpolicy)?|ep|w(?:indowstyle)?|wd|workingdirectory|o(?:utputformat)?|of|inputformat|if|v(?:ersion)?|config(?:urationname)?|settingsfile|settings|custompipename|psconsolefile)$/i;
+// (A value may be joined on with a colon, `-Version:5.1`, `-wd:C:/x`; a Git Bash path `/c/Users/…` is no switch.)
+const PS_SWITCH = /^(?:--?|\/)[a-z][\w-]*(?::.*)?$/i;
+// What `start` may be handed that is a program: a bare name, a program or script by its ending, or (whatever its
+// folder) one of the programs that ask for administrator rights or run a command text. A folder, a document and a web
+// address are opened, not run.
+const WIN_PROGRAM_END = /\.(?:exe|com|bat|cmd|ps1|sh)$/i;
+// On Windows these take a command text as PowerShell's -c does (`iex 'gsudo whoami'`).
+const WIN_TAKES_COMMAND = new Set(['iex', 'invoke-expression']);
+// PowerShell's Start-Process and its two short names; with the verb RunAs it asks Windows for administrator rights.
+const WIN_START_PROCESS = new Set(['start-process', 'saps', 'start']);
+const PS_VERB = /^-v(?:e(?:r(?:b)?)?)?(?::(.*))?$/i;
 // What only passes a command on (its options, assignments and counts come after it), so the real head is the next
 // word. sudo/su/doas/pkexec pass a command on too, but they are the admin act first and are caught before this. A
 // scheduler, affinity, namespace or sandbox wrapper runs its argument as a command the same way (`chrt 1 sudo su`,
@@ -228,9 +267,30 @@ const assignName = (w) => {
   return eq > 0 ? w.slice(0, eq) : null;
 };
 
-const baseName = (w) => {
+const WIN_EXE = /\.(?:exe|com|bat|cmd)$/;
+const baseName = (w, platform = process.platform) => {
+  if (platform === 'win32') {
+    // cmd takes a caret away and PowerShell a backtick before they look a program up (`g^sudo`, `` g`sudo ``): the
+    // name is read without them.
+    w = w.replace(/[\^`]/g, '');
+    const cut = Math.max(w.lastIndexOf('/'), w.lastIndexOf('\\'));
+    const b = w.slice(cut + 1).toLowerCase().replace(WIN_EXE, '');
+    // A full path written unquoted with backslashes reaches the reader without them (`C:\Windows\System32\sudo.exe`
+    // is `C:WindowsSystem32sudo.exe`): where such a word ends in an escalator's name, it is that escalator.
+    // The same for the programs that run a command text, by the full path Windows keeps them at
+    // (`C:\Windows\System32\cmd.exe /c …`, `…\WindowsPowerShell\v1.0\powershell.exe`), so what they run is read.
+    if (cut < 0 && /^[a-z]:./.test(b)) {
+      const esc = [...ADMIN, ...WIN_ADMIN].sort((x, y) => y.length - x.length).find((n) => b.endsWith(n));
+      if (esc) return esc;
+      // Only from the folders Windows keeps them in, so a program whose name merely ends like one is itself.
+      if (/(?:system32|syswow64|sysnative)cmd$/.test(b)) return 'cmd';
+      if (/v1\.0powershell$/.test(b)) return 'powershell';
+      if (/powershell\d+pwsh$/.test(b)) return 'pwsh';
+    }
+    return b;
+  }
   const b = w.slice(w.lastIndexOf('/') + 1);
-  return CASE_BLIND ? b.toLowerCase() : b;
+  return platform === 'darwin' ? b.toLowerCase() : b;
 };
 const isOption = (w) => w.startsWith('-');
 // A leading assignment before the program, in every form bash reads as one: a plain `NAME=value`, an append
@@ -681,9 +741,9 @@ export function readCommands(line) {
 
 // The head program of a command and its positional words, after passers are stepped over. → { admin, head,
 // positionals, nested: the quoted words that may be nested commands }.
-function headOf(cmd) {
-  const { k, admin, chdir, repoVar, texts, first, firstIndex, asksOnly, fed, ran, runner, name } = lead(cmd);
-  const head = k < cmd.length ? name || baseName(cmd[k].word) : '';
+function headOf(cmd, platform = process.platform) {
+  const { k, admin, chdir, repoVar, texts, first, firstIndex, asksOnly, fed, ran, runner, name } = lead(cmd, false, platform);
+  const head = k < cmd.length ? name || baseName(cmd[k].word, platform) : '';
   const args = cmd.slice(k + 1).filter((t) => !t.redirect); // a redirection target after the program is no argument
   // A bare variable standing alone as a whole argument word (`git push origin $BRANCH`) carries no readable word: it
   // is dropped from the argument list, as a bare variable was before it was carried on its own token, so a push's
@@ -706,7 +766,7 @@ function headOf(cmd) {
   const headVar = k < cmd.length && !!cmd[k].varProg;
   // `argTokens`: the words after the program as the reader made them (with where a variable stood), for the one
   // reader that needs to know which WORD held a variable (a gh or glab api call's address).
-  return { admin, head, headIndex: k, headVar, positionals, nested, rest: rest.map((t) => t.word), chdir, repoVar, texts, first, firstIndex, asksOnly, fed, ran, runner, hasVars, varTexts, redirects, argTokens: args };
+  return { platform, admin, head, headIndex: k, headVar, positionals, nested, rest: rest.map((t) => t.word), chdir, repoVar, texts, first, firstIndex, asksOnly, fed, ran, runner, hasVars, varTexts, redirects, argTokens: args };
 }
 
 // The ONE stepping of what stands before the program a command runs: leading assignments, the administrator programs
@@ -716,7 +776,7 @@ function headOf(cmd) {
 // program was stepped (`admin`), the folder and repository changes env made, the command texts the stepped words carry
 // (`texts`), the first program word (`first`, at `firstIndex`), `asksOnly` for `command -v NAME`, which runs nothing,
 // and `fed` where xargs was stepped (it hands the command more words than the line shows).
-function lead(cmd, stopAtAdmin = false) {
+function lead(cmd, stopAtAdmin = false, platform = process.platform) {
   let k = 0;
   let admin = false;
   let chdir = false; // an env -C/--chdir before the command: it runs in another folder
@@ -739,12 +799,12 @@ function lead(cmd, stopAtAdmin = false) {
       k++;
     }
     if (k >= cmd.length) break;
-    const b = k === nameAt && name ? name : baseName(cmd[k].word);
+    const b = k === nameAt && name ? name : baseName(cmd[k].word, platform);
     if (firstIndex < 0) {
       first = b;
       firstIndex = k;
     }
-    if (ADMIN.has(b)) {
+    if (ADMIN.has(b) || (platform === 'win32' && WIN_ADMIN.has(b))) {
       if (stopAtAdmin) break;
       admin = true;
       k = stepArgs(cmd, k + 1, b); // sudo/su/doas/pkexec pass the rest on; step to the command they run
@@ -1155,8 +1215,14 @@ function apiWrites(rest) {
 }
 
 // Does a command (not its nested texts) name one of the kinds here? → kind name or null.
-function kindOfCommand({ admin, head, positionals, rest = [], argTokens = null }) {
+function kindOfCommand({ admin, head, positionals, rest = [], argTokens = null, platform = process.platform }) {
   if (admin || ADMIN.has(head)) return 'admin';
+  // PowerShell's Start-Process with the verb RunAs asks Windows for administrator rights.
+  // (`saps` and `start` are its short names; the verb may be joined on with a colon, `-Verb:RunAs`.)
+  if (platform === 'win32' && WIN_START_PROCESS.has(head) && rest.some((w, i) => {
+    const m = PS_VERB.exec(w);
+    return !!m && /^runas$/i.test(m[1] || rest[i + 1] || '');
+  })) return 'admin';
   const has = (w) => positionals.includes(w);
   // Two more doors to administrator rights, which ask the system's own authority instead of sudo: a shell or a login
   // in a machine as another user, and a program run by the system's service manager (not the user's own, `--user`,
@@ -1200,7 +1266,7 @@ function findExecCmds(cmd) {
 // null, or 'unreadable' when the line cannot be read with certainty. `found`: given at the top, it gets the text of the
 // top-level command the result came from (`part`), for the card; a nested hit names the command it is nested in.
 // `net` is true where the command was not reached by stepping a passer's own words but found by the net (below).
-function walk(line, visit, depth = 0, found = null) {
+function walk(line, visit, depth = 0, found = null, platform = process.platform) {
   const commands = readCommands(line);
   if (commands === null) {
     if (found) found.part = line;
@@ -1211,27 +1277,124 @@ function walk(line, visit, depth = 0, found = null) {
   };
   // What a command runs beside itself, one level in: the words a watch or a find hands on as a command, and the
   // command texts it carries (a shell's -c, a program that takes a command to run, flock's -c, env's -S).
-  const inside = (cmd, info, net) => {
+  const win = platform === 'win32';
+  // `seen`: the command texts already walked for this command, so a text is read once however many `cmd /c` stand
+  // before it (each is a step further in, and read again at each it would cost the product of them all).
+  const inside = (cmd, info, net, seen = new Set(), hops = 0) => {
     // A wrapper that runs the rest of its words as a command (`watch sudo su`), or a per-match command (`find …
     // -exec sudo su ;`): an administrator program behind it was invisible, so read it as the wall reads any command,
     // one level in. watch's quoted-string form (`watch 'sudo su'`) is read through `nested` below instead.
-    const wrapped = info.head === 'watch' ? [cmd.slice(stepArgs(cmd, info.headIndex + 1, 'watch'))].filter((s) => s.length) : info.head === 'find' ? findExecCmds(cmd) : [];
-    for (const sub of wrapped) {
-      const sr = visit(headOf(sub), net);
-      if (sr) return sr;
+    const subs = []; // the words a program hands on as a command
+    const texts = []; // a quoted word that IS the command a program runs
+    // On Windows: what cmd, PowerShell, start or call run. A quoted word with a blank in it where the command begins
+    // is the command's text (read as a text, never as one program's name); cmd knows no single quote, so its text is
+    // read without them; a `@` before a cmd command only hides its echo.
+    // A slice is read once for a command in each of its two readings (as cmd reads it, and as any other program
+    // does), however many ways lead to it: the word it begins at is remembered.
+    const runs = (sub, ofCmd, at = sub[0]) => {
+      const memo = ofCmd ? (seen.ofCmd ??= new Set()) : seen;
+      if (!sub.length || memo.has(at)) return;
+      memo.add(at);
+      const first = sub[0];
+      if (first.quoted && /\s/.test(first.word)) {
+        // (cmd also takes a caret away before it reads a word: `"g^sudo whoami"` runs gsudo.)
+        texts.push(ofCmd ? first.word.replace(/'/g, '').replace(/\^(.)/g, '$1').replace(/(^|[&|(]\s*)@(?=\S)/g, '$1') : first.word);
+        // A quoted path to a program in a folder whose name holds a blank (`"C:\Program Files\gsudo\Current\gsudo.exe"
+        // whoami`) is that program: read as the slice too, so its name is seen.
+        // Only where its last part is a program by its ending, or one that asks for administrator rights or runs a
+        // command text: a text that merely ends in a folder (`"./build.ps1; Get-ChildItem bin/Release"`) names none.
+        const last = first.word.split(/[\\/]/).pop();
+        if (/^(?:[a-z]:[\\/]|[\\/.])/i.test(first.word) && !/\s/.test(last)
+          && (WIN_PROGRAM_END.test(last) || [...ADMIN, ...WIN_ADMIN, 'cmd', ...WIN_SHELLS].includes(baseName(last, platform)))) subs.push(sub);
+      } else subs.push(ofCmd && !first.quoted && /^@./.test(first.word) ? [{ ...first, word: first.word.slice(1) }, ...sub.slice(1)] : sub);
+    };
+    let psAt = -1;
+    if (info.head === 'watch') subs.push(...[cmd.slice(stepArgs(cmd, info.headIndex + 1, 'watch'))].filter((s) => s.length));
+    else if (info.head === 'find') subs.push(...findExecCmds(cmd));
+    else if (win && info.head === 'cmd') {
+      // `cmd /c …` and `cmd /k …` run the words after the switch as a command (`cmd /c sudo whoami`).
+      const at = cmd.findIndex((t, i) => i > info.headIndex && CMD_RUNS.test(t.word));
+      if (at >= 0) {
+        const joined = CMD_RUNS.exec(cmd[at].word)[1];
+        runs(joined ? [{ ...cmd[at], word: joined, quoted: cmd[at].quoted || /\s/.test(joined) }, ...cmd.slice(at + 1)] : cmd.slice(at + 1), true, joined ? cmd[at] : cmd[at + 1]);
+      }
+    } else if (win && WIN_SHELLS.has(info.head)) {
+      // PowerShell runs the words after `-c` / `-Command` the same way when they are not one quoted text
+      // (`powershell -c Start-Process cmd -Verb RunAs`); the shell takes the quotes of a quoted switch away. With
+      // neither that nor `-File`, the first word left after its switches is what it runs (`powershell gsudo whoami`,
+      // `powershell -ExecutionPolicy Bypass -NoProfile "gsudo whoami"`): a switch that takes no value is one word, a
+      // switch known to take one is two (its value is never read as a program), and behind a switch this reader
+      // does not know the next word is read both ways, as its value and as the command. Only PowerShell's own
+      // switches are read so: from the first word that begins the command on, a `-c` or a `/c` is that command's.
+      let k = info.headIndex + 1;
+      let file = false;
+      while (k < cmd.length) {
+        const w = cmd[k].word;
+        if (cmd[k].redirect) k++;
+        else if (!PS_SWITCH.test(w)) break;
+        else if (PS_ENCODED.test(w)) {
+          const text = psDecoded(k + 1 < cmd.length ? cmd[k + 1].word : null);
+          if (text === null) return UNREADABLE; // a hidden command that cannot be read: held
+          texts.push(text);
+          file = true; // nothing else of the line is its command
+          break;
+        } else if (PS_COMMAND.test(w)) {
+          psAt = k;
+          break;
+        } else if (PS_FILE.test(w)) {
+          file = true;
+          break;
+        } else if (PS_BARE.test(w)) k++;
+        else if (PS_VALUE.test(w)) k += 2;
+        else {
+          k++;
+          if (k < cmd.length && !cmd[k].redirect && !PS_SWITCH.test(cmd[k].word)) runs(cmd.slice(k++), false);
+        }
+      }
+      const joined = psAt >= 0 ? PS_COMMAND.exec(cmd[psAt].word)[1] : '';
+      if (joined) runs([{ ...cmd[psAt], word: joined, quoted: cmd[psAt].quoted || /\s/.test(joined) }, ...cmd.slice(psAt + 1)], false, cmd[psAt]);
+      else if (psAt >= 0) runs(cmd.slice(psAt + 1), false);
+      else if (!file) runs(cmd.slice(k), false);
+    } else if (win && (info.head === 'start' || info.head === 'call')) {
+      // cmd's `start ["title"] [/switches] program …` and `call program …` run the program they name.
+      let k = info.headIndex + 1;
+      if (info.head === 'start' && k < cmd.length && cmd[k].quoted) k++;
+      while (k < cmd.length && !cmd[k].quoted && /^\/[a-z]/i.test(cmd[k].word)) k += /^\/d$/i.test(cmd[k].word) ? 2 : 1;
+      const target = k < cmd.length ? cmd[k].word : '';
+      // (A bare `Release`, `deploy` or `publish` after start is a folder of that name it opens, not a program.)
+      const program = !/^[a-z][a-z0-9+.-]*:\/\//i.test(target) && ((!/[\\/]/.test(target) && !/^(?:deploy|release|publish)$/i.test(target)) || WIN_PROGRAM_END.test(target)
+        || [...ADMIN, ...WIN_ADMIN, 'cmd', ...WIN_SHELLS].includes(baseName(target, platform)));
+      if (info.head === 'call' || program) runs(cmd.slice(k), true);
     }
-    const takesInner = SHELLS.has(info.head) ? cmd.some((t) => isOption(t.word) && !t.word.startsWith('--') && t.word.includes('c')) : TAKES_COMMAND.has(info.head);
-    for (const text of new Set([...(takesInner ? info.nested : []), ...info.texts])) {
+    for (const sub of subs) {
+      const subInfo = headOf(sub, platform);
+      const sr = visit(subInfo, net);
+      if (sr) return sr;
+      // On Windows what such a program runs may itself carry a command (`cmd /c cmd /c gsudo whoami`, `cmd /c
+      // powershell -c "gsudo whoami"`, `find . -exec cmd /c gsudo whoami ;`): read further in, as the line's own
+      // commands are. Each step is a shorter slice, so it ends; a chain longer than any real line is not read.
+      if (win) {
+        if (hops >= 64) return UNREADABLE;
+        const deeper = inside(sub, subInfo, net, seen, hops + 1);
+        if (deeper) return deeper;
+      }
+    }
+    const takesInner = SHELLS.has(info.head) ? cmd.some((t) => isOption(t.word) && !t.word.startsWith('--') && t.word.includes('c'))
+      : win && WIN_SHELLS.has(info.head) ? psAt >= 0
+        : TAKES_COMMAND.has(info.head) || (win && WIN_TAKES_COMMAND.has(info.head));
+    for (const text of new Set([...texts, ...(takesInner ? info.nested : []), ...info.texts])) {
+      if (seen.has(text)) continue;
+      seen.add(text);
       // A text that held a variable in double quotes reaches its command with the value filled in, which the line
       // never shows (`sh -c "git push origin $B"`): every command read in it is marked as holding a variable.
       const marked = Array.isArray(info.varTexts) && info.varTexts.includes(text);
-      const inner = walk(text, marked ? (i, n) => visit({ ...i, hasVars: true }, n) : visit, depth + 1);
+      const inner = walk(text, marked ? (i, n) => visit({ ...i, hasVars: true }, n) : visit, depth + 1, null, platform);
       if (inner) return inner;
     }
     return null;
   };
   for (const [j, cmd] of commands.entries()) {
-    const info = headOf(cmd);
+    const info = headOf(cmd, platform);
     const r = visit(info, false);
     if (r) {
       at(j);
@@ -1256,9 +1419,11 @@ function walk(line, visit, depth = 0, found = null) {
     // is given, not a program (`timeout 30 grep -rn sudo docs`, `xargs grep -l sudo`, `time echo sudo`).
     if (info.asksOnly || info.firstIndex < 0 || !(runsItsWords(info.first) || info.ran) || PURE_READERS.has(info.head)) continue;
     for (let i = info.firstIndex + 1; i < cmd.length; i++) {
-      if (i === info.headIndex || !NET_HEADS.has(baseName(cmd[i].word))) continue;
+      // (On Windows its own escalators and the programs that run a command text count too: `ssh box gsudo whoami`.)
+      const b = baseName(cmd[i].word, platform);
+      if (i === info.headIndex || !(NET_HEADS.has(b) || (platform === 'win32' && (WIN_ADMIN.has(b) || b === 'cmd' || WIN_SHELLS.has(b))))) continue;
       const sub = cmd.slice(i);
-      const sinfo = headOf(sub);
+      const sinfo = headOf(sub, platform);
       const nr = visit(sinfo, true) || inside(sub, sinfo, true);
       if (nr) {
         at(j);
@@ -1421,11 +1586,20 @@ export function wallHeld({ tool, input, cwd = null, git = realGit, places = null
     const fp = input && typeof input === 'object' ? input.file_path || input.notebook_path : null;
     if (typeof fp !== 'string' || !fp) return null;
     if (hitsHoprig(fp, p, cwd)) return solo(heldReason('settings', fp, fp));
+    // On Windows a share the wall cannot place or a drive-relative path could name one of Hoprig's own folders: a
+    // write there is held (fail closed), as the same path is in a shell line (winUnplaceable).
+    if (platformOf(p) === 'win32' && winShareOrDriveRelative(fp)) return solo(heldReason('settings', fp, fp));
     // The session's own edit of a project's own project.json: it names the project's repositories, what it needs and
     // the commands Hoprig runs for it on this computer, so a change to it is the owner's to approve. Shown
     // relative to the session's own folder when it sits inside it, so the card reads at a glance (not a long path).
-    if (fp.slice(fp.lastIndexOf('/') + 1) === 'project.json') {
-      const rel = p && p.relative && typeof p.own === 'string' && p.own && fp.startsWith(`${p.own}/`) ? fp.slice(p.own.length + 1) : fp;
+    // On Windows the system names the file with either separator and in any case.
+    const plat = platformOf(p);
+    const name = plat === 'win32' ? fp.slice(Math.max(fp.lastIndexOf('/'), fp.lastIndexOf('\\')) + 1).toLowerCase() : fp.slice(fp.lastIndexOf('/') + 1);
+    if (name === 'project.json') {
+      const ownOk = p && p.relative && typeof p.own === 'string' && p.own;
+      const rel = !ownOk ? fp
+        : plat === 'win32' ? (below(fp, p.own, plat) ? path.win32.relative(p.own, fp) : fp)
+          : fp.startsWith(`${p.own}/`) ? fp.slice(p.own.length + 1) : fp;
       return solo(heldReason('project', rel, rel));
     }
     return null;
@@ -1443,7 +1617,7 @@ export function wallHeld({ tool, input, cwd = null, git = realGit, places = null
     // export) makes any later git push/merge land in a repository the cwd does not name: carry that across the line.
     if (!k && !net && (CHANGES_DIR.has(info.head) || info.chdir || setsRepoVar(info))) dirChanged = true;
     return k;
-  }, 0, found);
+  }, 0, found, platformOf(p));
   // The acts on this line that are the owner's, in order (bashHeldActs). A kind read across the whole line (above)
   // stays the gate's primary. A delete is judged against the folder the shell really stands in: a cd into the
   // session's own folder is followed, so a delete that lands inside it is not "outside". A touch of Hoprig's own
@@ -1469,12 +1643,14 @@ export function wallHeld({ tool, input, cwd = null, git = realGit, places = null
 // single plain path word is resolved from `folder`; a bare cd, a quoted/variable/glob/`-` target, pushd/popd or an
 // env -C leaves the folder unknown (null); a command that is not a folder change leaves `folder` as it was. Only a
 // cd that can be read with certainty is followed — everything else keeps a later delete held.
-function movedTo(folder, cmd, part) {
-  const info = headOf(cmd);
+// The cd's target is Bash's text; `folder` is a place the system names, so it is resolved by the system's own rules.
+function movedTo(folder, cmd, part, platform = process.platform) {
+  const info = headOf(cmd, platform);
   if (!CHANGES_DIR.has(info.head) && !info.chdir) return folder; // not a folder change
   if (folder === null || info.chdir || info.head !== 'cd') return null; // env -C, pushd/popd, or already unknown
   const m = /^cd\s+([^\s"'`$*?[\]~][^\s"'`$*?[\]]*)$/.exec(part);
-  return m && !m[1].startsWith('-') ? path.posix.resolve(folder, m[1]) : null;
+  // On Windows a Git-Bash drive path (`cd /c/Users/alex`) is the drive folder it names (winReal), not `\\c\Users`.
+  return m && !m[1].startsWith('-') ? pathOf(platform).resolve(folder, platform === 'win32' ? winReal(m[1]) : m[1]) : null;
 }
 
 // Is command `part` a change of folder to the home folder itself and nothing else, read from `folder`: `cd` or
@@ -1488,14 +1664,22 @@ function movedTo(folder, cmd, part) {
 function movesHome(part, p, folder) {
   const home = p && typeof p.home === 'string' && p.home ? p.home : null;
   if (!home || typeof part !== 'string') return false;
-  const ws = shellWords(part, { home }).filter((w) => w.value !== '' || w.unsure);
+  const platform = platformOf(p);
+  // On Windows a session writes the home folder the way the system names it (`cd C:\Users\alex`), which Bash would
+  // read without its backslashes: there the words are read with each backslash kept, as wordsOf reads them, and the
+  // check that the line is written plainly is made against that reading.
+  const winSpell = platform === 'win32' && part.includes('\\');
+  const ws = shellWords(winSpell ? part.replace(/\\/g, '\\\\') : part, { home, platform }).filter((w) => w.value !== '' || w.unsure);
   if (ws.length !== 2 || ws.some((w) => w.unsure || w.glob)) return false;
   if ((ws[0].value !== 'cd' && ws[0].value !== 'pushd') || ws[1].value.startsWith('-')) return false;
   if (part.trim() !== `${ws[0].value} ${ws[1].value}` && part.trim() !== `${ws[0].value} ${ws[1].value}/`) return false; // written plainly: no quote, no sign
-  const homes = new Set([home, realOrSelf(home)]);
+  const homes = [...new Set([home, realOrSelf(home, platform)])];
   // A target written from the root lands where it says; any other only from a folder that is known.
-  const to = placesOf(ws[1].value, typeof folder === 'string' && path.isAbsolute(folder) ? folder : null);
-  return to.length > 0 && to.every((rp) => homes.has(rp.length > 1 ? rp.replace(/\/+$/, '') : rp)); // one slash at the end names the same folder
+  const to = placesOf(ws[1].value, typeof folder === 'string' && pathOf(platform).isAbsolute(folder) ? folder : null, platform);
+  // One slash at the end names the same folder.
+  // On Windows the home folder in its other spelling (`runneradmin` for `RUNNER~1`, or the other way) is the home too.
+  const same = (rp, h) => samePlace(rp, h, platform) || (platform === 'win32' && winSameShort(rp, h));
+  return to.length > 0 && to.every((rp) => homes.some((h) => same(rp.length > 1 ? rp.replace(/\/+$/, '') : rp, h)));
 }
 
 // Does the whole line touch Hoprig's own files (the floor of wallHeld, read from the event's own folder)? The line
@@ -1521,17 +1705,26 @@ function lineTouchesHoprig(command, p, cwd) {
 // following a change of folder only makes the wall stricter, never freer, so it cannot free a delete held on the base.
 function movedForHoprig(folder, part, p) {
   const home = p && typeof p.home === 'string' && p.home ? p.home : null;
-  const ws = shellWords(part, { home }).filter((w) => w.value !== '' || w.unsure);
+  const platform = platformOf(p);
+  const ws = shellWords(part, { home, platform }).filter((w) => w.value !== '' || w.unsure);
   if (!ws.length) return folder;
   const head = baseName(ws[0].value);
   if (head !== 'cd' && head !== 'pushd') return folder; // not a folder change
   if (folder === null) return null;
+  // On Windows a target written the way the system names it (`cd C:\Users\alex`) is followed as written, backslashes
+  // kept (as wordsOf reads it); when that reading gives no single plain target, Bash's reading below is followed.
+  if (platform === 'win32' && part.includes('\\')) {
+    const kept = shellWords(part.replace(/\\/g, '\\\\'), { home, platform }).filter((w) => w.value !== '' || w.unsure).slice(1);
+    if (kept.length === 1 && !kept[0].unsure && !kept[0].glob && !kept[0].value.startsWith('-')) return path.win32.resolve(folder, winReal(kept[0].value));
+  }
   const args = ws.slice(1);
   if (!args.length) return head === 'cd' ? home : null; // bare cd → home; bare pushd swaps the stack: unknown
   if (args.length > 1) return null; // an option or more than a lone target: do not try to tell it
   const t = args[0];
   if (t.unsure || t.glob || t.value.startsWith('-')) return null; // a variable, a substitution, a glob, or `cd -`
-  return path.posix.resolve(folder, t.value);
+  // `folder` is a place the system names; on Windows a Git-Bash drive path (`/c/Users/alex`) is read as the drive
+  // folder it names (winReal), so a later relative path is placed under it.
+  return pathOf(platform).resolve(folder, platform === 'win32' ? winReal(t.value) : t.value);
 }
 
 // ---- what an administrator command does beside being one ----
@@ -1571,13 +1764,15 @@ const destroys = (program, rest) => ADMIN_DESTROYERS.has(program) || program.sta
 export function hoprigRelation(text, p, cwd) {
   const dirs = (p && Array.isArray(p.hoprig) ? p.hoprig : []).filter((d) => typeof d === 'string' && d);
   if (!dirs.length || typeof text !== 'string' || !text) return null;
-  const roots = [...new Set(dirs.flatMap((d) => [d, realOrSelf(d)]))];
+  const platform = platformOf(p);
+  const roots = [...new Set(dirs.flatMap((d) => [d, realOrSelf(d, platform)]))];
   let rel = null;
-  for (const rp of placesOf(text, cwd)) {
-    if (!path.isAbsolute(rp)) continue;
+  for (const rp of placesOf(text, cwd, platform)) {
+    if (!pathOf(platform).isAbsolute(rp)) continue;
     for (const d of roots) {
-      if (rp === d || rp.startsWith(`${d}/`)) return 'inside';
-      if (d.startsWith(rp === '/' ? '/' : `${rp}/`)) rel = 'above';
+      if (inFolder(rp, d, platform)) return 'inside';
+      // On Windows a root (`C:\`, `\`) holds its folders by inFolder itself.
+      if (platform === 'win32' ? below(d, rp, platform) : d.startsWith(rp === '/' ? '/' : `${rp}/`)) rel = 'above';
     }
   }
   return rel;
@@ -1593,9 +1788,13 @@ const withoutSudo = (part) => {
 function insideOwn(texts, base) {
   const own = base && typeof base.own === 'string' && base.own ? base.own : base && typeof base.cwd === 'string' ? base.cwd : null;
   const cwd = base && typeof base.cwd === 'string' ? base.cwd : null;
-  if (!own || !cwd || !path.isAbsolute(own) || !path.isAbsolute(cwd)) return false;
-  const roots = [...new Set([own, realOrSelf(own)])];
-  return texts.every((t) => !t.unsure && !t.glob && placesOf(t.text, cwd).every((rp) => roots.some((d) => rp.startsWith(`${d}/`))));
+  const platform = platformOf(base);
+  const P = pathOf(platform);
+  if (!own || !cwd || !P.isAbsolute(own) || !P.isAbsolute(cwd)) return false;
+  // On Windows a drive's root as the own folder is no folder a destroyer is plainly inside (as `/` is not elsewhere).
+  if (platform === 'win32' && P.parse(P.normalize(own)).root === P.normalize(own)) return false;
+  const roots = [...new Set([own, realOrSelf(own, platform)])];
+  return texts.every((t) => !t.unsure && !t.glob && placesOf(t.text, cwd, platform).every((rp) => roots.some((d) => below(rp, d, platform))));
 }
 
 /**
@@ -1609,10 +1808,10 @@ function insideOwn(texts, base) {
  * `base`: the places with the folder the shell stands in at this command (null when that is not known).
  */
 function behindAdmin(part, cmd, p, cwd, base) {
-  const info = headOf(cmd);
+  const info = headOf(cmd, platformOf(p));
   const out = { del: false, settings: false, unsure: false };
   const home = p && typeof p.home === 'string' && p.home ? p.home : null;
-  const texts = pathTexts(shellWords(part, { home }));
+  const texts = pathTexts(wordsOf(part, home, platformOf(p)));
   const where = base && typeof base.cwd === 'string' ? base.cwd : typeof cwd === 'string' ? cwd : null;
   if (mayDelete(part)) out.del = !(base && plainDelete(withoutSudo(part), base));
   else if (destroys(info.head, info.rest)) out.del = !insideOwn(texts, base);
@@ -1687,7 +1886,7 @@ function bashHeldActs(command, cwd, git, p) {
       else if (k && net && id === 'admin' && k !== 'admin' && !behind.includes(k)) behind.push(k);
       else if (!k && !net && (CHANGES_DIR.has(info.head) || info.chdir || setsRepoVar(info))) dirChanged = true;
       return null;
-    });
+    }, 0, null, platformOf(p));
     if (id === null && w === UNREADABLE) id = UNREADABLE; // the command's head is a bare variable (walk), e.g. `$x true`
     if (id === null && p && mayDelete(part) && !(base && plainDelete(part, base))) id = 'delete outside';
     // Held when the command touches Hoprig's folders read from where the shell then stands (a followed cd/pushd) OR
@@ -1696,7 +1895,10 @@ function bashHeldActs(command, cwd, git, p) {
     // A lone change of folder to the home folder itself is no touch (movesHome), in the reading it is one in.
     const touches = (from) => !movesHome(part, p, from) && touchesHoprig(part, p, from);
     if (id === null && p && (touches(hoprigFolder) || touches(cwd))) id = 'settings';
-    folder = movedTo(folder, cmd, part); // where the shell stands for the next command's delete
+    // On Windows a path the wall cannot place, but that could name one of Hoprig's folders, is held in a command that
+    // is not only a read (fail closed).
+    if (id === null && p && winUnplaceable(cmd, part, p)) id = 'settings';
+    folder = movedTo(folder, cmd, part, platformOf(p)); // where the shell stands for the next command's delete
     hoprigFolder = movedForHoprig(hoprigFolder, part, p); // where it stands for the next command's Hoprig check
     if (id === null) continue;
     const add = (k) => {
@@ -1720,7 +1922,7 @@ function bashHeldActs(command, cwd, git, p) {
       // Nor is an administrator command that xargs feeds: the words it would run with are not on the line.
       // Nor one a package runner stands beside (`npx sudo …`, `sudo uv run …`): what the runner fetches or loads
       // cannot be told from the line.
-      const hi = headOf(cmd);
+      const hi = headOf(cmd, platformOf(p));
       const direct = hi.admin && !hi.fed && !hi.runner;
       const more = direct ? behindAdmin(part, cmd, p, cwd, base) : { unsure: true, del: false, settings: false };
       if (more.unsure) {
@@ -1770,8 +1972,95 @@ function partWhere(command, held) {
 
 const FILE_TOOLS = new Set(['Write', 'Edit', 'MultiEdit', 'NotebookEdit']);
 
+// ---- places, the way the system names them ----
+// The path module that names places as `platform` does (on this computer's own platform it is node's own `path`), and
+// the platform a set of places is read for (`p.platform`, so a test can give Windows' answers on another system).
+const pathOf = (platform) => (platform === 'win32' ? path.win32 : path.posix);
+const platformOf = (p) => (p && typeof p.platform === 'string' && p.platform ? p.platform : process.platform);
+// A path as Windows resolves its spelling, BEFORE `.`/`..` are worked out (that is left to the caller's
+// normalise/resolve, so a `.. ` turned into `..` here is then followed). Three forms path.win32.normalize leaves as
+// written:
+//   - a Git-Bash / MSYS drive path `/c/x` is the drive path `C:\x` (that is the shell a session may run on Windows);
+//   - the extended-length prefix: `\\?\C:\x` is `C:\x`, and `\\?\UNC\srv\sh` is the share `\\srv\sh`;
+//   - a trailing dot or space on each path COMPONENT, which Windows drops (`hoprig.`, `hoprig ` → `hoprig`), while
+//     `.` and `..` stay the navigation they are (`.. ` is `..`, so it still steps up a folder).
+function winReal(s) {
+  let w = s.replace(/^\/([A-Za-z])(?=\/|$)/, '$1:').replace(/\//g, '\\');
+  // The extended-length prefix (`\\?\C:\x` → `C:\x`, `\\?\UNC\srv\sh` → `\\srv\sh`) and the device namespace of a
+  // drive (`\\.\C:\x` → `C:\x`), which name the same place as the plain path; a device name that is not a drive
+  // (`\\.\PhysicalDrive0`) is left as the share it looks like, so it stays unplaceable.
+  // (`\\.\UNC\srv\sh` is the same share as `\\?\UNC\srv\sh`.)
+  w = w.replace(/^\\\\[?.]\\UNC\\/i, '\\\\').replace(/^\\\\\?\\/, '').replace(/^\\\\\.\\([A-Za-z]:)/, '$1');
+  return w
+    .split('\\')
+    .map((c) => {
+      // A drive-relative nav (`C:.`, `C:..`) is kept whole: the `..` after a drive is navigation, not a trailing dot
+      // to drop, so a drive-relative path is not mistaken for the drive's root.
+      const driveNav = /^([A-Za-z]:)(\.\.?)[ ]*$/.exec(c);
+      if (driveNav) return driveNav[1] + driveNav[2];
+      const nav = /^(\.\.?)[ ]*$/.exec(c);
+      return nav ? nav[1] : c.replace(/[. ]+$/, '');
+    })
+    .join('\\');
+}
+// An administrative share of a drive (`\\localhost\C$\Users\…`, `\\127.0.0.1\c$\…`, the extended spelling
+// `\\?\UNC\localhost\C$\…`, or the computer's own name before `C$`) reaches that drive of the computer it names:
+// → the drive path it would be on this one (`C:\Users\…`), or null for any other path. The checks of Hoprig's own
+// folders read such a path BOTH ways, so a read of Hoprig's config through a share is held as the plain read is. The
+// name before the share is not asked (the computer's own name is not on the line): the wall leans to holding.
+function winShareDrive(s) {
+  if (typeof s !== 'string' || !s) return null;
+  const m = /^\\\\[^\\\s]+\\([A-Za-z])\$(?:\\(.*))?$/s.exec(winReal(s));
+  return m ? `${m[1]}:\\${m[2] || ''}` : null;
+}
+// A path, and on Windows the drive path it reaches when it is written through an administrative share.
+const withShareDrive = (fp, platform) => {
+  const d = platform === 'win32' ? winShareDrive(fp) : null;
+  return d ? [fp, d] : [fp];
+};
+// A place as Windows compares it: either separator, doubled ones as one, no separator at the end but the root's, the
+// spellings winReal reads, and without regard to case.
+function winPlace(s) {
+  let w = path.win32.normalize(winReal(s));
+  const root = path.win32.parse(w).root;
+  if (w.length > root.length) w = w.replace(/\\+$/, '');
+  return w.toLowerCase();
+}
+/**
+ * Is `place` the folder `folder` or a place inside it, the way the system names places? Elsewhere than Windows exactly
+ * as written (`/`, case as it is). On Windows either separator counts, doubled ones are one, `.` and `..` are
+ * resolved, and case does not count.
+ */
+const DRIVE = /^[a-z]:/;
+export function inFolder(place, folder, platform = process.platform) {
+  if (typeof place !== 'string' || typeof folder !== 'string' || !place || !folder) return false;
+  if (platform !== 'win32') return place === folder || place.startsWith(`${folder}/`);
+  let a = winPlace(place);
+  let b = winPlace(folder);
+  // A place written from the root with no drive (`\x`, `/x`) is on the current drive, which path.win32.resolve fills
+  // in on Windows: compared with the other's drive left out, so the two spellings meet.
+  if (DRIVE.test(a) !== DRIVE.test(b) && (DRIVE.test(a) ? b : a).startsWith('\\')) {
+    if (DRIVE.test(a)) a = a.slice(2);
+    else b = b.slice(2);
+  }
+  return a === b || a.startsWith(b.endsWith('\\') ? b : `${b}\\`);
+}
+// The words of a command for the checks of Hoprig's own folders. Bash takes an unquoted backslash away (`C:\Users`
+// reaches the program as `C:Users`), but on Windows a session may write a place the way the system names it, and the
+// wall leans to holding: there the words are also read with each backslash kept as written. Only the certain words of
+// that second reading are added, so it can add a hold and never takes one away; elsewhere the words are Bash's alone.
+function wordsOf(text, home, platform) {
+  const words = shellWords(text, { home, platform });
+  if (platform !== 'win32' || typeof text !== 'string' || !text.includes('\\')) return words;
+  return [...words, ...shellWords(text.replace(/\\/g, '\\\\'), { home, platform }).filter((w) => !w.unsure)];
+}
+const samePlace = (a, b, platform) => inFolder(a, b, platform) && inFolder(b, a, platform);
+const below = (a, b, platform) => inFolder(a, b, platform) && !inFolder(b, a, platform); // strictly inside
+
 // The real location of a path (a symlink followed), or the path itself when it cannot be resolved.
-const realOrSelf = (d) => {
+// The disk is asked only for places named the way this computer names them (`platform` its own).
+const realOrSelf = (d, platform = process.platform) => {
+  if (platform !== process.platform) return d;
   try {
     return fs.realpathSync(d);
   } catch {
@@ -1782,23 +2071,29 @@ const realOrSelf = (d) => {
 // The absolute places a path could land, for comparison with Hoprig's folders: made absolute against cwd and
 // normalised (so a `..` cannot step out of the check), and the real location of its nearest existing ancestor (so a
 // symlink anywhere in the path cannot point a write into Hoprig's folders from outside them).
-function placesOf(fp, cwd) {
+// `platform`: the system whose names these are (its own path rules; the disk is asked only on that system itself).
+function placesOf(fp, cwd, platform = process.platform) {
   if (typeof fp !== 'string' || !fp) return [];
-  const abs = path.isAbsolute(fp) ? path.normalize(fp) : typeof cwd === 'string' && path.isAbsolute(cwd) ? path.resolve(cwd, fp) : null;
+  const P = pathOf(platform);
+  // On Windows read the path's spelling as the system does before `.`/`..` are resolved below (a `.. ` must become
+  // `..` first, a `/c/` or `\\?\` prefix must reduce to the drive path), so the comparison lands on the real folder.
+  if (platform === 'win32') fp = winReal(fp);
+  const abs = P.isAbsolute(fp) ? P.normalize(fp) : typeof cwd === 'string' && P.isAbsolute(cwd) ? P.resolve(cwd, fp) : null;
   if (!abs) return [fp]; // not known where it lands: compared as it was written
   const out = new Set([abs]);
+  if (platform !== process.platform) return [...out];
   let anc = abs;
   const tail = [];
   for (let i = 0; i < 64; i++) {
     try {
-      out.add(tail.length ? path.join(fs.realpathSync(anc), ...tail) : fs.realpathSync(anc));
+      out.add(tail.length ? P.join(fs.realpathSync(anc), ...tail) : fs.realpathSync(anc));
       break;
     } catch {
       /* this ancestor does not exist yet: step up */
     }
-    const parent = path.dirname(anc);
+    const parent = P.dirname(anc);
     if (parent === anc) break;
-    tail.unshift(path.basename(anc));
+    tail.unshift(P.basename(anc));
     anc = parent;
   }
   return [...out];
@@ -1809,8 +2104,9 @@ function placesOf(fp, cwd) {
 function insideHoprig(fp, p, cwd) {
   const dirs = (p && Array.isArray(p.hoprig) ? p.hoprig : []).filter((d) => typeof d === 'string' && d);
   if (!dirs.length) return false;
-  const roots = [...new Set(dirs.flatMap((d) => [d, realOrSelf(d)]))];
-  return placesOf(fp, cwd).some((rp) => roots.some((d) => rp === d || rp.startsWith(`${d}/`)));
+  const platform = platformOf(p);
+  const roots = [...new Set(dirs.flatMap((d) => [d, realOrSelf(d, platform)]))];
+  return withShareDrive(fp, platform).some((one) => placesOf(one, cwd, platform).some((rp) => roots.some((d) => inFolder(rp, d, platform))));
 }
 
 // Is a path one of Hoprig's own folders, OR a folder that CONTAINS one of them, up to (and including) the home folder?
@@ -1820,14 +2116,101 @@ function insideHoprig(fp, p, cwd) {
 function aroundHoprig(fp, p, cwd) {
   const dirs = (p && Array.isArray(p.hoprig) ? p.hoprig : []).filter((d) => typeof d === 'string' && d);
   if (!dirs.length) return false;
-  const home = p && typeof p.home === 'string' && p.home ? realOrSelf(p.home) : null;
+  const platform = platformOf(p);
+  const home = p && typeof p.home === 'string' && p.home ? realOrSelf(p.home, platform) : null;
   if (!home) return false;
-  const roots = [...new Set(dirs.flatMap((d) => [d, realOrSelf(d)]))];
-  return placesOf(fp, cwd).some((rp) => (rp === home || rp.startsWith(`${home}/`)) && roots.some((d) => rp === d || d.startsWith(`${rp}/`)));
+  const roots = [...new Set(dirs.flatMap((d) => [d, realOrSelf(d, platform)]))];
+  return withShareDrive(fp, platform).some((one) => placesOf(one, cwd, platform).some((rp) => inFolder(rp, home, platform) && roots.some((d) => inFolder(d, rp, platform))));
+}
+
+// An 8.3 short name of one path part, as Windows gives it beside a long one (`RUNNER~1`, `CONFIG~1`, `APPDAT~1`,
+// `LONGFI~1.TXT`): at most eight characters with its `~<digits>`, and an extension of at most three.
+const SHORT_83 = /^([^\s.\\/~]{1,7})~(\d{1,7})(?:\.[^\s.\\/]{1,3})?$/;
+const isShort83 = (s) => {
+  const m = SHORT_83.exec(s);
+  return !!m && m[1].length + 1 + m[2].length <= 8;
+};
+
+// Could short part `s` be the 8.3 name of long part `n` (both in lower case)? Windows makes the short name from the
+// first letters of the long one, without its dots and blanks (`.config` → `CONFIG~1`, `runneradmin` → `RUNNER~1`),
+// or, once a folder holds many alike, from its first two letters and a few hex digits: so the short name begins with
+// the long one's first two letters (the wall leans to holding beyond that). Two short names are one only when equal.
+// A letter the short form cannot carry (`+,;=[]`, a letter outside its set) is `_` there, which stands for any one.
+const winShortFor = (s, n) => {
+  if (!isShort83(s) || isShort83(n)) return false;
+  const clean = n.replace(/[\s.]/g, '');
+  const pre = s.slice(0, s.indexOf('~')).slice(0, 2);
+  return pre.length <= clean.length && [...pre].every((c, k) => c === '_' || c === clean[k]);
+};
+const winSamePart = (a, b) => a === b || winShortFor(a, b) || winShortFor(b, a);
+const winStarts = (xs, ys) => ys.length <= xs.length && ys.every((y, k) => winSamePart(xs[k], y)); // xs begins with ys
+
+// Two Windows places that are one folder when a short part on either side stands for the long one at its place.
+const winSameShort = (a, b) => {
+  const xa = patternParts(a, null, 'win32');
+  const xb = patternParts(b, null, 'win32');
+  return !!xa && !!xb && xa.length === xb.length && winStarts(xa, xb);
+};
+
+// On Windows, where a short part is in play (in the path, in Hoprig's folders or in the home folder), the plain
+// comparison cannot tell `RUNNER~1` from `runneradmin`: the long name a short part stands for is not on the line. Such
+// a path is compared part by part with each of Hoprig's folders, a short part on either side standing for a long name
+// it could be made from (winShortFor): inside one of them, or one of them or a folder above one up to home.
+function winShortHits(fp, p, cwd) {
+  if (platformOf(p) !== 'win32') return false;
+  const dirs = (p && Array.isArray(p.hoprig) ? p.hoprig : []).filter((d) => typeof d === 'string' && d);
+  if (!dirs.length) return false;
+  const parts = patternParts(fp, cwd, 'win32');
+  if (!parts) return false;
+  const ds = dirs.map((d) => patternParts(d, null, 'win32')).filter(Boolean);
+  const hp = p && typeof p.home === 'string' && p.home ? patternParts(p.home, null, 'win32') : null;
+  if (![parts, ...ds, ...(hp ? [hp] : [])].some((xs) => xs.some(isShort83))) return false;
+  return ds.some((dp) => winStarts(parts, dp) || (!!hp && winStarts(parts, hp) && winStarts(dp, parts)));
 }
 
 // A path that lands inside one of Hoprig's folders, or that is or contains one of them up to home.
-const hitsHoprig = (fp, p, cwd) => insideHoprig(fp, p, cwd) || aroundHoprig(fp, p, cwd);
+const hitsHoprig = (fp, p, cwd) => insideHoprig(fp, p, cwd) || aroundHoprig(fp, p, cwd) || winShortHits(fp, p, cwd);
+
+// On Windows a path word the wall cannot place against Hoprig's folders, but that could be one of them, is held in a
+// command that is not ONLY a read (a move, a copy, a delete, a change of mode or owner), never let through — the wall
+// leans to holding (fail closed). Three such forms, each a place Hoprig cannot tell from the line:
+//   - a drive-relative path (`C:..`, `C:.\x`): read from the current folder ON THAT DRIVE, which is not the shell's
+//     own folder and is not named on the line, so it could climb into a Hoprig folder;
+//   - a UNC or device path that stays a share after winReal (`\\srv\sh`, `\\localhost\C$\…`, `\\127.0.0.1\c$\…`): a
+//     loopback administrative share reaches a local drive (a plain `\\.\C:\…` or `\\?\C:\…` reduced to its
+//     drive is placed as usual and is not caught here). A share of a drive (`C$`) is ALSO placed as the drive path it
+//     reaches (winShareDrive), so what lands in Hoprig's folders through it is held for a read too;
+//   - a part in 8.3 short form (`CONFIG~1`, `HOPRIG~1`): the short name of a long folder, which cannot be expanded
+//     from the line, so it could name one of Hoprig's own.
+// A Windows path that names a share winReal could not reduce to a drive (a server AND a share name, `\\srv\sh`, so a
+// `//` alone, a comment or a cmd switch, is no share), or that is drive-relative as written (`C:` alone or before a
+// name, `C:..`, `C:x`, not a separator; a Git-Bash word from the root, `/c` or a cmd switch `/e`, and a text that only
+// begins like one, `a: tidy the list`, are not).
+function winShareOrDriveRelative(text) {
+  const w = winReal(text);
+  if (/^\\\\[^\\\s]+\\[^\\\s]/.test(w)) return true;
+  return !text.startsWith('/') && /^[A-Za-z]:(?:$|[^\\/\s])/.test(w);
+}
+
+function winUnplaceable(cmd, part, p) {
+  if (platformOf(p) !== 'win32') return false;
+  const info = headOf(cmd, platformOf(p));
+  if (adminReads(info.head, info.rest)) return false; // only a read: let it through
+  const home = p && typeof p.home === 'string' && p.home ? p.home : null;
+  // The Windows spelling of each word (backslashes kept, as the system reads them): Bash's own reading strips an
+  // unquoted backslash, which would turn an absolute `C:\Users\…` into a drive-relative-looking `C:Users…`.
+  const words = shellWords(part.includes('\\') ? part.replace(/\\/g, '\\\\') : part, { home, platform: 'win32' });
+  const cwd = p && typeof p.cwd === 'string' && path.win32.isAbsolute(p.cwd) ? p.cwd : null;
+  for (const t of pathTexts(words)) {
+    if (t.unsure) continue;
+    const w = winReal(t.text);
+    if (winShareOrDriveRelative(t.text)) return true;
+    // An 8.3 short part in a path that cannot be placed (relative, with no known folder). A placed path is compared
+    // part by part with Hoprig's folders (winShortHits); a word with no separator (`HEAD~1`) is no such path here.
+    if (!cwd && /[\\/]/.test(t.text) && !path.win32.isAbsolute(w) && w.split('\\').some(isShort83)) return true;
+  }
+  return false;
+}
 
 // Does `command` name `form` (a folder, or its ~ / $HOME spelling) as a whole path token — at a boundary, so
 // `~/.config` is caught and a deeper path (`~/.config/hoprig`) still matches through the trailing separator, but
@@ -1838,7 +2221,14 @@ const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 // is right for one of Hoprig's own folders (a file inside it counts) but NOT for a folder merely ABOVE one of them,
 // where only the folder itself being named (e.g. moved) counts, never an unrelated sibling inside it. Either way a
 // lone trailing slash (`~/.local/`) names the same folder, so it matches too — otherwise `rm -rf ~/.local/` slipped past.
-const namesPath = (command, form, deep = false) => {
+// On Windows a separator of the form is either one (doubled too) and the name is matched without regard to case.
+const namesPath = (command, form, deep = false, platform = process.platform) => {
+  if (platform === 'win32') {
+    const sep = '[\\\\/]';
+    const body = form.split(/[\\/]+/).map(escapeRe).join(`${sep}+`);
+    const after = deep ? `(${sep}|$|${PATH_EDGE})` : `(${sep}+(?:$|${PATH_EDGE})|$|${PATH_EDGE})`;
+    return new RegExp(`(^|${PATH_EDGE})${body}${after}`, 'i').test(command);
+  }
   const after = deep ? `(/|$|${PATH_EDGE})` : `(/(?:$|${PATH_EDGE})|$|${PATH_EDGE})`;
   return new RegExp(`(^|${PATH_EDGE})${escapeRe(form)}${after}`).test(command);
 };
@@ -1856,6 +2246,132 @@ const HOPRIG_VAR_USE = new RegExp(
     + `|\\bprintenv\\s+(?:-0\\s+)?${HOPRIG_VARS}\\b`, // printenv VAR
 );
 
+// On Windows Hoprig's own folders sit in %APPDATA% and %LOCALAPPDATA% (src/paths.mjs), and a session names them most
+// plainly through those variables or %USERPROFILE%, in each shell's spelling: `$APPDATA`, `${APPDATA}`,
+// `$env:APPDATA` and `${env:APPDATA}` (PowerShell), `%APPDATA%` (cmd), in any case. The line is read with each filled in with its Windows
+// default under the home folder, written as `$HOME` with forward slashes (so `$USERPROFILE` alone is the home folder
+// as `$HOME` is, and no shell takes a separator away), so the checks below place the path. → the line so filled, or
+// null when such a variable stands beside a name of Hoprig's and no home is known: held then (fail closed).
+const WIN_ENV_DIRS = Object.freeze({ appdata: ['AppData', 'Roaming'], localappdata: ['AppData', 'Local'], userprofile: [] });
+// (Also cmd's delayed spelling `!APPDATA!`, and the home folder as cmd spells it in two parts, `%HOMEDRIVE%%HOMEPATH%`.)
+const WIN_ENV_USE = /\$\{(?:env:)?(APPDATA|LOCALAPPDATA|USERPROFILE)\}|\$env:(APPDATA|LOCALAPPDATA|USERPROFILE)\b|%(APPDATA|LOCALAPPDATA|USERPROFILE)%|!(APPDATA|LOCALAPPDATA|USERPROFILE)!|\$(APPDATA|LOCALAPPDATA|USERPROFILE)\b/gi;
+const WIN_HOME_PARTS = /%HOMEDRIVE%%HOMEPATH%|!HOMEDRIVE!!HOMEPATH!|\$\{?env:HOMEDRIVE\}?\$\{?env:HOMEPATH\}?/gi;
+function winEnvFilled(command, p) {
+  const uses = new RegExp(`${WIN_ENV_USE.source}|${WIN_HOME_PARTS.source}`, 'i');
+  if (!uses.test(command)) return command;
+  if (!(p && typeof p.home === 'string' && p.home)) return /hoprig/i.test(command) ? null : command;
+  return command.replace(WIN_HOME_PARTS, '${HOME}').replace(WIN_ENV_USE, (...m) => ['${HOME}', ...WIN_ENV_DIRS[(m[1] || m[2] || m[3] || m[4] || m[5]).toLowerCase()]].join('/'));
+}
+
+// One of Hoprig's own variables used as a value the way PowerShell and cmd spell it (`$env:HOPRIG_RUN_FILE`,
+// `${env:HOPRIG_STATE_DIR}`, `%HOPRIG_CONFIG_DIR%`, `!HOPRIG_RUN_FILE!`); Windows does not tell the case of a
+// variable's name apart.
+const WIN_HOPRIG_VAR_USE = new RegExp(`\\$\\{?env:${HOPRIG_VARS}\\b|%${HOPRIG_VARS}%|!${HOPRIG_VARS}!`, 'i');
+
+// A line with every administrative share of a drive written as the drive it reaches (`\\localhost\C$\Users` →
+// `C:\Users`, with either separator, doubled as a quoted text may hold them, and the `\\?\UNC\` and `\\.\UNC\`
+// spellings), so a path through a share that stands INSIDE a command text is matched as the plain path is.
+const WIN_SHARE_IN_TEXT = /(^|[\s"'`;|&()<>=,])[\\/]{2,}(?:[?.][\\/]+UNC[\\/]+)?[^\\/\s"'`;|&()<>]+[\\/]+([A-Za-z])\$(?=[\\/]|$|[\s"'`;|&()<>])/gi;
+// (A share with nothing after it is the drive's root, never the drive-relative `C:`: written `C:/`, since Bash's
+// reading takes a backslash at the end of a word away.)
+const winSharesAsDrives = (command) => command.replace(WIN_SHARE_IN_TEXT, (m, before, drive, at) => `${before}${drive}:${/[\\/]/.test(command[at + m.length] || '') ? '' : '/'}`);
+
+// On Windows a path that stands inside a command text (`bash -c "mv C:/Users/RUNNER~1/AppData /tmp/x"`, `bash -c "cat
+// /c/Users/alex/.config/hoprig/config.json"`) is no word of its own, so only the match of the text reads it, and that
+// match knows one spelling of each folder. Each place such a text names is therefore asked as a path word is
+// (hitsHoprig: either separator, a Git-Bash drive, `..`, an 8.3 short part): from a drive, a Git-Bash drive, `~` or
+// `$HOME`, up to the next blank and up to the next quote (a name may hold a blank). The home folder itself written as
+// `~/` or `$HOME/` is no touch, as it is none for a path word.
+const WIN_PATH_START = /(^|[\s"'`;|&()<>=,])(?=[A-Za-z]:[\\/]|\/[A-Za-z]\/|~[\\/]|\$\{?HOME\}?[\\/])/g;
+// A place that is a word of its own is read by the word loop; here are read the places inside a quoted word that is
+// more than one place (it holds a blank, one of the signs that part a command's words, `"cat</c/Users/…"`, for cmd a
+// comma too, or the place begins further in, `'{"path":"C:/…"}'`), and the places outside quotes that stand right
+// behind such a sign (`type,C:\Users\…`, `type,"C:\Users\…"`). No real line names more of them than
+// WIN_TEXT_PLACES: past that the line is held, not read on.
+// A place inside a text is compared as it is written, with Hoprig's folders and their real places: the disk is not
+// asked where a link in that place may lead, as it is for a path word (the match of the text never did that either).
+// Measured on a real Windows computer of a build service, asking the disk for each of 60 places in one text took
+// 750 to 1700 ms (a text read up to its closing quote is one long made-up path, and every part of it was asked);
+// the hook that asks has five seconds for a line.
+const WIN_TEXT_PLACES = 64;
+const TEXT_SIGNS = /[\s<>|;&(),=]/;
+const WIN_PLACE_BEHIND_SIGN = /([<>|;&(),])(?=[A-Za-z]:[\\/]|\/[A-Za-z]\/|~[\\/]|\$\{?HOME\}?[\\/])/g;
+// A place joined on to a short option (`curl -o/c/Users/…`, `7z x -o"C:/Users/…"`): no word of its own either. A
+// quoted word joined on to anything before it is kept in `outside` without its quotes, so it is read here.
+const WIN_PLACE_BEHIND_OPTION = /(^|\s)-[A-Za-z](?=[A-Za-z]:[\\/]|\/[A-Za-z]\/|~[\\/]|\$\{?HOME\}?[\\/])/g;
+// → { texts: the quoted words, outside: the line with every quoted word blanked out, but one that stands right behind
+// a sign kept without its quotes (cmd reads `type,"C:\x"` as `type "C:\x"`) }
+function quotedTexts(command) {
+  const texts = [];
+  let outside = '';
+  let q = null;
+  let from = 0;
+  let cut = 0;
+  const take = (to) => {
+    const text = command.slice(from, to);
+    texts.push(text);
+    const glued = from >= 2 && /\S/.test(command[from - 2]); // joined on to what stands before it: a sign, an option
+    outside += `${command.slice(cut, from - 1)}${glued ? `${text}  ` : ` ${' '.repeat(text.length)} `}`;
+    cut = Math.min(command.length, to + 1);
+  };
+  for (let i = 0; i < command.length; i++) {
+    const c = command[i];
+    if (q === null) {
+      if (c === '\\') i++;
+      else if (c === '"' || c === "'") {
+        q = c;
+        from = i + 1;
+      }
+    } else if (c === '\\' && q === '"') i++;
+    else if (c === q) {
+      take(i);
+      q = null;
+    }
+  }
+  if (q !== null) take(command.length); // a quote left open: read to the end
+  return { texts, outside: outside + command.slice(cut) };
+}
+function winTextHits(command, p, cwd) {
+  if (platformOf(p) !== 'win32') return false;
+  const home = p && typeof p.home === 'string' && p.home ? p.home : null;
+  const dirs = (p && Array.isArray(p.hoprig) ? p.hoprig : []).filter((d) => typeof d === 'string' && d);
+  if (!dirs.length) return false;
+  const roots = [...new Set(dirs.flatMap((d) => [d, realOrSelf(d, 'win32')]))];
+  const homes = home ? [...new Set([home, realOrSelf(home, 'win32')])] : [];
+  const from = typeof cwd === 'string' && path.win32.isAbsolute(cwd) ? cwd : null;
+  // In one of Hoprig's folders, one of them, or a folder that holds one up to home (insideHoprig and aroundHoprig, as
+  // written), or the same through an 8.3 short part (winShortHits, which asks no disk).
+  const hits = (t) => winShortHits(t, p, cwd) || withShareDrive(t, 'win32').some((one) => {
+    const w = winReal(one);
+    const abs = path.win32.isAbsolute(w) ? path.win32.normalize(w) : from ? path.win32.resolve(from, w) : null;
+    if (!abs) return false;
+    return roots.some((d) => inFolder(abs, d, 'win32')) || (homes.some((h) => inFolder(abs, h, 'win32')) && roots.some((d) => inFolder(d, abs, 'win32')));
+  });
+  const asked = new Set();
+  let places = 0;
+  const { texts, outside } = quotedTexts(command);
+  const read = (text, starts) => {
+    for (const m of text.matchAll(starts)) {
+      if (starts === WIN_PATH_START && m.index === 0 && !TEXT_SIGNS.test(text)) continue; // a word of its own: the word loop reads it
+      if (++places > WIN_TEXT_PLACES) return true;
+      const rest = text.slice(m.index + m[0].length);
+      for (const e of new Set([rest.search(/[\s"'`;|&()<>,]/), rest.search(/[\s"'`;|&()<>]/), rest.search(/["'`;|&<>]/)])) {
+        let t = e < 0 ? rest : rest.slice(0, e);
+        if (/^(?:~|\$)/.test(t)) {
+          if (!home) continue;
+          t = t.replace(/^(?:~|\$\{?HOME\}?)/, home);
+          if (samePlace(t, home, 'win32') || winSameShort(t, home)) continue;
+        }
+        if (!t || asked.has(t)) continue;
+        asked.add(t);
+        if (hits(t)) return true;
+      }
+    }
+    return false;
+  };
+  return texts.some((text) => read(text, WIN_PATH_START)) || read(outside, WIN_PLACE_BEHIND_SIGN) || read(outside, WIN_PLACE_BEHIND_OPTION);
+}
+
 // Does a shell line move, write or otherwise touch Hoprig's own files? Held three ways, because the value of a
 // variable or of ~ never reaches the line: (1) by USING a HOPRIG_* variable as a value or SETTING it for a program
 // it starts (HOPRIG_VAR_USE — not a bare mention in a search or a commit message); (2) by a literal path in those
@@ -1863,38 +2379,50 @@ const HOPRIG_VAR_USE = new RegExp(
 // argument that, resolved against cwd, lands inside them (a `..` or a plain relative path). The wall leans to
 // holding: a value use that only reads these files is held too, since the reader cannot tell a read from a write
 // with certainty and a session poking at the rules it runs under is the owner's.
-function touchesHoprig(command, p, cwd) {
+function touchesHoprig(command, p, cwd, sharesRead = false) {
   if (HOPRIG_VAR_USE.test(command)) return true;
+  if (platformOf(p) === 'win32') {
+    if (WIN_HOPRIG_VAR_USE.test(command)) return true;
+    const filled = winEnvFilled(command, p);
+    if (filled === null) return true; // a Windows folder variable the wall cannot fill in, beside a name of Hoprig's
+    command = filled;
+    // The same line with each share of a drive written as that drive: what it then touches, it touches.
+    if (!sharesRead) {
+      const drives = winSharesAsDrives(command);
+      if (drives !== command && touchesHoprig(drives, p, cwd, true)) return true;
+    }
+  }
   const dirs = (p && Array.isArray(p.hoprig) ? p.hoprig : []).filter((d) => typeof d === 'string' && d);
   if (!dirs.length) return false;
   const home = p && typeof p.home === 'string' && p.home ? p.home : null;
+  const platform = platformOf(p);
   // Hoprig's own folders (a file inside one counts: `deep`), and the folders ABOVE them up to home (only the folder
   // itself being named counts, e.g. a move of it, never an unrelated sibling inside it). Both the configured path and
   // its real location.
   const own = new Set();
   const above = new Set();
   for (const d0 of dirs) {
-    for (const base of new Set([d0, realOrSelf(d0)])) {
+    for (const base of new Set([d0, realOrSelf(d0, platform)])) {
       own.add(base);
-      if (!home) continue;
-      let cur = base;
-      for (let i = 0; i < 64; i++) {
-        const parent = path.dirname(cur);
-        if (parent === cur || !(parent === home || parent.startsWith(`${home}/`))) break;
-        above.add(parent);
-        if (parent === home) break;
-        cur = parent;
-      }
+      // (On Windows also where home and this folder each come in another of the two spellings: aboveUpToHome.)
+      if (home) for (const a of aboveUpToHome(base, home, platform)) above.add(a);
     }
   }
   // A folder by its literal path and, for one below home, its ~ and $HOME spellings (a bare ~ or $HOME, for home
-  // itself, is skipped: it would catch an ordinary command that merely names the home folder).
+  // itself, is skipped: it would catch an ordinary command that merely names the home folder). On Windows the part
+  // below home is matched with either separator (namesPath), as a command may write it either way.
   const named = (d, deep) => {
-    if (namesPath(command, d, deep)) return true;
-    if (home && d.startsWith(`${home}/`)) {
-      const s = d.slice(home.length); // e.g. "/.config/hoprig" or "/.config"
-      if (namesPath(command, `~${s}`, deep) || namesPath(command, `$HOME${s}`, deep) || namesPath(command, `\${HOME}${s}`, deep)) return true;
-    }
+    if (namesPath(command, d, deep, platform)) return true;
+    // On Windows the folder below home may be spelled with an 8.3 part where home is long, or the other way
+    // (`C:\Users\RUNNER~1\AppData\…` beside `C:\Users\runneradmin`): its parts below home are read part by part.
+    const winRest = () => {
+      const dp = patternParts(d, null, 'win32');
+      const hp = patternParts(home, null, 'win32');
+      return dp && hp && dp.length > hp.length && winStarts(dp, hp) ? `\\${dp.slice(hp.length).join('\\')}` : null;
+    };
+    const s = !home ? null : below(d, home, platform) ? (platform === 'win32' ? `\\${path.win32.relative(home, d)}` : d.slice(home.length)) // e.g. "/.config/hoprig"
+      : platform === 'win32' ? winRest() : null;
+    if (s && ['~', '$HOME', '${HOME}'].some((h) => namesPath(command, `${h}${s}`, deep, platform))) return true;
     return false;
   };
   for (const d of own) if (named(d, true)) return true;
@@ -1905,8 +2433,8 @@ function touchesHoprig(command, p, cwd) {
   // folder it is matched in is one of Hoprig's own. The home folder ITSELF written as `~` or `$HOME` is not a touch
   // for an ordinary command (it would hold a plain `cd ~`): what an administrator command does to it is read by
   // behindAdmin.
-  const homeReal = home ? realOrSelf(home) : null;
-  for (const t of pathTexts(shellWords(command, { home }))) {
+  const homeReal = home ? realOrSelf(home, platform) : null;
+  for (const t of pathTexts(wordsOf(command, home, platform))) {
     if (t.unsure) continue;
     if (t.glob) {
       if (insideHoprig(t.text, p, cwd)) return true;
@@ -1915,10 +2443,11 @@ function touchesHoprig(command, p, cwd) {
     // A bare word (no separator) is resolved against the folder the shell stands in too: after a `cd` the wall
     // follows (`cd ~ && mv .config old`), `.config` is the folder above Hoprig's own, so its move is held. Resolved
     // against an ordinary folder a bare word lands nowhere near Hoprig, so hitsHoprig leaves it through.
-    if (t.home && placesOf(t.text, cwd).some((rp) => rp === home || rp === homeReal)) continue;
+    if (t.home && placesOf(t.text, cwd, platform).some((rp) => samePlace(rp, home, platform) || samePlace(rp, homeReal, platform))) continue;
     if (hitsHoprig(t.text, p, cwd)) return true;
   }
   if (globTouchesHoprig(command, p, cwd)) return true;
+  if (winTextHits(command, p, cwd)) return true;
   return false;
 }
 
@@ -1962,26 +2491,77 @@ function braceExpand(s, depth = 0) {
 }
 
 // A path (its wildcard parts kept) as absolute components, `.` and `..` resolved; null when it cannot be placed.
-function patternParts(patt, cwd) {
+// On Windows a place names its parts with either separator and without regard to case, so both sides are split on
+// either and compared in lower case there.
+function patternParts(patt, cwd, platform = process.platform) {
+  const win = platform === 'win32';
+  const rooted = (s) => (win ? path.win32.isAbsolute(s) : s.startsWith('/'));
   let abs;
-  if (patt.startsWith('/')) abs = patt;
-  else if (typeof cwd === 'string' && cwd.startsWith('/')) abs = `${cwd}/${patt}`;
+  if (rooted(patt)) abs = patt;
+  else if (typeof cwd === 'string' && rooted(cwd)) abs = `${cwd}/${patt}`;
   else return null;
+  // A `/c/` or `\\?\` prefix, and a trailing dot/space, as the system reads them: of the folder the pattern is read
+  // from too, so it is spelled as the folders it is compared with (patternNames). An administrative share of a drive
+  // is read as the drive path it reaches (winShareDrive), so a pattern or a short part written through it is compared
+  // with Hoprig's folders as the plain spelling is.
+  if (win) abs = winShareDrive(abs) || winReal(abs);
   const out = [];
-  for (const part of abs.split('/')) {
+  for (const part of abs.split(win ? /[\\/]/ : '/')) {
     if (part === '' || part === '.') continue;
     if (part === '..') out.pop();
-    else out.push(part);
+    else out.push(win ? part.toLowerCase() : part);
   }
   return out;
 }
 
 // Could the pattern (its components) name `target` — for an own folder (`deep`) the folder itself or a path inside
 // it, for a folder above it only the folder itself?
-function patternNames(patParts, target, deep) {
-  const t = target.split('/').filter((s) => s && s !== '.');
+function patternNames(patParts, target, deep, platform = process.platform) {
+  const win = platform === 'win32';
+  // On Windows the folder is read with the same spelling rules as the pattern (patternParts), so a `/w/…` named both
+  // ways meets itself.
+  const t = (win ? winReal(target) : target).split(win ? /[\\/]/ : '/').filter((s) => s && s !== '.').map((s) => (win ? s.toLowerCase() : s));
   if (patParts.length < t.length || (!deep && patParts.length !== t.length)) return false;
-  return t.every((part, k) => globPartMatches(patParts[k], part));
+  // On Windows a part with `~<digit>` may be a volume's 8.3 short name (`RUNNER~1` for `runneradmin`), which cannot be
+  // expanded here: such a part, on either side, could be the other (the wall leans to holding).
+  const short = (s) => win && /~\d/.test(s);
+  return t.every((part, k) => short(part) || short(patParts[k]) || globPartMatches(patParts[k], part));
+}
+
+// The folders above `dir`, nearest first, up to and including `home` (none when `dir` is not below home).
+function foldersUpToHome(dir, home, platform) {
+  const P = pathOf(platform);
+  const out = [];
+  let cur = dir;
+  for (let i = 0; i < 64; i++) {
+    const parent = P.dirname(cur);
+    if (parent === cur || !inFolder(parent, home, platform)) break;
+    out.push(parent);
+    if (samePlace(parent, home, platform)) break;
+    cur = parent;
+  }
+  return out;
+}
+
+// On Windows the home folder and Hoprig's folders may each come in another of the two spellings (`C:\Users\runneradmin`
+// beside `C:\Users\RUNNER~1\AppData\…`: the system gives os.homedir() and %APPDATA% apart). The plain walk up
+// (foldersUpToHome) then finds no folder above, since neither spelling is inside the other as written: here the two
+// are compared part by part, a short part standing for the long one it could be made from (winStarts), and the
+// folders above `dir` up to and including home are given in `dir`'s own spelling.
+function winFoldersUpToHome(dir, home) {
+  const dp = patternParts(dir, null, 'win32');
+  const hp = patternParts(home, null, 'win32');
+  if (!dp || !hp || dp.length <= hp.length || !winStarts(dp, hp)) return [];
+  const out = [];
+  for (let n = dp.length - 1; n >= hp.length; n--) out.push(dp.slice(0, n).join('\\'));
+  return out;
+}
+
+// The folders above `dir` up to and including home: the plain walk, and on Windows, where that finds none, the walk
+// part by part (the two spellings).
+function aboveUpToHome(dir, home, platform) {
+  const plain = foldersUpToHome(dir, home, platform);
+  return plain.length || platform !== 'win32' ? plain : winFoldersUpToHome(dir, home);
 }
 
 // Does a wildcard or brace-list word of `command` name one of Hoprig's own folders, a file in one, or (as the folder
@@ -1992,22 +2572,14 @@ function globTouchesHoprig(command, p, cwd) {
   const dirs = (p && Array.isArray(p.hoprig) ? p.hoprig : []).filter((d) => typeof d === 'string' && d);
   if (!dirs.length) return false;
   const home = p && typeof p.home === 'string' && p.home ? p.home : null;
-  const own = [...new Set(dirs.flatMap((d) => [d, realOrSelf(d)]))];
+  const platform = platformOf(p);
+  const own = [...new Set(dirs.flatMap((d) => [d, realOrSelf(d, platform)]))];
   const above = new Set();
-  if (home) {
-    for (const d0 of own) {
-      let cur = d0;
-      for (let i = 0; i < 64; i++) {
-        const parent = path.dirname(cur);
-        if (parent === cur || !(parent === home || parent.startsWith(`${home}/`))) break;
-        above.add(parent);
-        if (parent === home) break;
-        cur = parent;
-      }
-    }
-  }
-  for (const w of shellWords(command, { home })) {
-    const isGlob = w.glob && !w.unsure;
+  if (home) for (const d0 of own) for (const a of aboveUpToHome(d0, home, platform)) above.add(a);
+  for (const w of wordsOf(command, home, platform)) {
+    // On Windows a program expands a wildcard itself (Bash hands a quoted `*` on as it is), so there a quoted word with
+    // `*` or `?` is a pattern too (`cat "C:\Users\alex\AppData\Roaming\hop*\config.json"`).
+    const isGlob = (w.glob || (platform === 'win32' && /[*?]/.test(w.value))) && !w.unsure;
     const isBrace = w.unsure && (w.home || !w.vars) && /\{[^{}]*,[^{}]*\}/.test(w.value);
     if (!isGlob && !isBrace) continue;
     let t = w.value;
@@ -2015,10 +2587,10 @@ function globTouchesHoprig(command, p, cwd) {
     if (t.startsWith('-')) { if (eq < 0) continue; t = t.slice(eq + 1); } // an option, not a path
     else if (eq > 0 && !t.slice(0, eq).includes('/')) t = t.slice(eq + 1); // NAME=value: the value may be a path
     for (const one of braceExpand(t)) {
-      const pp = patternParts(one, cwd);
+      const pp = patternParts(one, cwd, platform);
       if (!pp) continue;
-      if (own.some((d) => patternNames(pp, d, true))) return true;
-      for (const d of above) if (patternNames(pp, d, false)) return true;
+      if (own.some((d) => patternNames(pp, d, true, platform))) return true;
+      for (const d of above) if (patternNames(pp, d, false, platform)) return true;
     }
   }
   return false;

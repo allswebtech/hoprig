@@ -41,7 +41,7 @@ test('launchd plist: absolute paths, carried variables only, escaping, restart o
   assert.match(p, /<key>RunAtLoad<\/key>\s*<true\/>/);
   assert.match(p, /<key>AbandonProcessGroup<\/key>\s*<true\/>/);
   assert.match(p, /<key>StandardErrorPath<\/key>\s*<string>\/Users\/u\/\.local\/state\/x\/dashboard\.log<\/string>/);
-  assert.equal(plistFile('/Users/u'), `/Users/u/Library/LaunchAgents/${LABEL}.plist`);
+  assert.equal(plistFile('/Users/u'), path.join('/Users/u', 'Library', 'LaunchAgents', `${LABEL}.plist`));
 });
 
 test('launchd plist is valid for macOS itself (plutil), launchctl argv', { skip: process.platform !== 'darwin' && 'not macOS' }, () => {

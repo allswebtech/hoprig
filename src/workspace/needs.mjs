@@ -34,7 +34,7 @@ import { leaves, leavesWords, myLinkEntries, readIn, realOf } from './inside.mjs
 import { brainDir, isDir, projectsIn, workspaceDir } from './layout.mjs';
 import { readMap } from './map.mjs';
 import { neverLook, pickProject, placeOf, refOf } from './mapcheck.mjs';
-import { RULE_SAFE, linkWalk, mineOf, shown } from './needswalk.mjs';
+import { RULE_SAFE, linkWalk, mineOf, nameable, ruleForm, shown } from './needswalk.mjs';
 import { acceptCommand, acceptedNeeds, isAccepted, setAccepted } from './needsyes.mjs';
 
 export const WITH_MAX = 10;
@@ -61,7 +61,7 @@ export function mapFor(dir = workspaceDir()) {
  * `walk: false` leaves out the walk of its links (a list or a check of a name: every start decides with it, once, and
  * hands what it found on to extraSettings as `walked`). `walkOpts`: for a test (needswalk.mjs linkWalk).
  */
-export async function extraFolder(name, { map, ctx, self = null, walk = true, walkOpts = {} }) {
+export async function extraFolder(name, { map, ctx, self = null, walk = true, walkOpts = {}, platform = process.platform }) {
   const s = typeof name === 'string' ? name : '';
   if (!s || !NEED_RE.test(s)) return { ok: false, why: `"${shown(name)}" is not a name of the workspace map (name it <name> or <place>/<name>, never a path)` };
   const parts = s.split('/');
@@ -97,9 +97,10 @@ export async function extraFolder(name, { map, ctx, self = null, walk = true, wa
     if (r && overlap(real, r)) return { ok: false, ref, why: `${ref}: its folder leads to ${what}, which is never shared with another project` };
   }
   if (self && overlap(real, self)) return { ok: false, ref, own: real === self, why: `${ref} is the session's own folder, or around or inside it` };
-  if (!RULE_SAFE.test(real)) return { ok: false, ref, why: `${ref}: its folder's path has a character the coding tool's rules cannot name, so it is not opened` };
+  // Asked of the form a rule names it in (on Windows `/c/...`, needswalk.mjs ruleForm); a share has none.
+  if (!nameable(real, platform)) return { ok: false, ref, why: `${ref}: its folder's path has a character the coding tool's rules cannot name, so it is not opened` };
   if (!walk) return { ok: true, ref, dir: real, here: true };
-  const w = await linkWalk(real, { ...fenceOf(ctx), ...walkOpts });
+  const w = await linkWalk(real, { ...fenceOf(ctx), platform, ...walkOpts });
   if (w.why) return { ok: false, ref, why: `${ref}: ${w.why}, so it is not opened${w.mylink ? ` (if that link is yours:  ${w.mylink})` : ''}` };
   return { ok: true, ref, dir: real, here: true, walked: w };
 }
@@ -252,13 +253,14 @@ export function rebase(rule, d) {
 }
 
 // The deny rules of the folder's own settings (never through a link). → [rule]
-function ownDenies(d) {
+// `rf`: the folder as a rule names it (ruleForm), `d` its path on the disk.
+function ownDenies(d, rf = d) {
   const out = [];
   for (const f of ['settings.json', 'settings.local.json']) {
     try {
       const b = readIn({ root: d }, path.join(d, '.claude', f), { below: true });
       const deny = b ? JSON.parse(b.toString('utf8'))?.permissions?.deny : null;
-      if (Array.isArray(deny)) for (const r of deny.slice(0, RULES_MAX)) out.push(...(rebase(r, d) || []));
+      if (Array.isArray(deny)) for (const r of deny.slice(0, RULES_MAX)) out.push(...(rebase(r, rf) || []));
     } catch {
       /* none, or not valid JSON: nothing of it travels */
     }
@@ -280,23 +282,33 @@ const fenceOf = (ctx) => ({
  * the settings Hoprig hands the session. `walked`: { [dir]: linkWalk's result }, what the start's one walk found
  * (sessionExtras); a folder without it is walked here (a caller of its own). → { additionalDirectories, deny } | null
  */
-export async function extraSettings(dirs, { dir = workspaceDir(), projects = projectsIn(), walked = {} } = {}) {
+export async function extraSettings(dirs, { dir = workspaceDir(), projects = projectsIn(), walked = {}, platform = process.platform } = {}) {
   if (!dirs || !dirs.length) return null;
   const deny = [];
-  for (const d of dirs) {
-    for (const t of ['Edit', 'Write', 'NotebookEdit']) deny.push(`${t}(/${d}/**)`);
+  // A folder a rule cannot name (on Windows: no drive letter) gets no rules, so it is not given either.
+  const given = dirs.filter((d) => ruleForm(d, platform) !== null);
+  for (const d of given) {
+    // `d` as a rule names it: itself, on Windows its POSIX form (`C:\a\b` → `/c/a/b`, the rule `Edit(//c/a/b/**)`).
+    const rd = ruleForm(d, platform);
+    for (const t of ['Edit', 'Write', 'NotebookEdit']) deny.push(`${t}(/${rd}/**)`);
     // Its private folders as a whole, and anything reached through them (also one that is a link): the walk never
     // enters them, so a link inside one is kept from the file tools by these rules alone.
-    for (const p of PRIVATE_DIRS) deny.push(`Read(/${d}/${p})`, `Read(/${d}/${p}/**)`, `Read(/${d}/**/${p})`, `Read(/${d}/**/${p}/**)`);
+    for (const p of PRIVATE_DIRS) deny.push(`Read(/${rd}/${p})`, `Read(/${rd}/${p}/**)`, `Read(/${rd}/**/${p})`, `Read(/${rd}/**/${p}/**)`);
     const m = await readManifest(d).catch(() => ({ manifest: null }));
     const places = Object.keys((m.manifest && m.manifest.credentials) || {});
-    const w = walked[d] || (await linkWalk(d, fenceOf({ dir, projects })));
-    if (w.why) deny.push(`Read(/${d}/**)`);
-    for (const p of [...new Set([...places, ...(w.credLinks || [])])].filter((x) => RULE_SAFE.test(x))) deny.push(`Read(/${d}/${p})`, `Read(/${d}/${p}/**)`);
-    for (const l of w.privLinks || []) deny.push(`Read(/${d}/${l.link})`, `Read(/${d}/${l.link}/**)`, `Read(/${l.to})`, `Read(/${l.to}/**)`);
-    deny.push(...ownDenies(d));
+    const w = walked[d] || (await linkWalk(d, { ...fenceOf({ dir, projects }), platform }));
+    if (w.why) deny.push(`Read(/${rd}/**)`);
+    for (const p of [...new Set([...places, ...(w.credLinks || [])])].filter((x) => RULE_SAFE.test(x))) deny.push(`Read(/${rd}/${p})`, `Read(/${rd}/${p}/**)`);
+    for (const l of w.privLinks || []) {
+      const to = ruleForm(l.to, platform);
+      deny.push(`Read(/${rd}/${l.link})`, `Read(/${rd}/${l.link}/**)`);
+      if (to !== null) deny.push(`Read(/${to})`, `Read(/${to}/**)`);
+      else deny.push(`Read(/${rd}/**)`); // where it leads cannot be named: nothing of the folder is read
+    }
+    deny.push(...ownDenies(d, rd));
   }
-  return { additionalDirectories: [...dirs], deny: [...new Set(deny)] };
+  if (!given.length) return null;
+  return { additionalDirectories: [...given], deny: [...new Set(deny)] };
 }
 
 /** Add the extra folders' permissions to a settings object (the one Hoprig hands the coding tool). */

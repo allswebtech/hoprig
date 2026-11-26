@@ -135,7 +135,7 @@ const IN_WORD = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f]/; // what
 const ESCAPES = /(?:\x1b\[|\x9b)[0-?]*[ -/]*[@-~]|(?:\x1b[\]PX^_]|[\x90\x98\x9d-\x9f])[^\x07\x1b\x9c]*(?:\x07|\x1b\\|\x9c)|\x1b[ -/]*[0-~]/g;
 const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 /** `p` where it stands as a path of its own (not the start of a longer name: "/home/al" in "/home/alex"). */
-const pathRe = (p) => new RegExp(`${escapeRe(p)}${p.endsWith('/') ? '' : '(?=$|[\\s/\\\\"\'`),.:;!?\\]>\uFDD0])'}`, 'g');
+const pathRe = (p) => new RegExp(`${escapeRe(p)}${/[\\/]$/.test(p) ? '' : '(?=$|[\\s/\\\\"\'`),.:;!?\\]>\uFDD0])'}`, 'g');
 // What stands for a control character or an escape sequence while the paths and the name are taken out: the edge of
 // a word there ("/home/alex<BEL>foo" is the home folder, then "foo"). It goes before the secrets are masked, so a key
 // that one splits is whole again. (A noncharacter: no text holds it; one that comes in goes first.)
@@ -224,14 +224,25 @@ function maskHost(t) {
   return t;
 }
 
+/**
+ * A run's own worktree in what its session said: what lies below it as a plain relative path, the folder itself as
+ * ".". Windows writes what lies below with a backslash ("C:\…\shop-a\src\app.js" is "src\app.js" there, not ".\src").
+ */
+export function treePaths(tree, platform = process.platform) {
+  if (!tree) return [];
+  return [[`${tree}/`, ''], ...(platform === 'win32' ? [[`${tree}\\`, '']] : []), [tree, '.']];
+}
+
 /** The paths of this computer that a session's words may carry, with what stands for each (longest first). */
-export function pathsOf({ projectsDir, workspace, home = os.homedir() } = {}) {
+export function pathsOf({ projectsDir, workspace, home = os.homedir(), platform = process.platform } = {}) {
   const list = [];
   const add = (p, short) => {
     if (typeof p !== 'string' || p.length < 2) return;
     const one = (x) => {
       x = x.replace(/[\\/]+$/, '');
       list.push([`${x}/`, short ? `${short}/` : '']);
+      // Windows writes the folder below with a backslash: "C:\…\projects\shop" is "shop" there, not ".\shop".
+      if (platform === 'win32') list.push([`${x}\\`, short ? `${short}\\` : '']);
       list.push([x, short || '.']);
     };
     one(p);

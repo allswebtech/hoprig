@@ -167,7 +167,7 @@ test('the acts themselves refuse at the moment they run: git, a program, a clone
   fs.chmodSync(path.join(shop, 'inner'), 0o755);
   fs.symlinkSync('inner', path.join(shop, 'inner-link'));
   assert.throws(() => mkdirIn(at, path.join(shop, 'inner-link'), { mode: 0o700 }), /is not a folder: its mode was not set/);
-  assert.equal(fs.statSync(path.join(shop, 'inner')).mode & 0o777, 0o755);
+  if (process.platform !== 'win32') assert.equal(fs.statSync(path.join(shop, 'inner')).mode & 0o777, 0o755);
   assert.equal(rmdirIn(at, path.join(shop, 'inner-link')), false);
   assert.ok(fs.existsSync(path.join(shop, 'inner')), 'what the link points to stays');
   assert.equal(rmdirIn(at, path.join(shop, 'inner')), true, 'a real empty folder goes');
@@ -212,10 +212,11 @@ test('a project folder the owner keeps elsewhere through a link: not followed an
   assert.equal(await main(['restore', w.url('brain'), '--with-projects', '--yes'], { ui: q.ui, write: () => {} }), 0);
   const said = q.text().split('\n').filter((l) => /handbook.*leaves its folder/.test(l));
   assert.equal(said.length, 2, `the plan and the summary:\n${q.text()}`);
-  assert.match(said[0], /not followed.*if that link is yours: {2}hoprig workspace mylink add .*handbook\)/);
+  // (A path with a \ in it, as every Windows path, is written in quotes.)
+  assert.match(said[0], /not followed.*if that link is yours: {2}hoprig workspace mylink add .*handbook'?\)/);
   assert.doesNotMatch(said[0], /not followed.*not followed/, 'said in plain words once');
   const s = await syncAll(ctx);
-  assert.match(s.repos.find((x) => x.label === 'handbook').todo[0].command, /^hoprig workspace mylink add .*handbook$/);
+  assert.match(s.repos.find((x) => x.label === 'handbook').todo[0].command, /^hoprig workspace mylink add .*handbook'?$/);
   const { addMyLink } = await import('../../src/workspace/inside.mjs');
   addMyLink(link);
   q = await quietUi();

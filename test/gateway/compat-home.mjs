@@ -247,7 +247,9 @@ try {
   // ---- on disk ----
   // What the gateway was started with, each time (the first one by this home's own start, outside Hoprig).
   out.disk.gatewayArgs = fs.readFileSync(path.join(home, 'gateway-args.txt'), 'utf8').trim().split('\n');
-  out.disk.npm = fs.readFileSync(path.join(home, 'npm-calls.txt'), 'utf8').trim().split('\n');
+  // No call at all is an answer too (the comparison then names it), not a crash of this helper.
+  const npmCalls = path.join(home, 'npm-calls.txt');
+  out.disk.npm = fs.existsSync(npmCalls) ? fs.readFileSync(npmCalls, 'utf8').trim().split(/\r?\n/) : [];
   out.disk.addons = fs.readdirSync(path.join(dirs.state, 'addons')).sort();
   out.disk.log = plain(fs.readFileSync(path.join(dirs.state, 'addons', `${ID}.log`), 'utf8'));
   out.disk.profiles = Object.fromEntries(fs.readdirSync(dirs.profiles).sort().map((f) => [f, plain(fs.readFileSync(path.join(dirs.profiles, f), 'utf8'))]));

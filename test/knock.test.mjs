@@ -14,13 +14,15 @@ const freePort = () => new Promise((r) => { const s = net.createServer().listen(
 const serve = (where) => new Promise((r) => { const s = net.createServer(() => {}).listen(where, () => r(s)); });
 /** This process held up for `ms` (a computer under load runs it late), as one piece of synchronous work. */
 const heldUp = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+/** A local socket's address: a file here, a named pipe on Windows (where a socket's address is a pipe's name). */
+const socketAt = (name) => (process.platform === 'win32' ? `\\\\.\\pipe\\${path.basename(tmp)}-${name}` : path.join(tmp, name));
 
 test('open, closed: a port and a Unix socket', async () => {
   assert.equal(await knock({ port: await freePort(), host: '127.0.0.1' }), 'closed');
   const tcp = await serve({ port: 0, host: '127.0.0.1' });
   assert.equal(await knock({ port: tcp.address().port, host: '127.0.0.1' }), 'open');
   tcp.close();
-  const sock = path.join(tmp, 's.sock');
+  const sock = socketAt('s.sock');
   assert.equal(await knock({ path: sock }), 'closed', 'no such socket');
   const unix = await serve(sock);
   assert.equal(await knock({ path: sock }), 'open');
@@ -29,7 +31,7 @@ test('open, closed: a port and a Unix socket', async () => {
 
 test('an answer that came while this process was held up is an answer, not "silent"', async () => {
   const tcp = await serve({ port: 0, host: '127.0.0.1' });
-  const sock = path.join(tmp, 'late.sock');
+  const sock = socketAt('late.sock');
   const unix = await serve(sock);
   try {
     for (const target of [{ port: tcp.address().port, host: '127.0.0.1' }, { path: sock }]) {

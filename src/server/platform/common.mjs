@@ -16,11 +16,21 @@ export const run = (cmd, args, { timeout = 5000, env, noTerminal = false } = {})
   if (noTerminal && process.platform !== 'win32') return runAlone(cmd, args, { timeout, env: e });
   return new Promise((resolve, reject) => {
     // One start per turn of the server's thread (oneturn.mjs startInTurn): the snapshot's df, ps and ss started together.
+    // A program that failed without a word on stderr is named with how it ended (Node's "Command failed: <line>" alone
+    // says nothing of why: an exit code, a signal, the time limit).
     startInTurn(() => execFile(cmd, args, { timeout, maxBuffer: MAX_OUTPUT, windowsHide: true, env: e }, (err, stdout, stderr) =>
-      resolve({ ok: !err, stdout: stdout || '', stderr: (stderr || (err && err.message) || '').trim() }),
+      resolve({ ok: !err, stdout: stdout || '', stderr: (stderr || (err && `${err.message.trim()}${endedHow(err)}`) || '').trim() }),
     )).catch(reject);
   });
 };
+
+/** How a program that failed ended, for its error line: " (exit code 1)", " (ended by SIGTERM)", " (killed: it took too long)". */
+export function endedHow(err) {
+  if (!err) return '';
+  if (err.killed) return ' (killed: it took too long)';
+  if (err.signal) return ` (ended by ${err.signal})`;
+  return Number.isInteger(err.code) ? ` (exit code ${err.code})` : '';
+}
 
 /**
  * run() in a new session (execFile cannot start one): setsid leaves the terminal behind, and past the time limit the

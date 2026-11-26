@@ -129,7 +129,8 @@ test('the caller\'s GIT_* never reach git: another repository, an external diff,
 });
 
 test('the fixed settings come on the command line, the drivers from the folder\'s own list', async () => {
-  const c = await readCommand(root, ['status'], { env, run: async () => ({ ok: true, stdout: 'global\0filter.mine.clean\0local\0filter.a=b.clean\0worktree\0diff.x.textconv\0local\0core.bare\0' }) });
+  // The stand-in answers git's version too: the reads that would have looked it up already are POSIX only.
+  const c = await readCommand(root, ['status'], { env, run: async (argv) => (argv[1] === '--version' ? { ok: true, stdout: 'git version 2.53.0\n' } : { ok: true, stdout: 'global\0filter.mine.clean\0local\0filter.a=b.clean\0worktree\0diff.x.textconv\0local\0core.bare\0' }) });
   const argv = c.argv.join(' ');
   for (const f of FIXED) assert.ok(argv.includes(`-c ${f}`), f);
   assert.ok(c.argv.includes('--ignore-submodules=dirty'));

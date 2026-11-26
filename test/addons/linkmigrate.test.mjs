@@ -8,6 +8,10 @@ import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
 
+// On Windows the command line of a process is not read (src/addons/linkmigrate.mjs commandLine), so an old tunnel
+// is never taken for ours there: nothing is ended or kept on a number alone.
+const CMDLINE = { skip: process.platform === 'win32' && 'the command line of a process is not read on Windows' };
+
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'hoprig-linkmigrate-'));
 process.env.HOPRIG_CONFIG_DIR = path.join(tmp, 'config');
 process.env.HOPRIG_STATE_DIR = path.join(tmp, 'state');
@@ -56,7 +60,7 @@ const writeQuick = (o) => fs.writeFileSync(path.join(addons, 'public-link.json')
 const writeFixed = (o) => fs.writeFileSync(path.join(addons, 'fixed-link', 'fixed.json'), JSON.stringify(o));
 const readFixed = () => JSON.parse(fs.readFileSync(path.join(addons, 'fixed-link', 'fixed.json'), 'utf8'));
 
-test('both ran at once: Custom wins, the Temporary tunnel ends, the settings are exactly the owner\'s again', async () => {
+test('both ran at once: Custom wins, the Temporary tunnel ends, the settings are exactly the owner\'s again', CMDLINE, async () => {
   // The owner had no trustProxy and one origin; the Temporary link started first, then the Custom one inherited.
   fresh({ passwordHash: 'scrypt$x', trustProxy: true, allowedOrigins: ['https://deck.example.net', QUICK, FIXED] });
   const q = await sleeper();
@@ -73,7 +77,7 @@ test('both ran at once: Custom wins, the Temporary tunnel ends, the settings are
   assert.equal(S.migrate(), null, 'read once');
 });
 
-test('only a Temporary one ran: it stays on as Temporary; nothing ran: off, and Custom stays chosen when it is set up', async () => {
+test('only a Temporary one ran: it stays on as Temporary; nothing ran: off, and Custom stays chosen when it is set up', CMDLINE, async () => {
   fresh({ trustProxy: false, allowedOrigins: [QUICK] });
   writeQuick({ pid: (await sleeper()).pid, url: QUICK, restored: false, restore: { hadTrustProxy: true, trustProxy: false, hadOrigin: false, origin: QUICK } });
   assert.deepEqual(S.migrate(), { on: true, kind: 'temporary' });

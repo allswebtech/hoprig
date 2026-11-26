@@ -16,7 +16,7 @@ test('a chat marked hers by byTia alone is refused on OpenCode below Full, as on
   saveConfig({ codingTools: ['claude', 'opencode'], server: { roots: [path.dirname(proj)] } });
   // A stand-in for the installed OpenCode (never run: no message is sent), where Hoprig looks for its install.
   const { toolsDir } = await import('../../src/paths.mjs');
-  const bin = path.join(toolsDir(), 'opencode', 'node_modules', '.bin', 'opencode');
+  const bin = path.join(toolsDir(), 'opencode', 'node_modules', '.bin', process.platform === 'win32' ? 'opencode.cmd' : 'opencode'); // the name Windows looks for (npmtool.mjs binPath)
   fs.mkdirSync(path.dirname(bin), { recursive: true });
   fs.writeFileSync(bin, '#!/bin/sh\n', { mode: 0o755 });
   writeProfile('gw', { label: 'Gateway', api: ['messages', 'models'], env: { ANTHROPIC_BASE_URL: 'http://127.0.0.1:9', ANTHROPIC_AUTH_TOKEN: 'gw-token-of-the-test' } });

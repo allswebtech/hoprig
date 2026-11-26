@@ -6,7 +6,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const { changeRun, lockRun, readRun, writeRun } = await import('../src/runfile.mjs');
 const RUNFILE = fileURLToPath(new URL('../src/runfile.mjs', import.meta.url));
@@ -58,9 +58,66 @@ test('a lock of another is waited for only until it is a second old, then taken 
   assert.equal(fs.existsSync(`${file}.lock`), false);
 });
 
+// Windows: while one holder removes its lock, a new one there is refused with EPERM (the name is still taken until the
+// removal is through). That is a taken lock, waited for as EEXIST is; elsewhere EPERM stays "no lock can be made here".
+test('Windows: a lock refused with EPERM while another removes it is waited for, not given up', (t) => {
+  const file = record();
+  const { writeFileSync } = fs;
+  let refusals = 0;
+  t.after(() => (fs.writeFileSync = writeFileSync));
+  fs.writeFileSync = function (p, ...rest) {
+    if (p === `${file}.lock` && refusals < 3) {
+      refusals++;
+      throw Object.assign(new Error('EPERM: operation not permitted, open'), { code: 'EPERM' });
+    }
+    return writeFileSync.call(fs, p, ...rest);
+  };
+  const win = lockRun(file, { platform: 'win32' });
+  assert.equal(win.held, true, 'held once the removal is through');
+  assert.equal(refusals, 3);
+  win();
+  refusals = 0;
+  assert.equal(lockRun(file, { platform: 'linux' }).held, false, 'elsewhere as before: no lock can be made here');
+  assert.equal(refusals, 1);
+});
+
+// Windows: a record another program holds open for a moment (a virus scan of a file just written) refuses a read or a
+// replace with EPERM until it lets go; that is tried again. Elsewhere those errors stand as they are.
+test('Windows: a record held open for a moment is read and replaced once it is let go; elsewhere not tried again', (t) => {
+  const file = record();
+  const { readFileSync, renameSync } = fs;
+  let refusals = 0;
+  const busy = () => {
+    if (refusals < 3) {
+      refusals++;
+      throw Object.assign(new Error('EPERM: operation not permitted'), { code: 'EPERM' });
+    }
+  };
+  t.after(() => Object.assign(fs, { readFileSync, renameSync }));
+  fs.renameSync = function (from, to) {
+    if (to === file) busy();
+    return renameSync.call(fs, from, to);
+  };
+  fs.readFileSync = function (p, ...rest) {
+    if (p === file) busy();
+    return readFileSync.call(fs, p, ...rest);
+  };
+  writeRun(file, { count: 5 }, { platform: 'win32' });
+  assert.equal(refusals, 3);
+  refusals = 0;
+  assert.deepEqual(readRun(file, { platform: 'win32' }), { count: 5 });
+  assert.equal(refusals, 3);
+  refusals = 0;
+  assert.throws(() => writeRun(file, { count: 6 }, { platform: 'linux' }), { code: 'EPERM' });
+  refusals = 0;
+  assert.equal(readRun(file, { platform: 'linux' }), null, 'elsewhere as before: a read that fails is no record');
+  fs.rmSync(`${file}.${process.pid}.tmp`, { force: true });
+});
+
 // Processes that meet a stale lock at one moment, each running `step` (a change of the count under the lock) after
 // waiting for `start`; each says whether it had the lock or gave up waiting (by design after 1.5 seconds).
-const STEP = `import { lockRun, readRun, writeRun } from ${JSON.stringify(RUNFILE)};
+// Imported by its file URL: an ES module import of a Windows path (C:\…) is read as a URL of scheme "c:" and refused.
+const STEP = `import { lockRun, readRun, writeRun } from ${JSON.stringify(pathToFileURL(RUNFILE).href)};
   const nap = new Int32Array(new SharedArrayBuffer(4));
   const [start, file, gap] = process.argv.slice(1).map((a, i) => (i === 1 ? a : Number(a)));
   while (Date.now() < start) {}
@@ -76,11 +133,13 @@ async function meet(count, gap = 0) {
   age(file, -10_000);
   const start = Date.now() + 1500;
   const said = await Promise.all(Array.from({ length: count }, () => new Promise((resolve, reject) => {
-    const p = spawn(process.execPath, ['--input-type=module', '-e', STEP, String(start), file, String(gap)], { stdio: ['ignore', 'pipe', 'inherit'] });
+    const p = spawn(process.execPath, ['--input-type=module', '-e', STEP, String(start), file, String(gap)], { stdio: ['ignore', 'pipe', 'pipe'] });
     let out = '';
+    let err = '';
     p.stdout.on('data', (d) => (out += d));
+    p.stderr.on('data', (d) => (err = (err + d).slice(-2000)));
     p.on('error', reject);
-    p.on('close', (code) => (code === 0 ? resolve(out) : reject(new Error(`child ended with ${code}`))));
+    p.on('close', (code) => (code === 0 ? resolve(out) : reject(new Error(`child ended with ${code}: ${err.trim()}`))));
   })));
   return { file, said };
 }

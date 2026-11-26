@@ -92,7 +92,15 @@ On Windows (natively, without WSL) the main paths were used by hand on one Windo
 computer setup with winget, projects, the background service and the dashboard with sessions and a chat. That first
 run needed ways round (a new project needed a global git identity, programs winget installed stayed "missing", the
 Python kit gave no Python, installing the service again left the old dashboard serving); this version has fixes for
-them that were not yet tried there. The tests do not pass on Windows yet, and `install.ps1` itself was not tried.
+them that were not yet tried there. The test suite passes on GitHub's Windows runners with Node 24 and 26, about 835
+tests skipped there, each with its cause, and a skipped test proves nothing. A runner does not prove Task Scheduler
+(the service), winget, icacls (which hands a folder back to you), a restart of the service or the `.cmd` launcher in a
+real console, nor whether a check or a go-live command opens a console window on the desktop while it runs, so Windows
+support is experimental until it has run on real Windows computers. Two things work differently there: a go-live
+command ended at its time limit also ends a server it started in the background (on Linux that server goes on
+running), and a scheduled run whose coding tool could not be ended switches its schedule off until you switch it on
+again in Work → Schedules (a schedule that names another computer is not switched off). Hands-off and the box are not
+offered on Windows, and `install.ps1` itself was not tried.
 Much else was not tried there (see "Where it runs"). Not affiliated with Anthropic or with OpenCode's makers;
 "Claude" and "Claude Code" are Anthropic's.
 
@@ -955,12 +963,13 @@ The dashboard is a remote control for your computer, and it is built that way:
 |---|---|---|---|
 | Linux | run and tested | run and tested (tmux and built-in terminals), systemd service | run in clean Ubuntu, Debian and Fedora |
 | macOS | run and tested | run and tested (built-in terminals) before this version; what is new in it was not run there (see above); the launchd service is written, not yet installed for real | checked read-only; installs not yet run |
-| Windows | used by hand once (Claude Code, a subscription and a gateway on the computer); the tests do not pass on Windows yet | used by hand once (built-in terminals, a chat, the Task Scheduler service); not tried: updates, the desktop, the editor, other computers, the public link | `pc setup` with winget used once; `install.ps1` itself not tried |
+| Windows | used by hand once (Claude Code, a subscription and a gateway on the computer); the test suite passes on GitHub's Windows runners (Node 24 and 26, about 835 tests skipped there, each with its cause) | used by hand once (built-in terminals, a chat, the Task Scheduler service); not tried: updates, the desktop, the editor, other computers, the public link | `pc setup` with winget used once; `install.ps1` itself not tried |
 
 Requires Node.js 24.13.1 or newer (Node.js 22 and older are not supported; `hoprig` says so in one sentence on an
 older Node.js, with the line that installs the newest one). The tests run on Linux and macOS with Node 24 and 26 on
-every change, and on Windows as a job that is allowed to fail: they do not pass there yet, so Windows is not
-supported, only used. tmux is used from
+every change, and on Windows as a job that is still allowed to fail (a failure there does not fail the run). They pass
+there on GitHub's runners with Node 24 and 26, about 835 tests skipped, each with its cause; Windows support is
+experimental until it has run on real Windows computers. tmux is used from
 version 3.2 on; with an older one (or none) the built-in terminals are used. With npm 12 there is nothing to do
 yourself: setup builds the one module that needs a build (`node-pty`, the only install script Hoprig's
 `package.json` approves), and `hoprig doctor` names the cause when it did not build.

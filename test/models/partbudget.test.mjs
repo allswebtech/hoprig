@@ -93,6 +93,14 @@ test('the budget reaches Claude Code as --max-budget-usd; a request body cannot 
   assert.equal(second.includes('--max-budget-usd'), false, JSON.stringify(second));
 });
 
+// A line of the stand-in's record of its starts; null for the line it is still writing (seen once on a Windows runner).
+const startLine = (l) => {
+  try {
+    return JSON.parse(l);
+  } catch {
+    return null;
+  }
+};
 // A chat feature on the stand-in Claude Code, with a short idle stop; `body`: what the provider route reads.
 function chatFeatureFor(name, { body = {} } = {}) {
   const argsFile = path.join(box.root, `${name}.args`);
@@ -100,7 +108,7 @@ function chatFeatureFor(name, { body = {} } = {}) {
     file: path.join(box.root, `${name}-chats.json`), command: { command: process.execPath, args: [FAKE] }, idleMs: 50,
     resolveEnv: async () => ({ ...process.env, FAKE_CLAUDE_ARGS: argsFile }),
   });
-  const starts = () => (fs.existsSync(argsFile) ? fs.readFileSync(argsFile, 'utf8').trim().split('\n').map((l) => JSON.parse(l)).filter(Array.isArray) : []);
+  const starts = () => (fs.existsSync(argsFile) ? fs.readFileSync(argsFile, 'utf8').trim().split('\n').map(startLine).filter(Array.isArray) : []);
   return { make, starts };
 }
 const until = async (what, ok) => {

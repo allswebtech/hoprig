@@ -5,13 +5,12 @@
 // of its repository, are the same after), and a get afterwards makes the links again. What only looks like one stays
 // on the typed list: a real file where the link should be, a link that points elsewhere, a link project.json does not
 // name, and a folder at a place project.json names.
-import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
-import { dropOn, dropWorld, getOn, reset } from './dropfix.mjs';
+import { assert, dropOn, dropWorld, getOn, reset } from './dropfix.mjs';
 
 const w = await dropWorld('creds');
 test.after(() => w.cleanup());

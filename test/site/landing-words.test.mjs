@@ -31,7 +31,7 @@ test('every other place of the landing page that names the platforms says the sa
   const card1 = flat(body.slice(body.indexOf('### 1. It sets up the computer'), body.indexOf('### 2.')));
   assert.match(card1, /Works on Linux; on a Mac these installs were not tried yet\./);
   const win = section('Does it work on Windows?');
-  assert.match(win, /Not yet\. Its code is written, but the tests do not pass on Windows\./);
+  assert.match(win, /Not yet\. Its code is written and its tests pass on GitHub's Windows runners, but it has not run on real Windows computers beyond one, so Windows support is experimental\./);
   assert.match(win, /On a Mac the tests pass on every change/);
   assert.match(win, /not been tried on a real Mac/);
   assert.match(win, /On a Mac the tests pass on every change and switching providers was tried there, but the install itself and the newer parts \(the chat, the editor, the desktop, Work\) have not been tried on a real Mac\./);

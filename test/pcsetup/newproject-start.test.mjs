@@ -15,7 +15,7 @@ process.env.HOPRIG_WORKSPACE_DIR = t.ws;
 test.after(() => t.cleanup());
 
 const { writeProfile } = await import('../../src/profiles.mjs');
-const { newProjectFeature, cleanStart, readCommandToken, COMMAND_PATH, COMMAND_HEADER } = await import('../../src/pcsetup/newprojectstart.mjs');
+const { newProjectFeature, cleanStart, readCommandToken, defaultsWords, COMMAND_PATH, COMMAND_HEADER } = await import('../../src/pcsetup/newprojectstart.mjs');
 const { firstMessage } = await import('../../src/pcsetup/newproject.mjs');
 writeProfile('main', { label: 'Main' });
 
@@ -68,6 +68,11 @@ test('the session opens in the project with the skill named and the brief as wri
   assert.ok(b.text.endsWith(`----- my brief -----\n${BRIEF}`), 'the brief byte for byte, at the end');
   assert.equal(b.text, `<!-- hoprig:new-project shop -->\n${firstMessage({ brief: BRIEF, kind: 'web-app', scope: 'setup', defaults: '../../ai_brain/project-defaults.md' })}`);
   assert.match(firstMessage({ brief: 'x', scope: 'product' }), /\nScope: the whole product\./);
+});
+
+test('the defaults file is named with / between its parts, also on Windows', () => {
+  assert.equal(defaultsWords('C:\\Users\\ann\\Workspace\\projects\\shop', 'C:\\Users\\ann\\Workspace\\ai_brain\\project-defaults.md', path.win32), '../../ai_brain/project-defaults.md');
+  assert.equal(defaultsWords('/home/ann/Workspace/projects/shop', '/home/ann/Workspace/ai_brain/project-defaults.md', path.posix), '../../ai_brain/project-defaults.md');
 });
 
 test('a dry run says what would start and opens nothing; no kind and no defaults are said as such', async () => {
@@ -133,7 +138,7 @@ test('the command route: only with this dashboard\'s token, then the same start'
   f.start();
   const token = readCommandToken();
   assert.match(token, /^hpc_[0-9a-f]{64}$/);
-  assert.equal((fs.statSync(path.join(process.env.HOPRIG_STATE_DIR, 'project-command-token')).mode & 0o777), 0o600);
+  if (process.platform !== 'win32') assert.equal((fs.statSync(path.join(process.env.HOPRIG_STATE_DIR, 'project-command-token')).mode & 0o777), 0o600);
   const send = async (headers, body) => {
     let status;
     let out = '';

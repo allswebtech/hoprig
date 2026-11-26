@@ -36,7 +36,7 @@ test('hoprig get in a group --dry-run: a project here, one not here, a member th
   assert.match(here.text, /hoprig project setup clients\/acme/);
   const missing = await w.unchanged('get clients/zeta --dry-run', () => get(['clients/zeta', '--dry-run']));
   assert.equal(missing.code, 0, missing.text);
-  assert.match(missing.text, /\(dry run\) would clone .*zeta-workspace\.git into .*\/clients\/zeta/);
+  assert.match(missing.text, /\(dry run\) would clone .*zeta-workspace\.git into .*[\\/]clients[\\/]zeta/);
   const member = await w.unchanged('get kits/packs/tool --dry-run', () => get(['kits/packs/tool', '--dry-run']));
   assert.equal(member.code, 0, member.text);
   assert.match(member.text, /\(dry run\) would clone .*tool-core\.git/);
@@ -66,7 +66,7 @@ test('hoprig project new --in --dry-run: no folder in the group, also not the gr
   for (const args of [['new', 'fresh', '--in', 'clients', '--dry-run'], ['new', 'fresh', '--in', 'spare', '--dry-run'], ['new', 'fresh', '--in', 'kits/builds', '--dry-run']]) {
     const r = await w.unchanged(`project ${args.join(' ')}`, () => project(args));
     assert.equal(r.code, 0, r.text);
-    assert.match(r.text, /\(dry run\) would create .*\/fresh/);
+    assert.match(r.text, /\(dry run\) would create .*[\\/]fresh/);
   }
   const real = await w.changed('project new fresh --in clients', () => project(['new', 'fresh', '--in', 'clients']));
   assert.equal(real.r.code, 0, real.r.text);
@@ -175,7 +175,8 @@ test('hoprig workspace sync --dry-run with groups: no fetch, pull, push or commi
   assert.match(real.diff, /kits\/\.git\/FETCH_HEAD/);
 });
 
-test('hoprig workspace sync --with another computer, with groups: each group and member is pulled from the same folder there; a dry run changes nothing', async (tc) => {
+// Another computer is one Hoprig reaches by SSH, at a POSIX path (peer.mjs: ssh://<computer>/<path>).
+test('hoprig workspace sync --with another computer, with groups: each group and member is pulled from the same folder there; a dry run changes nothing', { skip: process.platform === 'win32' && 'another computer is reached by SSH at a POSIX path; on Windows the stand-in for it would be this computer, whose folders are no such path' }, async (tc) => {
   const w = await dryWorld(tc, 'gpeer', groups);
   // The other computer (a stand-in ssh that runs the command here): its kits and clients/acme/code/acme-app are newer.
   const { syncWith } = await import('../../src/workspace/peer.mjs');

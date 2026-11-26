@@ -48,7 +48,8 @@ test('the lines it would add are shown first, and nothing is written or run for 
   const shown = await route('GET', '/api/gatewayhost/relay/service')();
   assert.equal(shown.kind, 'systemd');
   assert.equal(shown.file, unitFile);
-  assert.match(shown.text, new RegExp(`^ExecStart="${program}" "--port" "8197"$`, 'm'), 'the program and arguments in full');
+  // The line as systemd reads it: a backslash of the path (Windows' temporary folder) is doubled in the quotes.
+  assert.ok(shown.text.split('\n').includes(`ExecStart="${program.replace(/\\/g, '\\\\')}" "--port" "8197"`), 'the program and arguments in full');
   assert.match(shown.text, /^Environment="HOST=127\.0\.0\.1"$/m, 'for this computer only');
   assert.match(shown.text, /^WantedBy=default\.target$/m);
   assert.match(shown.text, /^StandardOutput=null$/m, 'what it prints (a first password) is not kept in the journal');
@@ -81,7 +82,7 @@ test('made on his press, once; a second press changes nothing; removed the same 
   answers = { 'loginctl show-user': null };
   const made = await route('POST', '/api/gatewayhost/relay/service')({ on: true, confirm: 'box2' });
   assert.equal(made.ok, true);
-  assert.equal(fs.statSync(unitFile).mode & 0o777, 0o644);
+  if (process.platform !== 'win32') assert.equal(fs.statSync(unitFile).mode & 0o777, 0o644);
   assert.ok(calls.includes('systemctl --user enable --now hoprig-gateway-relay.service'));
   answers['systemctl --user is-active hoprig-gateway-relay.service'] = { ok: true, stdout: 'active\n' };
   const n = calls.filter((c) => /enable/.test(c)).length;

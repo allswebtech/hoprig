@@ -14,6 +14,17 @@ const w = await import('../../src/field/wire.mjs');
 const { reportsDir, makeReport } = await import('../../src/field/report.mjs');
 
 const MSG = 'clone of /home/alex/Workspace/projects/shop failed: alex@box2';
+// The reports as the reader sees them (kind, outcome, the file's time with all its digits, the name): said on a failure.
+const seen = () => {
+  try {
+    return fs.readdirSync(reportsDir()).filter((n) => n.endsWith('.json')).map((n) => {
+      const r = JSON.parse(fs.readFileSync(path.join(reportsDir(), n), 'utf8'));
+      return `${r.kind}/${r.outcome} ${fs.statSync(path.join(reportsDir(), n)).mtimeMs} ${n}`;
+    }).join(' | ');
+  } catch (e) {
+    return `(not read: ${e.code})`;
+  }
+};
 const allText = () => fs.readdirSync(reportsDir()).map((n) => fs.readFileSync(path.join(reportsDir(), n), 'utf8')).join('\n');
 
 test('adopt: apply and retire by their own line kinds and codes; a dry run makes none; no word of a line reaches one', () => {
@@ -216,10 +227,10 @@ test('a command that works right after the same kind failed prints one line nami
     w.reportGet([{ result: 'failed', ok: false, message: MSG }], Date.now());
     assert.equal(lines.length, 0, 'a failure itself: no line');
     ok();
-    assert.equal(lines.length, 1, 'a success right after a failure of the same kind: one line');
+    assert.equal(lines.length, 1, `a success right after a failure of the same kind: one line; reports: ${seen()}`);
     assert.match(lines[0], /hoprig field way-round --failed "<what failed>" --worked "<what worked>"/);
     ok();
-    assert.equal(lines.length, 1, 'once per failure');
+    assert.equal(lines.length, 1, `once per failure; reports: ${seen()}`);
     // Another kind's failure is not this kind's way round.
     w.reportDrop([{ result: 'refused', ok: false }], Date.now());
     ok();
@@ -234,6 +245,64 @@ test('a command that works right after the same kind failed prints one line nami
     assert.equal(lines.length, 2, 'a failure two hours ago: no line');
   } finally {
     w.setHintWriter(was);
+  }
+});
+
+test('reports written a moment apart on a file system with coarse times (the same time for each) keep their order: the line still comes', (t) => {
+  // A file system whose own times are coarse gives files written within its tick the same time (and a clock set back
+  // gives a later file an earlier one). Played here: each report file, as it is put in place, gets one fixed time.
+  const { renameSync } = fs;
+  const coarse = new Date(Date.now() - 1000);
+  fs.renameSync = function (from, to, ...rest) {
+    const r = renameSync.call(fs, from, to, ...rest);
+    if (path.dirname(to) === reportsDir()) fs.utimesSync(to, coarse, coarse);
+    return r;
+  };
+  const lines = [];
+  const was = w.setHintWriter((l) => lines.push(l));
+  t.after(() => {
+    fs.renameSync = renameSync;
+    w.setHintWriter(was);
+  });
+  // Eight times over: with a tie, which of the two earlier reports reads as "the one before" was a toss.
+  for (let i = 1; i <= 8; i++) {
+    fs.rmSync(reportsDir(), { recursive: true, force: true });
+    w.reportGet([{ result: 'cloned', ok: true }], Date.now());
+    w.reportGet([{ result: 'failed', ok: false, message: MSG }], Date.now());
+    w.reportGet([{ result: 'cloned', ok: true }], Date.now());
+    assert.equal(lines.length, i, `round ${i}: the success right after the failure has its line; reports: ${seen()}`);
+  }
+});
+
+test('a time set on a report that reads back a hair below what was set (seconds in a double) keeps the order: the line comes once per failure', (t) => {
+  // The file system is handed a time as seconds in a double, and may give it back a hair below (…677.9998 for …678).
+  // Played here: each report's time reads back 0.2 µs below the time set.
+  const { utimesSync, statSync } = fs;
+  const set = new Map();
+  fs.utimesSync = function (p, a, m, ...rest) {
+    if (path.dirname(String(p)) === reportsDir()) set.set(String(p), m instanceof Date ? m.getTime() : m * 1000);
+    return utimesSync.call(fs, p, a, m, ...rest);
+  };
+  fs.statSync = function (p, ...rest) {
+    const st = statSync.call(fs, p, ...rest);
+    if (st && set.has(String(p))) st.mtimeMs = set.get(String(p)) - 0.0002;
+    return st;
+  };
+  const lines = [];
+  const was = w.setHintWriter((l) => lines.push(l));
+  t.after(() => {
+    Object.assign(fs, { utimesSync, statSync });
+    w.setHintWriter(was);
+  });
+  for (let i = 1; i <= 8; i++) {
+    fs.rmSync(reportsDir(), { recursive: true, force: true });
+    set.clear();
+    w.reportGet([{ result: 'cloned', ok: true }], Date.now());
+    w.reportGet([{ result: 'failed', ok: false, message: MSG }], Date.now());
+    w.reportGet([{ result: 'cloned', ok: true }], Date.now());
+    assert.equal(lines.length, i, `round ${i}: the line after the failure; reports: ${seen()}`);
+    w.reportGet([{ result: 'cloned', ok: true }], Date.now());
+    assert.equal(lines.length, i, `round ${i}: once per failure; reports: ${seen()}`);
   }
 });
 

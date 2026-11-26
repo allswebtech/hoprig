@@ -64,6 +64,7 @@ import { rememberUsage, usageForgotten } from './routerstate.mjs';
 import { changeRun, readRun, watchFile, writeRun as write } from './runfile.mjs';
 import { RUN_ID_RE } from './launchfile.mjs';
 import { noteEnd, noteStart } from './work/sessionlog.mjs';
+import { replaceFile } from './replacefile.mjs';
 
 export { readRun };
 
@@ -87,7 +88,7 @@ function noteEnded(run, at = Date.now()) {
       const keep = ranBefore(at).map((r) => JSON.stringify(r)).join('\n');
       const tmp = `${endedFile()}.${process.pid}.tmp`;
       fs.writeFileSync(tmp, keep ? `${keep}\n` : '', { mode: 0o600 });
-      fs.renameSync(tmp, endedFile());
+      replaceFile(tmp, endedFile());
     }
   } catch {
     /* never in the way of a run: a run that is not noted still ends */

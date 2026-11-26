@@ -7,6 +7,9 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
+import { SHELL_STANDINS } from '../seal.mjs';
+
+const SHELL = SHELL_STANDINS;
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'hoprig-publiclink-'));
 process.env.HOPRIG_CONFIG_DIR = path.join(tmp, 'config');
@@ -24,6 +27,23 @@ echo "2026-11-14T04:52:43Z INF |  https://stem-wonder-lucky-hung.trycloudflare.c
 echo "2026-11-14T04:52:45Z INF Registered tunnel connection connIndex=0 connection=0000aaaa event=0 ip=198.51.100.7 location=example01 protocol=quic" >&2
 exec sleep 600
 `, { mode: 0o755 });
+// Windows starts no file without an extension, and Hoprig finds cloudflared there as Windows does (a .cmd anywhere on
+// PATH before a bare name): the stand-in is a .cmd that runs the same steps in Node, ended with the .cmd that started it.
+if (process.platform === 'win32') {
+  const js = path.join(tmp, 'cloudflared-standin.mjs');
+  fs.writeFileSync(js, `import fs from 'node:fs';
+const a = process.argv.slice(2);
+if (a[0] === '--version') { console.log('cloudflared version 2026.10.1 (built 2026-10-15-1724 UTC)'); process.exit(0); }
+fs.writeFileSync(${JSON.stringify(path.join(tmp, 'args.txt'))}, a.join(' ') + '\\n');
+// Into the service's log by name, not through stderr: Hoprig starts cloudflared detached, so the cmd.exe of this .cmd
+// has no console, and Windows gives the Node it starts a console of its own, where its stderr would go.
+const log = ${JSON.stringify(path.join(tmp, 'state', 'addons', 'public-link-service.log'))};
+for (const l of ['2026-11-14T04:52:38Z INF Requesting new quick Tunnel on trycloudflare.com...', '2026-11-14T04:52:43Z INF |  https://stem-wonder-lucky-hung.trycloudflare.com                                          |', '2026-11-14T04:52:45Z INF Registered tunnel connection connIndex=0 connection=0000aaaa event=0 ip=198.51.100.7 location=example01 protocol=quic']) fs.appendFileSync(log, l + '\\n');
+const parent = process.ppid;
+setInterval(() => { try { process.kill(parent, 0); } catch { process.exit(0); } }, 300);
+`);
+  fs.writeFileSync(path.join(bin, 'cloudflared.cmd'), `@"${process.execPath}" "${js}" %*\r\n`);
+}
 process.env.PATH = `${bin}${path.delimiter}${process.env.PATH}`;
 
 const P = await import('../../src/addons/publiclink.mjs');
@@ -117,7 +137,7 @@ test('a download that does not match its hash is not installed and leaves nothin
   const good = await P.install({ onLine: () => {}, fetchImpl, plan: plan(crypto.createHash('sha256').update(bytes).digest('hex')) });
   assert.equal(good.error, undefined);
   assert.deepEqual(fs.readFileSync(file), bytes, 'the checked file is in place');
-  assert.ok((fs.statSync(file).mode & 0o111) !== 0, 'and can run');
+  if (process.platform !== 'win32') assert.ok((fs.statSync(file).mode & 0o111) !== 0, 'and can run');
   assert.deepEqual(fs.readdirSync(into), ['cloudflared']);
 
   // The macOS kind: an archive, checked as a whole, then the program inside is moved into place the same way.
@@ -170,7 +190,7 @@ test('each new temporary address is sent through the owner\'s notifications, as 
   assert.deepEqual(got, [{ url: 'https://ntfy.sh/a-long-random-topic', title: 'New public link for this dashboard', body: ev.url }]);
 });
 
-test('a temporary address for another local service: asked first when it has no sign-in of its own', async () => {
+test('a temporary address for another local service: asked first when it has no sign-in of its own', { skip: process.platform !== 'win32' && SHELL.skip }, async () => {
   // The dashboard runs on a port given on its command line (7655): that port is never "another" service.
   fs.mkdirSync(path.join(tmp, 'state'), { recursive: true });
   fs.writeFileSync(path.join(tmp, 'state', 'dashboard.json'), JSON.stringify({ pid: process.pid, host: '127.0.0.1', port: 7655, at: Date.now() }));
@@ -190,6 +210,7 @@ test('a temporary address for another local service: asked first when it has no 
   assert.deepEqual(sent, [[r.url, 'port 20017']]);
   assert.deepEqual((await a.status()).service, { port: 20017, url: r.url });
   assert.match((await a.actions['quick-service-start']({ port: 20018, confirmed: true }, { notify })).error, /stop it first/);
-  assert.equal((await a.actions['quick-service-stop']()).ok, true);
+  const stop = await a.actions['quick-service-stop']();
+  assert.equal(stop.ok, true, stop.error);
   assert.equal((await a.status()).service, null);
 });

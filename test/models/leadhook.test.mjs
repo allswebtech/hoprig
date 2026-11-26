@@ -9,6 +9,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
 import { sandbox } from '../server/helpers.mjs';
+import { SHELL_STANDINS } from '../seal.mjs';
 
 const box = sandbox('leadhook');
 test.after(() => box.cleanup());
@@ -42,7 +43,7 @@ function fire(command, ev) {
 
 const call = (input) => ({ hook_event_name: 'PreToolUse', session_id: 'S1', tool_name: 'Agent', tool_input: input });
 
-test('Lead on: the start\'s settings hold the hook, and the real hook program takes the lead\'s model and effort out of a helper call', { skip: process.platform === 'win32' && 'POSIX stand-in' }, async (t) => {
+test('Lead on: the start\'s settings hold the hook, and the real hook program takes the lead\'s model and effort out of a helper call', { skip: SHELL_STANDINS.skip }, async (t) => {
   const on = await startOf(t, { lead: true }, 'on');
   assert.ok(on.args.includes('--agents'), 'it leads');
   const entry = on.settings && on.settings.hooks && on.settings.hooks.PreToolUse;
@@ -59,7 +60,7 @@ test('Lead on: the start\'s settings hold the hook, and the real hook program ta
   assert.equal(fire(command, { ...call({ model: 'opus' }), tool_name: 'Bash' }), null);
 });
 
-test('Lead off, and an old record without the switch: no such hook in the start\'s settings', { skip: process.platform === 'win32' && 'POSIX stand-in' }, async (t) => {
+test('Lead off, and an old record without the switch: no such hook in the start\'s settings', { skip: SHELL_STANDINS.skip }, async (t) => {
   const off = await startOf(t, {}, 'off');
   assert.ok(!off.args.includes('--agents'));
   assert.equal(!!(off.settings && off.settings.hooks && off.settings.hooks.PreToolUse), false, JSON.stringify(off.settings));

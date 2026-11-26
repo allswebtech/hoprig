@@ -7,6 +7,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
 import { dryWorld, gh, runCli } from '../pcsetup/dryrun-fixture.mjs';
+import { SHELL_STANDINS } from '../seal.mjs';
+
+// The stand-in gh (and ssh) of these tests are shell scripts: on Windows the runner starts them through sh.
+const SH_GH = SHELL_STANDINS;
 
 const ws = await import('../../src/workspace/cli.mjs');
 const { githubOf, readAddress, upkeepCredentials } = await import('../../src/workspace/credrepo.mjs');
@@ -15,6 +19,8 @@ const { syncAll } = await import('../../src/workspace/sync.mjs');
 const VALUE = 'push-value-4c8e';
 const NAME = 'push-name-0b7d';
 const typed = (word) => ({ interactive: true, answers: () => word });
+// Git rewrites an address as text: on Windows a rule's place may come back with / where path.join writes \.
+const slash = (p) => String(p).replaceAll('\\', '/');
 const creds = (args, o) => runCli((a, x) => ws.main(a, x), ['credentials', ...args], o);
 
 /** A world with a version-2 map, a credentials folder (700) holding a marked file, and a stand-in ssh. */
@@ -45,7 +51,7 @@ async function world(tc, name) {
 
 const SPELLINGS = ['git@github-work:alex/credentials.git', 'ssh://git@ssh.github.com:443/alex/credentials.git', 'https://www.github.com/alex/credentials.git'];
 
-test('a public GitHub repository under another spelling (host alias, ssh.github.com, www) is refused by the command', async (tc) => {
+test('a public GitHub repository under another spelling (host alias, ssh.github.com, www) is refused by the command', SH_GH, async (tc) => {
   const w = await world(tc, 'cp-spell');
   const bare = w.bare('alex/credentials.git');
   fs.writeFileSync(path.join(w.server, 'alex', 'visibility.json'), JSON.stringify({ credentials: 'PUBLIC' }));
@@ -66,7 +72,7 @@ test('a public GitHub repository under another spelling (host alias, ssh.github.
   assert.equal(w.log(bare), 'Credentials');
 });
 
-test('the upkeep never pushes to a repository that is public on GitHub under a host alias', async (tc) => {
+test('the upkeep never pushes to a repository that is public on GitHub under a host alias', SH_GH, async (tc) => {
   const w = await world(tc, 'cp-upkeep');
   const bare = w.bare('alex/credentials.git');
   assert.equal((await creds(['--repo', gh('credentials')], typed('credentials'))).code, 0);
@@ -93,7 +99,7 @@ async function pushedWorld(tc, name) {
   w.change = () => fs.writeFileSync(path.join(w.creds, 'shop', `${NAME}.env`), `API_KEY=${VALUE}-${Date.now()}\n`);
   return w;
 }
-test('two push addresses, the other one first: the upkeep pushes to neither', async (tc) => {
+test('two push addresses, the other one first: the upkeep pushes to neither', SH_GH, async (tc) => {
   const w = await pushedWorld(tc, 'cp-two');
   w.sh(w.creds, 'config', '--add', 'remote.origin.pushurl', 'https://github.com/mallory/open.git');
   w.sh(w.creds, 'config', '--add', 'remote.origin.pushurl', gh('credentials'));
@@ -107,7 +113,7 @@ test('two push addresses, the other one first: the upkeep pushes to neither', as
   assert.equal(w.log(w.other), '');
 });
 
-test('a branch push remote: sync pushes the credentials to the map\'s address only', async (tc) => {
+test('a branch push remote: sync pushes the credentials to the map\'s address only', SH_GH, async (tc) => {
   const w = await pushedWorld(tc, 'cp-pushremote');
   w.sh(w.creds, 'remote', 'add', 'side', w.other);
   w.sh(w.creds, 'config', 'branch.main.pushRemote', 'side');
@@ -126,11 +132,11 @@ test('a branch push remote: sync pushes the credentials to the map\'s address on
   assert.equal(w.log(w.other), '');
 });
 
-test('a pushInsteadOf rule that sends the map\'s address elsewhere: not pushed', async (tc) => {
+test('a pushInsteadOf rule that sends the map\'s address elsewhere: not pushed', SH_GH, async (tc) => {
   const w = await pushedWorld(tc, 'cp-pushinstead');
   // https://github.com/alex/credentials.git is pushed to <server>/mallory/open.git; it is still fetched from alex's.
   fs.appendFileSync(w.env.GIT_CONFIG_GLOBAL, `[url "${String(path.join(w.server, 'mallory', 'open')).replaceAll('\\', '/')}"]\n\tpushInsteadOf = https://github.com/alex/credentials\n`);
-  assert.equal(w.sh(w.creds, 'remote', 'get-url', '--push', 'origin'), w.other, 'the rule really sends a push there');
+  assert.equal(slash(w.sh(w.creds, 'remote', 'get-url', '--push', 'origin')), slash(w.other), 'the rule really sends a push there');
   w.change();
   const u = await upkeepCredentials({ dir: w.ws });
   assert.match(u.needs.join(' '), /not pushed: .*a push from it would go to another address/);
@@ -142,18 +148,20 @@ test('a pushInsteadOf rule that sends the map\'s address elsewhere: not pushed',
 
 // The owner's own hooks (a global core.hooksPath, such as a secret scanner) never run on the credentials folder, and
 // git's own text about it (a hook's, the server's) never reaches the output, an activity line or a notification.
-test('a global hook that prints a staged name and value: it does not run, and nothing of the folder is said', async (tc) => {
+test('a global hook that prints a staged name and value: it does not run, and nothing of the folder is said', SH_GH, async (tc) => {
   const w = await world(tc, 'cp-hooks');
   w.bare('alex/credentials.git');
   const hooks = path.join(w.root, 'hooks');
   const ran = path.join(w.root, 'hook-ran');
   fs.mkdirSync(hooks);
+  // Paths with `/` (git's settings read a `\` as an escape); Git for Windows' sh says its folder as C:/… with `pwd -W`.
+  const fwd = (p) => String(p).replaceAll('\\', '/');
   for (const h of ['pre-commit', 'commit-msg', 'pre-push', 'reference-transaction', 'post-merge']) {
     // Only the credentials folder is watched: the stand-in server (a bare repository here, which reads the same global
     // settings) and the brain are other repositories, where the owner's hooks run as git runs them.
-    fs.writeFileSync(path.join(hooks, h), `#!/bin/sh\n[ "$(pwd)" = "${w.creds}" ] || exit 0\necho ${h} >> "${ran}"\necho "leak found in $(git diff --cached --name-only | head -1): $(git diff --cached | grep API_KEY | head -1)" >&2\nexit 1\n`, { mode: 0o755 });
+    fs.writeFileSync(path.join(hooks, h), `#!/bin/sh\n[ "$(pwd -W 2>/dev/null || pwd)" = "${fwd(w.creds)}" ] || exit 0\necho ${h} >> "${fwd(ran)}"\necho "leak found in $(git diff --cached --name-only | head -1): $(git diff --cached | grep API_KEY | head -1)" >&2\nexit 1\n`, { mode: 0o755 });
   }
-  fs.appendFileSync(w.env.GIT_CONFIG_GLOBAL, `[core]\n\thooksPath = ${hooks}\n`);
+  fs.appendFileSync(w.env.GIT_CONFIG_GLOBAL, `[core]\n\thooksPath = ${fwd(hooks)}\n`);
   const r = await creds(['--repo', gh('credentials')], typed('credentials'));
   assert.equal(r.code, 0, r.text);
   w.clean(r.text);
@@ -166,7 +174,7 @@ test('a global hook that prints a staged name and value: it does not run, and no
   assert.equal(fs.existsSync(ran), false, `a hook ran: ${fs.existsSync(ran) ? fs.readFileSync(ran, 'utf8') : ''}`);
 });
 
-test('git\'s own text of a failed push or fetch is never passed on: plain words only', async (tc) => {
+test('git\'s own text of a failed push or fetch is never passed on: plain words only', SH_GH, async (tc) => {
   const w = await world(tc, 'cp-words');
   w.bare('alex/credentials.git');
   assert.equal((await creds(['--repo', gh('credentials')], typed('credentials'))).code, 0);
@@ -194,7 +202,7 @@ test('git\'s own text of a failed push or fetch is never passed on: plain words 
 // public; the rule sends https://github.com/alex/ to mallory's.
 const toMallory = (w) => `[url "${String(w.server).replaceAll('\\', '/')}/mallory/"]\n\tinsteadOf = https://github.com/alex/\n`;
 
-test('an insteadOf rule that sends the address to a public repository of another owner: the command refuses it', async (tc) => {
+test('an insteadOf rule that sends the address to a public repository of another owner: the command refuses it', SH_GH, async (tc) => {
   const w = await world(tc, 'cp-io-cmd');
   const mine = w.bare('alex/credentials.git');
   const pub = w.bare('mallory/credentials.git');
@@ -214,7 +222,7 @@ test('an insteadOf rule that sends the address to a public repository of another
   assert.equal(readMap(w.ws).map.credentials, undefined);
 });
 
-test('an insteadOf rule to another owner, in git\'s global settings or the folder\'s own: the upkeep and sync push to neither', async (tc) => {
+test('an insteadOf rule to another owner, in git\'s global settings or the folder\'s own: the upkeep and sync push to neither', SH_GH, async (tc) => {
   const w = await world(tc, 'cp-io-upkeep');
   const mine = w.bare('alex/credentials.git');
   const pub = w.bare('mallory/credentials.git');
@@ -227,7 +235,7 @@ test('an insteadOf rule to another owner, in git\'s global settings or the folde
   ];
   for (const [where, add, remove] of rules) {
     add();
-    assert.equal(w.sh(w.creds, 'remote', 'get-url', '--push', 'origin'), path.join(w.server, 'mallory', 'credentials.git'), `${where}: the rule really sends a push there`);
+    assert.equal(slash(w.sh(w.creds, 'remote', 'get-url', '--push', 'origin')), slash(path.join(w.server, 'mallory', 'credentials.git')), `${where}: the rule really sends a push there`);
     fs.writeFileSync(path.join(w.creds, 'shop', `${NAME}.env`), `API_KEY=${VALUE}-${where}\n`);
     const u = await upkeepCredentials({ dir: w.ws });
     assert.match(u.needs.join(' '), /not pushed: .*is refused: git really reaches another repository/, `${where}: ${JSON.stringify(u)}`);
@@ -325,7 +333,7 @@ test('an address on another server: a rule that sends it to a third place is ref
   assert.deepEqual(await githubOf('gh:alex/credentials', noAlias, { reached: ['https://github.com/alex/credentials'] }), { full: 'alex/credentials' });
 });
 
-test('a rewrite rule given in the environment (GIT_CONFIG_COUNT) is seen by the check as by the push: the upkeep and sync push to neither', async (tc) => {
+test('a rewrite rule given in the environment (GIT_CONFIG_COUNT) is seen by the check as by the push: the upkeep and sync push to neither', SH_GH, async (tc) => {
   const w = await world(tc, 'cp-io-env');
   const mine = w.bare('alex/credentials.git');
   const pub = w.bare('mallory/credentials.git');
@@ -335,7 +343,7 @@ test('a rewrite rule given in the environment (GIT_CONFIG_COUNT) is seen by the 
   const off = () => { for (const k of Object.keys(rule)) delete process.env[k]; };
   tc.after(off);
   Object.assign(process.env, rule);
-  assert.equal(execFileSync('git', ['-C', w.creds, 'remote', 'get-url', '--push', 'origin'], { encoding: 'utf8' }).trim(), path.join(w.server, 'mallory', 'credentials.git'), 'the rule really sends a push there');
+  assert.equal(slash(execFileSync('git', ['-C', w.creds, 'remote', 'get-url', '--push', 'origin'], { encoding: 'utf8' }).trim()), slash(path.join(w.server, 'mallory', 'credentials.git')), 'the rule really sends a push there');
   fs.writeFileSync(path.join(w.creds, 'shop', `${NAME}.env`), `API_KEY=${VALUE}-env\n`);
   const u = await upkeepCredentials({ dir: w.ws });
   assert.match(u.needs.join(' '), /not pushed: .*is refused: git really reaches another repository/, JSON.stringify(u));
@@ -347,7 +355,7 @@ test('a rewrite rule given in the environment (GIT_CONFIG_COUNT) is seen by the 
   assert.equal(w.sh(mine, 'log', '--format=%s', 'main'), 'Credentials');
 });
 
-test('a remote that is pushed by a transport helper (remote.origin.vcs) is never pushed to', async (tc) => {
+test('a remote that is pushed by a transport helper (remote.origin.vcs) is never pushed to', SH_GH, async (tc) => {
   const w = await world(tc, 'cp-vcs');
   const mine = w.bare('alex/credentials.git');
   assert.equal((await creds(['--repo', gh('credentials')], typed('credentials'))).code, 0);

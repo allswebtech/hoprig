@@ -17,8 +17,14 @@ test('the hook never allows an act in or around an extra folder; elsewhere it an
     for (const d of [path.join(shop, 'build', 'a'), path.join(parts, 'build', 'a')]) fs.mkdirSync(d, { recursive: true });
     const ev = (cwd) => ({ hook_event_name: 'PermissionRequest', permission_mode: 'bypassPermissions', tool_name: 'Bash', cwd, tool_input: { command: 'rm -rf build/*/*' } });
     const facts = (cwd, extras) => ({ rules: () => [], places: () => ({ home: path.join(root, 'home'), workspace: path.join(root, 'ws'), projects: [path.join(root, 'ws', 'projects')], cwd, relative: true }), extras: () => extras });
-    assert.ok(hookAnswer(ev(shop), facts(shop, [])), 'without extra folders: allowed as before');
-    assert.ok(hookAnswer(ev(shop), facts(shop, [parts])), 'in its own folder: still allowed');
+    if (process.platform === 'win32') {
+      // The delete rule reads POSIX folders only (asking.mjs plainDelete): on Windows every delete waits for the owner.
+      assert.equal(hookAnswer(ev(shop), facts(shop, [])), null, 'Windows: a delete waits for the owner');
+      assert.equal(hookAnswer(ev(shop), facts(shop, [parts])), null, 'Windows: a delete waits for the owner');
+    } else {
+      assert.ok(hookAnswer(ev(shop), facts(shop, [])), 'without extra folders: allowed as before');
+      assert.ok(hookAnswer(ev(shop), facts(shop, [parts])), 'in its own folder: still allowed');
+    }
     assert.equal(hookAnswer(ev(parts), facts(parts, [parts])), null, 'in the extra folder: never');
     assert.equal(hookAnswer(ev(path.join(parts, 'build')), facts(path.join(parts, 'build'), [parts])), null, 'inside it: never');
     assert.equal(hookAnswer(ev(path.join(root, 'ws', 'kits')), facts(path.join(root, 'ws', 'kits'), [parts])), null, 'around it: never');

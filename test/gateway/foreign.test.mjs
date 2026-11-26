@@ -8,7 +8,6 @@ import path from 'node:path';
 import test from 'node:test';
 import { sandbox } from '../server/helpers.mjs';
 
-const POSIX = { skip: process.platform === 'win32' }; // the stand-in program is a script started by its "#!" line
 const box = sandbox('gateway-foreign');
 const { saveConfig } = await import('../../src/config.mjs');
 const { hashPassword } = await import('../../src/server/auth.mjs');
@@ -36,7 +35,7 @@ test.after(() => {
   box.cleanup();
 });
 
-test('another program on a defined gateway\'s port gets nothing through sharing or the router', POSIX, async () => {
+test('another program on a defined gateway\'s port gets nothing through sharing or the router', async () => {
   const r = await G.addDefinition({ id: 'relay', title: 'Relay', bin: prog, port: PORT });
   assert.equal(r.ok, true, r.error);
   const { findAddon } = await import('../../src/addons/index.mjs');

@@ -4,6 +4,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { stateDir } from '../paths.mjs';
+import { replaceFile } from '../replacefile.mjs';
 
 const file = () => path.join(stateDir(), 'addons-stopped.json');
 const read = () => {
@@ -19,7 +20,7 @@ const write = (d) => {
     fs.mkdirSync(stateDir(), { recursive: true });
     const tmp = `${file()}.${process.pid}.tmp`;
     fs.writeFileSync(tmp, JSON.stringify(d));
-    fs.renameSync(tmp, file());
+    replaceFile(tmp, file());
   } catch {
     /* never in the way of the stop or the start itself */
   }

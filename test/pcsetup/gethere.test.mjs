@@ -7,11 +7,11 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
-import { changes, gh, makeWorld, quietUi, snapshot } from './dryrun-fixture.mjs';
+import { changes, gh, keyOf, makeWorld, quietUi, snapshot } from './dryrun-fixture.mjs';
 
 const { getProject } = await import('../../src/pcsetup/getproject.mjs');
 const exists = (p) => fs.existsSync(p);
-const inside = (w, diff, dir) => diff.split('\n').filter((l) => l && l.split(' ')[1].startsWith(`${path.relative(w.root, dir)}/`));
+const inside = (w, diff, dir) => diff.split('\n').filter((l) => l && l.split(' ')[1].startsWith(`${keyOf(w, dir)}/`));
 
 async function world(tc, name) {
   const w = await makeWorld(name);

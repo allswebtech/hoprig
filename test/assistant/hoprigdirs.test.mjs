@@ -14,7 +14,8 @@ const base = path.join(process.env.TMPDIR || '/tmp', 'hoprigdirs-test');
 process.env.HOPRIG_CONFIG_DIR = path.join(base, 'config');
 process.env.HOPRIG_STATE_DIR = path.join(base, 'state');
 
-const under = (p, dirs) => dirs.some((d) => p === d || p.startsWith(`${d}/`));
+// With the separator of this computer's own paths (path.sep: a backslash on Windows).
+const under = (p, dirs) => dirs.some((d) => p === d || p.startsWith(`${d}${path.sep}`));
 
 test('hoprigOwnDirs covers every folder Hoprig keeps things in, the state sub-folders by one entry', () => {
   const dirs = hoprigOwnDirs();
@@ -38,7 +39,9 @@ test('a sudo write under each Hoprig folder is refused as hoprig-own, through bo
 });
 
 test('a sudo write that touches no Hoprig folder is not refused for that reason (it reaches the level path)', () => {
-  const line = `sudo tee ${path.join(base, 'elsewhere', 'x')}`;
+  // Quoted: on Windows a path with an unquoted backslash is refused (Bash would drop the backslashes and run it
+  // somewhere else), so the place is written as a person is told to write it there.
+  const line = `sudo tee '${path.join(base, 'elsewhere', 'x')}'`;
   assert.equal(adminRefusal(line, { hoprigDirs: hoprigOwnDirs() }), null);
   assert.ok(sudoArgv(line, { hoprigDirs: hoprigOwnDirs() }).argv, 'a plain admin write elsewhere is a runnable argv');
 });

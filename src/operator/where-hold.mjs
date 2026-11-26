@@ -10,6 +10,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { stateDir } from '../paths.mjs';
+import { replaceFile } from '../replacefile.mjs';
 
 export const CALM_MS = 10 * 60_000;
 export const HOLD_MAX_MS = 2 * 3600_000;
@@ -42,7 +43,7 @@ function write(h) {
   fs.mkdirSync(path.dirname(file()), { recursive: true });
   const tmp = `${file()}.${process.pid}.tmp`;
   fs.writeFileSync(tmp, JSON.stringify(h));
-  fs.renameSync(tmp, file());
+  replaceFile(tmp, file());
 }
 export const endElsewhere = () => fs.rmSync(file(), { force: true });
 

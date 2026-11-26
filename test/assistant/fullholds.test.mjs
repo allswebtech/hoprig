@@ -136,7 +136,7 @@ test('a program that only reads is not held for naming the home folder or a fold
   assert.ok(hers('sudo systemctl restart $UNIT'), 'restart is no reading, and the word cannot be told');
 });
 
-test('a delete as administrator that is plainly inside the session\'s own folder runs, as it does without sudo', () => {
+test('a delete as administrator that is plainly inside the session\'s own folder runs, as it does without sudo', { skip: process.platform === 'win32' ? 'the delete rule reads POSIX folders only; on Windows every delete waits for the owner' : false }, () => {
   for (const line of ['sudo rm -rf build', 'sudo rm -rf ./build/cache', 'sudo -n rm -f old.log', 'sudo rm -rf "build"']) assert.equal(hers(line), null, line);
   // Out of the folder, or in a form the plain reader does not know, it is his card.
   for (const line of ['sudo rm -rf ../other/dist', 'sudo -E rm -rf build', 'sudo  rm -rf build', 'sudo rm -rf $BUILD', 'sudo rm -rf .', 'sudo rm -rf build/../..', 'sudo env A=b rm -rf build']) assert.ok(hers(line), line);

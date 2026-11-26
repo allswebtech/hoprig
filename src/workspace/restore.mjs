@@ -23,7 +23,7 @@ import { finishProject } from '../pcsetup/project.mjs';
 import { findByAddress, gitReason, mvCommand } from '../pcsetup/getproject.mjs';
 import { cloneRepo, parseRepo, rememberDir } from '../pcsetup/projects.mjs';
 import { MANIFEST, readManifest, stamp } from '../pcsetup/workspace.mjs';
-import { capture, showCommand, stream } from '../setup/system.mjs';
+import { capture, showFileCommand, stream } from '../setup/system.mjs';
 import { loadConfig } from '../config.mjs';
 import { WORKTREE_WHY, isDir, isGitRepo, isLinkedWorktree, projectsIn, workspaceDir } from './layout.mjs';
 import { mapTargets, placeDir, placesOf, planGroupMemories } from './groups.mjs';
@@ -198,7 +198,7 @@ async function cloneCredentials(e, { ui, quiet, runner, env, at }) {
  * url, dest, action, why?, result? }], folders: [what the tree step made], notes }. `result` (after a real run):
  * cloned | here | failed: <git's reason> | skipped: <why> | left alone: <why>.
  */
-export async function restoreWorkspace(spec, { ui, dryRun = false, dir = workspaceDir(), projects: given = null, runner = stream, run = capture, withProjects = false } = {}) {
+export async function restoreWorkspace(spec, { ui, dryRun = false, dir = workspaceDir(), projects: given = null, runner = stream, run = capture, withProjects = false, platform = process.platform } = {}) {
   const repo = parseRepo(spec);
   if (!repo) throw fail(400, `"${String(spec).slice(0, 80)}" is not a git address of a brain (https or SSH, or owner/name on GitHub)`);
   const brainDir = path.join(dir, 'ai_brain');
@@ -211,7 +211,7 @@ export async function restoreWorkspace(spec, { ui, dryRun = false, dir = workspa
     brainHere = { action: 'clone' };
   }
   if (brainHere.action === 'different') {
-    throw fail(409, `${tilde(brainDir)} is there already and is not the brain at ${repo.url}: nothing was changed. Move it aside first (${showCommand(['mv', brainDir, `${brainDir}.old`])}) and run restore again.`);
+    throw fail(409, `${tilde(brainDir)} is there already and is not the brain at ${repo.url}: nothing was changed. Move it aside first (${showFileCommand('mv', [brainDir, `${brainDir}.old`], platform)}) and run restore again.`);
   }
   // Without a terminal git may not ask for a password, and ssh may not ask about a host key: it fails and says why.
   const quiet = !ui.interactive;

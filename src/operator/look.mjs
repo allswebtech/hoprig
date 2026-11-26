@@ -36,6 +36,7 @@ import { familyOf, pickTiers } from '../models/tiers.mjs';
 import { engineOwns } from '../mission/seam.mjs';
 import { PRICES, PRICES_READ, estimate } from './prices.mjs';
 import { clock, providerName } from './detect/util.mjs';
+import { replaceFile } from '../replacefile.mjs';
 
 /** The family a look's estimate is priced for when no provider is chosen yet. A decision never uses it (decide-store.mjs). */
 export const STRONGEST = 'opus';
@@ -179,7 +180,7 @@ export function lookStore({ dir = () => path.join(stateDir(), 'operator'), now =
     fs.mkdirSync(dir(), { recursive: true });
     const tmp = `${file()}.${process.pid}.tmp`;
     fs.writeFileSync(tmp, JSON.stringify(d));
-    fs.renameSync(tmp, file());
+    replaceFile(tmp, file());
   };
   const take = () => {
     try {
@@ -268,7 +269,7 @@ function writeFinding(f) {
   fs.mkdirSync(findingsDir(), { recursive: true, mode: 0o700 });
   const tmp = `${findingFile(f.item)}.${process.pid}.tmp`;
   fs.writeFileSync(tmp, `${JSON.stringify(f, null, 1)}\n`, { mode: 0o600 });
-  fs.renameSync(tmp, findingFile(f.item));
+  replaceFile(tmp, findingFile(f.item));
 }
 
 /**

@@ -12,6 +12,10 @@ export function gitWorld(name = 'ws-git') {
   fs.mkdirSync(server, { recursive: true });
   const gitcfg = path.join(root, 'gitconfig');
   fs.writeFileSync(gitcfg, `[user]\n\tname = Test Dev\n\temail = dev@example.invalid\n[init]\n\tdefaultBranch = main\n[commit]\n\tgpgsign = false\n[url "${String(server).replaceAll('\\', '/')}/"]\n\tinsteadOf = https://git.example.test/\n[protocol "file"]\n\tallow = always\n`);
+  // Git for Windows checks a committed link out as a plain file holding its target unless core.symlinks is on (Linux
+  // and macOS always make the link). These worlds are about the links a repository brings: on Windows git makes them
+  // as on the others (what such a file does instead is a test of its own: insidefile.test.mjs).
+  if (process.platform === 'win32') fs.appendFileSync(gitcfg, '[core]\n\tsymlinks = true\n');
   Object.assign(process.env, { GIT_CONFIG_GLOBAL: gitcfg, GIT_CONFIG_NOSYSTEM: '1', GIT_TERMINAL_PROMPT: '0' });
   delete process.env.HOPRIG_WORKSPACE_DIR;
   delete process.env.XDG_CONFIG_HOME;
@@ -73,6 +77,15 @@ export function gitWorld(name = 'ws-git') {
   };
   return { root, server, sh, url, bare, computer, commit, clone, cleanup: () => fs.rmSync(root, { recursive: true, force: true }) };
 }
+
+/**
+ * "The other computer" of a sync --with test is this one, reached through an ssh stand-in that runs the command here.
+ * Its folders as its ssh side reads them: that side is Git's sh, which on Windows names C:\x as /c/x (a computer
+ * synced with over SSH names its workspace by a plain absolute POSIX path). Elsewhere the path as it is.
+ */
+export const overSsh = (p) => (process.platform === 'win32' ? p.replace(/^([A-Za-z]):[\\/]/, (_, d) => `/${d.toLowerCase()}/`).replaceAll('\\', '/') : p);
+/** GIT_SSH_COMMAND naming a stand-in: git starts it through its sh, which reads a \ as an escape, so it is named with /. */
+export const sshCommand = (file) => String(file).replaceAll('\\', '/');
 
 /** A non-interactive setup ui that keeps what it says. */
 export async function quietUi() {

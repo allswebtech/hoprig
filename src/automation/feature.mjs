@@ -261,6 +261,9 @@ export function automationFeature(sctx, opts = {}) {
       // Work's runs that end by themselves (src/work/schedfeature.mjs), when the server has Work: `opts.work()` gives its hooks.
       const work = opts.work ? { alone: (s2, a) => opts.work().alone(s2, a), work: { itemRuns: () => opts.work().itemRuns(), startItem: (id) => opts.work().startItem(id), drain: () => opts.work().drain() } } : {};
       auto = createAutomation(opts.ctx || { ...serverAdapter(sctx, { chat: opts.chat, ...(opts.log ? { log: opts.log } : {}) }), ...work, ...(opts.now ? { now: opts.now } : {}), ...(opts.updateItems ? { updateItems: opts.updateItems } : {}), ...(opts.restarter ? { restarter: opts.restarter } : {}) });
+      // Work's runs that end by themselves switch their schedule off here (Windows: its coding tool may still run).
+      const api = auto.api;
+      if (opts.work) opts.work()?.setScheduleOff?.((id, why) => api.switchOff(id, why));
       if (opts.tick !== false) auto.start();
       return auto;
     },

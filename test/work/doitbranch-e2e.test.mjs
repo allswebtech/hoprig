@@ -109,7 +109,8 @@ test('the stand-in commits on work/<id> in a worktree; Accept leaves the branch,
   assert.ok(!end.answer.includes(t.root) && !end.answer.includes('work-trees'), end.answer);
   // The commit is on the branch, in the worktree under the state folder; the checkout is as it was.
   assert.equal(t.git(shop, 'log', '-1', '--format=%s', `work/${it.id}`), 'Add hello.txt');
-  const wt = t.git(shop, 'worktree', 'list', '--porcelain').split('\n').filter((l) => l.startsWith('worktree ')).map((l) => l.slice(9));
+  // Each as this system writes a path: git for Windows lists them with / (C:/Users/…).
+  const wt = t.git(shop, 'worktree', 'list', '--porcelain').split('\n').filter((l) => l.startsWith('worktree ')).map((l) => path.resolve(l.slice(9)));
   assert.ok(wt.some((d) => d.startsWith(fs.realpathSync(trees))), wt.join(', '));
   assert.deepEqual(repoTree(shop).files, before.files, 'no file of the checkout changed');
   assert.equal(repoTree(shop).head, before.head);

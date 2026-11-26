@@ -11,6 +11,10 @@ import path from 'node:path';
 import { test } from 'node:test';
 import { sandbox } from './helpers.mjs';
 
+// Hands-off is not offered on Windows (src/handsoff.mjs handsOffOffered): a test that switches it on or reads its
+// answer gets 409 or nothing there.
+const OFFERED = { skip: process.platform === 'win32' && 'Hands-off is not offered on Windows' };
+
 const box = sandbox('movecarry-callers');
 test.after(() => box.cleanup());
 process.env.HOPRIG_TERM_ID = 'pty-1'; // the records name the built-in terminal the stand-in backend lists
@@ -146,7 +150,7 @@ const CALLERS = [
 ];
 
 for (const [name, move, o] of CALLERS) {
-  test(`a move by ${name} carries the hour stop, the count, the hour's answers and the owner's Off`, async () => {
+  test(`a move by ${name} carries the hour stop, the count, the hour's answers and the owner's Off`, OFFERED, async () => {
     const from = 'work';
     const to = o.to || 'backup';
     const { runId, own } = session(from, { limit: o.limit ? { at: Date.now() - 60_000, error: 'rate_limit', text: "You've hit your usage limit" } : null });
@@ -169,7 +173,7 @@ for (const [name, move, o] of CALLERS) {
   });
 }
 
-test('the owner\'s On is carried as On; two moves in a row keep everything; no entry and no stops: nothing is written', async () => {
+test('the owner\'s On is carried as On; two moves in a row keep everything; no entry and no stops: nothing is written', OFFERED, async () => {
   const { runId, own } = session('work', { entry: { on: true } });
   config({}, runId, own);
   assert.equal((await call('POST', '/api/sessions/shop/switch', { profile: 'backup' })).status, 200);
@@ -222,7 +226,7 @@ test('offered:false (hidden): a move writes no config and the launch file is the
 // The edge: the old launcher is held until its coding tool ends, and its record is gone before the new launcher
 // starts. While it still runs, its tool's question is not answered (its count was read for the new run already); the
 // stops arrive all the same.
-test('the old tool, still running while the move waits for it, gets no answer; the stops arrive', async () => {
+test('the old tool, still running while the move waits for it, gets no answer; the stops arrive', OFFERED, async () => {
   const { runId, own } = session('work', { stops: false, entry: { on: true } });
   fs.writeFileSync(path.join(runsDir(), `${runId}.json`), JSON.stringify({ ...readRun(path.join(runsDir(), `${runId}.json`)), handsOffRow: 1, handsOffDone: DONE.slice(0, 1) }));
   config({}, runId, own);

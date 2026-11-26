@@ -17,6 +17,7 @@ import { cleanInput } from '../assistant/fence.mjs';
 import { stateDir, tilde } from '../paths.mjs';
 import { cleanText, pathsOf } from '../work/runs.mjs';
 import { projectsIn, workspaceDir } from '../workspace/layout.mjs';
+import { replaceFile } from '../replacefile.mjs';
 
 export const KINDS = Object.freeze(['declined', 'undo', 'sent-back', 'plan-changed', 'other-answer', 'hold-lifted']);
 export const ABOUT = Object.freeze(['rule', 'decision', 'skill', 'role']);
@@ -98,7 +99,7 @@ export function listCorrections(now = Date.now()) {
     try {
       const tmp = `${file()}.${process.pid}.tmp`;
       fs.writeFileSync(tmp, all.map((r) => `${JSON.stringify(r)}\n`).join(''), { mode: 0o600 });
-      fs.renameSync(tmp, file());
+      replaceFile(tmp, file());
     } catch {
       /* written again at the next read */
     }
@@ -157,7 +158,7 @@ function pruneEvidence(now) {
     if (!keep.length) return fs.rmSync(evidenceFile(), { force: true });
     const tmp = `${evidenceFile()}.${process.pid}.tmp`;
     fs.writeFileSync(tmp, keep.map((l) => `${l}\n`).join(''), { mode: 0o600 });
-    fs.renameSync(tmp, evidenceFile());
+    replaceFile(tmp, evidenceFile());
   } catch {
     /* again at the next read */
   }
@@ -198,6 +199,6 @@ export function writeEvidence(now = Date.now()) {
   fs.mkdirSync(path.dirname(evidenceFile()), { recursive: true, mode: 0o700 });
   const tmp = `${evidenceFile()}.${process.pid}.tmp`;
   fs.writeFileSync(tmp, lines.map((l) => `${JSON.stringify(l)}\n`).join(''), { mode: 0o600 });
-  fs.renameSync(tmp, evidenceFile());
+  replaceFile(tmp, evidenceFile());
   return { file: evidenceFile(), lines: lines.length, leftOut: all.length - lines.length };
 }

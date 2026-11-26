@@ -10,6 +10,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
 import { changes, dryWorld, snapshot } from '../pcsetup/dryrun-fixture.mjs';
+import { SHELL_STANDINS } from '../seal.mjs';
+
+// The stand-in gh (and ssh) of these tests are shell scripts: on Windows the runner starts them through sh.
+const SH_GH = SHELL_STANDINS;
 
 const { saveConfig } = await import('../../src/config.mjs');
 const { hashPassword } = await import('../../src/server/auth.mjs');
@@ -25,6 +29,9 @@ async function serve(w) {
   const app = createServer({ backend: { list: async () => [], capture: async () => '' }, watch: false, dashboardFile: false, tmuxSocket: `findweb-${process.pid}` });
   // The HTTP server only: the features' start (a tunnel to a joined hub) is not wanted here.
   await new Promise((r) => app.server.listen(0, '127.0.0.1', r));
+  // A whole-home snapshot between two requests takes seconds on Windows: longer than the server keeps an idle
+  // connection (5 s), and fetch's next request on the connection it closed then ends in ECONNRESET there.
+  app.server.keepAliveTimeout = 120_000;
   const { port } = app.server.address();
   saveConfig({ server: { port } });
   const origin = `http://127.0.0.1:${port}`;
@@ -50,7 +57,7 @@ const diff = (a, b) => changes(a, b).split('\n').filter((l) => l && !SIGNIN.test
 const OWN = /home\/\.local\/state\/hoprig\/(repo-locks|token-use\.json)/;
 const refusedDiff = (a, b) => diff(a, b).split('\n').filter((l) => l && !OWN.test(l)).join('\n');
 
-test('Add these to the map, the dry run: the entries that would go in, nothing cloned, nothing changed, and a seen id', async (tc) => {
+test('Add these to the map, the dry run: the entries that would go in, nothing cloned, nothing changed, and a seen id', SH_GH, async (tc) => {
   const w = await dryWorld(tc, 'findweb-dry', { find: true });
   const s = await serve(w);
   try {
@@ -71,7 +78,7 @@ test('Add these to the map, the dry run: the entries that would go in, nothing c
   }
 });
 
-test('Add these to the map, the yes: only the owner\'s own page, only the plan he saw; then exactly those entries, nothing cloned', async (tc) => {
+test('Add these to the map, the yes: only the owner\'s own page, only the plan he saw; then exactly those entries, nothing cloned', SH_GH, async (tc) => {
   const w = await dryWorld(tc, 'findweb-add', { find: true });
   const s = await serve(w);
   const { createToken } = await import('../../src/machines/tokens.mjs');
@@ -122,7 +129,7 @@ test('Add these to the map, the yes: only the owner\'s own page, only the plan h
   }
 });
 
-test('a plan that changed after the look is refused and writes nothing', async (tc) => {
+test('a plan that changed after the look is refused and writes nothing', SH_GH, async (tc) => {
   const w = await dryWorld(tc, 'findweb-stale', { find: true });
   const s = await serve(w);
   try {
@@ -140,7 +147,7 @@ test('a plan that changed after the look is refused and writes nothing', async (
   }
 });
 
-test('Take them out again: exactly the entries the add wrote, only those unchanged since; the map as it was before', async (tc) => {
+test('Take them out again: exactly the entries the add wrote, only those unchanged since; the map as it was before', SH_GH, async (tc) => {
   const w = await dryWorld(tc, 'findweb-undo', { find: true });
   const s = await serve(w);
   try {
@@ -175,7 +182,7 @@ test('Take them out again: exactly the entries the add wrote, only those unchang
   }
 });
 
-test('Get: the dry run says where it lands and changes nothing; the yes is a background job that clones it; a second start is refused', async (tc) => {
+test('Get: the dry run says where it lands and changes nothing; the yes is a background job that clones it; a second start is refused', SH_GH, async (tc) => {
   const w = await dryWorld(tc, 'findweb-get', { find: true });
   const s = await serve(w);
   try {
@@ -185,8 +192,10 @@ test('Get: the dry run says where it lands and changes nothing; the yes is a bac
     assert.equal(dry.json.folder, 'alpha-shop');
     assert.deepEqual(dry.json.code, ['shop-alpha-app', 'shop-alpha-web']);
     assert.deepEqual(dry.json.skipped, ['shop-alpha-old-api']);
-    assert.match(dry.json.into, /^~\/Workspace\/kits\/builds\/alpha-shop$/);
-    assert.match(dry.json.lines.join('\n'), /\(dry run\) would clone .*shop-alpha-project\.git into ~\/Workspace\/kits\/builds\/alpha-shop/);
+    // The place in this system's own form, the home written as ~ (~\Workspace\… on Windows).
+    const into = ['~', 'Workspace', 'kits', 'builds', 'alpha-shop'].join(path.sep);
+    assert.equal(dry.json.into, into);
+    assert.match(dry.json.lines.join('\n'), new RegExp(`\\(dry run\\) would clone .*shop-alpha-project\\.git into ${into.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`));
     assert.match(dry.json.seen, /^[0-9a-f]{64}$/);
     assert.equal(diff(before, snapshot(w)), '', 'the dry run changed nothing');
     for (const [body, headers, code] of [

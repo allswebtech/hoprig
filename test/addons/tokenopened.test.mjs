@@ -13,6 +13,10 @@ import { REPO } from '../machines/harness.mjs';
 import { sandbox } from '../server/helpers.mjs';
 import { sealed } from '../seal.mjs';
 
+// The stand-in cloudflared is a Node script with no extension, started by name through its #! line: Windows starts
+// only an .exe or .com by name, so a test that runs it is skipped there.
+const STANDIN = { skip: process.platform === 'win32' && 'the stand-in is started through its #! line' };
+
 const box = sandbox('tokenopened');
 const PIDS = path.join(box.root, 'pids.txt');
 test.after(() => {
@@ -108,7 +112,7 @@ const isOn = () => loadConfig().publicLink?.on === true;
 const linkState = async () => (await owner('/api/public-link')).json;
 const serviceState = () => readJson(path.join(path.dirname(quickStateFile()), 'public-link-service.json'));
 
-test('a token\'s changes are logged with its name; its revoke closes what it opened, and the owner\'s own stays', async () => {
+test('a token\'s changes are logged with its name; its revoke closes what it opened, and the owner\'s own stays', STANDIN, async () => {
   // The Custom address set up before (as Make it leaves it), turned on by the owner.
   fs.mkdirSync(path.join(fixedDir(), 'home', '.cloudflared'), { recursive: true });
   fs.writeFileSync(path.join(fixedDir(), 'home', '.cloudflared', 'cert.pem'), 'stand-in');
@@ -154,7 +158,7 @@ test('a token\'s changes are logged with its name; its revoke closes what it ope
   assert.equal(hubLines().length, 4);
 });
 
-test('every way of revoking turns off the link that token turned on; one the owner turned on survives a revoke', async () => {
+test('every way of revoking turns off the link that token turned on; one the owner turned on survives a revoke', STANDIN, async () => {
   const start = async (t) => {
     // The route an older hub uses: it maps onto the one switch (Temporary).
     assert.equal((await job(() => asHub(t.token, '/api/addons/public-link/start'))).ok, true);

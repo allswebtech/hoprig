@@ -41,7 +41,7 @@ test('the link pointed elsewhere between the sheet and the yes: 409, nothing sav
       return { status: r.status, json: await r.json().catch(() => null) };
     };
     const look = await post({ path: link, dryRun: true });
-    assert.equal(look.json.to, '~/disk2/shop-web');
+    assert.equal(look.json.to, path.join('~', 'disk2', 'shop-web'));
     assert.equal((await post({ path: link })).status, 400, 'a yes that names no place');
     // Pointed elsewhere while the sheet is open.
     fs.unlinkSync(link);
@@ -52,7 +52,7 @@ test('the link pointed elsewhere between the sheet and the yes: 409, nothing sav
     assert.deepEqual(myLinkEntries(), [], 'nothing saved');
     // Opened again, the sheet shows the new place; that yes saves it.
     const again = await post({ path: link, dryRun: true });
-    assert.equal(again.json.to, '~/.ssh-made-up');
+    assert.equal(again.json.to, path.join('~', '.ssh-made-up'));
     const ok = await post({ path: link, seen: again.json.seen });
     assert.equal(ok.status, 200);
     assert.deepEqual(myLinkEntries(), [{ path: link, to: other }]);

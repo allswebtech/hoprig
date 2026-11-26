@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
-import { gitWorld, quietUi } from './gitfix.mjs';
+import { gitWorld, overSsh, quietUi, sshCommand } from './gitfix.mjs';
 
 const w = gitWorld();
 test.after(() => w.cleanup());
@@ -244,13 +244,13 @@ test('sync --with another computer over SSH: pull only, the other side is never 
   const newA = w.commit(webA, 'only-on-a.md', 'not pushed to the server');
   const refsA = w.sh(webA, 'for-each-ref');
   B.use();
-  Object.assign(process.env, { GIT_SSH_COMMAND: fake, GIT_SSH_VARIANT: 'ssh' });
+  Object.assign(process.env, { GIT_SSH_COMMAND: sshCommand(fake), GIT_SSH_VARIANT: 'ssh' });
   try {
-    const info = { name: 'box2', target: 'alex@box2', dir: A.ws, projectsDir: A.projects };
+    const info = { name: 'box2', target: 'alex@box2', dir: overSsh(A.ws), projectsDir: overSsh(A.projects) };
     const refsB = w.sh(path.join(B.projects, 'shop', 'code', 'shop-web'), 'for-each-ref');
     const dry = await syncWith('box2', { info, dir: B.ws, projects: B.projects, dryRun: true });
     // A dry run fetches nothing from the other computer: its new commit is named, not counted.
-    assert.deepEqual(byLabel(dry, 'shop/code/shop-web').did, ["would get main's new commits from box2 (a dry run does not fetch, so they are not counted), and fast-forward if main is only behind"]);
+    assert.deepEqual(byLabel(dry, 'shop/code/shop-web').did, ["would get main's new commits from box2 (a dry run does not fetch, so they are not counted), and fast-forward if main is only behind"], JSON.stringify(byLabel(dry, 'shop/code/shop-web')));
     assert.equal(w.sh(path.join(B.projects, 'shop', 'code', 'shop-web'), 'for-each-ref'), refsB, 'no ref was written here');
     const r = await syncWith('box2', { info, dir: B.ws, projects: B.projects });
     assert.deepEqual(byLabel(r, 'shop/code/shop-web').did, ['got 1 from box2 (your 1 uncommitted change stays)']);
@@ -281,8 +281,8 @@ test('set: changes where the workspace and the projects folder are, moves nothin
   fs.mkdirSync(path.join(D.home, 'Workspace'), { recursive: true });
   const r = setPlaces({ dir: '~/Code', projects: '~/Code/projects' }, { home: D.home });
   assert.deepEqual(r.changed.map((c) => [c.what, c.toPath]), [['workspace folder', path.join(D.home, 'Code')], ['projects folder', path.join(D.home, 'Code', 'projects')]]);
-  const { showCommand } = await import('../../src/setup/system.mjs');
-  assert.deepEqual(r.moves, [showCommand(['mv', path.join(D.home, 'Workspace'), path.join(D.home, 'Code')])]);
+  const { showFileCommand } = await import('../../src/setup/system.mjs');
+  assert.deepEqual(r.moves, [showFileCommand('mv', [path.join(D.home, 'Workspace'), path.join(D.home, 'Code')])]);
   assert.ok(fs.existsSync(path.join(D.home, 'Workspace')), 'nothing was moved');
   const cfg = JSON.parse(fs.readFileSync(path.join(D.env.HOPRIG_CONFIG_DIR, 'config.json'), 'utf8'));
   assert.equal(cfg.workspaceDir, path.join(D.home, 'Code'));

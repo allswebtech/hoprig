@@ -58,7 +58,8 @@ test('Health shows the Windows lines of doctor: long paths in Windows and git, a
     if (argv[0] === 'reg') return { ok: true, stdout: `\r\n${K.LONGPATHS_KEY}\r\n    LongPathsEnabled    REG_DWORD    0x0\r\n`, stderr: '' };
     if (argv[0] === 'git' && argv[1] === 'config') return { ok: false, stdout: '', stderr: '' };
     if (argv[0] === 'powershell.exe') return { ok: true, stdout: 'S-1-5-32-544\r\n', stderr: '' };
-    if (argv[0] === 'whoami') return { ok: true, stdout: '"pc-example\\alex","S-1-5-21-1-2-3-1001"\r\n', stderr: '' };
+    // Windows' own whoami comes by its full path there (winowner.mjs whoamiBin).
+    if (/(^|[\\/])whoami(\.exe)?$/i.test(argv[0])) return { ok: true, stdout: '"pc-example\\alex","S-1-5-21-1-2-3-1001"\r\n', stderr: '' };
     return { ok: false, stdout: '', stderr: 'not here' };
   };
   const sys = K.sysInfo({ env, has: (c) => c === 'git' || !!which(c, env, process.platform), pm: null, platform: 'win32', exists: () => false, probe: async () => 0, running: async () => null, run });

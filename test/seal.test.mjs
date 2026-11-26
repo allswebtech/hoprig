@@ -122,7 +122,9 @@ test('a child given an environment with no PATH still finds the computer\'s ordi
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'seal-nopath-'));
   try {
     // { HOME } alone: the operating system would look in its default folders; the seal must not take those away.
-    for (const [cmd, args] of [['git', ['--version']], ['sh', ['-c', 'echo hi']]]) {
+    // On Windows git and sh are not in the system's own folders (Git for Windows lives under Program Files), cmd is.
+    const ordinary = process.platform === 'win32' ? [['cmd', ['/d', '/s', '/c', 'echo hi']]] : [['git', ['--version']], ['sh', ['-c', 'echo hi']]];
+    for (const [cmd, args] of ordinary) {
       const r = spawnSync(cmd, args, { env: { HOME: home }, encoding: 'utf8' });
       assert.equal(r.status, 0, `${cmd}: ${r.error || r.stderr}`);
     }
@@ -212,9 +214,13 @@ test('a link NAMED as a trapped program, kept in a temporary folder, run by its 
 test('trapAlong walks the whole chain of links, not only its end', () => {
   // The chain is given by hand (isOwn/readlink), so no link to the computer's own system is made. A test's area is
   // /own/*; a trapped name is `sudo` or `made-up`; everything else is an ordinary program.
-  const isOwn = (p) => p.startsWith(`${path.sep}own${path.sep}`);
+  // With either separator, and a drive in front: on Windows a hop is resolved to D:\own\… (path.resolve).
+  const isOwn = (p) => /^(?:[A-Za-z]:)?[\\/]own[\\/]/.test(p);
   const isTrap = (n) => n === 'sudo' || n === 'made-up';
-  const chain = (links) => (p) => { if (p in links) return links[p]; throw new Error('not a link'); };
+  const chain = (links) => {
+    const at = Object.fromEntries(Object.entries(links).map(([k, v]) => [path.resolve(k), v]));
+    return (p) => { const k = path.resolve(p); if (k in at) return at[k]; throw new Error('not a link'); };
+  };
   const along = (full, links) => trapAlong(full, { isOwn, isTrap, readlink: chain(links) });
   // Finding: a link whose own target has another name (made-up -> real-end): caught at the trapped hop, not its end.
   assert.equal(along('/own/other', { '/own/other': '/out/made-up', '/out/made-up': '/out/real-end' }), 'made-up');
@@ -266,8 +272,12 @@ test('a program a test names in HOPRIG_SEAL_REAL may be started by its full path
 test('systemAlong refuses a computer program by a full path, and allows the test\'s own and the allow list', () => {
   // The chain is given by hand (isOwn/readlink), so no link to the computer's own system is made. The test's area is
   // /own/*; everything else is the computer's.
-  const isOwn = (p) => p.startsWith(`${path.sep}own${path.sep}`);
-  const along = (full, links = {}) => systemAlong(full, { isOwn, readlink: (p) => { if (p in links) return links[p]; throw new Error('not a link'); } });
+  // With either separator, and a drive in front: on Windows a hop is resolved to D:\own\… (path.resolve).
+  const isOwn = (p) => /^(?:[A-Za-z]:)?[\\/]own[\\/]/.test(p);
+  const along = (full, links = {}) => {
+    const at = Object.fromEntries(Object.entries(links).map(([k, v]) => [path.resolve(k), v]));
+    return systemAlong(full, { isOwn, readlink: (p) => { const k = path.resolve(p); if (k in at) return at[k]; throw new Error('not a link'); } });
+  };
   // The computer's own programs, started by a full path: refused (the path itself is returned).
   assert.equal(along('/usr/lib/update-notifier/apt-check'), '/usr/lib/update-notifier/apt-check');
   assert.equal(along('/usr/sbin/mariadbd'), '/usr/sbin/mariadbd');
@@ -281,7 +291,7 @@ test('systemAlong refuses a computer program by a full path, and allows the test
   assert.equal(along('/own/tmp/mybin'), null);
   assert.equal(along('/own/a', { '/own/a': '/own/b' }), null);
   // A link the test keeps in its own area, pointing out to a computer program, is caught where it leaves.
-  assert.equal(along('/own/tmp/mylink', { '/own/tmp/mylink': '/usr/bin/df' }), '/usr/bin/df');
+  assert.equal(along('/own/tmp/mylink', { '/own/tmp/mylink': '/usr/bin/df' }), path.resolve('/usr/bin/df'));
 });
 
 test('the box\'s macOS sandbox may be started by its full path on macOS only, like bwrap', () => {
@@ -574,7 +584,7 @@ test('the runner builds the environment from a list of names let in, so a token 
   assert.equal(r.code, 0, r.out);
   const keys = JSON.parse(/ENVKEYS (\[.*\])/.exec(r.out)[1]);
   for (const k of Object.keys(leaks)) assert.ok(!keys.includes(k), `${k} reached a test process`);
-  assert.ok(keys.includes('PATH'), 'PATH is let in'); // a name a test needs is kept
+  assert.ok(keys.some((k) => k.toUpperCase() === 'PATH'), 'PATH is let in'); // a name a test needs is kept (Path on Windows)
 });
 
 // No test connects to a default port of the product (tools/seal-net.mjs). The proof never touches a real default
@@ -664,7 +674,7 @@ test('an npm debug log that appears in the real home during the run, naming the 
   try {
     const r = await runOn(path.join('test', 'fixtures', 'runner', 'writes-npm-log.mjs'), { HOME: home, USERPROFILE: home, SEAL_REAL_HOME: home, SEAL_WATCH_NPM_LOGS: '1' });
     assert.equal(r.code, 1, r.out);
-    assert.ok(r.out.includes(`NPM WROTE INTO THE REAL HOME: ${['test', 'fixtures', 'runner', 'writes-npm-log.mjs'].join('/')} (it made ${path.join(home, '.npm', '_logs', '2026-01-01T00_00_00_000Z-debug-0.log')})`), r.out);
+    assert.ok(r.out.includes(`NPM WROTE INTO THE REAL HOME: ${path.join('test', 'fixtures', 'runner', 'writes-npm-log.mjs')} (it made ${path.join(home, '.npm', '_logs', '2026-01-01T00_00_00_000Z-debug-0.log')})`), r.out);
   } finally {
     fs.rmSync(home, { recursive: true, force: true });
   }

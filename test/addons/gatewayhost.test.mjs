@@ -47,13 +47,13 @@ async function startedWith(host, reason) {
   return args;
 }
 
-test('on a server, and where the dashboard is this computer only: --host 127.0.0.1 in the start', { skip: process.platform === 'win32', timeout: 60_000 }, async () => {
+test('on a server, and where the dashboard is this computer only: --host 127.0.0.1 in the start', { timeout: 60_000 }, async () => {
   assert.equal(await startedWith(null, null), `--port ${port} --host 127.0.0.1`, 'the default dashboard: this computer only');
   assert.equal(await startedWith('127.0.0.1', SERVER), `--port ${port} --host 127.0.0.1`);
   assert.equal(await startedWith('0.0.0.0', SERVER), `--port ${port} --host 127.0.0.1`, 'a server whose dashboard is still open: never wider');
 });
 
-test('a home as the last version leaves it (dashboard open to the network): the gateway starts as before', { skip: process.platform === 'win32', timeout: 60_000 }, async () => {
+test('a home as the last version leaves it (dashboard open to the network): the gateway starts as before', { timeout: 60_000 }, async () => {
   for (const host of ['0.0.0.0', '::', '192.168.1.20']) assert.equal(await startedWith(host, null), `--port ${port}`, host);
 });
 
@@ -63,7 +63,7 @@ test('only a shipped definition\'s own words are added, and only safe ones', () 
   assert.deepEqual(hostArgs({ ...def, localOnly: ['--host', '127.0.0.1; rm'] }, { host: '127.0.0.1' }), []);
 });
 
-test('where the dashboard really listens decides, not only its settings: serve --host 0.0.0.0, HOST, and Tailscale', { skip: process.platform === 'win32', timeout: 60_000 }, async () => {
+test('where the dashboard really listens decides, not only its settings: serve --host 0.0.0.0, HOST, and Tailscale', { timeout: 60_000 }, async () => {
   const file = path.join(tmp, 'state', 'dashboard.json');
   fs.mkdirSync(path.dirname(file), { recursive: true });
   // A home: no host in the settings, the dashboard started with `hoprig serve --host 0.0.0.0` (Settings → Network says
@@ -92,13 +92,13 @@ test('where the dashboard really listens decides, not only its settings: serve -
 test('an owner\'s own gateway may name its localOnly words: used on a server; without them, a server says it cannot keep it local', async () => {
   const { checkDefinition } = await import('../../src/addons/gateways.mjs');
   const raw = { id: 'relay', title: 'Relay', bin: '/opt/relay/bin/relay', port: 23456, args: ['--listen-port', 'PORT'] };
-  const own = checkDefinition({ ...raw, localOnly: ['--bind', '127.0.0.1'] }, { cfg: { server: {} } });
+  const own = checkDefinition({ ...raw, localOnly: ['--bind', '127.0.0.1'] }, { cfg: { server: {} }, platform: 'linux' }); // a POSIX path: the rules of Linux
   assert.deepEqual(own.def.localOnly, ['--bind', '127.0.0.1'], own.error);
-  assert.match(checkDefinition({ ...raw, localOnly: ['--bind', '127.0.0.1; rm'] }, { cfg: { server: {} } }).error, /localOnly/);
+  assert.match(checkDefinition({ ...raw, localOnly: ['--bind', '127.0.0.1; rm'] }, { cfg: { server: {} }, platform: 'linux' }).error, /localOnly/);
   const kept = localGateway(own.def, { shipped: false, reason: () => SERVER });
   assert.deepEqual(kept.command(), ['/opt/relay/bin/relay', '--listen-port', '23456', '--bind', '127.0.0.1']);
   assert.equal(kept.keptLocal(), true);
-  const bare = localGateway(checkDefinition(raw, { cfg: { server: {} } }).def, { shipped: false, reason: () => SERVER });
+  const bare = localGateway(checkDefinition(raw, { cfg: { server: {} }, platform: 'linux' }).def, { shipped: false, reason: () => SERVER });
   assert.equal(bare.keptLocal(), false, 'nothing to pass: said, not guessed');
   assert.deepEqual(bare.command(), ['/opt/relay/bin/relay', '--listen-port', '23456']);
   assert.equal(localGateway(own.def, { shipped: false, reason: () => null }).keptLocal(), null, 'not a server: nothing to say');

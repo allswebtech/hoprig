@@ -4,6 +4,7 @@
 // <stateDir>/chat-folders.json; the newest FOLDERS_MAX folders.
 import fs from 'node:fs';
 import path from 'node:path';
+import { replaceFile } from '../replacefile.mjs';
 
 const FOLDERS_MAX = 200;
 const KEYS = ['engine', 'profile', 'permissionMode', 'model', 'effort', 'ultracode', 'lead'];
@@ -29,7 +30,7 @@ export function folderMemory(file) {
       fs.mkdirSync(path.dirname(file()), { recursive: true, mode: 0o700 });
       const tmp = `${file()}.${process.pid}.tmp`;
       fs.writeFileSync(tmp, JSON.stringify(out) + '\n', { mode: 0o600 });
-      fs.renameSync(tmp, file());
+      replaceFile(tmp, file());
     } catch {
       /* a full disk loses only this convenience */
     }

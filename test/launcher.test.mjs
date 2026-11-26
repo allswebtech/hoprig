@@ -4,6 +4,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { SHELL_STANDINS } from './seal.mjs';
 
 // Every location goes to a scratch folder BEFORE the modules read the environment.
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'hoprig-test-'));
@@ -36,8 +38,8 @@ test('a profile round-trips through its file, values intact, file private', () =
   assert.equal(p.prerun, 'proxy start --port 1234');
   assert.equal(p.kind, 'api');
   assert.deepEqual(p.env, env);
-  assert.equal(fs.statSync(path.join(profilesDir(), 'api.env')).mode & 0o777, 0o600);
-  assert.equal(fs.statSync(profilesDir()).mode & 0o777, 0o700);
+  if (process.platform !== 'win32') assert.equal(fs.statSync(path.join(profilesDir(), 'api.env')).mode & 0o777, 0o600);
+  if (process.platform !== 'win32') assert.equal(fs.statSync(profilesDir()).mode & 0o777, 0o700);
 });
 
 test('kinds: login, subscription, api', () => {
@@ -197,7 +199,7 @@ test('sessionsIn lists a folder\'s sessions newest first; sessionTitle finds the
 test('runs: created, updated, listed while the launcher lives, dropped when it is gone', () => {
   const { file, run } = R.createRun({ profile: 'api', cwd: '/w', carryArgs: ['--effort', 'high'] });
   assert.equal(run.status, 'starting');
-  assert.equal(fs.statSync(file).mode & 0o777, 0o600);
+  if (process.platform !== 'win32') assert.equal(fs.statSync(file).mode & 0o777, 0o600);
   const next = R.updateRun(file, { status: 'working', sessionId: '11111111-1111-4111-8111-111111111111' });
   assert.equal(next.status, 'working');
   assert.deepEqual(R.listRuns().map((r) => r.runId), [run.runId]);
@@ -236,7 +238,8 @@ test('`hoprig hook` writes the session id and state into the run file, silently'
 });
 
 test('launch: a fake Claude gets the profile environment, the arguments and the hook settings; the exit code comes back', () => {
-  const fake = path.join(tmp, 'fake-claude.mjs');
+  // No extension: a #!/usr/bin/env node file the test seal starts with Node on Windows too, as the system does here.
+  const fake = path.join(tmp, 'fake-claude');
   fs.writeFileSync(fake, `#!/usr/bin/env node
 import fs from 'node:fs';
 const settingsFile = process.argv[process.argv.indexOf('--settings') + 1];
@@ -248,7 +251,9 @@ process.exit(7);
   const outFile = path.join(tmp, 'fake-out.json');
   fs.mkdirSync(process.env.HOPRIG_CONFIG_DIR, { recursive: true });
   fs.writeFileSync(path.join(process.env.HOPRIG_CONFIG_DIR, 'config.json'), JSON.stringify({ claudeBin: fake, claudeArgs: ['--permission-mode', 'plan'] }));
-  P.writeProfile('api', { prerun: 'echo proxy is up; touch "$FAKE_OUT.pre"', env: { ANTHROPIC_BASE_URL: 'http://localhost:1234', ANTHROPIC_AUTH_TOKEN: 'tok' } });
+  // PRERUN runs in the system's shell: sh here, cmd.exe on Windows.
+  const prerun = process.platform === 'win32' ? 'echo proxy is up& type nul > "%FAKE_OUT%.pre"' : 'echo proxy is up; touch "$FAKE_OUT.pre"';
+  P.writeProfile('api', { prerun, env: { ANTHROPIC_BASE_URL: 'http://localhost:1234', ANTHROPIC_AUTH_TOKEN: 'tok' } });
   const r = spawnSync(process.execPath, [binFile(), 'api', '--effort', 'high', '-c'], {
     env: { ...process.env, FAKE_OUT: outFile, ANTHROPIC_API_KEY: 'from-shell', CLAUDE_CODE_OAUTH_TOKEN: 'from-shell' }, encoding: 'utf8',
   });
@@ -301,8 +306,8 @@ test('the start menu offers only providers that serve Claude Code, and never ano
   try {
     assert.deepEqual(M.menuProfiles().map((p) => p.name), ['api', 'sub', 'sub2']);
     assert.deepEqual(M.menuProfiles({ all: true }).map((p) => p.name), ['aa-cx', 'ab-oai', 'api', 'sub', 'sub2']);
-    const menu = path.join(path.dirname(new URL(import.meta.url).pathname), '..', 'src', 'menu.mjs');
-    const r = spawnSync(process.execPath, ['--input-type=module', '-e', `import { chooseProfile } from ${JSON.stringify(menu)}; console.log('CHOICE', JSON.stringify(await chooseProfile({ sessionChosen: true })));`],
+    const menu = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'src', 'menu.mjs');
+    const r = spawnSync(process.execPath, ['--input-type=module', '-e', `import { chooseProfile } from ${JSON.stringify(pathToFileURL(menu).href)}; console.log('CHOICE', JSON.stringify(await chooseProfile({ sessionChosen: true })));`],
       { env: process.env, encoding: 'utf8', input: '\n' });
     assert.equal(r.status, 0, r.stderr);
     assert.doesNotMatch(r.stdout, /aa-cx|ab-oai|Codex/);
@@ -325,8 +330,8 @@ test('the start menu with no provider for Claude Code: it adds the stored sign-i
   const dir = fs.mkdtempSync(path.join(tmp, 'menu-'));
   const env = { ...process.env, HOPRIG_PROFILES_DIR: dir, HOPRIG_STATE_DIR: path.join(dir, 'state') };
   fs.writeFileSync(path.join(dir, 'cx.env'), 'LABEL="Codex sign-in"\nSIGNIN=codex\n', { mode: 0o600 });
-  const menu = path.join(path.dirname(new URL(import.meta.url).pathname), '..', 'src', 'menu.mjs');
-  const choose = (input) => spawnSync(process.execPath, ['--input-type=module', '-e', `import { chooseProfile } from ${JSON.stringify(menu)}; console.log('CHOICE', JSON.stringify(await chooseProfile({ sessionChosen: true })));`],
+  const menu = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'src', 'menu.mjs');
+  const choose = (input) => spawnSync(process.execPath, ['--input-type=module', '-e', `import { chooseProfile } from ${JSON.stringify(pathToFileURL(menu).href)}; console.log('CHOICE', JSON.stringify(await chooseProfile({ sessionChosen: true })));`],
     { env, encoding: 'utf8', input });
   let r = choose('\n');
   assert.equal(r.status, 0, r.stderr);
@@ -477,7 +482,7 @@ test('usage: the status data Claude Code hands the status line is read back per 
   assert.equal(fs.existsSync(R.usageFile(file)), false);
 });
 
-test('the status line script saves the data and runs the user\'s own status line on the same input', { skip: process.platform === 'win32' }, () => {
+test('the status line script saves the data and runs the user\'s own status line on the same input', SHELL_STANDINS, () => {
   const { file } = R.createRun({ profile: 'sub', cwd: '/w' });
   const script = path.join(tmp, 'sl.sh');
   const input = JSON.stringify({ model: { display_name: 'X' }, rate_limits: { five_hour: { used_percentage: 5 } }, note: 'a\\b "q" $HOME' });
@@ -680,7 +685,7 @@ test('hooks: the kind of failure is kept; "waiting for your input" stays plain w
 
 test('hoprig add offers an OpenAI key (for OpenCode) and saves it as its kind; no Codex sign-in in this version', async () => {
   const { spawn } = await import('node:child_process');
-  const bin = path.join(path.dirname(new URL(import.meta.url).pathname), '..', 'bin', 'hoprig.mjs');
+  const bin = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'bin', 'hoprig.mjs');
   // Answers each prompt when it shows (a piped stdin: the secret is asked like any line).
   const run = (name, answers) => new Promise((resolve) => {
     const child = spawn(process.execPath, [bin, 'add', name], { env: { ...process.env, HOPRIG_WORKSPACE_DIR: path.join(tmp, 'ws') }, stdio: ['pipe', 'pipe', 'pipe'] });
@@ -708,7 +713,7 @@ test('hoprig add offers an OpenAI key (for OpenCode) and saves it as its kind; n
 });
 
 test('the command line does not offer Codex: "hoprig codex" is refused in one plain sentence, and the help does not list it', () => {
-  const bin = path.join(path.dirname(new URL(import.meta.url).pathname), '..', 'bin', 'hoprig.mjs');
+  const bin = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'bin', 'hoprig.mjs');
   const env = { ...process.env, HOPRIG_WORKSPACE_DIR: path.join(tmp, 'ws') };
   for (const args of [['codex'], ['codex', 'login', '--device-auth'], ['tools', 'install', 'codex'], ['tools', 'on', 'codex']]) {
     const r = spawnSync(process.execPath, [bin, ...args], { env, encoding: 'utf8' });
@@ -740,9 +745,9 @@ test('the conversation a launch names goes into its run record before Claude Cod
   removeRun(file);
 });
 
-test('a session the person ended (/exit, the exit keys) just ends; a limit, a sign-out or an error code gets the menu', { skip: process.platform === 'win32' }, async () => {
+test('a session the person ended (/exit, the exit keys) just ends; a limit, a sign-out or an error code gets the menu', async () => {
   // The stand-in Claude Code runs Hoprig's real hook program for each event, as Claude Code does, then exits.
-  const fake = path.join(tmp, 'fake-claude-end.mjs');
+  const fake = path.join(tmp, 'fake-claude-end'); // no extension: started through Node on Windows too
   fs.writeFileSync(fake, `#!/usr/bin/env node
 import { execSync } from 'node:child_process';
 import fs from 'node:fs';
@@ -831,7 +836,7 @@ test('endedBySelf: Claude Code\'s reason decides; a limit, a failure or an error
   assert.equal(L.endedBySelf({ endReason: 'prompt_input_exit' }, 130), false);
 });
 
-test('the launcher\'s own menu move carries Hands-off\'s stops and reuses the run id', { skip: process.platform === 'win32' }, async () => {
+test('the launcher\'s own menu move carries Hands-off\'s stops and reuses the run id', { skip: process.platform === 'win32' && 'Hands-off is not offered on Windows (src/handsoff.mjs handsOffOffered)' }, async () => {
   // When Claude Code exits and the owner picks another profile at the menu, the fresh run must keep the hour and loop
   // stops and the hour's answers, under the same run id (so the owner's own switch, kept under that id, stays). The
   // stand-in seeds the stops on the first provider only; the second run gets them only via the hand-over in launch().
@@ -886,7 +891,7 @@ process.exit(0);
   assert.deepEqual(beta.done, [{ at: 1, kind: 'question', text: 'x', because: 'recommended' }], 'the hour\'s answers are carried');
 });
 
-test('the launcher\'s own menu move keeps the run id of a run with no stops while Hands-off is offered', { skip: process.platform === 'win32' }, async () => {
+test('the launcher\'s own menu move keeps the run id of a run with no stops while Hands-off is offered', { skip: process.platform === 'win32' && 'Hands-off is not offered on Windows (src/handsoff.mjs handsOffOffered)' }, async () => {
   // The owner's own Off for the session sits under its run id. A run that never had a stop or an answer has nothing
   // to carry, but a new id would leave the session on the project's switch, which may be On.
   const fake = path.join(tmp, 'fake-claude-nostops.mjs');

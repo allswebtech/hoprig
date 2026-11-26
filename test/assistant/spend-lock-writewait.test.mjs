@@ -64,15 +64,18 @@ test('a lock dated far ahead (the clock was set back since it was made) is taken
   const lock = `${file}.lock`;
   fs.writeFileSync(lock, '');
   ago(lock, -120_000);
-  const l = new SpendLedger({ file });
+  // What the taker met at each step (spend.mjs trace), said on a failure.
+  const met = [];
+  const l = new SpendLedger({ file, trace: (st, w) => met.push(`${st} ${w}`) });
   const t0 = Date.now();
   l.spent(1, 'her own turn');
   const took = Date.now() - t0;
-  assert.ok(took < 500, `the write waited ${took} ms for a lock dated two minutes ahead`);
+  assert.ok(took < 500, `the write waited ${took} ms for a lock dated two minutes ahead; met: ${met.slice(-40).join(' | ')}`);
   assert.equal(fs.existsSync(lock), false, 'the lock dated ahead is still there');
   fs.writeFileSync(lock, '');
   ago(lock, -120_000);
-  assert.equal(l.take(5), null, 'take() refused while a lock dated two minutes ahead was there');
+  met.length = 0;
+  assert.equal(l.take(5), null, `take() refused while a lock dated two minutes ahead was there; met: ${met.slice(-40).join(' | ')}`);
   assert.equal(fs.existsSync(lock), false);
   // A few seconds ahead: a live holder on a disk whose clock runs a little ahead. Never taken over.
   fs.writeFileSync(lock, '');
@@ -152,4 +155,108 @@ test('a lock a live holder keeps fresh and never lets go: the write ends with an
   assert.ok(offset <= 120_000, `the write's clock ran ${offset / 1000} seconds`);
   assert.equal(fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : '', '', 'a line was written while the live holder had the lock');
   assert.equal(fs.existsSync(lock), true, 'the live holder\'s lock was removed');
+});
+
+// What was measured on Windows (test/zz-windiag-locks.test.mjs): a file just removed is gone at once, and making it
+// again works; but removing a file that another process touches at that moment is refused with EPERM now and then.
+const refuse = () => { throw Object.assign(new Error('EPERM: operation not permitted'), { code: 'EPERM' }); };
+
+test('Windows: a stale lock whose removal is refused a few times (another process touched it) is taken over, not answered busy', (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'spend-rm-refused-'));
+  const file = path.join(dir, 'spend.jsonl');
+  const lock = `${file}.lock`;
+  fs.writeFileSync(lock, '');
+  ago(lock, 60_000); // left by a dashboard that was killed inside it
+  const { rmSync } = fs;
+  t.after(() => {
+    fs.rmSync = rmSync;
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+  // Refused for longer than take()'s short wait for a lock another dashboard holds.
+  const refusedUntil = Date.now() + 400;
+  fs.rmSync = function (p, ...rest) {
+    if (p === lock && Date.now() < refusedUntil) refuse();
+    return rmSync.call(fs, p, ...rest);
+  };
+  const met = [];
+  assert.equal(new SpendLedger({ file, platform: 'win32', trace: (st, w) => met.push(`${st} ${w}`) }).take(5), null, met.join(' | '));
+  assert.ok(met.includes('break EPERM at the removal'), 'the refusal was met');
+  assert.equal(fs.existsSync(lock), false, 'and its own lock let go');
+  // Elsewhere an EPERM at that removal is an error, as before: never a wait.
+  fs.writeFileSync(lock, '');
+  ago(lock, 60_000);
+  fs.rmSync = function (p, ...rest) {
+    if (p === lock) refuse();
+    return rmSync.call(fs, p, ...rest);
+  };
+  assert.equal(new SpendLedger({ file, platform: 'linux' }).take(5), BUSY, 'not taken over, and no longer wait');
+});
+
+test('a stale lock removed on the last round of the wait is followed by this taker\'s own lock, not by "busy" and a lock nobody holds', (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'spend-last-round-'));
+  const file = path.join(dir, 'spend.jsonl');
+  const lock = `${file}.lock`;
+  fs.writeFileSync(lock, '');
+  ago(lock, 60_000);
+  const { rmSync } = fs;
+  t.after(() => {
+    fs.rmSync = rmSync;
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+  // The removal of the stale lock comes only after take()'s whole short wait (a slow computer): the round that removed
+  // it must still make the taker's own.
+  fs.rmSync = function (p, ...rest) {
+    if (p === lock) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 200);
+    return rmSync.call(fs, p, ...rest);
+  };
+  assert.equal(new SpendLedger({ file }).take(5), null, 'taken over on the round that removed it');
+  fs.rmSync = rmSync;
+  assert.equal(fs.existsSync(lock), false);
+});
+
+test('Windows: a holder whose removal of its own lock is refused a moment (another process looked at it) removes it then, never leaves it', (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'spend-release-'));
+  const file = path.join(dir, 'spend.jsonl');
+  const lock = `${file}.lock`;
+  const { rmSync } = fs;
+  t.after(() => {
+    fs.rmSync = rmSync;
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+  let refusals = 0;
+  fs.rmSync = function (p, ...rest) {
+    if (p === lock && refusals < 3) {
+      refusals++;
+      refuse();
+    }
+    return rmSync.call(fs, p, ...rest);
+  };
+  assert.equal(new SpendLedger({ file, platform: 'win32' }).take(5), null);
+  assert.equal(refusals, 3);
+  assert.equal(fs.existsSync(lock), false, 'its own lock is not left for the others to wait out as stale');
+});
+
+test('Windows: a make of the lock refused with EPERM a moment (between processes) is looked at again; elsewhere an error, as before', (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'spend-make-eperm-'));
+  const file = path.join(dir, 'spend.jsonl');
+  const { openSync } = fs;
+  t.after(() => {
+    fs.openSync = openSync;
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+  let refusals = 0;
+  fs.openSync = function (p, ...rest) {
+    if (p === `${file}.lock` && refusals < 3) {
+      refusals++;
+      refuse();
+    }
+    return openSync.call(fs, p, ...rest);
+  };
+  assert.equal(new SpendLedger({ file, platform: 'win32' }).take(5), null);
+  assert.equal(refusals, 3);
+  fs.openSync = function (p, ...rest) {
+    if (p === `${file}.lock`) refuse();
+    return openSync.call(fs, p, ...rest);
+  };
+  assert.throws(() => new SpendLedger({ file, platform: 'linux' }).spent(1, 'her own turn'), { code: 'EPERM' });
 });

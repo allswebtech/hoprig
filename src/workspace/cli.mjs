@@ -51,7 +51,8 @@ async function trackedBy(p) {
   let d = path.dirname(p);
   for (let i = 0; i < 8; i++) {
     const top = await gitRead(d, ['rev-parse', '--show-toplevel']);
-    const root = top.ok ? top.stdout.trim() : '';
+    // git writes the folder with / on Windows too (C:/Users/…): named in the system's own form, as every other path.
+    const root = top.ok && top.stdout.trim() ? path.resolve(top.stdout.trim()) : '';
     if (!root) return null;
     const r = await gitRead(root, ['ls-files', '--', path.relative(root, real)]);
     if (r.ok && r.stdout.trim()) return root;

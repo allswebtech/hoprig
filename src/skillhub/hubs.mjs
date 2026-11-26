@@ -12,6 +12,7 @@ import { oneLine, parseFrontMatter } from './frontmatter.mjs';
 import { LIMITS, safeRel } from './scan.mjs';
 import { fetchCommit, git, latestCommit, showFile } from './source.mjs';
 import { hubDir, listInstalled, safeName, scopeOf, sha256 } from './store.mjs';
+import { replaceFile } from '../replacefile.mjs';
 
 const FILE = fileURLToPath(new URL('./hubs.json', import.meta.url));
 const KEYS = new Set(['id', 'name', 'repo', 'url', 'folders', 'license', 'notice']);
@@ -80,7 +81,7 @@ const readJson = (f) => {
 const writeJson = (f, v) => {
   fs.mkdirSync(path.dirname(f), { recursive: true });
   fs.writeFileSync(`${f}.tmp`, JSON.stringify(v));
-  fs.renameSync(`${f}.tmp`, f);
+  replaceFile(`${f}.tmp`, f);
 };
 
 const clean = (s, max) => oneLine(String(s || '').replace(/[\x00-\x1f\x7f​-‏‪-‮⁠-⁤⁦-⁩﻿]/g, ' '), max);

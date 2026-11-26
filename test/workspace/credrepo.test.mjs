@@ -10,6 +10,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
 import { dryWorld, gh, runCli } from '../pcsetup/dryrun-fixture.mjs';
+import { SHELL_STANDINS } from '../seal.mjs';
+
+// The stand-in gh (and ssh) of these tests are shell scripts: on Windows the runner starts them through sh.
+const SH_GH = SHELL_STANDINS;
 
 const ws = await import('../../src/workspace/cli.mjs');
 const { readMap } = await import('../../src/workspace/map.mjs');
@@ -55,7 +59,7 @@ test('off by default: the folder is a local folder and the map names no reposito
   assert.equal(readMap(w.ws).map.credentials, undefined);
 });
 
-test('--repo to a private GitHub repository: dry run changes nothing; typed name pushes it and writes the map', async (tc) => {
+test('--repo to a private GitHub repository: dry run changes nothing; typed name pushes it and writes the map', SH_GH, async (tc) => {
   const w = await world(tc, 'cr-repo');
   w.bareRepo('alex/credentials.git');
   const d = await w.unchanged('credentials --repo --dry-run', () => creds(['--repo', gh('credentials'), '--dry-run']));
@@ -69,14 +73,14 @@ test('--repo to a private GitHub repository: dry run changes nothing; typed name
   assert.match(r.text, /Whoever can read that repository reads every key in it/);
   w.clean(r.text);
   assert.equal(readMap(w.ws).map.credentials.url, gh('credentials'));
-  assert.equal(mode(w.creds), 0o700);
+  if (process.platform !== 'win32') assert.equal(mode(w.creds), 0o700);
   assert.equal(w.sh(path.join(w.server, 'alex', 'credentials.git'), 'log', '--format=%s', 'main'), 'Credentials');
   // Run again: the folder is a repository with this remote and nothing to commit: only recorded.
   const again = await w.unchanged('credentials --repo again (dry run)', () => creds(['--repo', gh('credentials'), '--dry-run']));
   assert.doesNotMatch(again.text, /would push/);
 });
 
-test('the typed confirmation cannot be skipped: a wrong word, no terminal, a flag, piped --json', async (tc) => {
+test('the typed confirmation cannot be skipped: a wrong word, no terminal, a flag, piped --json', SH_GH, async (tc) => {
   const w = await world(tc, 'cr-typed');
   w.bareRepo('alex/credentials.git');
   const wrong = await w.unchanged('a wrong word', () => creds(['--repo', gh('credentials')], typed('yes')));
@@ -95,7 +99,7 @@ test('the typed confirmation cannot be skipped: a wrong word, no terminal, a fla
   assert.equal(yes.code, 1);
 });
 
-test('a public GitHub repository, gh not signed in, and an unexpected answer are refused with nothing changed', async (tc) => {
+test('a public GitHub repository, gh not signed in, and an unexpected answer are refused with nothing changed', SH_GH, async (tc) => {
   const w = await world(tc, 'cr-public');
   w.bareRepo('alex/credentials.git');
   fs.writeFileSync(path.join(w.server, 'alex', 'visibility.json'), JSON.stringify({ credentials: 'PUBLIC' }));
@@ -119,18 +123,29 @@ test('a public GitHub repository, gh not signed in, and an unexpected answer are
     w.use();
   }
   // gh missing altogether: a PATH that holds git only (never the computer's own gh, which a plain PATH could reach).
+  // Not on Windows: there the test seal answers every start of gh by its trap unless the program Node would start is
+  // a stand-in of the test's own (tools/test-seal.cjs windowsTrap), also where no folder of PATH holds a gh at all, so
+  // "gh is not on this computer" cannot be played by a PATH there (the seal is kept as it is: a reach must be named).
+  if (process.platform === 'win32') {
+    tc.diagnostic('the step "gh missing" is not run on Windows: the test seal answers gh there whatever PATH holds');
+    return;
+  }
   const onlyGit = path.join(w.tmp, '..', 'only-git');
   fs.mkdirSync(onlyGit, { recursive: true });
   const gitBin = execFileSync('git', ['--exec-path'], { encoding: 'utf8' }).trim();
   fs.symlinkSync(path.join(gitBin, 'git'), path.join(onlyGit, 'git'));
   await new Promise((r) => setTimeout(r, 20));
-  const noGh = await w.unchanged('gh missing', () => ((process.env.PATH = onlyGit), creds(['--repo', gh('credentials')], typed('credentials'))));
-  w.use();
+  let noGh;
+  try {
+    noGh = await w.unchanged('gh missing', () => ((process.env.PATH = onlyGit), creds(['--repo', gh('credentials')], typed('credentials'))));
+  } finally {
+    w.use(); // the PATH of a failed look must not stay for the tests after it
+  }
   assert.equal(noGh.code, 1);
   assert.match(noGh.text, /its visibility could not be asked: gh is not on this computer/);
 });
 
-test('a GitHub repository made public between the plan and the push is not pushed to, and the folder is as before', async (tc) => {
+test('a GitHub repository made public between the plan and the push is not pushed to, and the folder is as before', SH_GH, async (tc) => {
   const w = await world(tc, 'cr-flip');
   w.bareRepo('alex/credentials.git');
   // The answer that types the name also makes the repository public (as someone could on GitHub at that moment).
@@ -141,7 +156,7 @@ test('a GitHub repository made public between the plan and the push is not pushe
   assert.equal(fs.existsSync(path.join(w.creds, '.git')), false);
   assert.equal(w.sh(path.join(w.server, 'alex', 'credentials.git'), 'for-each-ref'), '', 'nothing pushed');
   assert.equal(readMap(w.ws).map.credentials, undefined);
-  assert.equal(mode(w.creds), 0o700);
+  if (process.platform !== 'win32') assert.equal(mode(w.creds), 0o700);
 });
 
 test('another server: the owner confirms it is private by typing; then it is pushed', async (tc) => {
@@ -156,7 +171,7 @@ test('another server: the owner confirms it is private by typing; then it is pus
   assert.equal(readMap(w.ws).map.credentials.url, url);
 });
 
-test('--github creates a private repository only (dry run first: nothing changes)', async (tc) => {
+test('--github creates a private repository only (dry run first: nothing changes)', SH_GH, async (tc) => {
   const w = await world(tc, 'cr-github');
   const d = await w.unchanged('credentials --github --dry-run', () => creds(['--github', '--dry-run']));
   assert.match(d.text, /would create the private repository alex\/credentials on GitHub \(gh repo create --private\)/);
@@ -166,10 +181,10 @@ test('--github creates a private repository only (dry run first: nothing changes
   w.clean(r.text);
   assert.equal(fs.readFileSync(path.join(w.server, 'created.log'), 'utf8'), 'alex/credentials --private\n');
   assert.equal(readMap(w.ws).map.credentials.url, 'https://github.com/alex/credentials.git');
-  assert.equal(mode(w.creds), 0o700);
+  if (process.platform !== 'win32') assert.equal(mode(w.creds), 0o700);
 });
 
-test('a folder with another remote, and a server with commits the folder lacks: refused, nothing changed', async (tc) => {
+test('a folder with another remote, and a server with commits the folder lacks: refused, nothing changed', SH_GH, async (tc) => {
   const w = await world(tc, 'cr-foreign');
   w.bareRepo('alex/credentials.git');
   const seed = path.join(w.root, 'seed', 'foreign');
@@ -197,7 +212,7 @@ test('a map of version 1 is refused with the hint', async (tc) => {
   assert.match(r.text, /hoprig workspace map --upgrade/);
 });
 
-test('a run killed after the remote was set and before the push: the next run pushes, never only records', async (tc) => {
+test('a run killed after the remote was set and before the push: the next run pushes, never only records', SH_GH, async (tc) => {
   const w = await world(tc, 'cr-killed');
   w.bareRepo('alex/credentials.git');
   // What such a run leaves: a repository with the commit and the remote, and nothing on the server.

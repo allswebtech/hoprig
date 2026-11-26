@@ -28,6 +28,9 @@ function paste(line) {
 }
 let n = 0;
 const nasty = () => path.join(root, `${++n}`, NASTY);
+// The mv and rm lines are pasted into a POSIX sh here: they are asked for as Linux and macOS print them (the PowerShell
+// lines Windows gets: test/workspace/pastewindows.test.mjs).
+const POSIX = 'linux';
 
 test('mv: workspace set, a brain in the way of restore, a provider file named like a command', async () => {
   const { setPlaces } = await import('../../src/workspace/places.mjs');
@@ -35,7 +38,7 @@ test('mv: workspace set, a brain in the way of restore, a provider file named li
   fs.mkdirSync(from, { recursive: true });
   fs.writeFileSync(path.join(from, 'mine.txt'), 'mine');
   const to = `${from}-new`;
-  const r = setPlaces({ projects: to }, { save: () => {}, load: () => ({ projectsDir: from }), remember: () => {} });
+  const r = setPlaces({ projects: to }, { save: () => {}, load: () => ({ projectsDir: from }), remember: () => {}, platform: POSIX });
   assert.equal(r.moves.length, 1, JSON.stringify(r));
   paste(r.moves[0]);
   assert.equal(fs.readFileSync(path.join(to, 'mine.txt'), 'utf8'), 'mine');
@@ -45,7 +48,7 @@ test('mv: workspace set, a brain in the way of restore, a provider file named li
   const ws = nasty();
   fs.mkdirSync(path.join(ws, 'ai_brain'), { recursive: true });
   fs.writeFileSync(path.join(ws, 'ai_brain', 'notes.md'), 'mine');
-  const e = await restoreWorkspace('https://github.com/alex/brain.git', { withProjects: true, ui: makeUi({ interactive: false, write: () => {} }), dir: ws }).catch((x) => x);
+  const e = await restoreWorkspace('https://github.com/alex/brain.git', { withProjects: true, ui: makeUi({ interactive: false, write: () => {} }), dir: ws, platform: POSIX }).catch((x) => x);
   const mv = /Move it aside first \((.*)\) and run restore again/.exec(e.message);
   assert.ok(mv, e.message);
   paste(mv[1]);
@@ -58,7 +61,7 @@ test('mv: workspace set, a brain in the way of restore, a provider file named li
   const before = process.env.HOPRIG_PROFILES_DIR;
   process.env.HOPRIG_PROFILES_DIR = profiles;
   try {
-    paste(profilesCheck([], ['codex']).fix);
+    paste(profilesCheck([], ['codex'], POSIX).fix);
   } finally {
     process.env.HOPRIG_PROFILES_DIR = before;
   }
@@ -73,7 +76,7 @@ test('rm: a memory link that points elsewhere', async () => {
   const link = path.join(base, 'projects', projectSlug(launch), 'memory');
   fs.mkdirSync(path.dirname(link), { recursive: true });
   fs.symlinkSync(path.join(root, 'elsewhere'), link);
-  const [p] = planMemoryPairs([{ launch, memory: path.join(root, 'mem') }], { base, fix: 'hoprig project link x' });
+  const [p] = planMemoryPairs([{ launch, memory: path.join(root, 'mem') }], { base, fix: 'hoprig project link x', platform: POSIX });
   assert.equal(p.action, 'conflict');
   assert.ok(p.fix.endsWith(' && hoprig project link x'), p.fix);
   paste(p.fix.slice(0, -' && hoprig project link x'.length));
@@ -113,26 +116,28 @@ test('chmod: the credentials folder other users can open', async () => {
   fs.chmodSync(cred, 0o755);
   const line = workspaceLine({ exists: true, short: 'ws', dir: ws, brain: { exists: true, git: true }, projects: [], folders: [{ id: 'credentials', rel: 'credentials', exists: true, warning: 'open' }] });
   paste(line.fix);
-  assert.equal(fs.statSync(cred).mode & 0o777, 0o700);
+  if (process.platform !== 'win32') assert.equal(fs.statSync(cred).mode & 0o777, 0o700);
 });
 
 test('cd: the retry of a dependency install, and the node-pty fix', async () => {
+  // Git's sh on Windows names the folder it is in by its own form (/tmp/…) unless pwd is asked for the Windows one.
+  const pwd = process.platform === 'win32' ? ['pwd', '-W'] : ['pwd'];
   const { runInstall } = await import('../../src/pcsetup/setup.mjs');
   const { makeUi } = await import('../../src/setup/ui.mjs');
   const dest = nasty();
   fs.mkdirSync(dest, { recursive: true });
   const lines = [];
-  await runInstall(makeUi({ interactive: false, write: (s) => lines.push(s) }), dest, { label: 'pwd', argv: ['pwd'] }, async () => ({ ok: false }));
+  await runInstall(makeUi({ interactive: false, write: (s) => lines.push(s) }), dest, { label: 'pwd', argv: pwd }, async () => ({ ok: false }));
   const retry = /retry: (.*)$/m.exec(lines.join(''));
   assert.ok(retry, lines.join(''));
-  assert.equal(paste(retry[1]).trim(), dest);
+  assert.equal(path.resolve(paste(retry[1]).trim()), dest);
 
   const { ptyFix } = await import('../../src/setup/checks.mjs');
   const app = nasty();
   fs.mkdirSync(app, { recursive: true });
   const fix = ptyFix({ platform: 'linux', has: () => true }, app, 'unbuilt');
   assert.ok(fix.endsWith(' && npm rebuild node-pty'), fix);
-  assert.equal(paste(`${fix.slice(0, -' && npm rebuild node-pty'.length)} && pwd`).trim(), app);
+  assert.equal(path.resolve(paste(`${fix.slice(0, -' && npm rebuild node-pty'.length)} && ${pwd.join(' ')}`).trim()), app);
 });
 
 test('git clone and hoprig project clone: the retry lines of a computer set-up from a recipe', async () => {

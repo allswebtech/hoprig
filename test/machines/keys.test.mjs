@@ -30,8 +30,8 @@ test('a key without a passphrase is kept in its own folder: folder 700, file 600
   const k = openssh('none');
   const file = keepKey('box2', k.text.replace(/\n/g, '\r\n'));
   assert.equal(file, path.join(box.config, 'ssh-keys', 'box2'));
-  assert.equal(fs.statSync(keysDir()).mode & 0o777, 0o700);
-  assert.equal(fs.statSync(file).mode & 0o777, 0o600);
+  if (process.platform !== 'win32') assert.equal(fs.statSync(keysDir()).mode & 0o777, 0o700);
+  if (process.platform !== 'win32') assert.equal(fs.statSync(file).mode & 0o777, 0o600);
   assert.equal(fs.readFileSync(file, 'utf8'), k.text, 'line ends made plain');
   assert.ok(hasKey('box2'));
   assert.deepEqual(fs.readdirSync(keysDir()), ['box2'], 'no temporary file is left');

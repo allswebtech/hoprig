@@ -17,9 +17,9 @@ const path = require('node:path');
  * no later test file repeats), the product's npm override, the made-up
  * trapped names and ports (only in the seal's own proofs), the programs a test asked to be the real ones
  * (HOPRIG_SEAL_REAL), and the run's own tmux folder, so a child given a fresh environment never asks the tmux
- * servers of the person's default folder.
+ * servers of the person's default folder, and on Windows the run's one PowerShell module cache (tools/test-plan.mjs).
  */
-const SEAL_VARS = ['HOPRIG_TEST_TRAPS', 'HOPRIG_TEST_FILE', 'HOPRIG_TEST_PID', 'HOPRIG_TEST_MARK', 'HOPRIG_NODE_NPM', 'HOPRIG_SEAL_EXTRA_TRAPS', 'HOPRIG_SEAL_EXTRA_PORTS', 'HOPRIG_SEAL_REAL', 'TMUX_TMPDIR'];
+const SEAL_VARS = ['HOPRIG_TEST_TRAPS', 'HOPRIG_TEST_FILE', 'HOPRIG_TEST_PID', 'HOPRIG_TEST_MARK', 'HOPRIG_NODE_NPM', 'HOPRIG_SEAL_EXTRA_TRAPS', 'HOPRIG_SEAL_EXTRA_PORTS', 'HOPRIG_SEAL_REAL', 'TMUX_TMPDIR', 'PSModuleAnalysisCachePath'];
 
 /**
  * The programs trapped whatever they are asked (`brew` and `port` were the first: a test once ran `brew install`).

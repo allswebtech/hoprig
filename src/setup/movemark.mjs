@@ -6,6 +6,7 @@
 // What the move did not make is never written over or taken away.
 import fs from 'node:fs';
 import path from 'node:path';
+import { replaceFile } from '../replacefile.mjs';
 
 /** The mark's file name in root's state folder (left behind by the copy: moveplan.mjs STATE_LEFT). */
 export const MARK_FILE = 'move-copy.json';
@@ -29,7 +30,7 @@ export function writeMark(stateDir, mark) {
   const file = path.join(stateDir, MARK_FILE);
   const tmp = `${file}.${process.pid}.tmp`;
   fs.writeFileSync(tmp, `${JSON.stringify(mark, null, 2)}\n`, { mode: 0o600 });
-  fs.renameSync(tmp, file);
+  replaceFile(tmp, file);
 }
 
 /**

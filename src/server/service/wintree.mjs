@@ -118,11 +118,19 @@ export function treeOf(snap, script, kept = new Set()) {
   return { members, why };
 }
 
-/** This process and the ones above it, in a table. */
-const selfAndAbove = (snap) => {
-  const out = new Set([process.pid, process.ppid]);
-  const seen = new Set([process.pid]);
-  for (let p = process.pid, i = 0; snap && i < 64; i++) {
+/**
+ * This process and the ones above it, in a table. `self`: this process's own pid and parent, the system's answer (a
+ * test hands in its own: a made-up table must never meet this process's real parent, which on a Windows runner was
+ * once the very number a test gave its made-up dashboard).
+ */
+const THIS = () => ({ pid: process.pid, ppid: process.ppid });
+// Only a whole answer replaces the system's: an empty, partial or wrong-typed one would leave this command unguarded.
+const whole = (n) => Number.isInteger(n) && n > 0;
+const selfAndAbove = (snap, given = THIS()) => {
+  const self = given && whole(given.pid) && whole(given.ppid) ? given : THIS();
+  const out = new Set([self.pid, self.ppid]);
+  const seen = new Set([self.pid]);
+  for (let p = self.pid, i = 0; snap && i < 64; i++) {
     const q = snap.procs.get(p)?.ppid;
     if (!Number.isInteger(q) || q <= 0 || seen.has(q)) break;
     seen.add(q);
@@ -137,8 +145,8 @@ const selfAndAbove = (snap) => {
  * command or above it (typed in one of its terminals, with or without a record). The serve's pid (else the member's),
  * or null. Ending that dashboard would end this command before the new one starts, so nothing may be ended then.
  */
-export function insideTree(snap, script, kept = keptPids()) {
-  const above = selfAndAbove(snap);
+export function insideTree(snap, script, kept = keptPids(), self = THIS()) {
+  const above = selfAndAbove(snap, self);
   const hit = treeOf(snap, script, kept).members.filter((p) => above.has(p.pid));
   if (!hit.length) return null;
   return (hit.find((p) => isHoprigServe(p.cmd)) || hit[0]).pid;
@@ -148,11 +156,11 @@ export function insideTree(snap, script, kept = keptPids()) {
  * After the old dashboard was ended: is its port free? If not, end the old tree (from `before`) and look again.
  * True when the port is free (or the system cannot tell); false after naming each holder that was not ended.
  */
-export async function clearPort({ port, before, run, me = null, script, kept = keptPids(), say = console.log, err = console.error, sleep, tries = 20 }) {
+export async function clearPort({ port, before, run, me = null, script, kept = keptPids(), say = console.log, err = console.error, sleep, tries = 20, self = THIS() }) {
   let snap = await readTree(port, run);
   if (!snap || !snap.held.length) return true;
   const { members, why } = treeOf(before, script, kept);
-  const above = new Set([...selfAndAbove(snap), ...selfAndAbove(before)]);
+  const above = new Set([...selfAndAbove(snap, self), ...selfAndAbove(before, self)]);
   const refused = new Map(why);
   const ended = new Set();
   const nameHolders = () => {

@@ -13,6 +13,7 @@ import path from 'node:path';
 import { MODELS } from '../config.mjs';
 import { withLock } from '../work/lock.mjs';
 import { hubDir } from './store.mjs';
+import { replaceFile } from '../replacefile.mjs';
 
 export const WEEK_MS = 7 * 24 * 3600_000;
 export const DRAFTS_PER_WEEK = 3;
@@ -44,7 +45,7 @@ function writeJson(n, value) {
   fs.mkdirSync(learnDir(), { recursive: true, mode: 0o700 });
   const tmp = file(`${n}.${process.pid}.tmp`);
   fs.writeFileSync(tmp, JSON.stringify(value), { mode: 0o600 });
-  fs.renameSync(tmp, file(n));
+  replaceFile(tmp, file(n));
 }
 
 const NAME_RE = /^[A-Za-z0-9][A-Za-z0-9._:/@+-]{0,119}$/; // a provider's name (as runs.mjs takes it)

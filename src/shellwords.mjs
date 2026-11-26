@@ -23,15 +23,16 @@ const BREAKS = ' \t\r\n;|&()<>';
 
 /**
  * @param {string} text  one command's text (operators such as ; | & and a redirection only part words here)
- * @param {{ home?: string|null }} [o]  the home folder a `~` or `$HOME` stands for (an absolute path)
+ * @param {{ home?: string|null, platform?: string }} [o]  the home folder a `~` or `$HOME` stands for (an absolute
+ *   path as `platform` names one: on Windows `C:\Users\alex` or `C:/Users/alex`; elsewhere it begins with `/`)
  * @returns {{ value: string, unsure: boolean, glob: boolean, fixed: string|null, vars: boolean, home: boolean }[]}
  *   `value` the word with what is certain filled in; `vars` it holds a `$` reference of any kind; `home` it was
  *   written with `~`, `$HOME` or `${HOME}`
  */
-export function shellWords(text, { home = null } = {}) {
+export function shellWords(text, { home = null, platform = process.platform } = {}) {
   const out = [];
   if (typeof text !== 'string') return out;
-  const homeOk = typeof home === 'string' && home.startsWith('/');
+  const homeOk = typeof home === 'string' && (platform === 'win32' ? /^(?:[A-Za-z]:)?[\\/]/.test(home) : home.startsWith('/'));
   let w = null;
   const begin = () => (w ||= { value: '', unsure: false, glob: false, fixed: null, vars: false, home: false });
   const end = () => {

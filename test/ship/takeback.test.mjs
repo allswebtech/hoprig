@@ -33,7 +33,7 @@ async function live(name) {
 test('after "live", a take-back compares the kept files with the picture from before', async () => {
   const j = await live('one');
   assert.equal(j.outcome, 'live', j.why);
-  assert.equal(fs.statSync(path.join(process.env.HOPRIG_STATE_DIR, 'ship', 'pictures', `${j.id}-1.json`)).mode & 0o777, 0o600, 'kept, for the owner only');
+  if (process.platform !== 'win32') assert.equal(fs.statSync(path.join(process.env.HOPRIG_STATE_DIR, 'ship', 'pictures', `${j.id}-1.json`)).mode & 0o777, 0o600, 'kept, for the owner only');
   write(cafe, { 'data/db.json': '{"orders":0}\n' });
   const b = await takeBack(cafe);
   assert.equal(b.outcome, 'taken-back', b.why);

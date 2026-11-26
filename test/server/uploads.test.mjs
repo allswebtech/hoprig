@@ -18,7 +18,7 @@ test('a file lands in <cwd>/<uploads dir> under a clean, unique name', async () 
   assert.equal(path.dirname(r.path), path.join(fs.realpathSync(cwd), '.uploads'));
   assert.match(r.name, /^\d{8}-\d{6}-[0-9a-f]{4}-My_Shot\.png$/);
   assert.equal(fs.readFileSync(r.path, 'utf8'), 'PNGDATA');
-  assert.equal((fs.statSync(r.path).mode & 0o777).toString(8), '600');
+  if (process.platform !== 'win32') assert.equal((fs.statSync(r.path).mode & 0o777).toString(8), '600');
 });
 
 test('too large is refused and nothing is left behind', async () => {

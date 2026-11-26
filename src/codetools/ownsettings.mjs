@@ -12,6 +12,7 @@ import fs from 'node:fs';
 import net from 'node:net';
 import path from 'node:path';
 import { claudeDir } from '../paths.mjs';
+import { replaceFile } from '../replacefile.mjs';
 
 /** The address variable, and the key variables that belong to it (left alone, they would go to Anthropic's own API). */
 export const ADDRESS_VAR = 'ANTHROPIC_BASE_URL';
@@ -289,7 +290,7 @@ export function removeOwnEndpoint({ dir = claudeDir(), stamp, now = Date.now() }
     fs.chmodSync(backup, st.mode & 0o777);
     const tmp = `${file}.${process.pid}.tmp`;
     fs.writeFileSync(tmp, bom + out, { mode: st.mode & 0o777 });
-    fs.renameSync(tmp, file);
+    replaceFile(tmp, file);
   } catch (e) {
     return { ok: false, why: `The settings file could not be written (${e.code || e.message}); it is as it was.` };
   }
@@ -364,7 +365,7 @@ export function restoreBackup({ dir = claudeDir(), name, stamp, now = Date.now()
     const tmp = `${file}.${process.pid}.tmp`;
     fs.copyFileSync(backup, tmp);
     fs.chmodSync(tmp, (st ? st.mode : bst.mode) & 0o777);
-    fs.renameSync(tmp, file);
+    replaceFile(tmp, file);
   } catch (e) {
     return { ok: false, why: `The settings file could not be written (${e.code || e.message}); it is as it was.` };
   }

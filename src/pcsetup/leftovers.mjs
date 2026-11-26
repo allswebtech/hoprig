@@ -12,8 +12,8 @@ import path from 'node:path';
 import { gitRead } from '../gitread.mjs';
 import { stateDir } from '../paths.mjs';
 import { mkdirIn, removeIn, renameIn } from '../workspace/inside.mjs';
-import { alive, sameProcess, system } from '../procid.mjs';
-import { capture, showCommand } from '../setup/system.mjs';
+import { alive, freshAfter, sameProcess, startOf, system } from '../procid.mjs';
+import { capture, showCommand, showFileCommand } from '../setup/system.mjs';
 import { sameUrl, urlKey } from '../workspace/map.mjs';
 import { isLinkedWorktree } from '../workspace/layout.mjs';
 import { cleanRemote, parseRepo } from './projects.mjs';
@@ -74,7 +74,7 @@ export function lockOwner(text, mtimeMs, { ident = system, now = Date.now() } = 
   }
   const pid = rec && Number.isInteger(rec.pid) && rec.pid > 0 ? rec.pid : null;
   if (!pid || !alive(pid)) return { pid, running: false };
-  const same = typeof rec.proc === 'string' ? sameProcess(rec.proc, ident.of([pid]).get(pid)) : null;
+  const same = typeof rec.proc === 'string' ? sameProcess(rec.proc, ident.of([pid], { after: freshAfter(), born: startOf(rec.proc) }).get(pid)) : null; // a fresh identity (procid.mjs freshAfter)
   return { pid, running: same !== null ? same : now - mtimeMs < LOCK_MAX_AGE };
 }
 
@@ -94,7 +94,7 @@ export function legacyOwner(text, { ident = system } = {}) {
   if (Number.isInteger(rec) && rec > 0) return { pid: rec, running: false }; // the first locks were the bare process number
   if (!rec || typeof rec !== 'object' || Array.isArray(rec) || Object.keys(rec).some((k) => !['pid', 'proc', 'id'].includes(k))) return null;
   if (!Number.isInteger(rec.pid) || rec.pid <= 0 || (rec.proc !== undefined && rec.proc !== null && typeof rec.proc !== 'string')) return null;
-  const running = typeof rec.proc === 'string' && alive(rec.pid) && sameProcess(rec.proc, ident.of([rec.pid]).get(rec.pid)) === true;
+  const running = typeof rec.proc === 'string' && alive(rec.pid) && sameProcess(rec.proc, ident.of([rec.pid], { after: freshAfter(), born: startOf(rec.proc) }).get(rec.pid)) === true;
   return { pid: rec.pid, running };
 }
 
@@ -122,22 +122,34 @@ function writeBeside(file, text) {
  * `file` made with `text` only when nothing is there: a hard link to a file already written, so that no run reads it
  * half written; an exclusive create where the file system has no hard links. → true, or false when something is there.
  */
-function createWith(file, text) {
+function createWith(file, text, platform = process.platform, tr = null) {
+  // Windows: a name whose removal is not through yet (another program, a virus scan, still holds the file for a
+  // moment) refuses a new file with EPERM: something is there, as EEXIST says. The link's EPERM alone cannot tell that
+  // from a folder that refuses hard links, so there the exclusive create decides: EEXIST or EPERM when the name is
+  // held, a new lock where only links are refused (never "busy" for a folder nobody holds).
+  const taken = (e) => e.code === 'EEXIST' || (platform === 'win32' && e.code === 'EPERM');
   const tmp = writeBeside(file, text);
   try {
     fs.linkSync(tmp, file);
     return true;
   } catch (e) {
+    tr?.('link', e.code);
     if (e.code === 'EEXIST') return false;
     try {
       fs.writeFileSync(file, text, { flag: 'wx' });
       return true;
     } catch (e2) {
-      if (e2.code === 'EEXIST') return false;
+      tr?.('make', e2.code);
+      if (taken(e2)) return false;
       throw e2;
     }
   } finally {
-    fs.rmSync(tmp, { force: true });
+    // A removal refused (Windows: a file another process touches) must not turn a lock made into an error.
+    try {
+      fs.rmSync(tmp, { force: true });
+    } catch {
+      /* a file of its own name left beside the lock */
+    }
   }
 }
 
@@ -146,18 +158,37 @@ function createWith(file, text) {
  * the one that makes the claim (a file named after that text, made exclusively) may replace it, and only while the
  * lock still holds that text: a run that comes later finds another text and does not touch it. → true when replaced.
  */
-function replaceStale(file, seen, mine) {
+function replaceStale(file, seen, mine, tr = null, platform = process.platform) {
   return withClaim(file, seen, () => {
-    if (readLock(file) !== seen) return false;
+    if (readLock(file) !== seen) return tr?.('replace', 'changed'), false;
+    // Windows refuses a rename over a file another process has open (measured: EPERM every time, and the other run
+    // reads this very lock to judge it), so there the stale lock is removed and this run's made exclusively in its
+    // place. Only the claim's holder removes it, and only after reading it as `seen` (stale) under the claim; another
+    // run's fresh lock never has that text. A removal refused while the other run touches the file (EPERM, now and
+    // then) is tried again, briefly.
+    if (platform === 'win32') {
+      for (const end = Date.now() + 1000; ;) {
+        try {
+          fs.rmSync(file, { force: true });
+          break;
+        } catch (e) {
+          tr?.('remove', e.code);
+          if (e.code !== 'EPERM' || Date.now() > end) return false;
+          pause(5);
+        }
+      }
+      return createWith(file, mine, platform, tr);
+    }
     const tmp = writeBeside(file, mine);
     try {
       fs.renameSync(tmp, file);
       return true;
-    } catch {
+    } catch (e) {
+      tr?.('rename', e.code);
       fs.rmSync(tmp, { force: true });
       return false;
     }
-  });
+  }, tr);
 }
 
 /**
@@ -187,11 +218,12 @@ const isLink = (p) => {
 };
 
 /** `act()` while holding the claim for `seen` (a file named after it, made exclusively). → what act returned, or false. */
-function withClaim(file, seen, act) {
+function withClaim(file, seen, act, tr = null) {
   const claim = `${file}.take-${crypto.createHash('sha256').update(seen).digest('hex').slice(0, 12)}`;
   try {
     fs.writeFileSync(claim, '', { flag: 'wx' });
-  } catch {
+  } catch (e) {
+    tr?.('claim', e.code);
     try {
       if (Date.now() - fs.statSync(claim).mtimeMs > 60_000) fs.rmSync(claim, { force: true }); // left by a killed run
     } catch {
@@ -201,10 +233,15 @@ function withClaim(file, seen, act) {
   }
   try {
     return act();
-  } catch {
+  } catch (e) {
+    tr?.('act', e.code);
     return false; // gone meanwhile
   } finally {
-    fs.rmSync(claim, { force: true });
+    try {
+      fs.rmSync(claim, { force: true });
+    } catch {
+      /* left: removed by the next taker once it is a minute old (above), never this act's error */
+    }
   }
 }
 
@@ -232,7 +269,31 @@ const held = (file, mine) => ({
  * is checked again at each act here, from them down.
  * → { release } | { busy: { pid, file } }
  */
-export function takeLock(dir, r, { ident = system, ui = null, at = {} } = {}) {
+// Windows: how long the rounds of a take-over go on, at least, while a file of the lock is held a moment by another
+// program (a virus scan: a removed claim or lock refuses a new one, a replace is refused): ten rounds of 20 ms are
+// gone before such a file is let go, and two runs on one stale lock were both left busy.
+const WINDOWS_ROUNDS_MS = 3000;
+
+/**
+ * What a take-over met, for a test's failure message: `trace(step, what)` when given, or, for a run in a process of
+ * its own, a line per step appended to the file HOPRIG_LOCK_TRACE names (tests only). Nothing at all otherwise.
+ */
+function tracer(trace) {
+  if (trace) return trace;
+  const to = process.env.HOPRIG_LOCK_TRACE;
+  if (!to) return null;
+  const t0 = Date.now();
+  return (step, what) => {
+    try {
+      fs.appendFileSync(to, `${process.pid} +${Date.now() - t0}ms ${step} ${what ?? ''}\n`);
+    } catch {
+      /* a trace never stops a get */
+    }
+  };
+}
+
+export function takeLock(dir, r, { ident = system, ui = null, at = {}, platform = process.platform, trace = null } = {}) {
+  const tr = tracer(trace);
   const file = lockPathFor(dir, r);
   const mine = `${JSON.stringify({ pid: process.pid, proc: ident.self(), id: unique() })}\n`;
   const inPlace = { ...at, root: dir };
@@ -268,9 +329,10 @@ export function takeLock(dir, r, { ident = system, ui = null, at = {} } = {}) {
   } catch {
     return { release: () => {} }; // a state folder that cannot be written: one run at a time is not kept, the get goes on
   }
-  for (let i = 0; i < 10; i++) {
+  const until = platform === 'win32' ? Date.now() + WINDOWS_ROUNDS_MS : 0;
+  for (let i = 0; i < 10 || Date.now() < until; i++) {
     try {
-      if (createWith(file, mine)) return held(file, mine);
+      if (createWith(file, mine, platform, tr)) return tr?.('held', i), held(file, mine);
     } catch {
       return { release: () => {} }; // a folder that cannot be written: the clone says why
     }
@@ -284,22 +346,27 @@ export function takeLock(dir, r, { ident = system, ui = null, at = {} } = {}) {
         continue;
       }
       seen = readLock(file);
-    } catch {
-      continue; // gone meanwhile
+    } catch (e) {
+      tr?.('read', e.code);
+      pause(20); // gone meanwhile, or (Windows) its name still held a moment: looked at again in a moment
+      continue;
     }
     const owner = lockOwner(seen, st.mtimeMs, { ident });
+    tr?.('owner', `${owner.pid} running=${owner.running} age=${Math.round(Date.now() - st.mtimeMs)}ms`);
     if (owner.running) return { busy: { pid: owner.pid, file } };
-    if (replaceStale(file, seen, mine)) {
+    if (replaceStale(file, seen, mine, tr, platform)) {
       let back = null;
       try {
         back = readLock(file);
       } catch {
         /* gone */
       }
-      if (back === mine) return held(file, mine);
+      if (back === mine) return tr?.('held', `${i} by replace`), held(file, mine);
+      tr?.('replaced', 'but read back another');
     }
     pause(20); // another run is taking it over right now: its lock decides in the next round
   }
+  tr?.('busy', 'rounds over');
   return { busy: { pid: null, file } };
 }
 
@@ -373,7 +440,7 @@ export async function findLeftovers(dir, run = capture, { place = '' } = {}) {
     const exact = !aside && Boolean(url) && exactName(name, url);
     const complete = exact && (await completeClone(p, run));
     const getIt = showCommand(['hoprig', 'get', url, ...(place ? ['--in', place] : [])]); // the address comes from the clone's own settings
-    const fix = complete ? getIt : exact ? `${getIt}   (it moves this one aside and clones again)` : `look at it, then remove it:  ${showCommand(['rm', '-rf', p])}`;
+    const fix = complete ? getIt : exact ? `${getIt}   (it moves this one aside and clones again)` : `look at it, then remove it:  ${showFileCommand('rm -rf', [p])}`;
     out.push({ name, path: p, url, complete, aside, fix });
   }
   return out;

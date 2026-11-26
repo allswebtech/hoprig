@@ -57,10 +57,26 @@ const lstat = (p) => {
   try {
     return fs.lstatSync(p);
   } catch (e) {
+    if (e.code === 'ENOENT' && underFile(p)) throw Object.assign(new Error(`ENOTDIR: not a directory, lstat '${p}'`), { code: 'ENOTDIR', path: p });
     if (e.code === 'ENOENT') return null;
     throw e;
   }
 };
+
+/**
+ * Whether the nearest thing that is there on the way to `p` is a file. Windows answers ENOENT for a path through a
+ * file, where Linux and macOS answer ENOTDIR (and never ENOENT there): lstat says it as they do.
+ */
+function underFile(p) {
+  for (let at = path.dirname(p); path.dirname(at) !== at; at = path.dirname(at)) {
+    try {
+      return !fs.statSync(at).isDirectory();
+    } catch {
+      /* not there either: one up */
+    }
+  }
+  return false;
+}
 
 /** Hoprig's state folder, by the same rule as Hoprig's own (src/paths.mjs stateDir). */
 function hoprigStateDir() {

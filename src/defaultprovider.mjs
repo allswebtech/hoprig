@@ -19,6 +19,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { stateDir } from './paths.mjs';
+import { replaceFile } from './replacefile.mjs';
 
 const MAX = 100;
 const file = () => path.join(stateDir(), 'folder-providers.json');
@@ -65,7 +66,7 @@ export function rememberFolderProvider(cwd, profile, tool = 'claude') {
     fs.mkdirSync(stateDir(), { recursive: true, mode: 0o700 });
     const tmp = `${file()}.${process.pid}.tmp`;
     fs.writeFileSync(tmp, JSON.stringify(keep) + '\n', { mode: 0o600 });
-    fs.renameSync(tmp, file());
+    replaceFile(tmp, file());
   } catch {
     /* only a convenience */
   }

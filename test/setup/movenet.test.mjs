@@ -7,6 +7,9 @@ import path from 'node:path';
 import { test } from 'node:test';
 import { scratch } from './helpers.mjs';
 
+// The move to a user of its own is Linux only: root, user ids, runuser and systemd, with POSIX paths.
+const LINUX_ONLY = { skip: process.platform === 'win32' && 'the move to a user of its own is Linux only (root, chown by uid, POSIX paths)' };
+
 const s = scratch();
 test.after(s.cleanup);
 const N = await import('../../src/setup/movenet.mjs');
@@ -134,7 +137,7 @@ test("the go-on after a move that switched and went back: the network stop offer
   }
 });
 
-test("the command line and the page's job say the stop; the dry run and --json say in one line that the install needs the network", async () => {
+test("the command line and the page's job say the stop; the dry run and --json say in one line that the install needs the network", LINUX_ONLY, async () => {
   const low = { reachFetch: async () => { throw new Error('connect ENETUNREACH'); } };
   // The dry run: the line, after the steps.
   const out = [];
@@ -158,7 +161,7 @@ test("the command line and the page's job say the stop; the dry run and --json s
   assert.deepEqual(fs.readdirSync(dirs.state), [], 'no mark, no lock left: nothing of the move was written');
 });
 
-test('a server that goes out through a proxy: the look is not made (Node would not use it), said in one line, and the move goes on', async () => {
+test('a server that goes out through a proxy: the look is not made (Node would not use it), said in one line, and the move goes on', LINUX_ONLY, async () => {
   // The setting's name only, never its value (it may hold a password).
   assert.equal(N.proxyOf(path.join(s.tmp, 'no-such-home'), { env: { HTTPS_PROXY: 'http://alex:made-up-secret@proxy.example.com:3128' } }), 'HTTPS_PROXY');
   assert.equal(N.proxyOf(path.join(s.tmp, 'no-such-home'), { env: { http_proxy: 'http://proxy.example.com:3128' } }), 'http_proxy');
@@ -182,7 +185,7 @@ test('a server that goes out through a proxy: the look is not made (Node would n
   assert.doesNotMatch(out.join('\n'), /made-up-secret|proxy\.example\.com/);
 });
 
-test("a proxy only npm uses (~/.npmrc): the registry is not asked, every other host is, and one that cannot be reached stops the move", async () => {
+test("a proxy only npm uses (~/.npmrc): the registry is not asked, every other host is, and one that cannot be reached stops the move", LINUX_ONLY, async () => {
   const needs = N.networkNeeds(root);
   const proxy = 'https-proxy in ~/.npmrc';
   const plan = { user: { name: 'hoprig', uid: null, gid: null, home: '/home/hoprig' }, make: true, network: needs, proxy, dirs };

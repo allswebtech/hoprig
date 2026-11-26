@@ -322,11 +322,13 @@ test('macOS, a stale JAVA_HOME: the line names the Java that was found (its link
 function treeReader(files, links = {}) {
   const all = Object.keys(files).map((f) => `/p/${f}`);
   const dirs = new Set(['/p']);
-  for (const f of all) for (let d = path.dirname(f); d !== '/'; d = path.dirname(d)) dirs.add(d);
+  for (const f of all) for (let d = path.posix.dirname(f); d !== '/'; d = path.posix.dirname(d)) dirs.add(d);
+  // The product joins '/p' with the system's own path: on Windows that gives \p\shop, the same place as /p/shop here.
+  const slash = (p) => String(p).split(path.sep).join('/');
   return {
-    list: (dir) => [...new Set([...all, ...dirs].filter((p) => path.dirname(p) === dir && p !== dir).map((p) => path.basename(p)))],
-    kind: (p) => (links[p] ? 'none' : all.includes(p) ? 'file' : dirs.has(p) ? 'dir' : 'none'),
-    read: (p) => (all.includes(p) ? files[p.slice(3)] : null),
+    list: (d) => { const dir = slash(d); return [...new Set([...all, ...dirs].filter((p) => path.posix.dirname(p) === dir && p !== dir).map((p) => path.posix.basename(p)))]; },
+    kind: (q) => { const p = slash(q); return links[p] ? 'none' : all.includes(p) ? 'file' : dirs.has(p) ? 'dir' : 'none'; },
+    read: (q) => { const p = slash(q); return all.includes(p) ? files[p.slice(3)] : null; },
   };
 }
 

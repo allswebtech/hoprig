@@ -24,7 +24,7 @@ test('demo holds: each session record gets a hold file with the wall\'s matcher,
     assert.equal(sessionHasHold('r1'), true, 'after: the server lets its switch be turned on');
     assert.equal(sessionHasHold('c1'), false);
     const file = path.join(root, 'state', 'hook-settings', 'r1.json');
-    assert.equal(fs.statSync(file).mode & 0o777, 0o600, 'only the user reads it');
+    if (process.platform !== 'win32') assert.equal(fs.statSync(file).mode & 0o777, 0o600, 'only the user reads it');
     assert.deepEqual(await demoHolds(root), [], 'a session that has one is left as it is');
   } finally {
     if (was === undefined) delete process.env.HOPRIG_STATE_DIR;

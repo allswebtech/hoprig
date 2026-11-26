@@ -7,6 +7,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
 import { sandbox } from '../server/helpers.mjs';
+import { sealedPath } from '../seal.mjs';
 
 const box = sandbox('editor-search');
 test.after(() => box.cleanup());
@@ -42,7 +43,11 @@ execFileSync('git', ['add', 'src', 'docs'], { cwd: repo }); // tracked and untra
 const bin = path.join(box.root, 'bin');
 fs.mkdirSync(bin);
 fs.symlinkSync(which('git'), path.join(bin, 'git'));
-const noRg = { ...process.env, PATH: bin };
+// Windows starts no link named git without .exe: there the PATH is git's own folder (Git\cmd holds no ripgrep), and
+// the one PATH key (Windows names it Path) is this one.
+const noRg = process.platform === 'win32'
+  ? { ...Object.fromEntries(Object.entries(process.env).filter(([k]) => k.toUpperCase() !== 'PATH')), PATH: sealedPath([path.dirname(which('git'))]) }
+  : { ...process.env, PATH: bin };
 const engines = [...(which('rg') ? [['rg', repo]] : []), ['git', repo], ['walk', plain]];
 const found = (r) => r.matches.map((m) => `${m.path}:${m.line}:${m.col}`).sort();
 

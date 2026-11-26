@@ -8,7 +8,11 @@ import path from 'node:path';
 import test from 'node:test';
 import { tarOf, tarXzOf, zipOf } from './archives.mjs';
 import { FetchError } from '../../src/pcsetup/fetchkit.mjs';
-import { missingTools, runTool, unpackChecked, walkInside } from '../../src/pcsetup/unpack.mjs';
+import { checkTar, missingTools, runTool, tarCommand, unpackChecked, walkInside } from '../../src/pcsetup/unpack.mjs';
+
+// Windows: the product starts the system's own tar by its full path (unpack.mjs tarCommand), which the seal refuses
+// unless it is named here; elsewhere tar is started by its name and nothing is added.
+if (process.platform === 'win32') process.env.HOPRIG_SEAL_REAL = [process.env.HOPRIG_SEAL_REAL, 'tar'].filter(Boolean).join(','); // seal: the system's own tar unpacks the test's tiny archives, as it does for the kit
 
 const GOOD = [
   { name: 'flutter/', type: 'dir' },
@@ -35,8 +39,12 @@ test('a good .tar.xz and a good .zip unpack into their one top folder, links kep
     const top = await unpackChecked(file, kind, path.join(d, 'into'), 'flutter');
     assert.equal(top, path.join(d, 'into', 'flutter'));
     assert.equal(fs.readFileSync(path.join(top, 'version'), 'utf8'), '3.50.1\n');
-    assert.equal(fs.readlinkSync(path.join(top, 'bin', 'dart')), 'flutter');
-    assert.equal(fs.statSync(path.join(top, 'bin', 'flutter')).mode & 0o111, 0o111, `${kind}: the program stays a program`);
+    // Windows' tar and unzip write a link as a plain file where the account may not make links (a real Windows run:
+    // readlink of it said EINVAL); every other system keeps it a link, and so does Windows where it makes one.
+    const dart = path.join(top, 'bin', 'dart');
+    if (process.platform !== 'win32' || fs.lstatSync(dart).isSymbolicLink()) assert.equal(fs.readlinkSync(dart), 'flutter', kind);
+    else assert.ok(fs.lstatSync(dart).isFile(), `${kind}: the link is there as a file, inside its folder`);
+    if (process.platform !== 'win32') assert.equal(fs.statSync(path.join(top, 'bin', 'flutter')).mode & 0o111, 0o111, `${kind}: the program stays a program`);
   }
 });
 
@@ -107,6 +115,37 @@ test('a stop ends the unpacking program at once, and unpackChecked says it was s
   // The listing goes through; the stop comes while tar unpacks.
   const run = (argv, o) => (argv.includes('-x') ? (ac2.abort(), runTool(['sleep', '30'], o)) : runTool(argv, o));
   await assert.rejects(unpackChecked(file, 'tar.xz', path.join(d, 'into'), 'flutter', { run, signal: ac2.signal }), (e) => e instanceof FetchError && e.code === 'stopped');
+});
+
+test('a listing whose lines end with \\r\\n (Windows\' tar) is read as the same entries', async () => {
+  const names = ['flutter/', 'flutter/bin/dart', 'flutter/out'];
+  const long = ['drwxr-xr-x  0 dev dev       0 Jan  1  2026 flutter/', 'lrwxrwxrwx  0 dev dev       0 Jan  1  2026 flutter/bin/dart -> flutter', 'lrwxrwxrwx  0 dev dev       0 Jan  1  2026 flutter/out -> ../../..'];
+  // `tar -t -f` gives the names, `tar -t -v -f` the long lines: the first `n` of each, every line ended by \r\n.
+  const run = (n) => async (argv) => ({ ok: true, stdout: `${(argv.includes('-v') ? long : names).slice(0, n).join('\r\n')}\r\n`, stderr: '' });
+  assert.deepEqual(await checkTar('x.tar', 'flutter', run(2)), { entries: 2, bytes: 0 });
+  await assert.rejects(checkTar('x.tar', 'flutter', run(3)), /a link that points outside \(flutter\/out → \.\.\/\.\.\/\.\.\)/);
+});
+
+test('Windows: the system\'s own tar by its full path; without it a GNU tar is told the path is local; elsewhere tar', async () => {
+  const asked = [];
+  const run = (stdout) => async (argv) => (asked.push(argv.join(' ')), { ok: true, code: 0, stdout, stderr: '' });
+  const env = { SystemRoot: 'C:\\Windows', Path: 'C:\\Program Files\\Git\\usr\\bin;C:\\Windows\\System32' }; // seal: a made-up Windows PATH handed to a pure function
+  const own = 'C:\\Windows\\System32\\tar.exe';
+  assert.deepEqual(await tarCommand(run(''), { platform: 'win32', env, exists: (f) => f === own }), [own]);
+  assert.deepEqual(asked, [], 'the system\'s own tar: nothing asked');
+  assert.deepEqual(await tarCommand(run('tar (GNU tar) 1.35\n'), { platform: 'win32', env, exists: () => false }), ['tar', '--force-local']);
+  assert.deepEqual(await tarCommand(run('bsdtar 3.7.7 - libarchive 3.7.7\n'), { platform: 'win32', env, exists: () => false }), ['tar']);
+  assert.deepEqual(asked, ['tar --version', 'tar --version']);
+  for (const platform of ['linux', 'darwin']) assert.deepEqual(await tarCommand(async () => assert.fail('nothing asked'), { platform }), ['tar']);
+  // The words reach every start of the unpacking: the list, the long list and the unpacking itself.
+  const seen = [];
+  const lines = { '-t -f': 'flutter/\n', '-t -v -f': 'drwxr-xr-x  0 dev dev 0 Jan  1  2026 flutter/\n' };
+  await assert.rejects(unpackChecked('C:\\a.tar.xz', 'tar.xz', 'C:\\into', 'flutter', { tar: [own], free: () => null, run: async (argv) => {
+    seen.push(argv);
+    const key = argv.slice(1, -1).join(' ');
+    return argv.includes('-x') ? { ok: false, code: 2, stdout: '', stderr: 'made-up failure' } : { ok: true, code: 0, stdout: lines[key] || '', stderr: '' };
+  } }), /tar could not unpack it \(made-up failure\)/);
+  assert.deepEqual(seen.map((a) => a[0]), [own, own, own]);
 });
 
 test('a missing tar, xz or unzip is named', () => {

@@ -9,6 +9,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
 import { earlierIdentity, lstart, sandbox } from '../server/helpers.mjs';
+import { fileURLToPath } from 'node:url';
 
 const box = sandbox('owner');
 test.after(() => box.cleanup());
@@ -299,7 +300,7 @@ test('Continue here judges the record again right before its signal: nothing is 
 
 test('end to end on Linux: a launcher\'s record is its own, and after a hard kill its pid on another process does not hold it', { skip: process.platform !== 'linux' && 'the Linux readers' }, async (t) => {
   clear();
-  const FAKE = path.join(path.dirname(new URL(import.meta.url).pathname), '..', 'server', 'fixtures', 'fake-launcher.mjs');
+  const FAKE = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'server', 'fixtures', 'fake-launcher.mjs');
   const launcher = spawn(process.execPath, [FAKE, 'work'], { cwd: box.root, stdio: ['pipe', 'pipe', 'ignore'], env: { ...process.env } });
   t.after(() => launcher.kill('SIGKILL'));
   const deadline = Date.now() + 10_000;

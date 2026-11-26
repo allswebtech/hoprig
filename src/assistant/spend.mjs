@@ -139,6 +139,9 @@ const dayBefore = (from) => {
 const WAIT = new Int32Array(new SharedArrayBuffer(4));
 const LOCK_WAIT_MS = 150;
 const STALE_MS = 5000;
+// Windows: how much longer a stale lock whose removal was refused a moment (EPERM: another process touched it) is
+// waited for (#locked), and how long a holder tries again to remove its own: such a lock is nobody's.
+const PENDING_MS = 1000;
 // The most a write waits for the lock. A dead holder's lock is stale after STALE_MS. A live holder keeps its lock
 // fresh between the steps of its rewrite (#shrink) and gives it up when one step took more than half of STALE_MS, so
 // it never holds one lock for long. This end is reached only when a lock cannot be taken over at all (its folder
@@ -155,9 +158,12 @@ const money = (v) => `$${(Math.round(v * 100) / 100).toFixed(2)}`;
 
 export class SpendLedger {
   /** file: a path, or null to keep entries in memory only (tests). */
-  constructor({ file = spendFile(), now = Date.now } = {}) {
+  // `trace(step, what)`: what the lock met at each step, for a test's failure message (tests only; nothing otherwise).
+  constructor({ file = spendFile(), now = Date.now, platform = process.platform, trace = null } = {}) {
     this.file = file;
     this.now = now;
+    this.platform = platform;
+    this.trace = trace;
     this.memory = [];
   }
 
@@ -616,20 +622,35 @@ export class SpendLedger {
     const lock = `${this.file}.lock`;
     fs.mkdirSync(path.dirname(this.file), { recursive: true, mode: 0o700 });
     const until = Date.now() + wait;
+    let pending = false; // Windows: a stale lock's removal was refused a moment (below)
     for (;;) {
       let fd;
       try {
         fd = fs.openSync(lock, 'wx', 0o600);
       } catch (e) {
-        if (e.code !== 'EEXIST') throw e;
+        this.trace?.('make', e.code);
+        // Windows: a make refused with EPERM between processes (rare; the other has just removed or opened the name):
+        // something is there, as EEXIST says: looked at again, for up to PENDING_MS more. Elsewhere an error.
+        const refused = this.platform === 'win32' && e.code === 'EPERM';
+        if (e.code !== 'EEXIST' && !refused) throw e;
+        let broke = null;
         try {
           const seen = fs.statSync(lock);
-          if (stale(seen.mtimeMs)) this.#breakStale(lock, seen);
-        } catch {
+          this.trace?.('look', `age ${Math.round(Date.now() - seen.mtimeMs)}ms${stale(seen.mtimeMs) ? ' stale' : ''}`);
+          if (stale(seen.mtimeMs)) broke = this.#breakStale(lock, seen);
+        } catch (e2) {
+          this.trace?.('look', e2.code);
           /* gone meanwhile */
         }
-        const left = until - Date.now();
-        if (left <= 0) return undefined;
+        // The stale lock is gone: this taker makes its own at once, also when its wait has run out meanwhile (it was
+        // waiting for exactly this; an answer "busy" now would leave a lock nobody holds to nobody).
+        if (broke === 'removed') continue;
+        // Windows: removing a file another process touches at that moment is refused with EPERM now and then
+        // (measured: about 3 removals in 100 of two takers on one name). Nobody holds such a stale lock: it is waited
+        // for up to PENDING_MS more than a lock another dashboard holds, and the longer wait stays for this call.
+        if (broke === 'held' || refused) pending = true;
+        const left = (pending ? until + PENDING_MS : until) - Date.now();
+        if (left <= 0) return this.trace?.('busy', `waited ${Date.now() - (until - wait)}ms`), undefined;
         Atomics.wait(WAIT, 0, 0, Math.min(5, left));
         continue;
       }
@@ -671,12 +692,18 @@ export class SpendLedger {
       try {
         return fn(keep);
       } finally {
-        // Removed only while it is still this one: a lock taken over meanwhile is another's and stays.
-        try {
-          const now = fs.statSync(lock);
-          if (now.ino === mine.ino && now.dev === mine.dev && now.mtimeMs === at) fs.rmSync(lock, { force: true });
-        } catch {
-          /* gone already */
+        // Removed only while it is still this one: a lock taken over meanwhile is another's and stays. Windows: a
+        // removal another process's look refuses with EPERM is tried again for up to PENDING_MS, so this holder's own
+        // lock is not left behind for the others to wait out as stale.
+        for (const end = Date.now() + PENDING_MS; ;) {
+          try {
+            const now = fs.statSync(lock);
+            if (now.ino === mine.ino && now.dev === mine.dev && now.mtimeMs === at) fs.rmSync(lock, { force: true });
+            break;
+          } catch (e) {
+            if (!(this.platform === 'win32' && e.code === 'EPERM' && Date.now() < end)) break; // gone already
+            Atomics.wait(WAIT, 0, 0, 5);
+          }
         }
       }
     }
@@ -687,7 +714,7 @@ export class SpendLedger {
    * takers that both saw it stale could otherwise each remove it, the second removing the fresh lock the first had
    * made in its place. So one taker at a time breaks a lock (the file "<lock>.break", made with 'wx'), and only after
    * looking again that the lock is still the same file and still stale; a fresh lock that took its place (even on the
-   * same inode number) is left alone.
+   * same inode number) is left alone. → 'removed', 'held' (Windows: the removal was refused a moment), or null.
    */
   #breakStale(lock, seen) {
     const brk = `${lock}.break`;
@@ -695,6 +722,7 @@ export class SpendLedger {
     try {
       fd = fs.openSync(brk, 'wx', 0o600);
     } catch (e) {
+      this.trace?.('break', e.code);
       if (e.code !== 'EEXIST') throw e;
       // Held for a moment only: one this old is from a process that ended inside it.
       try {
@@ -702,16 +730,32 @@ export class SpendLedger {
       } catch {
         /* gone meanwhile */
       }
-      return;
+      return null;
     }
     fs.closeSync(fd);
     try {
       const now = fs.statSync(lock);
-      if (now.ino === seen.ino && now.dev === seen.dev && now.mtimeMs === seen.mtimeMs && stale(now.mtimeMs)) fs.rmSync(lock, { force: true });
-    } catch {
-      /* gone meanwhile */
+      const same = now.ino === seen.ino && now.dev === seen.dev && now.mtimeMs === seen.mtimeMs;
+      this.trace?.('break', same && stale(now.mtimeMs) ? 'remove' : `not the same file (ino ${now.ino === seen.ino}, mtime ${now.mtimeMs === seen.mtimeMs})`);
+      if (!(same && stale(now.mtimeMs))) return null;
+      try {
+        fs.rmSync(lock, { force: true });
+        return 'removed';
+      } catch (e) {
+        // Windows: refused while another process touches it (EPERM): nobody holds it, the caller waits ('held').
+        this.trace?.('break', `${e.code} at the removal`);
+        if (this.platform === 'win32' && e.code === 'EPERM') return 'held';
+        throw e;
+      }
+    } catch (e) {
+      this.trace?.('break', `${e.code} at the look`);
+      return null; // gone meanwhile
     } finally {
-      fs.rmSync(brk, { force: true });
+      try {
+        fs.rmSync(brk, { force: true });
+      } catch {
+        /* left: the next breaker removes it once it is stale (above), never this break's error */
+      }
     }
   }
 

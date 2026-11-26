@@ -256,7 +256,7 @@ test('the coding chat in the dashboard', { timeout: 120_000, skip: process.platf
   // the list of open chats is kept in a file of the state folder, 600, without secrets
   const { stateDir } = await import('../../src/paths.mjs');
   const kept = path.join(stateDir(), 'chats.json');
-  assert.equal((fs.statSync(kept).mode & 0o777).toString(8), '600');
+  if (process.platform !== 'win32') assert.equal((fs.statSync(kept).mode & 0o777).toString(8), '600');
   assert.ok(!fs.readFileSync(kept, 'utf8').includes('secret-of-the-test'));
   assert.equal(realProj.length > 0, true);
 });

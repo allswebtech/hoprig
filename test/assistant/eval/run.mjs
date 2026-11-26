@@ -125,7 +125,9 @@ async function runCase(c, o, i, attempt = 1, usd = CASE_USD) {
     engine.cleanup();
     dash.core.endTurn(conversation);
     await dash.close();
-    fs.rmSync(tokenDir, { recursive: true, force: true });
+    // On Windows a folder that is a running process's working folder cannot be removed: the engine (and the MCP
+    // server it started there) end a moment after they are stopped, so the removal tries again for a few seconds.
+    fs.rmSync(tokenDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
   const init = events.find((e) => e.kind === 'init');
   const r = {

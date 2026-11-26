@@ -11,6 +11,7 @@ import path from 'node:path';
 import { configDir } from '../paths.mjs';
 import { keyedOptions } from './hostkeys.mjs';
 import { machineName } from './names.mjs';
+import { replaceFile } from '../replacefile.mjs';
 
 export const keysDir = () => path.join(configDir(), 'ssh-keys');
 const MAX = 16 * 1024;
@@ -99,7 +100,7 @@ export function keepKey(name, raw) {
   const tmp = `${file}.${process.pid}.tmp`;
   fs.writeFileSync(tmp, text, { mode: 0o600 });
   fs.chmodSync(tmp, 0o600);
-  fs.renameSync(tmp, file);
+  replaceFile(tmp, file);
   return file;
 }
 

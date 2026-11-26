@@ -9,6 +9,8 @@ import { test } from 'node:test';
 import { ROOT, probeEnv } from '../../tools/build-skill.mjs';
 import { sealed, sealedPath } from '../seal.mjs';
 
+if (process.platform === 'win32') process.env.HOPRIG_SEAL_REAL = [process.env.HOPRIG_SEAL_REAL, 'whoami'].filter(Boolean).join(','); // seal: doctor in a child of its own reads who owns its folders and so this account's SID with the system's whoami by its full path; it only reads
+
 const SKILL = fs.readFileSync(path.join(ROOT, 'templates/skills/hoprig/SKILL.md'), 'utf8');
 const HOPRIG = path.join(ROOT, 'bin/hoprig.mjs');
 const NPX = path.join(ROOT, 'packages/hoprig-skill/bin/hoprig-skill.mjs');
@@ -27,9 +29,43 @@ function tempHome() {
   standIn('docker', 'case "$1" in --version) echo "Docker version 24.0.0, build abc0123";; *) exit 1;; esac');
   standIn('tmux', '[ "$1" = "-V" ] && echo "tmux 3.4" || exit 1');
   standIn('tailscale', 'exit 1');
-  const env = sealed({ ...probeEnv(home), PORT: '0', PATH: sealedPath([standIns, process.env.PATH]) });
+  // Windows: Hoprig finds tailscale by which(), where a name with an extension of PATHEXT wins over a bare file in any
+  // folder, so the runner's trap tailscale.cmd later on PATH would be taken over the bare stand-in: a .cmd of the
+  // test's own comes first. And the C++ tools are looked for under ProgramFiles(x86): here a folder of the test's own,
+  // which holds no Visual Studio installer.
+  if (process.platform === 'win32') fs.writeFileSync(path.join(standIns, 'tailscale.cmd'), '@exit /b 1\r\n');
+  const win = process.platform === 'win32' ? { 'ProgramFiles(x86)': path.join(standIns, 'no-program-files') } : {};
+  const env = sealed({ ...probeEnv(home), ...win, PORT: '0', PATH: sealedPath([standIns, process.env.PATH]) });
   const run = (bin, ...args) => spawnSync(process.execPath, [bin, ...args], { env, cwd: home, encoding: 'utf8', timeout: 60_000, input: '' });
-  return { home, run, done: () => [home, standIns].forEach((d) => fs.rmSync(d, { recursive: true, force: true })) };
+  return { home, run, done: () => [home, standIns].forEach(removeOwn) };
+}
+
+/**
+ * Remove a folder of the test's own. Every child it started was run with spawnSync, which returns once that child has
+ * ended: there is nothing of its own left to end by pid. Windows may still refuse a folder for a moment after a process
+ * that stood in it or held a file in it has gone (seen once, EPERM on the home): tried again within about 5 s. When it
+ * still fails, the error names what is left in it and, on Windows, the processes whose command line names it.
+ */
+function removeOwn(d) {
+  try {
+    fs.rmSync(d, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+  } catch (e) {
+    let left = [];
+    try {
+      left = fs.readdirSync(d, { recursive: true }).map(String);
+    } catch {
+      /* not readable either */
+    }
+    e.message += `\n  still in ${d}: ${left.join(', ') || '(no file)'}${process.platform === 'win32' ? `\n  processes that name it: ${namedBy(d) || '(none)'}` : ''}`;
+    throw e;
+  }
+}
+
+/** Windows: the processes whose command line holds `d` (WMI through .NET: no module, so no 17 s wait). */
+function namedBy(d) {
+  const script = `$d = '${d.replace(/'/g, "''")}'; foreach ($p in [System.Management.ManagementObjectSearcher]::new('SELECT ProcessId,Name,CommandLine FROM Win32_Process').Get()) { if (([string]$p['CommandLine']).Contains($d)) { [Console]::Out.WriteLine("$($p['ProcessId']) $($p['Name']): $($p['CommandLine'])") } }`;
+  const r = spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(script, 'utf16le').toString('base64')], { encoding: 'utf8', timeout: 30_000, windowsHide: true });
+  return String(r.stdout || '').trim().split(/\r?\n/).filter(Boolean).join('; ');
 }
 
 /** The sentence of SKILL.md that holds `needle`, joined over its line breaks. */
@@ -51,6 +87,8 @@ test('a copy from npx hoprig-skill is not updated by hop skills update, and the 
   assert.doesNotMatch(line, /newer versions, this one too\./);
 });
 
+const POWERSHELL_CACHE = /^AppData(\/Roaming|\/Local(\/Microsoft(\/Windows(\/PowerShell(\/ModuleAnalysisCache)?)?)?)?)?$/;
+
 test('what the skill lists under "Look first" changes nothing of the user\'s; the two that refresh files are named', () => {
   const look = /\*\*Look first\.\*\*([\s\S]*?)\n2\. /.exec(SKILL)[1];
   const commands = [...new Set([...look.matchAll(/`hop ([^`]+)`/g)].map((m) => m[1]))];
@@ -66,7 +104,9 @@ test('what the skill lists under "Look first" changes nothing of the user\'s; th
       if (['doctor', 'pc', 'skills'].includes(args[0])) args.push('--offline'); // no network in a test
       const r = t.run(HOPRIG, ...args);
       assert.equal(r.error, undefined, `hop ${c} ended by itself`);
-      const left = fs.readdirSync(t.home, { recursive: true }).map((p) => p.split(path.sep).join('/'));
+      // Windows: PowerShell (which Hoprig asks about processes there) makes its own module cache in a home that never
+      // had one; that file and its folders are the system's, not Hoprig's and not the user's.
+      const left = fs.readdirSync(t.home, { recursive: true }).map((p) => p.split(path.sep).join('/')).filter((p) => !(process.platform === 'win32' && POWERSHELL_CACHE.test(p)));
       assert.deepEqual(left.filter((p) => !OWN.test(p)), [], `hop ${c} wrote a file of the user's`);
       if (left.length) writers.push(c);
     } finally {

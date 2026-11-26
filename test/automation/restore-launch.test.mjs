@@ -4,6 +4,7 @@
 // launch file behind when they give up.
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import path from 'node:path';
 import test from 'node:test';
 import { sandbox } from '../server/helpers.mjs';
 
@@ -49,14 +50,15 @@ test('restore: a start writes a launch file; a conversation that still runs leav
   const at = argv.indexOf('--launch');
   assert.ok(at > 0, 'the typed line names a launch file');
   assert.deepEqual(argv.slice(0, at), [process.execPath, '/opt/hoprig/bin/hoprig.mjs'], 'and nothing else than the launcher');
-  assert.deepEqual(files(), [argv[at + 1].split('/').pop()], 'one launch file, for the launcher to take');
+  assert.deepEqual(files(), [path.basename(argv[at + 1])], 'one launch file, for the launcher to take');
   const held = JSON.parse(fs.readFileSync(argv[at + 1], 'utf8'));
   assert.equal(held.cwd, box.root);
   assert.ok(held.argv.includes(SID) && held.argv.includes('--model') && held.argv.includes('opus'), JSON.stringify(held.argv));
   assert.equal(entries.at(-1).outcome, 'ok');
 });
 
-test('restore: the launch file carries a reset hand (Hands-off offered), so the reopened run starts off', async () => {
+// Hands-off is not offered on Windows (src/handsoff.mjs handsOffOffered), so no hand is carried there.
+test('restore: the launch file carries a reset hand (Hands-off offered), so the reopened run starts off', { skip: process.platform === 'win32' && 'Hands-off is not offered on Windows' }, async () => {
   const { writeProfile } = await import('../../src/profiles.mjs');
   const { Deck } = await import('../../src/server/deck.mjs');
   const { serverAdapter } = await import('../../src/automation/feature.mjs');

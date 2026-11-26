@@ -39,7 +39,8 @@ function inside(p, roots, cwd, platform) {
   if (!p || /(^|[\\/])\.\.([\\/]|$)/.test(p)) return false;
   const norm = (x) => (platform === 'win32' ? x.toLowerCase() : x);
   const full = norm(isAbsolute(p) ? resolve(p) : resolve(cwd, p));
-  return roots.map(norm).some((r) => full === r || full.startsWith(r.endsWith(sep) ? r : r + sep));
+  // Each root by its full path too: on Windows a root written \tmp\run is D:\tmp\run, as the prefix is.
+  return roots.map((r) => norm(resolve(r))).some((r) => full === r || full.startsWith(r.endsWith(sep) ? r : r + sep));
 }
 
 const truthy = (v) => v !== undefined && !/^(false|0|)$/i.test(String(v).trim());
@@ -95,15 +96,22 @@ function nextNpm(path, trapDir, platform = process.platform) {
 export function makeTraps({ dir, log, roots, home = null, extra = [], platform = process.platform, node = process.execPath }) {
   mkdirSync(dir, { recursive: true });
   const realRoots = [...new Set(roots.flatMap((r) => { try { return [resolve(r), realpathSync(r)]; } catch { return [resolve(r)]; } }))];
+  // The POSIX trap: an sh script of the program's own name. On Windows too, beside the .cmd: a test's #!/bin/sh stand-in
+  // runs there through Git for Windows' sh (tools/test-seal.cjs windowsStandIn), and sh looks a bare name up as `name`
+  // and `name.exe`, never as `name.cmd`, so without it a trapped name called from inside such a stand-in would pass the
+  // traps by. Its log path is written with / there, which that sh reads as Windows does. Not proven on Windows: whether
+  // Git's bin\sh.exe puts its own usr\bin before that PATH, where its own ssh and scp would then come before their traps.
+  const shTrap = (name) => `#!/bin/sh\na=$(printf '%s' "$*" | tr '\\t\\n' '  ')\nprintf '%s\\t%s\\t%s\\n' ${sh(name)} "$a" "\${HOPRIG_TEST_FILE:-${UNKNOWN_FILE}}" >> ${sh(platform === 'win32' ? String(log).replace(/\\/g, '/') : log)}\necho ${sh(`${name}: stopped by the test runner: a test reached the real ${name}`)} >&2\nexit ${TRAP_EXIT}\n`;
   for (const name of [...TRAPPED, ...extra]) {
     if (platform === 'win32') writeFileSync(join(dir, `${name}.cmd`), `@echo ${name}\t%*\t%HOPRIG_TEST_FILE%>>"${log}"\r\n@echo ${name}: stopped by the test runner: a test reached the real ${name} 1>&2\r\n@exit /b ${TRAP_EXIT}\r\n`);
-    else writeFileSync(join(dir, name), `#!/bin/sh\na=$(printf '%s' "$*" | tr '\\t\\n' '  ')\nprintf '%s\\t%s\\t%s\\n' ${sh(name)} "$a" "\${HOPRIG_TEST_FILE:-${UNKNOWN_FILE}}" >> ${sh(log)}\necho ${sh(`${name}: stopped by the test runner: a test reached the real ${name}`)} >&2\nexit ${TRAP_EXIT}\n`, { mode: 0o755 });
+    writeFileSync(join(dir, name), shTrap(name), { mode: 0o755 });
   }
   const settings = join(dir, 'npm-trap.json');
   writeFileSync(settings, JSON.stringify({ log, roots: realRoots, dir, home }));
   const self = fileURLToPath(import.meta.url);
   if (platform === 'win32') writeFileSync(join(dir, 'npm.cmd'), `@"${node}" "${self}" "${settings}" %*\r\n@exit /b %ERRORLEVEL%\r\n`);
-  else writeFileSync(join(dir, 'npm'), `#!/bin/sh\nexec ${sh(node)} ${sh(self)} ${sh(settings)} "$@"\n`, { mode: 0o755 });
+  const fwd = (p) => (platform === 'win32' ? String(p).replace(/\\/g, '/') : p);
+  writeFileSync(join(dir, 'npm'), `#!/bin/sh\nexec ${sh(fwd(node))} ${sh(fwd(self))} ${sh(fwd(settings))} "$@"\n`, { mode: 0o755 });
   return dir;
 }
 

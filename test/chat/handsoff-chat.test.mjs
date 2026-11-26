@@ -37,6 +37,9 @@ function newChat(cfg = {}, o = {}) {
   const config = typeof cfg === 'function' ? cfg : () => (cfg.on === undefined ? {} : { handsOff: { offered: true, projects: { [cwd]: { on: cfg.on, version: cfg.version || V, note: cfg.note || '' } } } });
   return new Chat({ id: crypto.randomUUID(), cwd, profile: 'p', command: { command: process.execPath, args: [FAKE] }, resolveEnv: async () => ({ ...process.env }), handsOffConfig: config, ...o });
 }
+// Hands-off is not offered on Windows (src/handsoff.mjs handsOffOffered): a test that switches it on and waits for its
+// answer would wait its whole time limit there.
+const OFFERED = { skip: process.platform === 'win32' && 'Hands-off is not offered on Windows' };
 const call = (name, input) => `call ${Buffer.from(JSON.stringify({ name, input })).toString('base64')}`;
 const question = (q, labels) => call('AskUserQuestion', { questions: [{ question: q, header: 'Choice', multiSelect: false, options: labels.map((label) => ({ label, description: `About ${label}` })) }] });
 const REC = question('Which test runner should this project use?', ['node:test (Recommended)', 'vitest']);
@@ -82,10 +85,11 @@ test('offered:false (the owner hid the feature): a project and a session switch 
   assert.equal(given.length, 0, 'no answer given');
   // chatSwitch reads as off when Hands-off is not offered, even with the session switch on; on again once offered.
   assert.equal(HO.chatSwitch(chat, cfg, V).on, false);
-  assert.equal(HO.chatSwitch(chat, { handsOff: { offered: true, projects: cfg.handsOff.projects } }, V).on, true);
+  // Hands-off is not offered on Windows at all (handsOffOffered), so there it reads off even when offered.
+  if (process.platform !== 'win32') assert.equal(HO.chatSwitch(chat, { handsOff: { offered: true, projects: cfg.handsOff.projects } }, V).on, true);
 });
 
-test('on: the recommended option is given for the owner, shown in the chat and one line in Activity', async (t) => {
+test('on: the recommended option is given for the owner, shown in the chat and one line in Activity', OFFERED, async (t) => {
   const c = newChat({ on: true });
   t.after(() => c.stopAndWait());
   const before = activity().length;
@@ -101,7 +105,7 @@ test('on: the recommended option is given for the owner, shown in the chat and o
   assert.match(log[0].did, /answered "Which test runner should this project use\?" with "node:test \(Recommended\)" for you, because the tool recommended it/);
 });
 
-test('on: a question about a push waits for the owner even with a recommended option, and says why', async (t) => {
+test('on: a question about a push waits for the owner even with a recommended option, and says why', OFFERED, async (t) => {
   const c = newChat({ on: true });
   t.after(() => c.stopAndWait());
   await c.send(question('Should I push the branch to origin now?', ['Yes (Recommended)', 'No']));
@@ -111,7 +115,7 @@ test('on: a question about a push waits for the owner even with a recommended op
   assert.equal(of(c, 'handsoff').at(-1).waits, 'owner:push or merge');
 });
 
-test('on: no mark and no note waits; the note is given as the free-text answer', async (t) => {
+test('on: no mark and no note waits; the note is given as the free-text answer', OFFERED, async (t) => {
   const c = newChat({ on: true, note: 'Take the smaller one.' });
   t.after(() => c.stopAndWait());
   const done = turnEnd(c);
@@ -121,7 +125,7 @@ test('on: no mark and no note waits; the note is given as the free-text answer',
   assert.equal(of(c, 'text').at(-1).text, 'Done.');
 });
 
-test('the stop: the session\'s own switch off wins at once; under another version it is off', async (t) => {
+test('the stop: the session\'s own switch off wins at once; under another version it is off', OFFERED, async (t) => {
   const c = newChat({ on: true });
   t.after(() => c.stopAndWait());
   c.handsOff = { on: false, version: V };
@@ -138,7 +142,7 @@ test('the stop: the session\'s own switch off wins at once; under another versio
   assert.equal(d.pending.size, 1, 'turned off by the update');
 });
 
-test('three answers in a row with no work between them: a loop, the fourth waits and the chat says so', () => {
+test('three answers in a row with no work between them: a loop, the fourth waits and the chat says so', OFFERED, () => {
   const { handsOffAsk, workSeen } = HO;
   const pushed = [];
   const chat = { id: 'c1', cwd: '/w/shop', engine: { id: 'claude' }, permissionMode: null, handsOff: { on: true, version: V }, handsOffStop: null, handsOffRow: 0, push: (e) => pushed.push(e), emit: () => {} };
@@ -162,7 +166,7 @@ test('three answers in a row with no work between them: a loop, the fourth waits
   assert.equal(fresh.handsOffRow, 0);
 });
 
-test('a plan in the App is approved in the mode the chat had, never a wider one', () => {
+test('a plan in the App is approved in the mode the chat had, never a wider one', OFFERED, () => {
   const { handsOffAsk } = HO;
   const given = [];
   const chat = { id: 'c2', cwd: '/w/shop', engine: { id: 'claude' }, permissionMode: 'acceptEdits', handsOff: { on: true, version: V }, handsOffStop: null, handsOffRow: 0, push: () => {}, emit: () => {} };
@@ -175,7 +179,7 @@ test('a plan in the App is approved in the mode the chat had, never a wider one'
   assert.equal(handsOffAsk(chat, { type: 'permission', request: 'x', tool: 'Bash', full: { command: 'ls' } }, () => assert.fail('answered')), false);
 });
 
-test('the chat\'s count: a read is no work, a write is; ten answers within an hour stop it', () => {
+test('the chat\'s count: a read is no work, a write is; ten answers within an hour stop it', OFFERED, () => {
   const chat = { handsOffRow: 2 };
   HO.workSeen(chat, { kind: 'tool', name: 'Read' });
   HO.workSeen(chat, { kind: 'tool', name: 'Grep' });
@@ -196,7 +200,7 @@ test('the chat\'s count: a read is no work, a write is; ten answers within an ho
   assert.equal(pushed.at(-1).stopped, 'hour');
 });
 
-test('after the hour\'s stop the owner\'s Turn on in the App starts the hour again: the next ask is answered', () => {
+test('after the hour\'s stop the owner\'s Turn on in the App starts the hour again: the next ask is answered', OFFERED, () => {
   const pushed = [];
   const now = 50_000_000;
   const c = { id: 'h', cwd: '/w/shop', engine: { id: 'claude' }, handsOff: { on: true, version: V, at: now - 120_000 }, handsOffStop: null, handsOffRow: 0, permissionMode: 'manual',
@@ -212,7 +216,7 @@ test('after the hour\'s stop the owner\'s Turn on in the App starts the hour aga
   assert.equal(c.handsOffTimes.length, 10);
 });
 
-test('the chat\'s count of answers in a row and their times are kept with its record: a restart does not start them again', async () => {
+test('the chat\'s count of answers in a row and their times are kept with its record: a restart does not start them again', OFFERED, async () => {
   const c = newChat({ on: true });
   c.handsOffRow = 2;
   c.handsOffTimes = [1000, 2000];
@@ -223,7 +227,7 @@ test('the chat\'s count of answers in a row and their times are kept with its re
   await c.stopAndWait();
 });
 
-test('a plan\'s answer names the mode in the page\'s words, once, on the chat and in Activity', () => {
+test('a plan\'s answer names the mode in the page\'s words, once, on the chat and in Activity', OFFERED, () => {
   const pushed = [];
   const log = path.join(box.root, 'planwords.log');
   const chat = { id: 'c3', cwd: '/w/shop', engine: { id: 'claude' }, permissionMode: 'acceptEdits', handsOff: { on: true, version: V, at: 1 }, handsOffStop: null, handsOffRow: 0, handsOffTimes: [], push: (e) => pushed.push(e), emit: () => {} };
@@ -235,7 +239,7 @@ test('a plan\'s answer names the mode in the page\'s words, once, on the chat an
   for (const t of [line.text, did]) assert.doesNotMatch(t, /acceptEdits|bypassPermissions|dontAsk/);
 });
 
-test('a held act in a chat carries the same held as a terminal, so the page draws the same card', () => {
+test('a held act in a chat carries the same held as a terminal, so the page draws the same card', OFFERED, () => {
   const c = newChat({}, { handsOffConfig: () => OFFER });
   const ev = { type: 'permission', tool: 'Bash', full: { command: 'npm test && sudo apt-get install -y shop-tools' }, subject: 'sudo apt-get install -y shop-tools', request: 'r' };
   const card = HO.chatCard(c, ev);

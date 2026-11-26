@@ -8,6 +8,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
 import { dryWorld, gh, runCli } from '../pcsetup/dryrun-fixture.mjs';
+import { SHELL_STANDINS } from '../seal.mjs';
+
+// The stand-in gh (and ssh) of these tests are shell scripts: on Windows the runner starts them through sh.
+const SH_GH = SHELL_STANDINS;
 
 const ws = await import('../../src/workspace/cli.mjs');
 const { upkeepCredentials } = await import('../../src/workspace/credrepo.mjs');
@@ -34,7 +38,7 @@ async function world(tc, name) {
   return w;
 }
 
-test('off by default: no switch on, no round of it, nothing committed', async (tc) => {
+test('off by default: no switch on, no round of it, nothing committed', SH_GH, async (tc) => {
   assert.equal(DEFAULTS.workspace.credentials, false);
   const s = { ...DEFAULTS.workspace };
   const d = decide({ data: {}, now: Date.now(), boot: true, settings: s });
@@ -49,7 +53,7 @@ test('off by default: no switch on, no round of it, nothing committed', async (t
   assert.deepEqual(w.serverLog(), ['Credentials']);
 });
 
-test('on: a change is committed as "Update credentials" and pushed; the activity line has counts only', async (tc) => {
+test('on: a change is committed as "Update credentials" and pushed; the activity line has counts only', SH_GH, async (tc) => {
   const w = await world(tc, 'cu-on');
   const d = decide({ data: {}, now: Date.now(), boot: true, settings: { ...DEFAULTS.workspace, credentials: true } });
   assert.ok(d.actions.some((a) => a.type === 'credentials'));
@@ -62,10 +66,10 @@ test('on: a change is committed as "Update credentials" and pushed; the activity
   assert.equal(w.sh(w.creds, 'log', '-1', '--format=%an'), 'Test Dev', 'the folder\'s own git identity');
   assert.deepEqual(records.map((r) => r.did), ['The credentials were committed (1 changed file)', 'The credentials were pushed to the address the map names']);
   assert.equal(JSON.stringify([records, notes]).includes(NAME), false, 'no file name of the folder');
-  assert.equal(fs.statSync(w.creds).mode & 0o777, 0o700);
+  if (process.platform !== 'win32') assert.equal(fs.statSync(w.creds).mode & 0o777, 0o700);
 });
 
-test('public by now: committed, never pushed, told once; sync does not push it either', async (tc) => {
+test('public by now: committed, never pushed, told once; sync does not push it either', SH_GH, async (tc) => {
   const w = await world(tc, 'cu-public');
   fs.writeFileSync(path.join(w.server, 'alex', 'visibility.json'), JSON.stringify({ credentials: 'PUBLIC' }));
   w.change();
@@ -93,7 +97,7 @@ test('public by now: committed, never pushed, told once; sync does not push it e
   assert.deepEqual(w.serverLog(), ['Credentials']);
 });
 
-test('a remote that is not the map\'s address is never pushed to', async (tc) => {
+test('a remote that is not the map\'s address is never pushed to', SH_GH, async (tc) => {
   const w = await world(tc, 'cu-remote');
   execFileSync('git', ['init', '-q', '--bare', '-b', 'main', path.join(w.server, 'alex', 'elsewhere.git')]);
   w.sh(w.creds, 'remote', 'set-url', '--push', 'origin', gh('elsewhere'));

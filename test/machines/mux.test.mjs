@@ -176,6 +176,47 @@ test('a peer that ignores the window loses the stream instead of filling memory'
   assert.equal(new Decoder().push(credit(5, 77))[0].payload.readUInt32BE(0), 77);
 });
 
+/** A stand-in socket that writes at once (its callback a moment later) and records how it was ended. */
+function fakeSocket() {
+  const s = Object.assign(new EventEmitter(), { written: 0, ended: false, destroyed: false, soon: false });
+  Object.assign(s, {
+    write: (b, cb) => ((s.written += b.length), setImmediate(cb), true),
+    end: () => (s.ended = true),
+    destroy: () => (s.destroyed = true),
+    destroySoon: () => (s.soon = true),
+    pause() {},
+    resume() {},
+  });
+  return s;
+}
+
+test('a credit for a stream this side has finished needs no answer; any other frame for it gets a reset', () => {
+  const sent = [];
+  const m = new Mux({ role: 'machine', send: (b) => sent.push(b), connectLocal: fakeSocket });
+  m.receive(credit(9, 65536)); // the other side wrote our last bytes on after we ended and forgot the stream
+  assert.deepEqual(sent, [], 'no reset for it');
+  m.receive(encode(T.DATA, 9, Buffer.alloc(3)));
+  assert.equal(new Decoder().push(sent.at(-1))[0].type, T.RESET);
+});
+
+test('a reset after the other side ended and every byte was written on lets the socket finish; before that it cuts', async () => {
+  const sent = [];
+  const hub = new Mux({ role: 'hub', send: (b) => sent.push(b) });
+  const done = fakeSocket();
+  const id = hub.accept(done);
+  hub.receive(encode(T.DATA, id, Buffer.alloc(1000)));
+  await new Promise((r) => setImmediate(r)); // the bytes are written on
+  hub.receive(encode(T.END, id));
+  assert.equal(done.ended, true);
+  hub.receive(encode(T.RESET, id)); // the other side forgot the stream
+  assert.deepEqual([done.destroyed, done.soon, hub.streams.size], [false, true, 0], 'not destroyed: it closes once what it holds is out');
+  const cut = fakeSocket();
+  const id2 = hub.accept(cut);
+  hub.receive(encode(T.DATA, id2, Buffer.alloc(1000)));
+  hub.receive(encode(T.RESET, id2)); // before its end: an abort
+  assert.deepEqual([cut.destroyed, hub.streams.size], [true, 0]);
+});
+
 test('an answer that ends with the connection closing still arrives whole, even when it waits for credit', async () => {
   // The linked computer's "dashboard" sends 3 MB and closes at once (like HTTP with Connection: close).
   const data = crypto.randomBytes(3 * 1024 * 1024);
@@ -191,4 +232,44 @@ test('an answer that ends with the connection closing still arrives whole, even 
   assert.ok(got.equals(data), `got ${got.length} of ${data.length} bytes`);
   front.close();
   server.close();
+});
+
+// The debug switch (HOPRIG_MUX_DEBUG, read once when mux.mjs is loaded): on, one line per flow event on stderr; off,
+// not one. Run in a child of its own, since the switch is read when the file is loaded.
+test('the debug switch writes the flow of a stream when on, and nothing when off', async () => {
+  const { spawn } = await import('node:child_process');
+  const mux = new URL('../../src/machines/mux.mjs', import.meta.url).href; // by its file URL, which Windows needs
+  const script = `import net from 'node:net';
+const { Mux } = await import(${JSON.stringify(mux)});
+let got = 0;
+const server = net.createServer((s) => s.on('data', (d) => { got += d.length; if (got >= 300000) { console.log('all ' + got); console.log(machine.describe().join('\\n')); process.exit(0); } }));
+await new Promise((r) => server.listen(0, '127.0.0.1', r));
+let hub, machine;
+hub = new Mux({ role: 'hub', window: 65536, send: (b) => setImmediate(() => machine.receive(b)) });
+machine = new Mux({ role: 'machine', window: 65536, connectLocal: () => net.connect(server.address().port, '127.0.0.1'), send: (b) => setImmediate(() => hub.receive(b)) });
+const front = net.createServer((s) => hub.accept(s));
+await new Promise((r) => front.listen(0, '127.0.0.1', r));
+net.connect(front.address().port, '127.0.0.1').end(Buffer.alloc(300000, 1));
+setTimeout(() => process.exit(3), 20000).unref();
+`;
+  const run = (env) => new Promise((resolve) => {
+    const c = spawn(process.execPath, ['--input-type=module', '-e', script], { env, stdio: ['ignore', 'pipe', 'pipe'] });
+    let out = '';
+    let err = '';
+    c.stdout.on('data', (d) => (out += d));
+    c.stderr.on('data', (d) => (err += d));
+    c.on('close', (code) => resolve({ code, out, err }));
+  });
+  const env = { ...process.env };
+  delete env.HOPRIG_MUX_DEBUG;
+  const off = await run(env);
+  assert.equal(off.code, 0, off.err);
+  assert.match(off.out, /^all 300000/);
+  assert.doesNotMatch(off.err, /^mux /m, 'off: not one line');
+  const on = await run({ ...env, HOPRIG_MUX_DEBUG: '1' });
+  assert.equal(on.code, 0, on.err);
+  assert.match(on.out, /^machine 1: window \d+, unacked \d+, queued 0, .*; socket read 0, written 300000, /m, 'describe(): each open stream in one line');
+  for (const re of [/^mux hub \d+ 1 first bytes are not HTTP \(\d+ bytes\)$/m, /^mux hub \d+ 1 socket ended \(its source finished\): read 300000$/m, /^mux hub \d+ 1 open$/m, /^mux machine \d+ 1 open$/m, /^mux hub \d+ 1 send 65536 \(total 65536\): window 65536 -> 0$/m, /^mux hub \d+ 1 waits for credit: window 0, queued \d+; socket paused$/m, /^mux machine \d+ 1 recv 65536 \(total \d+\), unacked \d+, socket /m, /^mux machine \d+ 1 written 65536, unacked \d+, credit sent$/m, /^mux hub \d+ 1 credit 65536: window 0 -> 65536, queued \d+$/m, /^mux hub \d+ 1 goes on: window \d+; socket resumed$/m]) {
+    assert.match(on.err, re);
+  }
 });

@@ -43,8 +43,10 @@ function standIn({ userComesUp = true } = {}) {
 }
 
 test('a gateway definition may name its data folder; nothing outside the home', () => {
-  assert.equal(checkDefinition({ id: 'madeupgw', title: 'Made-up gateway', bin: '/opt/madeup/gw', port: 29999, dataDir: '.madeupgw' }).def.dataDir, '.madeupgw');
-  for (const bad of ['../x', '/etc', 'a/../b', '.', '']) assert.match(checkDefinition({ id: 'madeupgw', title: 'Made-up gateway', bin: '/opt/madeup/gw', port: 29999, dataDir: bad }).error || '', /dataDir/, bad);
+  // The definition names a Linux program, read as the move (Linux only) reads it, on any computer the test runs on.
+  const linux = { platform: 'linux' };
+  assert.equal(checkDefinition({ id: 'madeupgw', title: 'Made-up gateway', bin: '/opt/madeup/gw', port: 29999, dataDir: '.madeupgw' }, linux).def.dataDir, '.madeupgw');
+  for (const bad of ['../x', '/etc', 'a/../b', '.', '']) assert.match(checkDefinition({ id: 'madeupgw', title: 'Made-up gateway', bin: '/opt/madeup/gw', port: 29999, dataDir: bad }, linux).error || '', /dataDir/, bad);
   assert.ok(SHIPPED.every((g) => typeof g.dataDir === 'string'), 'a shipped gateway says where it keeps its data');
 });
 
@@ -112,7 +114,7 @@ test("the gateway's data copy never writes through a link a user process put at 
   assert.equal(ok.ok, true, ok.error);
   assert.deepEqual(ok.entries, [2, 2]);
   assert.equal(fs.lstatSync(path.join(uhome, '.local')).isDirectory(), true);
-  assert.equal(fs.lstatSync(path.join(uhome, '.local')).mode & 0o777, 0o700);
+  if (process.platform !== 'win32') assert.equal(fs.lstatSync(path.join(uhome, '.local')).mode & 0o777, 0o700);
   // What is already there is never written over.
   assert.match((await sys.copyData(path.join(rootHome, '.local/share/madeupgw'), path.join(uhome, '.local/share/madeupgw'))).error, /already there/);
 });

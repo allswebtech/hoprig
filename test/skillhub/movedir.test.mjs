@@ -18,7 +18,7 @@ test('across file systems: a copy with every name, link and mode, then the origi
     fs.writeFileSync(path.join(from, 'SKILL.md'), '# s\n');
     fs.writeFileSync(path.join(from, 'scripts', 'run.sh'), 'echo\n', { mode: 0o755 });
     // The name that is not UTF-8 only where the disk takes it (APFS refuses it: ODD_NAMES_SKIP).
-    const oddOk = oddNamesWork({ dir: d });
+    const oddOk = process.platform !== 'win32' && oddNamesWork({ dir: d }); // Windows has no such name at all
     if (oddOk) fs.writeFileSync(Buffer.concat([Buffer.from(`${from}/odd`), Buffer.from([0xff]), Buffer.from('.md')]), 'odd\n');
     else t.diagnostic(`the name with the byte 0xFF is skipped: ${ODD_NAMES_SKIP}`);
     fs.symlinkSync('SKILL.md', path.join(from, 'link.md'));
@@ -26,7 +26,7 @@ test('across file systems: a copy with every name, link and mode, then the origi
     moveDir(from, to, { rename: exdev });
     assert.equal(fs.existsSync(from), false, 'the original is removed');
     assert.equal(fs.readFileSync(path.join(to, 'SKILL.md'), 'utf8'), '# s\n');
-    assert.equal(fs.statSync(path.join(to, 'scripts', 'run.sh')).mode & 0o777, 0o755);
+    if (process.platform !== 'win32') assert.equal(fs.statSync(path.join(to, 'scripts', 'run.sh')).mode & 0o777, 0o755);
     if (oddOk) assert.equal(fs.readFileSync(Buffer.concat([Buffer.from(`${to}/odd`), Buffer.from([0xff]), Buffer.from('.md')]), 'utf8'), 'odd\n');
     assert.equal(fs.readlinkSync(path.join(to, 'link.md')), 'SKILL.md');
   } finally {

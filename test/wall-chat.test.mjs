@@ -14,12 +14,15 @@ process.env.HOPRIG_CONFIG_DIR = path.join(tmp, 'config');
 process.env.HOPRIG_STATE_DIR = path.join(tmp, 'state');
 process.env.HOPRIG_WORKSPACE_DIR = path.join(tmp, 'ws');
 test.after(() => fs.rmSync(tmp, { recursive: true, force: true }));
+// Hands-off is not offered on Windows (src/handsoff.mjs handsOffOffered: the wall's hold is a POSIX shell test), so a
+// test that switches it on and expects an answer or a hold has nothing to see there.
+const OFFERED = { skip: process.platform === 'win32' && 'Hands-off is not offered on Windows' };
 
 const { chatHooks } = await import('../src/launch.mjs');
 const { openCodeAllows } = await import('../src/chat/asks.mjs');
 const { hookFile } = await import('../src/paths.mjs');
 
-test('a Claude chat gets the gated PreToolUse hold while Hands-off is offered, and none when it is not', () => {
+test('a Claude chat gets the gated PreToolUse hold while Hands-off is offered, and none when it is not', OFFERED, () => {
   const on = chatHooks('2.1.328', true);
   assert.ok(Array.isArray(on.PreToolUse), 'the wall hold is handed to the chat when offered');
   const cmd = on.PreToolUse[0].hooks[0].command;

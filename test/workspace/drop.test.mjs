@@ -2,11 +2,10 @@
 // with local bare repositories: what drop pushes by itself (a branch only ahead, a branch without an upstream, the
 // memory folder), the default branch never without the owner's yes (each of the three answers), the work offered on a
 // wip/ branch, the ignored files confirmed by typing the name, the removal, the computer's file, and get afterwards.
-import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
-import { dropOn, dropWorld, getOn, onServer, owner, reset, serverHeads, treeOf } from './dropfix.mjs';
+import { assert, dropOn, dropWorld, getOn, onServer, owner, reset, serverHeads, treeOf } from './dropfix.mjs';
 
 const w = await dropWorld('main', { labels: ['alpha', 'beta'] });
 test.after(() => w.cleanup());

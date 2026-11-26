@@ -12,6 +12,10 @@ import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { fakeReq, sandbox } from './helpers.mjs';
 
+// The stand-in Claude Code is a Node script (fixtures/fake-claude-login.mjs) started as the program itself through
+// its #! line: Windows cannot start it so (error 193), so a test that runs it, or reads what it said, is skipped there.
+const STANDIN = { skip: process.platform === 'win32' && 'the stand-in is started through its #! line' };
+
 const box = sandbox('claude-login');
 test.after(() => box.cleanup());
 // A temp folder of its own: the helper folders ("hoprig-login-*") are counted there, and another test run on this
@@ -125,7 +129,7 @@ test('the environment: no provider, no session variables, the real Claude folder
     assert.equal(L.browserHelper(path.join(dir, "it's"), 'linux'), null, 'a name the script could not hold safely');
     if (process.platform !== 'win32') {
       const file = L.browserHelper(dir);
-      assert.equal((fs.statSync(file).mode & 0o777).toString(8), '700');
+      if (process.platform !== 'win32') assert.equal((fs.statSync(file).mode & 0o777).toString(8), '700');
     }
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
@@ -140,7 +144,7 @@ test('behind the login', async () => {
   assert.deepEqual((await call('/api/accounts/claude-login')).json, { state: 'none' });
 });
 
-test('from another computer: the printed link, a code typed in, confirmed by `claude auth status`', async () => {
+test('from another computer: the printed link, a code typed in, confirmed by `claude auth status`', STANDIN, async () => {
   signOut();
   process.env.FAKE_CLAUDE_ENV_FILE = ENV_FILE;
   const before = new Set(helperDirs());
@@ -169,7 +173,7 @@ test('from another computer: the printed link, a code typed in, confirmed by `cl
   assert.equal((await call('/api/accounts/claude-login/code', { code: 'good#again000' })).status, 409);
 });
 
-test('on this computer: the BROWSER link, and approving finishes the sign-in by itself', async () => {
+test('on this computer: the BROWSER link, and approving finishes the sign-in by itself', STANDIN, async () => {
   signOut();
   const r = await call('/api/accounts/claude-login/start', {});
   assert.equal(r.status, 200, JSON.stringify(r.json));
@@ -213,7 +217,7 @@ test('a helper folder that cannot be removed at once does not fail the end: it i
   assert.equal(none.length, 0);
 });
 
-test('a refused code ends it with a plain message; cancel; a sign-in that Claude Code does not confirm', async () => {
+test('a refused code ends it with a plain message; cancel; a sign-in that Claude Code does not confirm', STANDIN, async () => {
   signOut();
   const before = new Set(helperDirs());
   await call('/api/accounts/claude-login/start', {}, { remote: true });
@@ -248,7 +252,7 @@ test('a refused code ends it with a plain message; cancel; a sign-in that Claude
   signOut();
 });
 
-test('no link, Claude Code ending at once, not installed, and the 10-minute limit', async () => {
+test('no link, Claude Code ending at once, not installed, and the 10-minute limit', STANDIN, async () => {
   process.env.FAKE_CLAUDE_MODE = 'nolink';
   const t0 = Date.now();
   let r = await call('/api/accounts/claude-login/start', {});
@@ -295,7 +299,7 @@ async function signInAs(code, email) {
   return { start, done: await call('/api/accounts/claude-login/code', { code: `${code}#st4te789` }) };
 }
 
-test('who is signed in: for the owner\'s page only, asked from Claude Code, in no other answer', async () => {
+test('who is signed in: for the owner\'s page only, asked from Claude Code, in no other answer', STANDIN, async () => {
   signOut();
   assert.equal((await call('/api/accounts/claude-login/account', undefined, { auth: false })).status, 401);
   assert.equal((await call('/api/accounts/claude-login/logout', {}, { auth: false })).status, 401);
@@ -315,7 +319,7 @@ test('who is signed in: for the owner\'s page only, asked from Claude Code, in n
   }
 });
 
-test('sign in with another account: one step, no sign-out first; the provider starts again; the same account changes nothing', async () => {
+test('sign in with another account: one step, no sign-out first; the provider starts again; the same account changes nothing', STANDIN, async () => {
   writeProfile('sub', { label: 'Stored sign-in' });
   writeProfile('second', { label: 'Own token', env: { CLAUDE_CODE_OAUTH_TOKEN: 'sk-ant-oat01-not-a-real-token-000000000000' } });
   const atLimit = () => {
@@ -364,7 +368,7 @@ test('sign in with another account: one step, no sign-out first; the provider st
   assert.equal((await call('/api/accounts/claude-login')).json.state, 'done', 'a bad address starts nothing');
 });
 
-test('sign out: Claude Code forgets the sign-in, Providers says so; a failure is said, not hidden', async () => {
+test('sign out: Claude Code forgets the sign-in, Providers says so; a failure is said, not hidden', STANDIN, async () => {
   await signInAs('good');
   let r = await call('/api/accounts/claude-login/logout', {});
   assert.deepEqual([r.status, r.json], [200, { ok: true }]);
@@ -404,7 +408,7 @@ test('sign out: Claude Code forgets the sign-in, Providers says so; a failure is
   signOut();
 });
 
-test('another account signed in with /login in a terminal: noticed at the next look, not at the half-hourly check', async () => {
+test('another account signed in with /login in a terminal: noticed at the next look, not at the half-hourly check', STANDIN, async () => {
   const { signInWatch } = await import('../../src/claudecode.mjs');
   signOut();
   await signInAs('good');
@@ -508,7 +512,7 @@ test('the sign-in watch: one check per change, none for its own write; blind (Ke
   assert.equal(asks, 7);
 });
 
-test('nothing of the account or a key in any response but the account route\'s', () => {
+test('nothing of the account or a key in any response but the account route\'s', STANDIN, () => {
   const all = bodies.join('\n');
   for (const secret of ['someone@example.invalid', 'other@example.invalid', 'Example Org', 'Other Org', 'provider-key-should-not-leak', 'shouldnotleak', 'sk-ant-']) assert.equal(all.includes(secret), false, secret);
   assert.ok(accountBodies.some((b) => b.includes('someone@example.invalid')), 'the account route is where the owner reads it');

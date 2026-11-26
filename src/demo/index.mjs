@@ -77,6 +77,8 @@ const KEEP = new Set([
   // file and process they name, its ports refused). They are there only under the suite. Thrown away, a demo a test
   // started, and its second computer, started the computer's real programs and reached its real ports.
   'HOPRIG_TEST_TRAPS', 'HOPRIG_TEST_FILE', 'HOPRIG_TEST_PID', 'HOPRIG_TEST_MARK', 'HOPRIG_NODE_NPM', 'HOPRIG_SEAL_EXTRA_TRAPS', 'HOPRIG_SEAL_EXTRA_PORTS', 'HOPRIG_SEAL_REAL', 'TMUX_TMPDIR',
+  // On Windows the run's one PowerShell module cache (tools/test-plan.mjs psModuleCache): a path, no secret.
+  'PSModuleAnalysisCachePath',
   // Windows itself: its folder, its command shell, how a program name is found, the system drive.
   'SystemRoot', 'SYSTEMROOT', 'windir', 'WINDIR', 'ComSpec', 'COMSPEC', 'PATHEXT', 'SystemDrive', 'SYSTEMDRIVE',
   // Where Windows' programs and PowerShell's modules are: a demo terminal's PowerShell loads its own modules from

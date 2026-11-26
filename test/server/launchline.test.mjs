@@ -307,8 +307,12 @@ for (const kind of kinds) {
 
 test('a launcher path with a quote is refused with the plain sentence before anything is made', async () => {
   const made = [];
-  const backend = { list: async () => [], create: async (o) => made.push(o), respawn: async (...a) => made.push(a) };
-  const deck = new Deck({ backend, config: () => ({ launcher: [process.execPath, "/opt/it's here/bin/hoprig.mjs"] }), profiles: () => [] });
+  // A terminal of a POSIX shell (tmux, or the built-in one on macOS and Linux): its rule, on any OS. A Windows
+  // terminal types nothing and takes an apostrophe (winstart.test.mjs).
+  // On Windows Node's own path (C:\...) would be refused by that rule before the quoted one: a POSIX path stands in.
+  const backend = { platform: 'linux', list: async () => [], create: async (o) => made.push(o), respawn: async (...a) => made.push(a) };
+  const node = POSIX ? process.execPath : '/usr/bin/node';
+  const deck = new Deck({ backend, config: () => ({ launcher: [node, "/opt/it's here/bin/hoprig.mjs"] }), profiles: () => [] });
   const before = launchFiles().length;
   await assert.rejects(deck.start({ dir: box.root, profile: { name: 'sub' }, mode: 'new', prompt: 'hi' }), (e) => {
     assert.equal(e.status, 400);

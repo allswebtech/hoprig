@@ -34,7 +34,7 @@ const { listAddons, findAddon } = await import('../../src/addons/index.mjs');
 const { binFile } = await import('../../src/paths.mjs');
 const T = findAddon('trouteai');
 
-test('status, start, stop', { skip: process.platform === 'win32' }, async () => {
+test('status, start, stop', async () => {
   let s = await T.status();
   assert.deepEqual([s.installed, s.version, s.running, s.url], [true, '9.8.7', false, `http://localhost:${port}`]);
   const started = await T.start();
@@ -55,7 +55,7 @@ test('the proposed profile starts the gateway on demand and never holds a key', 
   assert.ok(p.prerun.includes(binFile()) && p.prerun.endsWith(' addons start trouteai'));
 });
 
-test('command line: list, an unknown add-on, start printing nothing on stdout', { skip: process.platform === 'win32' }, () => {
+test('command line: list, an unknown add-on, start printing nothing on stdout', () => {
   const run = (...a) => spawnSync(process.execPath, [binFile(), 'addons', ...a], { env: process.env, encoding: 'utf8' });
   assert.match(run().stdout, /^trouteai  TRouteAI 9\.8\.7 · installed, not running/m);
   assert.equal(run('start', 'nope').status, 2);
@@ -66,7 +66,7 @@ test('command line: list, an unknown add-on, start printing nothing on stdout', 
   assert.match(run('stop', 'trouteai').stdout, /TRouteAI stopped/);
 });
 
-test('stop: a gateway whose answer comes late is stopped, not said to be "not running"', { skip: process.platform === 'win32' }, async () => {
+test('stop: a gateway whose answer comes late is stopped, not said to be "not running"', async () => {
   assert.equal((await T.start()).ok, true);
   // This process held up longer than the wait for an answer (a computer under load): the answer is there, and so is
   // the end of the wait.

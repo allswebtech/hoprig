@@ -20,6 +20,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { claudeDir, stateDir } from '../paths.mjs';
 import { classify } from './table.mjs';
+import { replaceFile } from '../replacefile.mjs';
 
 export const LIMITS = Object.freeze({ files: 64, bytes: 2 * 1024 * 1024, perFile: 512 * 1024, tail: 256 * 1024, line: 1024 * 1024, stats: 4000, ms: 300 });
 const DAY = 24 * 3600_000;
@@ -99,7 +100,7 @@ export function ownConversations({ file = () => path.join(stateDir(), 'operator'
           fs.mkdirSync(path.dirname(file()), { recursive: true, mode: 0o700 });
           const tmp = `${file()}.${process.pid}.tmp`;
           fs.writeFileSync(tmp, JSON.stringify(Object.fromEntries(kept)), { mode: 0o600 });
-          fs.renameSync(tmp, file());
+          replaceFile(tmp, file());
           disk = new Map(kept);
         } catch { /* kept in memory: the next look writes it again */ }
       }

@@ -347,7 +347,7 @@ test('createBackend: auto picks tmux when it runs, else pty; the kind can be for
   assert.throws(() => createBackend({ kind: 'screen' }), /unknown session backend/);
 });
 
-test('the processes a terminal started: a pid that is another process by the time of the signal gets none (Linux)', { skip: process.platform === 'win32' }, async () => {
+test('the processes a terminal started: a pid that is another process by the time of the signal gets none (Linux)', { skip: process.platform === 'win32' && 'a terminal\'s processes get SIGHUP, read from /proc: Windows has neither' }, async () => {
   const { spawn } = await import('node:child_process');
   const kid = () => {
     const c = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1 << 30)'], { stdio: 'ignore' });
@@ -390,7 +390,7 @@ test('the processes a terminal started: a pid that is another process by the tim
   assert.equal(same.signalCode, 'SIGHUP');
 });
 
-test('what ignores SIGHUP (a nohup job) does not outlive a closed terminal: SIGTERM once the shell has ended', { skip: process.platform === 'win32', timeout: 15_000 }, async () => {
+test('what ignores SIGHUP (a nohup job) does not outlive a closed terminal: SIGTERM once the shell has ended', { skip: process.platform === 'win32' && 'SIGHUP and SIGTERM are POSIX signals: Windows ends a process only at once', timeout: 15_000 }, async () => {
   const { spawn } = await import('node:child_process');
   const deaf = spawn(process.execPath, ['-e', "process.on('SIGHUP', () => {}); setInterval(() => {}, 1 << 30); console.log('ready')"], { stdio: ['ignore', 'pipe', 'ignore'] });
   test.after(() => deaf.kill('SIGKILL'));

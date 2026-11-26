@@ -9,7 +9,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
 import { FAKE, missionHome, standInBox } from './helpers.mjs';
-import { closedGateways } from '../seal.mjs';
+import { SHELL_STANDINS, closedGateways } from '../seal.mjs';
 import { ago, session } from '../operator/fixtures/cases.mjs';
 
 const t = missionHome('mission-twoloops');
@@ -66,7 +66,7 @@ const model = async (req) => {
 };
 const accounts = async () => ({ profiles: [{ name: 'key', kind: 'subscription' }, { name: 'key2', kind: 'subscription' }], autoSwitch: { enabled: false } });
 
-test('a limit of a mission\'s session is moved once, by the engine; the Operator moves only a session of his own', { timeout: 120_000, skip: process.platform === 'win32' && 'the stand-ins are POSIX' }, async () => {
+test('a limit of a mission\'s session is moved once, by the engine; the Operator moves only a session of his own', { timeout: 120_000, skip: SHELL_STANDINS.skip }, async () => {
   const app = createServer({
     watch: false, dashboardFile: false, tmuxSocket: `twoloops-${process.pid}`,
     work: {

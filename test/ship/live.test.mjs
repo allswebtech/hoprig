@@ -140,7 +140,8 @@ test('a step killed in the middle of its update: the next look waits for the upd
   const deploy = pidOf('deploy.pid');
   assert.equal(readJournal(gitDir).running.pid, deploy, 'the journal names the update command that runs');
   const waiting = await finishCut(shop);
-  assert.equal(waiting.commandRunning, true, 'the look waits for the update that still runs');
+  const deployLives = (() => { try { return process.kill(deploy, 0); } catch (e) { return e.code; } })();
+  assert.equal(waiting.commandRunning, true, `the look waits for the update that still runs (the look said ${JSON.stringify(waiting).slice(0, 600)}; the update command ${deploy}: ${deployLives}; journal ${JSON.stringify(readJournal(gitDir)?.running)})`);
   assert.equal(readJournal(gitDir).part, 'update');
   const alive = () => {
     try {

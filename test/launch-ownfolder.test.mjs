@@ -18,9 +18,9 @@ const RS = await import('../src/routerstate.mjs');
 
 // A reply on a provider that keeps Claude Code's folder in a folder of its own says nothing about the default folder's
 // sign-in: Providers must not show the default provider as signed in (and hide its Sign in) after it.
-test('a reply on a provider with a folder of its own leaves the default folder\'s sign-in mark as it was', { skip: process.platform === 'win32' }, async () => {
+test('a reply on a provider with a folder of its own leaves the default folder\'s sign-in mark as it was', async () => {
   // The stand-in Claude Code runs Hoprig's real hook program: it starts, one reply ends (Stop), it exits.
-  const fake = path.join(tmp, 'fake-claude-reply.mjs');
+  const fake = path.join(tmp, 'fake-claude-reply'); // no extension: started through Node on Windows too
   fs.writeFileSync(fake, `#!/usr/bin/env node
 import { execSync } from 'node:child_process';
 import fs from 'node:fs';

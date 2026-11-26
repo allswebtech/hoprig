@@ -8,6 +8,7 @@ import path from 'node:path';
 import { isOwnFolder } from '../server/folders.mjs';
 import { fsError } from './files.mjs';
 import { checkName, fail, isGitName, isPrivateName, isSecret, locate, mayChangeFolderAsync } from './paths.mjs';
+import { replaceFile } from '../replacefile.mjs';
 
 export const LIST_MAX = 5000;
 export const MANY_MAX = 500; // paths in one move, copy, trash or pack
@@ -166,10 +167,27 @@ export function freeName(dir, name) {
   throw fail(409, 'too many files with that name are there already');
 }
 
+// How long the rest of a body past the limit is read and thrown away after the 413 (receive), at most.
+const LINGER_MS = 2000;
+
+/**
+ * After the 413 of a body past the limit: `req` is already read and thrown away (receive), and goes on so for up to
+ * LINGER_MS after the answer; a body that has not ended by then has its connection cut.
+ */
+function linger(req) {
+  if (req.complete) return;
+  const sock = req.socket;
+  const timer = setTimeout(() => {
+    if (!req.complete) sock.destroy();
+  }, LINGER_MS);
+  sock.once('close', () => clearTimeout(timer));
+}
+
 /**
  * Stream an upload (`req`, raw bytes) into folder `dir` as `name`: never over something there unless `replace` (then
  * only over a file). At most `maxBytes`. The bytes go to a temporary file in the same folder first. `res` (the answer):
- * a body that passes the limit without a declared length is answered 413 first and only then cut off.
+ * a body that passes the limit without a declared length is answered 413 first; the rest is read and dropped, and the
+ * connection is cut off only when the body has not ended two seconds after the answer.
  */
 export async function receive(req, dir, name, roots, { replace = false, maxBytes, res = null }) {
   checkName(name);
@@ -192,26 +210,31 @@ export async function receive(req, dir, name, roots, { replace = false, maxBytes
   let size = 0;
   try {
     await new Promise((resolve, reject) => {
-      req.on('data', (c) => {
+      const onData = (c) => {
         size += c.length;
         if (size > maxBytes) {
+          req.off('data', onData); // once: what comes after is thrown away, never counted again
           req.unpipe(out);
-          req.pause();
-          // Cutting the connection now would lose the answer: it goes first, and the rest of the body is not read.
+          // Cutting the connection now would lose the answer: it goes first. A connection cut while the client still
+          // sends is reset, and Windows drops an answer that had come when the reset comes: so the rest of the body is
+          // read and thrown away (never paused: a paused request is not read again once it is answered), and cut only
+          // when it has not ended a short while after the answer (linger). No "Connection: close" on the answer: with
+          // it the server cuts the connection the moment the answer is out.
           if (res) {
-            res.setHeader('Connection', 'close');
-            res.once('finish', () => req.destroy());
+            req.resume();
+            res.once('finish', () => linger(req));
           } else req.destroy();
           reject(fail(413, `the file is larger than ${Math.round(maxBytes / 1048576)} MB`));
         }
-      });
+      };
+      req.on('data', onData);
       req.on('aborted', () => reject(fail(400, 'the upload stopped before its end')));
       req.on('error', reject);
       out.on('error', reject);
       out.on('finish', resolve);
       req.pipe(out);
     });
-    if (replace && fs.existsSync(at.abs)) fs.renameSync(tmp, at.abs);
+    if (replace && fs.existsSync(at.abs)) replaceFile(tmp, at.abs);
     else placeNew(tmp, at.abs); // fails when a file appeared meanwhile: never replaces one
   } catch (e) {
     // A file that could not even be made (a folder it may not write in) has closed already: no wait for it then.

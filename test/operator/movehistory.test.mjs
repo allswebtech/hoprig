@@ -24,13 +24,13 @@ const { setAutoSwitch } = await import('../../src/autoswitch.mjs');
 const { saveConfig } = await import('../../src/config.mjs');
 const { ranBefore } = await import('../../src/runs.mjs');
 
-test('the launcher\'s own move at a limit is recorded: the conversation ran on the first provider until the move', { skip: process.platform === 'win32' }, async () => {
+test('the launcher\'s own move at a limit is recorded: the conversation ran on the first provider until the move', async () => {
   const pty = (await import('node-pty')).default ?? (await import('node-pty'));
   const id = '5a5a5a5a-1111-4222-8333-444444444444';
   const out = path.join(box.root, 'fake-runs.log');
   // The stand-in: on its first provider it reports a limit in its run record (as Claude Code's hook does) and waits to
   // be stopped; on the next one it ends by itself.
-  const fake = path.join(box.root, 'fake-claude.mjs');
+  const fake = path.join(box.root, 'fake-claude'); // no extension: started through Node on Windows too
   fs.writeFileSync(fake, `#!/usr/bin/env node
 import fs from 'node:fs';
 const file = process.env.HOPRIG_RUN_FILE;
@@ -38,10 +38,15 @@ fs.appendFileSync(${JSON.stringify(out)}, process.env.HOPRIG_PROFILE + ' ' + pro
 if (process.env.HOPRIG_PROFILE === 'plan-a') {
   const run = JSON.parse(fs.readFileSync(file, 'utf8'));
   fs.writeFileSync(file, JSON.stringify({ ...run, sessionId: ${JSON.stringify(id)}, status: 'attention', limit: { at: Date.now(), error: 'rate_limit', text: 'Usage limit reached' } }));
-  setInterval(() => {}, 1000);
+  // It ends with what started it (on Windows a .cmd's cmd.exe, which the launcher's stop ends alone).
+  setInterval(() => { try { process.kill(process.ppid, 0); } catch { process.exit(0); } }, 300);
 } else process.exit(0);
 `, { mode: 0o755 });
-  saveConfig({ claudeBin: fake, usage: false });
+  // Windows: the launcher looks for claudeBin as Windows does (an .exe or a .cmd; a file without an extension is not
+  // started there): a .cmd that runs the stand-in with this Node.
+  const bin = process.platform === 'win32' ? `${fake}.cmd` : fake;
+  if (process.platform === 'win32') fs.writeFileSync(bin, `@"${process.execPath}" "${fake}" %*\r\n`);
+  saveConfig({ claudeBin: bin, usage: false });
   writeProfile('plan-a', { label: 'Shop Plan A', env: { CLAUDE_CODE_OAUTH_TOKEN: 'sk-ant-oat01-test-a' } });
   writeProfile('plan-b', { label: 'Shop Plan B', env: { CLAUDE_CODE_OAUTH_TOKEN: 'sk-ant-oat01-test-b' } });
   setAutoSwitch({ enabled: true, order: ['plan-a', 'plan-b'] });

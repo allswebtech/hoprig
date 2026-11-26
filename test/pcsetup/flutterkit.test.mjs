@@ -13,6 +13,10 @@ import { tarOf, tarXzOf } from './archives.mjs';
 import { quietUi } from './dryrun-fixture.mjs';
 import { vendor } from './vendor.mjs';
 
+// Windows: the product starts the system's own tar by its full path (unpack.mjs tarCommand), which the seal refuses
+// unless it is named here; elsewhere tar is started by its name and nothing is added.
+if (process.platform === 'win32') process.env.HOPRIG_SEAL_REAL = [process.env.HOPRIG_SEAL_REAL, 'tar'].filter(Boolean).join(','); // seal: the system's own tar unpacks the test's tiny archives, as it does for the kit
+
 const { sysFacts, detectKits } = await import('../../src/pcsetup/detect.mjs');
 const { runPcSetup } = await import('../../src/pcsetup/setup.mjs');
 const { FLUTTER, buildPlan, kitById } = await import('../../src/pcsetup/kits.mjs');
@@ -85,7 +89,7 @@ async function runKit(sys, get, o = {}) {
   return { ...r, text: ui.text(), ran };
 }
 
-test('the stand-in vendor: Flutter lands at development/flutter/flutter, the shell block once; a second run does nothing', async (tc) => {
+test('the stand-in vendor: Flutter lands at development/flutter/flutter, the shell block once; a second run does nothing', { skip: process.platform === 'win32' && 'the Flutter kit is for Linux and macOS (not offered on Windows)' }, async (tc) => {
   const w = world(tc);
   const archive = tarXzOf(SDK);
   const v = await vendor(tc, { [LIST]: { body: listFor(archive) }, [ARCHIVE]: { headers: { 'content-length': String(archive.length) }, body: archive } });
@@ -95,7 +99,7 @@ test('the stand-in vendor: Flutter lands at development/flutter/flutter, the she
   assert.deepEqual(r.ran, [], 'no command ran: the download is Hoprig\'s own step, never sudo, never apt');
   assert.deepEqual(v.asked, [`https://${FLUTTER.host}${LIST}`, `https://${FLUTTER.host}${ARCHIVE}`]);
   assert.equal(fs.readFileSync(path.join(w.place, 'version'), 'utf8'), '3.50.1\n');
-  assert.ok(fs.statSync(path.join(w.place, 'bin', 'flutter')).mode & 0o100);
+  if (process.platform !== 'win32') assert.ok(fs.statSync(path.join(w.place, 'bin', 'flutter')).mode & 0o100);
   assert.deepEqual(fs.readdirSync(path.join(w.ws, 'development')), ['flutter'], 'no temporary folder is left');
   assert.match(r.text, /Flutter 3\.50\.1 is in ~\/Workspace\/development\/flutter\/flutter/);
   for (const f of ['.profile', '.bashrc']) {
@@ -114,7 +118,7 @@ test('the stand-in vendor: Flutter lands at development/flutter/flutter, the she
   assert.deepEqual(snap(w.home), before, 'the second run changed nothing');
 });
 
-test('the plan says the step in words before the yes: the list, the host, about how big, the place, the shell line', async (tc) => {
+test('the plan says the step in words before the yes: the list, the host, about how big, the place, the shell line', { skip: process.platform === 'win32' && 'the Flutter kit is for Linux and macOS (not offered on Windows)' }, async (tc) => {
   const w = world(tc);
   const sys = await sysOf(w);
   const plan = buildPlan(['flutter'], await detectKits(sys, ['flutter']), sys, { named: ['flutter'] });
@@ -129,7 +133,7 @@ test('the plan says the step in words before the yes: the list, the host, about 
   assert.match(p2.cannot[0].why, /Set up the workspace first/);
 });
 
-test('a workspace path a shell would read (a quote, $( ) gets no shell line: the plan says so, with the line to add yourself', async (tc) => {
+test('a workspace path a shell would read (a quote, $( ) gets no shell line: the plan says so, with the line to add yourself', { skip: process.platform === 'win32' && 'the Flutter kit is for Linux and macOS (not offered on Windows)' }, async (tc) => {
   const w = world(tc);
   const ws = path.join(w.home, 'my "ws" $(touch gotcha)');
   fs.mkdirSync(ws, { recursive: true });
@@ -314,7 +318,7 @@ test('the place already taken (a folder, a file, a link, a broken link): never w
   assert.deepEqual(v.asked, []);
 });
 
-test('adoption: a Flutter in ~/flutter and an nvm in ~/.nvm are found and shown; a link only for a named kit; the tools unchanged', async (tc) => {
+test('adoption: a Flutter in ~/flutter and an nvm in ~/.nvm are found and shown; a link only for a named kit; the tools unchanged', { skip: process.platform === 'win32' && 'the Flutter kit is for Linux and macOS (not offered on Windows)' }, async (tc) => {
   const w = world(tc);
   const flutter = path.join(w.home, 'flutter');
   fs.mkdirSync(path.join(flutter, 'bin'), { recursive: true });
@@ -353,7 +357,7 @@ test('adoption: a Flutter in ~/flutter and an nvm in ~/.nvm are found and shown;
   assert.deepEqual(buildPlan(['flutter', 'node'], { ...again, ...nodeOk }, sys2, { named: ['flutter', 'node'] }).steps, []);
 });
 
-test('a new nvm goes into development/nodejs/nvm when a workspace exists, with NVM_DIR set for those steps and in the block', async (tc) => {
+test('a new nvm goes into development/nodejs/nvm when a workspace exists, with NVM_DIR set for those steps and in the block', { skip: process.platform === 'win32' && 'the Flutter kit is for Linux and macOS (not offered on Windows)' }, async (tc) => {
   const w = world(tc);
   const env = { PATH: '', SHELL: '/bin/bash' }; // seal: an environment given as data to the made-up system facts; no process is started with it
   const sys = await sysOf(w, { env, nvm: findNvm({ env, home: w.home, ws: w.ws }) });
@@ -367,7 +371,7 @@ test('a new nvm goes into development/nodejs/nvm when a workspace exists, with N
   assert.match(buildPlan(['node'], { node: [{ id: 'node', state: 'missing' }] }, bare).steps[0].argv[2], /NVM_DIR:-\$HOME\/\.nvm/);
 });
 
-test('later steps find the Node of a new nvm in development/nodejs/nvm (freshPath), only when the step names that folder', (tc) => {
+test('later steps find the Node of a new nvm in development/nodejs/nvm (freshPath), only when the step names that folder', { skip: process.platform === 'win32' && 'the Flutter kit is for Linux and macOS (not offered on Windows)' }, (tc) => {
   const w = world(tc);
   const nvm = path.join(w.ws, 'development', 'nodejs', 'nvm');
   fs.mkdirSync(path.join(nvm, 'versions', 'node', 'v24.11.0', 'bin'), { recursive: true });

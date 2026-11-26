@@ -419,7 +419,8 @@ test('a new process starts only after the old one ended; one that ignores SIGTER
   done = turnEnd(c);
   await c.send('two'); // at once, while the old one is still stopping
   assert.ok(old.exitCode !== null || old.signalCode !== null, 'the old process had ended before the new one started');
-  assert.equal(old.signalCode, 'SIGKILL');
+  // Windows has no signal a process can ignore: Node ends it outright at the first one (SIGTERM).
+  assert.equal(old.signalCode, process.platform === 'win32' ? 'SIGTERM' : 'SIGKILL');
   await done;
   assert.equal(starts(c).length, 2);
 });

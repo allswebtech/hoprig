@@ -115,7 +115,7 @@ test('a project with hundreds of files changed before Start: the run file stays 
   }
 });
 
-test('a file name with a control character, before Start and made by the session: Start works and the run ends', async () => {
+test('a file name with a control character, before Start and made by the session: Start works and the run ends', { skip: process.platform === 'win32' && 'Windows does not allow this file name (a control character, \':\', \'*\' or \'"\')' }, async () => {
   write(shop, { 'notes\tdraft.md': 'x\n' });
   try {
     const id = await task();
@@ -147,7 +147,7 @@ test('a model name the coding tool reports in words a run does not take: the run
   }
 });
 
-test('a stop between the task\'s status and the run\'s final record never leaves the task doing for good', async () => {
+test('a stop between the task\'s status and the run\'s final record never leaves the task doing for good', { skip: process.platform === 'win32' && 'POSIX modes: a folder made read-only by chmod is still written on Windows' }, async () => {
   const id = await task();
   const { run } = await start(id);
   const dir = path.join(place().folder, 'runs');
@@ -297,7 +297,7 @@ test('the answer on a task\'s row is cut with an ellipsis', async () => {
   assert.ok(a.endsWith('…'), a.slice(-20));
 });
 
-test('a file whose relative path holds the home folder is counted, never listed, and the run keeps its commits and other files', async () => {
+test('a file whose relative path holds the home folder is counted, never listed, and the run keeps its commits and other files', { skip: process.platform === 'win32' && 'Windows does not allow this file name (a control character, \':\', \'*\' or \'"\')' }, async () => {
   const id = await task();
   const { run } = await start(id);
   write(shop, { 'kept.txt': 'k\n' });

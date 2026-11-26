@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import path from 'node:path';
 import test from 'node:test';
 import { sandbox } from './helpers.mjs';
 import * as v from '../../src/server/validate.mjs';
@@ -61,7 +62,7 @@ test('upload names and folder', () => {
   assert.ok(cleanFileName('a'.repeat(300) + '.png').length <= 80);
   assert.equal(uploadsDirName(undefined), '.uploads');
   assert.equal(uploadsDirName('inbox'), 'inbox');
-  assert.equal(uploadsDirName('a/b'), 'a/b');
+  assert.equal(uploadsDirName('a/b'), path.join('a', 'b'));
   assert.equal(uploadsDirName('/etc'), null);
   assert.equal(uploadsDirName('../out'), null);
   assert.equal(uploadsDirName('a/../../b'), null);

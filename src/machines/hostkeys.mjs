@@ -9,6 +9,7 @@ import { spawn } from 'node:child_process';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
+import { replaceFile } from '../replacefile.mjs';
 
 export const ALIAS = 'hoprig-computer';
 // The kinds of host key, in the order ssh prefers them; the first one the computer offers is the one shown and kept.
@@ -73,7 +74,7 @@ export function keepHostKey(file, key) {
   const tmp = `${file}.${process.pid}.tmp`;
   fs.writeFileSync(tmp, `${ALIAS} ${key.kind} ${key.b64}\n`, { mode: 0o600 });
   fs.chmodSync(tmp, 0o600);
-  fs.renameSync(tmp, file);
+  replaceFile(tmp, file);
 }
 
 /** The kept host key, or null when there is none. */

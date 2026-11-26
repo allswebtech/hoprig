@@ -8,6 +8,8 @@ import { needsWorld } from './needsfix.mjs';
 
 const N = await import('../../src/workspace/needs.mjs');
 const W = await import('../../src/pcsetup/workspace.mjs');
+// A folder as a rule of the coding tool names it (on Windows its POSIX form, `C:\a` → `/c/a`; elsewhere the path itself).
+const { ruleForm } = await import('../../src/workspace/needswalk.mjs');
 
 test('project.json: "needs" is a known key, each name checked; a path or an odd name is named and left out, never a refusal', () => {
   const v = W.validateManifest({ name: 'shop', repos: [], memories: {}, needs: ['kits/parts', '../x', '/etc', 'kits/parts', 'a b', 7] });
@@ -102,9 +104,10 @@ test('rule 7: --with gives one more entry for one session; a name not here or re
 test('rules 4 and 5: the settings an extra folder brings: no writing, its private folders, credential links and own deny rules; never its allow rules', async () => {
   const w = needsWorld('needs-settings');
   try {
-    const d = fs.realpathSync(w.parts);
-    const s = await N.extraSettings([d], { dir: w.ws });
-    assert.deepEqual(s.additionalDirectories, [d]);
+    const dir = fs.realpathSync(w.parts);
+    const d = ruleForm(dir);
+    const s = await N.extraSettings([dir], { dir: w.ws });
+    assert.deepEqual(s.additionalDirectories, [dir]);
     for (const r of [`Edit(/${d}/**)`, `Write(/${d}/**)`, `NotebookEdit(/${d}/**)`, `Read(/${d}/ai-ignore-dir/**)`, `Read(/${d}/**/no-ai/**)`, `Read(/${d}/.env)`, `Read(/${d}/deep/keys)`, `Read(/${d}/deep/keys/**)`, `Read(/${d}/hidden/**)`, `Read(/${d}/notes.txt)`]) {
       assert.ok(s.deny.includes(r), r);
     }
@@ -208,7 +211,7 @@ test('rule 6: a need with a link to the workspace root, the credentials folder, 
     assert.match(no.refused.join(' '), /conf\/\.env/, '--with is refused the same way');
     // The settings, should a link change after the decision: Read is closed on the whole folder.
     const s = await N.extraSettings([fs.realpathSync(w.parts)], { dir: w.ws });
-    assert.ok(s.deny.includes(`Read(/${fs.realpathSync(w.parts)}/**)`));
+    assert.ok(s.deny.includes(`Read(/${ruleForm(fs.realpathSync(w.parts))}/**)`));
   } finally {
     w.cleanup();
   }
@@ -251,7 +254,7 @@ test('rule 5: a deny rule of the need without a slash holds at any depth, as in 
   try {
     const d = fs.realpathSync(w.parts);
     const s = await N.extraSettings([d], { dir: w.ws });
-    assert.ok(s.deny.includes(`Read(/${d}/**/notes.txt)`), 'settings.local.json\'s Read(notes.txt) at any depth');
+    assert.ok(s.deny.includes(`Read(/${ruleForm(d)}/**/notes.txt)`), 'settings.local.json\'s Read(notes.txt) at any depth');
   } finally {
     w.cleanup();
   }

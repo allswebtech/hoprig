@@ -1,5 +1,5 @@
 // Windows: whose process is "mine" on the PC tab, and which one may be ended, is decided by the account the system
-// names (whoami /user and each process's GetOwnerSid), never by USERDOMAIN and USERNAME. In an SSH session to a local
+// names (the token of this process and each process's GetOwnerSid), never by USERDOMAIN and USERNAME. In an SSH session to a local
 // account USERDOMAIN says WORKGROUP while Windows names the owner "PC\me". Made-up Windows answers only: every
 // program goes through the runner handed in, and traps on PATH catch one that slipped past it.
 import assert from 'node:assert/strict';
@@ -31,7 +31,7 @@ function sshWindows() {
   const owners = { [MINE]: MY_SID, [THEIRS]: OTHER_SID };
   const runSync = (cmd, args) => {
     calls.push([cmd, ...args]);
-    if (cmd === 'whoami') return '"pc\\alex","' + MY_SID + '"\r\n';
+    if (cmd === 'powershell.exe' && /WindowsIdentity/.test(script(args))) return `${MY_SID}\r\n`;
     if (cmd === 'powershell.exe') {
       const m = /ProcessId=(\d+)'/.exec(script(args));
       return m && owners[m[1]] ? `${owners[m[1]]}\r\n` : '';
@@ -92,15 +92,43 @@ test('Windows over SSH: the PC tab calls the person\'s own processes "mine", by 
     assert.doesNotMatch(win.SNAPSHOT_SCRIPT, /MethodName GetOwner\s/);
   }));
 
+test('Windows: a plain end of a program with no window is not tried and says Force; Force and a windowed program go to taskkill', () => {
+  const asked = (owner) => {
+    const calls = [];
+    const runSync = (cmd, args) => {
+      calls.push([cmd, ...args]);
+      if (cmd === 'powershell.exe' && /WindowsIdentity/.test(script(args))) return `${MY_SID}\r\n`;
+      if (cmd === 'powershell.exe') return owner;
+      if (cmd === 'taskkill') return 'SUCCESS\r\n';
+      return null;
+    };
+    return { runSync, calls, kills: () => calls.filter((c) => c[0] === 'taskkill').map((c) => c.slice(1)) };
+  };
+  const noWin = asked(`${MY_SID} nowindow\r\n`);
+  assert.deepEqual(win.killOwn(MINE, 'SIGTERM', { runSync: noWin.runSync }), { ok: false, error: win.NO_WINDOW, noWindow: true });
+  assert.match(win.NO_WINDOW, /no window to be asked to close.*use Force/);
+  assert.deepEqual(noWin.kills(), [], 'taskkill without /F is not even tried: it can only fail there');
+  assert.deepEqual(win.killOwn(MINE, 'SIGKILL', { runSync: noWin.runSync }), { ok: true });
+  assert.deepEqual(noWin.kills(), [['/PID', String(MINE), '/F']]);
+  const windowed = asked(`${MY_SID} window\r\n`);
+  assert.deepEqual(win.killOwn(MINE, 'SIGTERM', { runSync: windowed.runSync }), { ok: true });
+  assert.deepEqual(windowed.kills(), [['/PID', String(MINE)]], 'a program with a window is asked to close');
+  // Another account's program with no window: still not this person's to end.
+  assert.deepEqual(win.killOwn(THEIRS, 'SIGTERM', { runSync: asked(`${OTHER_SID} nowindow\r\n`).runSync }), { ok: false, error: 'not your process' });
+  assert.match(win.ownerScript(MINE), /MainWindowHandle/);
+});
+
 test('the account is asked of the system once and kept', () => {
   const w = sshWindows();
   assert.equal(win.mySid(w.runSync), MY_SID);
   assert.equal(win.mySid(w.runSync), MY_SID);
-  assert.equal(w.calls.filter((c) => c[0] === 'whoami').length, 1);
-  assert.deepEqual(w.calls[0], ['whoami', '/user', '/fo', 'csv', '/nh']);
+  const asks = w.calls.filter((c) => c[0] === 'powershell.exe' && /WindowsIdentity/.test(script(c.slice(1))));
+  assert.equal(asks.length, 1);
+  assert.equal(script(asks[0].slice(1)), win.SID_SCRIPT, 'the account of this process\'s own token, read by .NET');
+  assert.ok(!w.calls.some((c) => c[0] === 'whoami'), 'not whoami by name: Git for Windows puts a POSIX one on PATH');
   // No answer: nothing is "mine" and nothing may be ended (and it is asked again next time).
   let n = 0;
-  const silent = (cmd) => (cmd === 'whoami' ? (n++, null) : `${MY_SID}\r\n`);
+  const silent = (cmd, args) => (/WindowsIdentity/.test(script(args)) ? (n++, null) : `${MY_SID}\r\n`);
   assert.equal(win.mySid(silent), null);
   assert.deepEqual(win.killOwn(MINE, 'SIGKILL', { runSync: silent }), { ok: false, error: 'not your process' });
   assert.equal(n, 2);

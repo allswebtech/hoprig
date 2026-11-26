@@ -680,7 +680,14 @@ function isReaper(proc, pid) {
 // "refs/heads/release/2026") and a file of the repository ("src/app.js") stay as they are.
 const HIDDEN = /'?(?<![\w.+@~-])(?:[a-z][a-z0-9+.-]*:\/\/[^\s']+|[\w.-]+@[\w.-]+:[^\s']*|[\w.-]+:[^\s'\/]*\/[^\s']*|~?\/[^\s']+)'?/gi;
 const HOST = /\b(resolve hostname|connect to host) [^\s:']+/gi;
-export const todoText = (todo) => todo.map((x) => String(x.why || '').replace(HIDDEN, '…').replace(HOST, '$1 …')).join('; ').slice(0, 200);
+// On Windows git names a folder as "C:\Users\alex\notes.git" or "\\server\share\notes.git": a path there too. A user
+// name or a folder there often holds a space ("Alex Smith", "OneDrive - Example Co"), so a path git puts in quotes
+// is masked up to its closing quote, also with forward slashes (C:/Users/...).
+const WIN_PATH = /'(?:[a-z]:[\\/]|\\\\)[^']*'|'?(?<![\w.+@~-])(?:[a-z]:\\[^\s']*|\\\\[^\s']+)'?/gi;
+export const todoText = (todo, platform = process.platform) => todo.map((x) => {
+  const why = String(x.why || '');
+  return (platform === 'win32' ? why.replace(WIN_PATH, '…') : why).replace(HIDDEN, '…').replace(HOST, '$1 …');
+}).join('; ').slice(0, 200);
 
 /**
  * The acts besides moving and stopping a session (those are the server's own, passed in by server.mjs). `gateways`,
@@ -701,7 +708,11 @@ export function defaultActs({ projects = () => projectsIn(), run = capture, runs
     async end(t) {
       if (!Number.isInteger(t.pid) || !t.proc) throw Object.assign(new Error('that process cannot be named exactly: nothing was ended'), { status: 409 });
       if (t.what === 'tmux' && !(t.socket && !sessionSocketsOf(runs).has(t.socket) && onlyIdleShells(await panesOf(t.socket, run, proc)))) throw Object.assign(new Error('a program runs in that tmux server now: nothing was ended'), { status: 409 });
-      const r = await endProcess(t.pid, { parentLookup, kill: killProcess, expect: async (pid) => identity.of([pid]).get(pid) === t.proc });
+      const ask = (force) => endProcess(t.pid, { force, parentLookup, kill: killProcess, expect: async (pid) => identity.of([pid]).get(pid) === t.proc });
+      let r = await ask(false);
+      // Windows: a program with no window cannot be asked to close, only ended at once (platform/win32.mjs NO_WINDOW).
+      // The end he chose is the end SIGTERM gives it elsewhere: the same checks again, then the end at once.
+      if (!r.ok && r.noWindow) r = await ask(true);
       if (!r.ok) throw Object.assign(new Error(r.error || 'it could not be ended'), { status: 409 });
       return { ended: true };
     },

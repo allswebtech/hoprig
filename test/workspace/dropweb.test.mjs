@@ -3,12 +3,11 @@
 // owner's press (work → a wip/ branch; a default branch → pushed only by that very answer) or by the name he typed;
 // a ticket is used once and lasts ten minutes; a project that changed after the sheet opened is not dropped and the
 // new list comes back. A grep test: only the drop modules decide what a drop may remove.
-import assert from 'node:assert/strict';
 import { execFileSync, spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
-import { dropWorld, onServer, reset, serverHeads } from './dropfix.mjs';
+import { assert, dropWorld, onServer, reset, serverHeads } from './dropfix.mjs';
 
 const w = await dropWorld('page', { labels: ['desk', 'box2'] });
 test.after(() => w.cleanup());
@@ -18,6 +17,7 @@ const { QUESTION } = await import('../../src/workspace/dropcli.mjs');
 let clock = Date.now();
 const page = pageDrop({ ctx: () => D.ctx, now: () => clock, share: async () => ({ done: false }) });
 const api = () => path.join(D.shop, 'code', 'shop-api');
+// A repository is named by its workspace place with / on every system (drop.mjs repoLabel).
 const API = 'projects/shop/code/shop-api';
 
 test('a clean project: the check gives a ticket; the drop with it removes the project', async () => {
@@ -58,12 +58,12 @@ test('commits on a default branch: pushed only by his press of that very answer'
   const c = await page.check('shop', { ticket: true });
   const q = c.questions.find((x) => x.ask === 'default branch');
   assert.equal(q.repo, API);
-  assert.equal(q.words, 'This pushes main of projects/shop/code/shop-api: 1 commit.');
+  assert.equal(q.words, `This pushes main of ${API}: 1 commit.`);
   assert.deepEqual(q.choices.map((x) => x.value), ['push', 'wip', 'stop']);
   const none = await page.drop(c.ticket, { work: true });
   assert.equal(none.result, 'stopped', 'no answer for that repository stops');
   assert.equal(onServer(w, 'shop-api', 'refs/heads/main'), main0);
-  const other = await page.drop((await page.check('shop', { ticket: true })).ticket, { defaults: { 'projects/shop/code/shop-web': 'push' } });
+  const other = await page.drop((await page.check('shop', { ticket: true })).ticket, { defaults: { ['projects/shop/code/shop-web']: 'push' } });
   assert.equal(other.result, 'stopped', 'an answer for another repository is no answer for this one');
   assert.equal(onServer(w, 'shop-api', 'refs/heads/main'), main0);
   const yes = await page.drop((await page.check('shop', { ticket: true })).ticket, { defaults: { [API]: 'push' } });
@@ -223,7 +223,7 @@ test('a memory note changed again after the check: changed, the server\'s main u
   const q = c.questions.find((x) => x.ask === 'default branch');
   assert.equal(q.repo, 'projects/shop', JSON.stringify(c.questions));
   fs.appendFileSync(note, 'added after the sheet opened\n');
-  const r = await page.drop(c.ticket, { defaults: { 'projects/shop': 'push' } });
+  const r = await page.drop(c.ticket, { defaults: { ['projects/shop']: 'push' } });
   assert.equal(r.result, 'changed', JSON.stringify(r));
   assert.equal(onServer(w, 'shop-workspace', 'refs/heads/main'), main0, 'nothing was pushed');
   assert.ok(fs.readFileSync(note, 'utf8').includes('added after the sheet opened'), 'nothing removed');

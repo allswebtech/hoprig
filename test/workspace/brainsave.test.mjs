@@ -467,7 +467,7 @@ test('nothing runs it by itself: only the workspace routes import it', () => {
   const src = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..', 'src');
   const users = fs.readdirSync(src, { recursive: true }).map(String).filter((f) => f.endsWith('.mjs') && /brainsave\.mjs/.test(fs.readFileSync(path.join(src, f), 'utf8')));
   // brainmove.mjs (the sheet's Move out) reads the refusal list from it; only the routes import that one in turn.
-  assert.deepEqual(users, ['workspace/brainmove.mjs', 'workspace/feature.mjs'], 'no automation, upkeep or set-up imports it');
+  assert.deepEqual(users.map((f) => f.split(path.sep).join('/')), ['workspace/brainmove.mjs', 'workspace/feature.mjs'], 'no automation, upkeep or set-up imports it');
 });
 
 test.after(() => w.cleanup());

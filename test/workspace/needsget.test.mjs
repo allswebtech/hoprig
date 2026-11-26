@@ -138,7 +138,7 @@ test('the line for what is missing names a need of a need by whose it is, never 
   assert.equal(needsWords('shop', [{ name: 'a', of: 'kits/parts' }, { name: 'b', of: 'kits/parts' }, { name: 'c', of: 'docs' }]), 'kits/parts, which shop reads, needs: a, b; and docs needs c');
 });
 
-test('--with-needs --yes: --yes answers the set-up questions of what was named, never a need\'s install', { skip: process.platform === 'win32' }, async () => {
+test('--with-needs --yes: --yes answers the set-up questions of what was named, never a need\'s install', { skip: process.platform === 'win32' && 'the stand-in npm is a POSIX shell script' }, async () => {
   // A stand-in npm first on the PATH that fails loudly: the runner below takes every install, so it never runs.
   const { stream } = await import('../../src/setup/system.mjs');
   const installs = [];

@@ -22,7 +22,7 @@ beforeEach(() => {
 afterEach(() => fs.rmSync(tmp, { recursive: true, force: true }));
 
 const { writeProfile } = await import('../../src/profiles.mjs');
-const { improveFeature, RESTART_WHY } = await import('../../src/assistant/improvefeature.mjs');
+const { improveFeature, RESTART_WHY, takeLock, writeStateForTest } = await import('../../src/assistant/improvefeature.mjs');
 const { SpendLedger } = await import('../../src/assistant/spend.mjs');
 
 const turn = async (a) => ({ ok: true, text: JSON.stringify({ after: `${a.prompt.split('<current_text>\n')[1].split('\n</current_text>')[0]} MARK:tie` }), usd: 0.001, tokens: 10 });
@@ -199,4 +199,115 @@ test('the weekly round is off by default; switched on, it starts once a week on 
   assert.equal(st.by, 'weekly');
   await ended(f);
   assert.equal(f.tick(), null, 'not again within the week');
+});
+
+test('Windows: the round lock whose name is still held a moment by another program is taken once let go, never an error', (t) => {
+  const lock = path.join(process.env.HOPRIG_STATE_DIR, 'assistant', 'improve.lock');
+  const { writeFileSync } = fs;
+  t.after(() => (fs.writeFileSync = writeFileSync));
+  // What Windows answers while another program (a virus scan) still holds the last round's removed lock a moment.
+  const heldUntil = Date.now() + 400;
+  fs.writeFileSync = function (p, ...rest) {
+    if (p === lock && Date.now() < heldUntil) throw Object.assign(new Error('EPERM: operation not permitted'), { code: 'EPERM' });
+    return writeFileSync.call(fs, p, ...rest);
+  };
+  assert.equal(takeLock('r1', { platform: 'win32' }), true, 'taken once the name was let go');
+  // A live round's lock is still answered at once: not taken.
+  assert.equal(takeLock('r2', { platform: 'win32' }), false);
+  fs.rmSync(lock);
+  // Elsewhere EPERM stays a refusal, as before.
+  fs.writeFileSync = function (p, ...rest) {
+    if (p === lock) throw Object.assign(new Error('EPERM: operation not permitted'), { code: 'EPERM' });
+    return writeFileSync.call(fs, p, ...rest);
+  };
+  assert.throws(() => takeLock('r3', { platform: 'linux' }), { code: 'EPERM' });
+});
+
+test('Windows: a round state written while the page reads it (a rename over an open file is refused) is written once let go', (t) => {
+  const file = path.join(process.env.HOPRIG_STATE_DIR, 'assistant', 'improve.json');
+  const { renameSync } = fs;
+  t.after(() => (fs.renameSync = renameSync));
+  let refusals = 0;
+  // What Windows answers every time a rename goes over a file another process has open (measured).
+  fs.renameSync = function (from, to, ...rest) {
+    if (to === file && refusals < 3) {
+      refusals++;
+      throw Object.assign(new Error('EPERM: operation not permitted'), { code: 'EPERM' });
+    }
+    return renameSync.call(fs, from, to, ...rest);
+  };
+  writeStateForTest(file, { id: 'r1', running: true }, 'win32');
+  assert.equal(refusals, 3);
+  assert.deepEqual(JSON.parse(fs.readFileSync(file, 'utf8')), { id: 'r1', running: true });
+  refusals = 0;
+  assert.throws(() => writeStateForTest(file, { id: 'r2' }, 'linux'), { code: 'EPERM' }, 'elsewhere as before');
+});
+
+test('a round lock whose pid runs but whose identity is another process is taken over; a matching one is held; an old one as before', () => {
+  const lock = path.join(process.env.HOPRIG_STATE_DIR, 'assistant', 'improve.lock');
+  fs.mkdirSync(path.dirname(lock), { recursive: true });
+  const live = process.ppid;
+  for (const [then, now] of [['T:1000', 'T:900000'], ['L:boot-a:500', 'L:boot-a:777']]) {
+    const ident = { self: () => now, of: (pids) => new Map(pids.map((p) => [p, now])) };
+    fs.writeFileSync(lock, JSON.stringify({ pid: live, proc: then, id: 'old' }));
+    assert.equal(takeLock('r1', { ident }), true, `${then}: a round that ended under a pid handed out again`);
+    assert.equal(JSON.parse(fs.readFileSync(lock, 'utf8')).proc, now, 'this round writes its identity');
+    fs.writeFileSync(lock, JSON.stringify({ pid: live, proc: now, id: 'live' }));
+    assert.equal(takeLock('r2', { ident }), false, 'a round that runs');
+    assert.equal(takeLock('r3', { ident: { self: () => now, of: (pids) => new Map(pids.map((p) => [p, null])) } }), false, 'cannot be told: held');
+    fs.writeFileSync(lock, JSON.stringify({ pid: live, id: 'older' }));
+    assert.equal(takeLock('r4', { ident }), false, 'an older version\'s lock: its pid alive, held as before');
+    fs.rmSync(lock);
+  }
+});
+
+test('a round whose lock cannot be removed at its end leaves no rejection that would end the dashboard, and the next start takes that lock', async (t) => {
+  const { f, call } = feature();
+  const lock = path.join(process.env.HOPRIG_STATE_DIR, 'assistant', 'improve.lock');
+  const { rmSync } = fs;
+  const rejected = [];
+  const onRejection = (e) => rejected.push(e);
+  process.on('unhandledRejection', onRejection);
+  t.after(() => {
+    fs.rmSync = rmSync;
+    process.off('unhandledRejection', onRejection);
+  });
+  // Any error of the removal (on Windows also an EPERM past its second): the lock stays where it is.
+  fs.rmSync = function (p, ...rest) {
+    if (p === lock) throw Object.assign(new Error('EIO: i/o error, unlink'), { code: 'EIO' });
+    return rmSync.call(fs, p, ...rest);
+  };
+  await call('POST', '/api/assistant/improve/start', { provider: 'sub', cap: 2 });
+  await ended(f);
+  await new Promise((ok) => setTimeout(ok, 50));
+  assert.deepEqual(rejected.map((e) => e.message), [], 'no rejection left the round');
+  assert.ok(fs.existsSync(lock), 'its lock was left');
+  fs.rmSync = rmSync;
+  await call('POST', '/api/assistant/improve/start', { provider: 'sub', cap: 2 });
+  await ended(f);
+});
+
+test('a round left running is judged as its lock is: a pid another process has now is a round that ended; its own identity runs on', async () => {
+  const file = path.join(process.env.HOPRIG_STATE_DIR, 'assistant', 'improve.json');
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  const live = process.ppid; // a pid that runs: the round's process ended, and the system gave its number to this one
+  const ident = { self: () => 'T:900000', of: (pids) => new Map(pids.map((p) => [p, 'T:900000'])) };
+  const left = (o) => fs.writeFileSync(file, JSON.stringify({ running: true, id: 'cccccccccccc', pid: live, startedAt: new Date().toISOString(), holds: [], proposals: [], tried: [], ...o }));
+  for (const [o, settled, why] of [[{ proc: 'T:1000' }, true, 'its pid handed to another process'], [{ proc: 'T:900000' }, false, 'that very process runs it'], [{}, false, 'an older state, its pid alive: as before']]) {
+    left(o);
+    const { f, call } = feature({ ident });
+    f.start();
+    try {
+      const v = await call('GET', '/api/assistant/improve');
+      assert.equal(v.round.running, !settled, why);
+      assert.equal(v.round.stopped, settled ? RESTART_WHY : undefined, why);
+    } finally {
+      f.close();
+    }
+  }
+  fs.rmSync(file);
+  const { f, call } = feature();
+  await call('POST', '/api/assistant/improve/start', { provider: 'sub', cap: 2 });
+  await ended(f);
+  assert.equal(typeof JSON.parse(fs.readFileSync(file, 'utf8')).proc, 'string', 'a round writes its identity beside its pid');
 });

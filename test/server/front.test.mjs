@@ -13,7 +13,7 @@ const box = sandbox('front');
 test.after(() => box.cleanup());
 const { FRONT_GONE, assertFront, groups, notInFront, parseStat } = await import('../../src/server/backends/front.mjs');
 const { Deck } = await import('../../src/server/deck.mjs');
-const { toolText } = await import('../../src/server/typing.mjs');
+const { frontOf, toolText } = await import('../../src/server/typing.mjs');
 const { lockOf, noteTyped, removeLocked, typedOf, whileTyping } = await import('../../src/typinglock.mjs');
 const { runsDir } = await import('../../src/paths.mjs');
 const { PtyBackend } = await import('../../src/server/backends/pty.mjs');
@@ -100,6 +100,15 @@ test('sendToTool: the launcher\'s group is what must be in front, for the text a
   const quiet = rig([{ term, run: run() }]);
   await quiet.deck.sendToTool('s', 'x', { enter: false });
   assert.equal(quiet.calls.length, 1, 'no Enter asked for, none sent');
+});
+
+test('Windows (no process groups): the launcher must still run for its tool to be in front; POSIX: its group decides', () => {
+  const none = () => null;
+  const refused = (f) => assert.throws(f, (e) => e.code === 'not_in_front' && e.message === FRONT_GONE);
+  refused(() => frontOf({ pid: 77 }, { platform: 'win32', groupsOf: none, isAlive: () => false }));
+  assert.deepEqual(frontOf({ pid: 77 }, { platform: 'win32', groupsOf: none, isAlive: () => true }), { pid: 77 });
+  refused(() => frontOf({ pid: 77 }, { platform: 'linux', groupsOf: none, isAlive: () => true }));
+  assert.deepEqual(frontOf({ pid: 77 }, { platform: 'linux', groupsOf: () => ({ pgrp: 9, tpgid: 9 }), isAlive: () => false }), { group: 9, pid: 77 });
 });
 
 test('sendToTool: refused before anything is typed', async () => {
@@ -273,4 +282,48 @@ test('built-in terminal, POSIX: a group that is not in front gets nothing; the o
   await b.sendKey(id, 'C-c');
   assert.deepEqual(written, ['ls\x15', '\x03'], 'without `front` (the owner) every byte goes as before');
   await b.close();
+});
+
+test('Windows: a typing lock whose name is still held a moment by another program is waited for, not an error', async (t) => {
+  const file = path.join(box.root, 'typing-held.json');
+  fs.writeFileSync(file, '{}');
+  const lock = lockOf(file);
+  const { openSync } = fs;
+  t.after(() => (fs.openSync = openSync));
+  // What Windows answers while another program (a virus scan) still holds the last typer's removed lock a moment.
+  const heldUntil = Date.now() + 400;
+  fs.openSync = function (p, ...rest) {
+    if (p === lock && Date.now() < heldUntil) throw Object.assign(new Error('EPERM: operation not permitted'), { code: 'EPERM' });
+    return openSync.call(fs, p, ...rest);
+  };
+  let typed = false;
+  await whileTyping(file, async () => (typed = true), { platform: 'win32' });
+  assert.equal(typed, true, 'typed once the name was let go');
+  assert.equal(fs.existsSync(lock), false);
+  // Elsewhere EPERM stays a refusal, as before.
+  fs.openSync = function (p, ...rest) {
+    if (p === lock) throw Object.assign(new Error('EPERM: operation not permitted'), { code: 'EPERM' });
+    return openSync.call(fs, p, ...rest);
+  };
+  await assert.rejects(whileTyping(file, async () => {}, { platform: 'linux' }), { code: 'EPERM' });
+});
+
+test('Windows: a typing lock whose removal is refused a moment (another process looked at it) is removed then, not an error', async (t) => {
+  const file = path.join(box.root, 'typing-letgo.json');
+  fs.writeFileSync(file, '{}');
+  const lock = lockOf(file);
+  const { rmSync } = fs;
+  t.after(() => (fs.rmSync = rmSync));
+  let refusals = 0;
+  // What Windows answers now and then (measured): a removal of a file another process touches is refused with EPERM.
+  fs.rmSync = function (p, ...rest) {
+    if (p === lock && refusals < 2) {
+      refusals++;
+      throw Object.assign(new Error('EPERM: operation not permitted'), { code: 'EPERM' });
+    }
+    return rmSync.call(fs, p, ...rest);
+  };
+  await whileTyping(file, async () => {}, { platform: 'win32' });
+  assert.equal(refusals, 2);
+  assert.equal(fs.existsSync(lock), false, 'the next typist finds no lock left behind');
 });

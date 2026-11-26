@@ -13,8 +13,9 @@ import { JobStore } from '../../src/assistant/jobs.mjs';
 import { Skills } from '../../src/assistant/skills.mjs';
 import { MCP_TOOLS_JSON, SCREENS, SETTINGS, TOOLS, byName } from '../../src/assistant/tools.mjs';
 import { FakeOps, baseState } from './fake-dashboard.mjs';
+import { fileURLToPath } from 'node:url';
 
-const BUILTIN = new URL('../../skills', import.meta.url).pathname;
+const BUILTIN = fileURLToPath(new URL('../../skills', import.meta.url));
 
 function setup({ state, level } = {}) {
   const s = state || baseState();

@@ -2,7 +2,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
-import { fakeBin, fakeClaude, fakeFetch, pathWith, recorder, scratch, snapshot } from './helpers.mjs';
+import { SHELL_STANDINS } from '../seal.mjs';
+import { fakeBin, fakeClaude, fakeFetch, pathWith, recorder, scratch, snapshot, windowsFacts } from './helpers.mjs';
 
 const s = scratch();
 test.after(s.cleanup);
@@ -27,7 +28,8 @@ function sys(over = {}) {
   Object.assign(env, over.env || {});
   const has = (c) => c !== 'systemctl' && !!which(c, env, process.platform);
   const { PATH: _p, env: _e, ...rest } = over; // seal: a value no program is started with
-  const made = K.sysInfo({ env, has, pm: null, root: false, serviceSupported: false, publicIps: [], dmi: {}, localDisplay: false, savedServer: null, ...rest });
+  // run: Windows' whoami answers are facts here (not elevated), never the system's own (helpers.mjs windowsFacts).
+  const made = K.sysInfo({ env, has, pm: null, root: false, serviceSupported: false, publicIps: [], dmi: {}, localDisplay: false, savedServer: null, run: windowsFacts(env), ...rest });
   // Nothing listens for these tests, whatever really runs on this machine's dashboard port.
   made.probe = over.probe || (async () => 0);
   return made;
@@ -122,7 +124,7 @@ test('setup --dry-run with Claude Code missing: one install question, nothing in
   assert.equal(fs.existsSync(path.join(process.env.HOME, '.local')), false);
 });
 
-test('setup --yes: profile, password file, network access, no questions; a second run changes nothing', async () => {
+test('setup --yes: profile, password file, network access, no questions; a second run changes nothing', SHELL_STANDINS, async () => {
   const first = ui({ yes: true });
   const code = await SU.setup(['--yes'], { ui: first.ui, sys: sys(), parts: NOPARTS });
   assert.equal(code, 0, first.rec.text);
@@ -149,7 +151,7 @@ test('setup --yes: profile, password file, network access, no questions; a secon
   assert.deepEqual(settled(), after, 'running setup again changed nothing');
 });
 
-test('--access changes the choice without a question; Tailscale uses tailscale serve', async () => {
+test('--access changes the choice without a question; Tailscale uses tailscale serve', SHELL_STANDINS, async () => {
   const tsBin = fakeBin(path.join(s.tmp, 'bin-ts'), {
     tailscale: 'case "$1" in status) echo \'{"BackendState":"Running","Self":{"DNSName":"pc.tail1.ts.net."}}\' ;; serve) echo "serving $3" ;; esac',
   });
@@ -186,7 +188,7 @@ test('the question offers Tailscale only when it is logged in; the default is th
   assert.equal(loadConfig().server.host, '0.0.0.0');
 });
 
-test('not logged in: one line, and setup goes on', async () => {
+test('not logged in: one line, and setup goes on', SHELL_STANDINS, async () => {
   const nl = fakeBin(path.join(s.tmp, 'bin-nologin'), { claude: fakeClaude({ loggedIn: false }) });
   const { ui: u, rec } = ui({ yes: true });
   assert.equal(await SU.setup(['--yes'], { ui: u, sys: sys({ PATH: pathWith(s.tmp, nl) }), parts: NOPARTS }), 0); // seal: only the test's own folders, in an environment that keeps the runner's variables
@@ -199,7 +201,7 @@ test('not logged in: one line, and setup goes on', async () => {
   assert.equal(rec.text.split('type /login').length - 1, 1, `said once:\n${rec.text}`); // (the dashboard's own link has /login too)
 });
 
-test('one closing list "Still yours to do": every step that leaves something adds it once, and nothing of it comes earlier', async () => {
+test('one closing list "Still yours to do": every step that leaves something adds it once, and nothing of it comes earlier', SHELL_STANDINS, async () => {
   const nl = fakeBin(path.join(s.tmp, 'bin-nologin-g11'), { claude: fakeClaude({ loggedIn: false }) });
   const { ui: u, rec } = ui({ yes: true });
   // The Git and computer steps as set-up runs them, each leaving something (they say it twice, as two runs could).
@@ -327,7 +329,7 @@ test('doctor asks the port a running dashboard listens on, and its access line n
   assert.match(r2.find((x) => x.id === 'access').detail, /127\.0\.0\.1:8304/);
 });
 
-test('terminal step: the module is built when it does not work; tmux alone is said plainly; nothing is built without the tools or in a dry run', async () => {
+test('terminal step: the module is built when it does not work; tmux alone is said plainly; nothing is built without the tools or in a dry run', { skip: process.platform === 'win32' && 'the terminal step of Linux (tmux, the build tools) is handed in, and Linux PATH rules cannot read a Windows PATH' }, async () => {
   const good = async () => ({ ok: true });
   const bad = async () => ({ ok: false, why: 'it does not load' });
   const tmuxBin = fakeBin(path.join(s.tmp, 'bin-tmux-step'), { tmux: 'echo "tmux 3.4"' });

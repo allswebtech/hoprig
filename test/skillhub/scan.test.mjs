@@ -67,9 +67,12 @@ test('blocked: a symlink out of the skill, no SKILL.md, a setuid file; an inside
   assert.ok(!rules(inside).some((r) => r.startsWith('block')));
   const none = writeTree(path.join(box.root, 'no-skill'), { 'README.md': 'x' });
   assert.ok(rules(none).includes('block:no-skill-md'));
-  const suid = skill({ 'x.sh': '#!/bin/sh\n' });
-  fs.chmodSync(path.join(suid, 'x.sh'), 0o4755);
-  assert.ok(rules(suid).includes('block:setuid'));
+  // Windows has no setuid bit (chmod sets none there): a setuid file cannot exist on it, so that part is POSIX only.
+  if (process.platform !== 'win32') {
+    const suid = skill({ 'x.sh': '#!/bin/sh\n' });
+    fs.chmodSync(path.join(suid, 'x.sh'), 0o4755);
+    assert.ok(rules(suid).includes('block:setuid'));
+  }
 });
 
 test('safeRel refuses escaping and odd paths (as an archive or a tree could carry them)', () => {

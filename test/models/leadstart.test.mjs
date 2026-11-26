@@ -9,6 +9,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { sandbox } from '../server/helpers.mjs';
+import { SHELL_STANDINS } from '../seal.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const FAKE_CLAUDE = path.join(HERE, '..', 'chat', 'fixtures', 'fake-claude.mjs');
@@ -59,7 +60,7 @@ async function gateway(t, ids) {
   return { asked, url: `http://127.0.0.1:${srv.address().port}`, down: () => (up = false) };
 }
 
-test('a Lead chat on a gateway whose list is not known yet asks for it at its start and gets its helpers', { timeout: 120_000, skip: process.platform === 'win32' && 'the stand-ins are POSIX' }, async (t) => {
+test('a Lead chat on a gateway whose list is not known yet asks for it at its start and gets its helpers', { timeout: 120_000, skip: SHELL_STANDINS.skip }, async (t) => {
   const box = sandbox('leadstart');
   const work = path.join(box.root, 'work');
   const shop = path.join(work, 'shop');

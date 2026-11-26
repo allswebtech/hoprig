@@ -31,7 +31,7 @@ const ui = (o = {}) => {
 };
 await SU.stepPassword(ui({ yes: true }).ui, {}, {});
 
-test('a second run: the dashboard still listens on every address while its settings say this computer only: said, and restarted', async () => {
+test('a second run: the dashboard still listens on every address while its settings say this computer only: said, and restarted', { skip: process.platform === 'win32' && 'the Linux service (systemd) is handed in, and Linux PATH rules cannot read a Windows PATH' }, async () => {
   saveConfig({ server: { host: '127.0.0.1' } });
   const { ui: u, rec } = ui({ yes: true });
   // --no-service: said, with the way to apply it (set-up does not restart what it does not manage)
@@ -47,7 +47,7 @@ test('a second run: the dashboard still listens on every address while its setti
   assert.match(r.rec.text, /✓ Dashboard running in the background/);
 });
 
-test('another version runs: restarted and said "it ran X, now Y"; with sessions in its built-in terminals --yes does not restart and names them', async () => {
+test('another version runs: restarted and said "it ran X, now Y"; with sessions in its built-in terminals --yes does not restart and names them', { skip: process.platform === 'win32' && 'the Linux service (systemd) is handed in, and Linux PATH rules cannot read a Windows PATH' }, async () => {
   saveConfig({ server: { host: '127.0.0.1' } });
   let n = 0;
   const { ui: u, rec } = ui({ yes: true });
@@ -63,7 +63,7 @@ test('another version runs: restarted and said "it ran X, now Y"; with sessions 
   assert.equal(fs.existsSync(calls), false, 'systemctl was never asked');
 });
 
-test('an earlier "hoprig serve" keeps the port open to the network: said, and never "running in the background"', async () => {
+test('an earlier "hoprig serve" keeps the port open to the network: said, and never "running in the background"', { skip: process.platform === 'win32' && 'the Linux service (systemd) is handed in, and Linux PATH rules cannot read a Windows PATH' }, async () => {
   saveConfig({ server: { host: '127.0.0.1' } });
   const { ui: u, rec } = ui({ yes: true });
   const old = { version: mine, pid: 31, host: '0.0.0.0', port: 7433, backend: 'tmux', terminals: [] };
@@ -91,7 +91,7 @@ function sysReal(over = {}, onRestart = '') {
   return S;
 }
 
-test('an earlier version runs (no key, no route) on every address: restarted, said, and the new one checked', async (t) => {
+test('an earlier version runs (no key, no route) on every address: restarted, said, and the new one checked', { skip: process.platform === 'win32' && 'the Linux service (systemd) is handed in, and Linux PATH rules cannot read a Windows PATH' }, async (t) => {
   saveConfig({ server: { host: '127.0.0.1', backend: 'tmux' } });
   fs.rmSync(calls, { force: true });
   await earlier(t, '0.0.0.0');
@@ -111,7 +111,7 @@ test('an earlier version runs (no key, no route) on every address: restarted, sa
   assert.match(rec.text, new RegExp(`✓ The dashboard ran an earlier version, now ${mine.replace(/\./g, '\\.')}`));
 });
 
-test('an earlier version that a "hoprig serve" started by hand keeps on the port: ✗, never "running in the background"', async (t) => {
+test('an earlier version that a "hoprig serve" started by hand keeps on the port: ✗, never "running in the background"', { skip: process.platform === 'win32' && 'the Linux service (systemd) is handed in, and Linux PATH rules cannot read a Windows PATH' }, async (t) => {
   saveConfig({ server: { host: '127.0.0.1', backend: 'tmux' } });
   fs.rmSync(calls, { force: true });
   const { pid } = await earlier(t, '0.0.0.0');
@@ -165,7 +165,7 @@ async function onServer(running, args = [], over = {}) {
   }
 }
 
-test('on a server, an earlier "hoprig serve" keeps the port open to the network: "not ready" at the end, and exit 1', async () => {
+test('on a server, an earlier "hoprig serve" keeps the port open to the network: "not ready" at the end, and exit 1', { skip: process.platform === 'win32' && 'the Linux service (systemd) is handed in, and Linux PATH rules cannot read a Windows PATH' }, async () => {
   const r = await onServer({ version: mine, pid: 41, host: '0.0.0.0', port: 7433, backend: 'tmux', terminals: [] });
   assert.match(r.text, /✗ An earlier dashboard \(pid 41, not the background service\)/);
   assert.match(r.text, /hoprig is not ready: an earlier dashboard still holds its port, open to the network/);
@@ -182,7 +182,7 @@ test('on a server, --yes leaves a dashboard open to the network for its sessions
   assert.equal(r.code, 1, r.text);
 });
 
-test('on a server, --no-service or no service manager leaves a dashboard open to the network: "not ready", how to restart it, exit 1', async () => {
+test('on a server, --no-service or no service manager leaves a dashboard open to the network: "not ready", how to restart it, exit 1', { skip: process.platform === 'win32' && 'the Linux service (systemd) is handed in, and Linux PATH rules cannot read a Windows PATH' }, async () => {
   const wide = { version: mine, pid: 61, host: '0.0.0.0', port: 7433, backend: 'tmux', terminals: [] };
   for (const [args, over, how] of [[['--no-service'], {}, 'hoprig service install, or stop "hoprig serve" and start it again'], [[], { serviceSupported: false }, 'stop "hoprig serve" and start it again']]) {
     const r = await onServer(wide, args, over);
@@ -209,7 +209,7 @@ test('on a server, the settings were just closed but the running dashboard canno
   assert.equal(state.serviceLeft, 'open');
 });
 
-test('on a server, a dashboard that answers but cannot say where it listens is never "✓ Dashboard running": said, with the restart, whether or not this run changed the setting', async () => {
+test('on a server, a dashboard that answers but cannot say where it listens is never "✓ Dashboard running": said, with the restart, whether or not this run changed the setting', { skip: process.platform === 'win32' && 'the Linux service (systemd) is handed in, and Linux PATH rules cannot read a Windows PATH' }, async () => {
   saveConfig({ server: { host: '127.0.0.1' } });
   const SAY = /! Dashboard running, but set-up cannot read where it listens \(it says nothing about itself here\), and this computer is a server: restart it so it runs with its settings \((.+)\)\n/;
   const server = { kind: 'ssh' };
@@ -240,7 +240,7 @@ test('on a server, a dashboard that answers but cannot say where it listens is n
   fs.rmSync(unit, { force: true });
 });
 
-test('"Restart it now anyway?" is asked when sessions in the built-in terminals would end: its default is no, a "y" restarts', async () => {
+test('"Restart it now anyway?" is asked when sessions in the built-in terminals would end: its default is no, a "y" restarts', { skip: process.platform === 'win32' && 'the Linux service (systemd) is handed in, and Linux PATH rules cannot read a Windows PATH' }, async () => {
   saveConfig({ server: { host: '127.0.0.1' } });
   const old = { version: '0.0.1', pid: 71, host: '127.0.0.1', port: 7433, backend: 'pty', terminals: ['shop'] };
   const answered = async (answer) => {
@@ -274,7 +274,7 @@ test('"Restart it now anyway?" is asked when sessions in the built-in terminals 
   assert.equal(fs.existsSync(calls), false, 'not restarted under --yes');
 });
 
-test('on a server, what cannot say where it listens leaves the run "not ready": after a restart, and with nothing changed', async () => {
+test('on a server, what cannot say where it listens leaves the run "not ready": after a restart, and with nothing changed', { skip: process.platform === 'win32' && 'the Linux service (systemd) is handed in, and Linux PATH rules cannot read a Windows PATH' }, async () => {
   saveConfig({ server: { host: '127.0.0.1' } });
   const { stepSummary } = SU;
   const server = { kind: 'ssh' };
@@ -305,7 +305,7 @@ test('on a server, what cannot say where it listens leaves the run "not ready": 
   assert.equal(await SU.stepService(home.ui, sys(null, { home: s.env.HOME }), { service: false }, { changed: false, server: null }), true);
 });
 
-test('set-up on a server fills its field report\'s summary: a server, its steps, and a dashboard left open as its class', async () => {
+test('set-up on a server fills its field report\'s summary: a server, its steps, and a dashboard left open as its class', { skip: process.platform === 'win32' && 'the Linux service (systemd) is handed in, and Linux PATH rules cannot read a Windows PATH' }, async () => {
   const { fakeFetch } = await import('./helpers.mjs');
   const fetchWas = globalThis.fetch;
   globalThis.fetch = fakeFetch({ 'https://downloads.claude.ai/claude-code-releases/latest': '2.1.300' });

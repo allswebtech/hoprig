@@ -9,6 +9,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
+import { fileURLToPath } from 'node:url';
 import { gitWorld } from './gitfix.mjs';
 
 const w = gitWorld('ws-brainmove');
@@ -146,7 +147,7 @@ test('the route: his own page only; refused to Tia\'s token, a call with no sign
     write('door.key', 'x\n');
     write('fine.md', 'plain\n');
     const sheet = await (await fetch(`${origin}/api/workspace/git/brain`, { headers: { Cookie: cookie } })).json();
-    assert.equal(sheet.movedOut, '~/Workspace/ai_brain-moved-out', 'the sheet names the folder, as a short path');
+    assert.equal(sheet.movedOut, path.join('~', 'Workspace', 'ai_brain-moved-out'), 'the sheet names the folder, as a short path');
     const body = { files: ['door.key'], seen: sheet.moveSeen };
     assert.equal((await post(body, { Authorization: 'Bearer tia_0123456789abcdef' })).status, 401, 'Tia\'s token alone');
     assert.ok([401, 403].includes((await post(body, { Authorization: 'Bearer tia_0123456789abcdef', ...page })).status), 'Tia\'s token, also with the cookie');
@@ -161,7 +162,7 @@ test('the route: his own page only; refused to Tia\'s token, a call with no sign
     assert.ok(fs.existsSync(path.join(brain, 'door.key')), 'none of those moved it');
     const ok = await post(body, page);
     assert.equal(ok.status, 200, JSON.stringify(ok.json));
-    assert.deepEqual(ok.json, { ok: true, folder: '~/Workspace/ai_brain-moved-out', moved: [{ from: 'door.key', to: '~/Workspace/ai_brain-moved-out/door.key' }], untracked: [] });
+    assert.deepEqual(ok.json, { ok: true, folder: path.join('~', 'Workspace', 'ai_brain-moved-out'), moved: [{ from: 'door.key', to: path.join('~', 'Workspace', 'ai_brain-moved-out', 'door.key') }], untracked: [] });
     assert.ok(!fs.existsSync(path.join(brain, 'door.key')) && fs.existsSync(path.join(A.ws, 'ai_brain-moved-out', 'door.key')));
     assert.ok(fs.existsSync(path.join(brain, 'fine.md')));
   } finally {
@@ -180,9 +181,9 @@ test('Tia\'s own call in the dashboard (not over HTTP) is refused', async () => 
 });
 
 test('nothing moves by itself: only the workspace routes import it', () => {
-  const src = path.join(path.dirname(new URL(import.meta.url).pathname), '..', '..', 'src');
+  const src = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..', 'src');
   const users = fs.readdirSync(src, { recursive: true }).map(String).filter((f) => f.endsWith('.mjs') && /(from\s+|import\()['"][./]*(workspace\/)?brainmove\.mjs['"]/.test(fs.readFileSync(path.join(src, f), 'utf8')));
-  assert.deepEqual(users, ['workspace/feature.mjs']);
+  assert.deepEqual(users.map((f) => f.split(path.sep).join('/')), ['workspace/feature.mjs']);
 });
 
 test.after(() => w.cleanup());

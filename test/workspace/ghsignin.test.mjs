@@ -42,7 +42,8 @@ test('sign in: the code at once, then gh finishes by itself; git is told to use 
   g.child().stderr.write(GH_SAYS);
   assert.deepEqual(await p, { state: 'code', code: 'AB12-CD34', url: DEVICE_URL, account: null, error: null });
   assert.deepEqual(g.started[0].argv, SIGNIN_ARGV);
-  assert.equal(g.started[0].env.GH_BROWSER, 'true');
+  // gh opens no browser: a program that does nothing, as this system has one (true; on Windows cmd /c rem).
+  assert.equal(g.started[0].env.GH_BROWSER, process.platform === 'win32' ? 'cmd /c rem' : 'true');
   assert.equal((await s.start()).code, 'AB12-CD34', 'a second start while waiting: the same sign-in');
   assert.equal(g.started.length, 1);
   g.child().emit('close', 0);

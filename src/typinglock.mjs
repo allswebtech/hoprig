@@ -15,10 +15,18 @@
 // the note is an empty file next to it, so a launcher that nobody typed for ends at once.
 import fs from 'node:fs';
 import { removeRun } from './runs.mjs';
+import { BUSY, patiently } from './replacefile.mjs';
 
 const STALE_MS = 10_000; // a lock older than this was left by a process that ended while it held it
 const WAIT_MS = 3000; // how long either side waits for the other
 const SETTLE_MS = 200; // how long the launcher reads its terminal's input after the record went
+
+// Windows: a name whose removal is not through yet (another program, a virus scan, still holds the file a moment)
+// refuses a new file there, and a removal of it, with EPERM (or EACCES, EBUSY): something is there, as EEXIST says,
+// and it is waited for and looked at again, for up to PENDING_MS. Elsewhere those errors are refusals, as before.
+const PENDING_MS = 1000;
+const heldAt = (e, platform = process.platform) => e.code === 'EEXIST' || (platform === 'win32' && BUSY.has(e.code));
+
 
 export const lockOf = (runFile) => `${runFile}.typing`;
 export const typedOf = (runFile) => `${runFile}.typed`;
@@ -26,13 +34,16 @@ export const typedOf = (runFile) => `${runFile}.typed`;
 /** The dashboard's note, made under the lock right before it types: the launcher settles its input at its end. */
 export const noteTyped = (runFile) => fs.writeFileSync(typedOf(runFile), '', { mode: 0o600 });
 
-/** true when this call made the lock; false when someone holds it. Throws when it cannot be made at all (no folder). */
-function take(lock) {
+/**
+ * true when this call made the lock; false when someone holds it, or (Windows) its name is still held a moment
+ * (heldAt): the callers wait WAIT_MS for either, longer than PENDING_MS. Throws when it cannot be made at all (no folder).
+ */
+function take(lock, platform = process.platform) {
   try {
     fs.closeSync(fs.openSync(lock, 'wx', 0o600));
     return true;
   } catch (e) {
-    if (e.code !== 'EEXIST') throw e;
+    if (!heldAt(e, platform)) throw e;
     try {
       if (Date.now() - fs.statSync(lock).mtimeMs > STALE_MS) fs.rmSync(lock, { force: true });
     } catch {
@@ -42,22 +53,30 @@ function take(lock) {
   }
 }
 
-const letGo = (lock) => fs.rmSync(lock, { force: true });
+// The work under the lock is done when it is let go (a message typed, a record removed): a lock that cannot be
+// removed is not an error of that work. It is left, and the next taker removes it once it is STALE_MS old (take).
+const letGo = (lock, platform = process.platform) => {
+  try {
+    patiently(() => fs.rmSync(lock, { force: true }), platform);
+  } catch {
+    /* left: stale after STALE_MS */
+  }
+};
 
 /**
  * The dashboard's side: run `fn` (which reads the record again and types) while holding the lock of `runFile`. A
  * lock held by someone else longer than WAIT_MS: a 409 error, nothing typed. No runs folder: the error of fs, with
  * its code (the caller reads it as "no record").
  */
-export async function whileTyping(runFile, fn, { wait = WAIT_MS } = {}) {
+export async function whileTyping(runFile, fn, { wait = Math.max(WAIT_MS, PENDING_MS), platform = process.platform } = {}) {
   const lock = lockOf(runFile);
-  for (const end = Date.now() + wait; !take(lock); await new Promise((r) => setTimeout(r, 20))) {
+  for (const end = Date.now() + wait; !take(lock, platform); await new Promise((r) => setTimeout(r, 20))) {
     if (Date.now() > end) throw Object.assign(new Error('Nothing was typed: another message is being typed into this session right now. Send it again in a moment'), { status: 409 });
   }
   try {
     return await fn();
   } finally {
-    letGo(lock);
+    letGo(lock, platform);
   }
 }
 
@@ -67,13 +86,13 @@ export async function whileTyping(runFile, fn, { wait = WAIT_MS } = {}) {
  * terminal from its shell). Returns true when something was typed for the tool during the run (noteTyped), which
  * goes with the record: then the terminal's input is to be settled.
  */
-export function removeLocked(runFile, remove = removeRun) {
+export function removeLocked(runFile, remove = removeRun, platform = process.platform) {
   const lock = lockOf(runFile);
   const pause = new Int32Array(new SharedArrayBuffer(4));
   let mine = false;
   for (const end = Date.now() + WAIT_MS; ; Atomics.wait(pause, 0, 0, 10)) {
     try {
-      mine = take(lock);
+      mine = take(lock, platform);
     } catch {
       break; // no runs folder: no record, nobody to agree with
     }

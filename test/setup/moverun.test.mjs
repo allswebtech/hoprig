@@ -8,6 +8,9 @@ import path from 'node:path';
 import { test } from 'node:test';
 import { scratch } from './helpers.mjs';
 
+// The move to a user of its own is Linux only: root, user ids, runuser and systemd, with POSIX paths.
+const LINUX_ONLY = { skip: process.platform === 'win32' && 'the move to a user of its own is Linux only (root, chown by uid, POSIX paths)' };
+
 const s = scratch();
 test.after(s.cleanup);
 const M = await import('../../src/setup/movecli.mjs');
@@ -64,7 +67,7 @@ const steps = {
   endTerminals: async (t) => (calls.push(`end ${t.length}`), []), gateways: async () => [], sleep: async () => {},
 };
 
-test('without a yes (no terminal to answer in) nothing is copied or changed', async () => {
+test('without a yes (no terminal to answer in) nothing is copied or changed', LINUX_ONLY, async () => {
   const out = [];
   const ui = { confirm: async () => false };
   assert.equal(await M.main([], { io, cfg: {}, steps, ui, out: (l) => out.push(l), err: (l) => out.push(l) }), 1);
@@ -73,7 +76,7 @@ test('without a yes (no terminal to answer in) nothing is copied or changed', as
   assert.match(out.at(-1), /^Nothing was changed\. To move: hoprig move-to-user --yes/);
 });
 
-test('--yes: copy, check, switch, catch-up and terminals in that order; progress said; root\'s copy kept', async () => {
+test('--yes: copy, check, switch, catch-up and terminals in that order; progress said; root\'s copy kept', LINUX_ONLY, async () => {
   const out = [];
   const code = await M.main(['--yes'], { io, cfg: {}, steps, out: (l) => out.push(l), err: (l) => out.push(l) });
   const text = out.join('\n');
@@ -94,7 +97,7 @@ test("the progress line never says more than the total: root's side grew since t
   assert.equal(M.progressLine({ phase: 'copy', entries: 7, bytes: 0, totalEntries: null, totalBytes: null }), '  copying: 7 entries, 0 MB');
 });
 
-test('--back: the user\'s service stopped, root\'s started again', async () => {
+test('--back: the user\'s service stopped, root\'s started again', LINUX_ONLY, async () => {
   calls.length = 0;
   holder = 1001;
   const out = [];

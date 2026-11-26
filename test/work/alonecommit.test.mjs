@@ -96,7 +96,15 @@ test('a worktree whose own git entry is not as the dashboard made it is not comm
   const other = path.join(tmp, `other-${n}`);
   fs.mkdirSync(other);
   git(other, 'init', '-q', '-b', 'main');
-  fs.writeFileSync(path.join(r.dir, '.git'), `gitdir: ${path.join(other, '.git')}\n`);
+  // Changed in place: Git for Windows marks a worktree's .git file hidden, and Windows refuses a new write of a hidden
+  // file (EPERM) but not a change of it.
+  const fd = fs.openSync(path.join(r.dir, '.git'), 'r+');
+  try {
+    fs.ftruncateSync(fd, 0);
+    fs.writeSync(fd, `gitdir: ${path.join(other, '.git')}\n`, 0);
+  } finally {
+    fs.closeSync(fd);
+  }
   const c = await commitRun(r.dir, { message: 'Work', gitEntry: r.entry });
   assert.equal(c.ok, false);
   assert.match(c.why, /git entry is not as the dashboard made it/);

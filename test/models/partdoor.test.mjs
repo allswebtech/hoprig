@@ -10,6 +10,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { sandbox } from '../server/helpers.mjs';
+import { SHELL_STANDINS } from '../seal.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const FAKE_CLAUDE = path.join(HERE, '..', 'chat', 'fixtures', 'fake-claude.mjs');
@@ -58,7 +59,7 @@ async function tripwire(t, port) {
   return { asked, url: `http://127.0.0.1:${srv.address().port}` };
 }
 
-test('a part reaches only a ticked provider, through the one door, checked by the server', { timeout: 120_000, skip: process.platform === 'win32' && 'the stand-ins are POSIX' }, async (t) => {
+test('a part reaches only a ticked provider, through the one door, checked by the server', { timeout: 120_000, skip: SHELL_STANDINS.skip }, async (t) => {
   const box = sandbox('partdoor');
   const work = path.join(box.root, 'work');
   const shop = path.join(work, 'shop');
@@ -109,7 +110,7 @@ test('a part reaches only a ticked provider, through the one door, checked by th
   const tokenFile = path.join(box.state, 'part-servers', `${leadId}.token`);
   await until('the lead started with its tool', () => fs.existsSync(tokenFile));
   const token = fs.readFileSync(tokenFile, 'utf8').trim();
-  assert.equal((fs.statSync(tokenFile).mode & 0o777).toString(8), '600');
+  if (process.platform !== 'win32') assert.equal((fs.statSync(tokenFile).mode & 0o777).toString(8), '600');
   const start = (await until('the start recorded', () => fs.existsSync(argsFile) && fs.readFileSync(argsFile, 'utf8').trim().split('\n').map((l) => JSON.parse(l)).filter(Array.isArray)[0]));
   assert.ok(start.includes('--agents') && start.includes('--mcp-config'), 'the helpers and the one tool');
   const said = start[start.indexOf('--append-system-prompt') + 1];
@@ -143,6 +144,10 @@ test('a part reaches only a ticked provider, through the one door, checked by th
   assert.match(g.text, /not one of the providers ticked/);
   // Billed by use, not allowed by the owner for work that goes on by itself: ONE card in the lead's chat, nothing starts
   // before his yes. Also with Auto mode off and a paid key in its old order (pay-per-use inferred, never chosen).
+  // The lead's first turn ("hello") has ended before the cards below: a turn that ends closes every card still open
+  // (partdoor.mjs closeAsked), and on a slow computer it ended inside the late card's wait, which then read "The lead
+  // went on without it" instead of "did this part itself".
+  await until('the lead\'s first turn ended', async () => (await owner('GET', '/api/chats')).json.chats.find((c) => c.chatId === leadId)?.status === 'waiting');
   saveConfig({ autoSwitch: { enabled: false, order: ['sub', 'paid'] } });
   const pd = (await part({ action: 'start', provider: 'paid', kind: 'runner', brief: 'look around' })).json;
   assert.match(pd.text, /Waiting for the owner's OK: Paid key is billed by use/);

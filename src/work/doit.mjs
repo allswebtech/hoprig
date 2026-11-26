@@ -34,7 +34,7 @@ import { withLock } from './lock.mjs';
 import { BRIEF_MAX, CLOSED, FROM_FENCE, briefOf, checkBrief, fencedFrom, findItem, fromOf, setBrief, setStatus, statusOf, todayIn } from './model.mjs';
 import { WAIT_OVER } from './planview.mjs';
 import { resolvePlace } from './place.mjs';
-import { chatFacts, cleanFolder, cleanText, dropStart, endsByItself, keepStart, listRuns, newRunId, pathsOf, readRun, readStart, viewRun, writeRun, writerId } from './runs.mjs';
+import { chatFacts, cleanFolder, cleanText, dropStart, endsByItself, keepStart, listRuns, newRunId, pathsOf, readRun, readStart, treePaths, viewRun, writeRun, writerId } from './runs.mjs';
 import { afterClose, changeHeld, readDoc } from './store.mjs';
 
 // What every brief ends with: the run's answer is the session's last message, so it is asked to be a report.
@@ -87,7 +87,7 @@ export function workRuns(o) {
     return dir;
   };
   // tree: a run's worktree, named as its folder (".") in what the session said.
-  const words = (s, max, tree = null) => cleanText(s, max, [...(tree ? [[`${tree}/`, ''], [tree, '.']] : []), ...pathsOf({ projectsDir: projectsDir(), workspace: workspace() })]);
+  const words = (s, max, tree = null) => cleanText(s, max, [...treePaths(tree), ...pathsOf({ projectsDir: projectsDir(), workspace: workspace() })]);
 
   /**
    * Where a run of item `id` in the folder `dir` works on a branch of its own (alonegit.mjs: a linked worktree in

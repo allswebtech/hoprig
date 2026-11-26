@@ -1,11 +1,10 @@
 // `hoprig drop` killed at every step (the run stops right after it), then run again: nothing is lost, nothing half made
 // is left, and `hoprig get` works after each. And the second check before the removal really runs: something that
 // comes between the acts and the removal keeps the project here.
-import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
-import { dropOn, dropWorld, getOn, onServer, owner, reset, serverHeads } from './dropfix.mjs';
+import { Q, assert, dropOn, dropWorld, getOn, onServer, owner, reset, serverHeads } from './dropfix.mjs';
 
 const w = await dropWorld('kill');
 test.after(() => w.cleanup());
@@ -137,7 +136,9 @@ test('a leftover whose delete stopped partway (its git folders gone) is kept wit
     } }));
     const away = path.join(A.projects, fs.readdirSync(A.projects).find((n) => n.startsWith('.shop.dropping-')));
     for (const g of gone) fs.rmSync(path.join(away, ...g.split('/')), { recursive: true, force: true });
-    const words = /\.shop\.dropping-\d{8}-\d{6}: left by a drop that was cut off, and a delete of it stopped partway: its git folders are gone, so nothing in it can be pushed or checked any more, and it is kept: look at it first and copy out what you still need, then delete it yourself\n\s+chmod -R u\+w \S+ && rm -rf \S+/;
+    // The delete command as this system's shell reads it (dropacts.mjs deleteCommand: PowerShell on Windows).
+    const { deleteCommand } = await import('../../src/workspace/dropacts.mjs');
+    const words = new RegExp(`\\.shop\\.dropping-\\d{8}-\\d{6}: left by a drop that was cut off, and a delete of it stopped partway: its git folders are gone, so nothing in it can be pushed or checked any more, and it is kept: look at it first and copy out what you still need, then delete it yourself\\n\\s+${deleteCommand(away).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`);
     const g = await getOn(A, ['shop']);
     assert.equal(g.code, 0, g.text);
     assert.match(g.text, words, `${gone.join(' ')}: ${g.text}`);
@@ -165,8 +166,8 @@ test('a leftover whose delete stopped partway where some parts still have their 
     const later = w.commit(path.join(away, ...commitIn.split('/')), 'later.txt', 'after the cut\n');
     for (const r of [await getOn(A, ['shop']), await dropOn(A, ['shop'])]) {
       assert.match(r.text, new RegExp(`\\.shop\\.dropping-\\d{8}-\\d{6}: left by a drop that was cut off, and a delete of it stopped partway: ${goneWords}, so nothing there can be pushed or checked any more; ${aliveWords}, so what is only there can still be pushed`), `${gone}: ${r.text}`);
-      assert.doesNotMatch(r.text, /nothing in it can be pushed|rm -rf/, `${gone}: never the delete for what can still be pushed`);
-      assert.match(r.text, new RegExp(`git -C \\S+dropping\\S+/${commitIn.replace('/', '\\/')} status`), `${gone}: ${r.text}`);
+      assert.doesNotMatch(r.text, /nothing in it can be pushed|rm -rf|Remove-HoprigTree/, `${gone}: never the delete for what can still be pushed`);
+      assert.match(r.text, new RegExp(`git -C \\S+dropping\\S+/${commitIn.replace('/', '\\/')}${Q} status`), `${gone}: ${r.text}`);
       assert.doesNotMatch(r.text, /take the folder back/);
     }
     assert.ok(fs.existsSync(path.join(away, 'README.md')), 'kept: nothing deleted without the owner');

@@ -320,11 +320,16 @@ const MAP_MAX = 1024 * 1024; // the workspace map as read on an ask (projectFold
 // The workspace map's text, read on an ask in the dashboard's process too: opened without following a link and without
 // waiting (a FIFO put in its place must not block), then the OPEN file checked (a plain file of at most MAP_MAX) and
 // read from that descriptor, so nothing swapped in between the check and the read is read.
-function readMap(file) {
-  const fd = fs.openSync(file, fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW || 0) | (fs.constants.O_NONBLOCK || 0));
+// Windows has no O_NOFOLLOW (`noFollow` false): there the path is looked at first, a link refused, and the open file
+// must then be that same file (its device and file index), so a link swapped in between is not read either.
+function readMap(file, { noFollow = !!fs.constants.O_NOFOLLOW } = {}) {
+  const before = noFollow ? null : fs.lstatSync(file);
+  if (before && (before.isSymbolicLink() || !before.isFile())) throw new Error('not a map');
+  const fd = fs.openSync(file, fs.constants.O_RDONLY | (noFollow ? fs.constants.O_NOFOLLOW : 0) | (fs.constants.O_NONBLOCK || 0));
   try {
     const st = fs.fstatSync(fd);
     if (!st.isFile() || st.size > MAP_MAX) throw new Error('not a map');
+    if (before && (st.dev !== before.dev || st.ino !== before.ino)) throw new Error('not a map');
     const buf = Buffer.alloc(st.size);
     let got = 0;
     while (got < st.size) {
@@ -344,13 +349,14 @@ function readMap(file) {
  * (~/projects), and the projects folder the workspace's map names (<workspace>/ai_brain/workspace.json, its
  * config.projectsDir: a folder inside the workspace). Read when asked, for an ask in bypass mode only.
  */
-export function projectFolders({ workspace = null, home = null, chosen = null } = {}) {
+export function projectFolders({ workspace = null, home = null, chosen = null, noFollow } = {}) {
   const out = [];
   if (typeof chosen === 'string' && path.isAbsolute(chosen)) out.push(chosen);
   if (typeof workspace === 'string' && path.isAbsolute(workspace)) {
     out.push(path.join(workspace, 'projects'));
     try {
-      const d = JSON.parse(readMap(path.join(workspace, 'ai_brain', 'workspace.json')))?.config?.projectsDir;
+      // `noFollow`: whether this system can open without following a link (a seam for the test; callers leave it).
+      const d = JSON.parse(readMap(path.join(workspace, 'ai_brain', 'workspace.json'), noFollow === undefined ? undefined : { noFollow }))?.config?.projectsDir;
       if (typeof d === 'string' && d && !path.isAbsolute(d)) out.push(path.join(workspace, d));
     } catch {
       /* no map, or one that cannot be read: the folders above */

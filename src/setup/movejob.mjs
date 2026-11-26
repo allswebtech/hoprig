@@ -6,6 +6,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { replaceIn } from './movesafe.mjs';
+import { replaceFile } from '../replacefile.mjs';
 
 export const JOB_FILE = 'move-job.json';
 export const LINES_MAX = 2000;
@@ -56,7 +57,7 @@ function writeWhole(file, j, mode = 0o600) {
   fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
   const tmp = `${file}.${process.pid}.tmp`;
   fs.writeFileSync(tmp, `${JSON.stringify(j)}\n`, { mode });
-  fs.renameSync(tmp, file);
+  replaceFile(tmp, file);
 }
 
 /**

@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
-import { gitWorld, quietUi } from './gitfix.mjs';
+import { gitWorld, overSsh, quietUi, sshCommand } from './gitfix.mjs';
 
 const w = gitWorld('ws-synclinks');
 test.after(() => w.cleanup());
@@ -88,12 +88,12 @@ test('workspace sync, with --push too, never fetches, pulls or pushes through th
 test('workspace sync --with another computer: nothing is fetched into a folder behind the link', async () => {
   const fake = path.join(w.root, 'fake-ssh');
   fs.writeFileSync(fake, '#!/bin/sh\nwhile [ $# -gt 0 ]; do case "$1" in -o|-p|-l) shift 2 ;; -*) shift ;; *) break ;; esac; done\nshift\nexec sh -c "$*"\n', { mode: 0o755 });
-  Object.assign(process.env, { GIT_SSH_COMMAND: fake, GIT_SSH_VARIANT: 'ssh' });
+  Object.assign(process.env, { GIT_SSH_COMMAND: sshCommand(fake), GIT_SSH_VARIANT: 'ssh' });
   try {
     const peer = path.join(w.root, 'peer');
     w.clone(w.url('acme'), path.join(peer, 'kits', 'builds', 'acme'));
     w.commit(path.join(peer, 'kits', 'builds', 'acme'), 'PEER.md', 'from the other computer\n');
-    const r = await syncWith('box2', { ...ctx, info: { name: 'box2', target: 'alex@box2', dir: peer, projectsDir: path.join(peer, 'projects') } });
+    const r = await syncWith('box2', { ...ctx, info: { name: 'box2', target: 'alex@box2', dir: overSsh(peer), projectsDir: overSsh(path.join(peer, 'projects')) } });
     assert.match(byLabel(r, 'kits/builds/acme').todo[0].why, /not followed/);
     assert.equal(heads(), before);
   } finally {

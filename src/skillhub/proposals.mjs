@@ -51,6 +51,7 @@ import { foldLooks, PATTERNS, RISKY, scanDraft } from './learnscan.mjs';
 import { scanText } from './scan.mjs';
 import { placeSkill, removeSkill, undoSkill } from './store.mjs';
 import { noteCorrection } from '../operator/corrections.mjs';
+import { replaceFile } from '../replacefile.mjs';
 
 export const ID_RE = /^[0-9]{8}-[0-9]{6}-(skill|tool|prompt)-[a-z0-9_-]{1,64}$/;
 const NAME = { skill: /^[a-z0-9]+(-[a-z0-9]+)*$/, tool: /^[a-z][a-z0-9_]{1,63}$/, prompt: /^[a-z]+(-[a-z]+)*$/ };
@@ -76,7 +77,7 @@ function writeDecisions(d) {
   fs.mkdirSync(proposalsDir(), { recursive: true, mode: 0o700 });
   const tmp = `${decisionsFile()}.${process.pid}.tmp`;
   fs.writeFileSync(tmp, JSON.stringify(d, null, 2), { mode: 0o600 });
-  fs.renameSync(tmp, decisionsFile());
+  replaceFile(tmp, decisionsFile());
 }
 
 /** The text Tia uses now for a part, or null when she has no such part. A tool's description and a prompt section:

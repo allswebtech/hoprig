@@ -73,11 +73,11 @@ test('the refusals come before anything is read, and nothing is looked at', asyn
 test('his press: the projects of his home, each with the facts of a look in a named folder, and nothing changed', async () => {
   const r = await call('/api/adopt/home', {});
   assert.equal(r.status, 200, JSON.stringify(r.json));
-  assert.deepEqual(r.json.projects.map((p) => [p.name, p.dir]), [['blog', '~/code/blog'], ['shop', '~/shop']]);
+  assert.deepEqual(r.json.projects.map((p) => [p.name, p.dir]), [['blog', path.join('~', 'code', 'blog')], ['shop', path.join('~', 'shop')]]);
   const blog = r.json.projects.find((p) => p.name === 'blog');
   assert.deepEqual(blog.repos.map((x) => [x.dir, x.branch, x.ok]), [['api', 'main', true], ['web', 'main', true]], 'the same facts as a look in ~/code');
   assert.equal(r.json.projects.find((p) => p.name === 'shop').planned, false, 'no plan is made before his press');
-  assert.deepEqual(r.json.home.links, ['~/up'], 'the link is named, not followed');
+  assert.deepEqual(r.json.home.links, [path.join('~', 'up')], 'the link is named, not followed');
   assert.equal(r.json.home.privates, 1);
   assert.equal(r.json.home.inWorkspace, 1);
   assert.equal(r.json.home.ended, null);
@@ -91,9 +91,9 @@ test('his press: the projects of his home, each with the facts of a look in a na
   const g = await call('/api/adopt');
   assert.deepEqual(g.json.projects.map((p) => p.name), ['blog', 'shop']);
   assert.deepEqual(g.json.home, r.json.home, 'the page shows what the look did after a reload too');
-  const p = await call('/api/adopt/plan', { dir: '~/shop' });
+  const p = await call('/api/adopt/plan', { dir: path.join('~', 'shop') }); // as the look named it
   assert.equal(p.status, 200, JSON.stringify(p.json));
-  assert.equal(p.json.from, '~/shop');
+  assert.equal(p.json.from, path.join('~', 'shop'));
   assert.deepEqual(snapshot(box.home), before, 'a plan changes nothing of the home');
 });
 

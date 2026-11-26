@@ -5,7 +5,7 @@ import os from 'node:os';
 import { loadConfig, saveConfig } from '../config.mjs';
 import { tilde, workspaceEnvDir } from '../paths.mjs';
 import { expandDir, rememberDir } from '../pcsetup/projects.mjs';
-import { showCommand } from '../setup/system.mjs';
+import { showFileCommand } from '../setup/system.mjs';
 import { projectsIn, workspaceDir } from './layout.mjs';
 
 const fail = (status, message) => Object.assign(new Error(message), { status });
@@ -19,14 +19,14 @@ function folderOf(v, what, home) {
 }
 
 /** → { changed: [{ what, from, to }], moves: ["mv …"], notes: [...] } */
-export function setPlaces({ dir, projects } = {}, { save = saveConfig, load = loadConfig, home = os.homedir(), remember = rememberDir } = {}) {
+export function setPlaces({ dir, projects } = {}, { save = saveConfig, load = loadConfig, home = os.homedir(), remember = rememberDir, platform = process.platform } = {}) {
   if (dir === undefined && projects === undefined) throw fail(400, 'say what to change: --dir <folder> and/or --projects <folder>');
   const cfg = load();
   const changed = [];
   const moves = [];
   const notes = [];
   const mv = (from, to) => {
-    if (from !== to && fs.existsSync(from) && !fs.existsSync(to)) moves.push(showCommand(['mv', from, to]));
+    if (from !== to && fs.existsSync(from) && !fs.existsSync(to)) moves.push(showFileCommand('mv', [from, to], platform));
   };
   if (dir !== undefined) {
     const to = folderOf(dir, 'the workspace folder', home);

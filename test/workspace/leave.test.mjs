@@ -2,12 +2,11 @@
 // only on it is looked at. Each is named, with a size where it has one and what to do; only a non-default branch may
 // be pushed by the one press; the daily look starts no program that reaches a git server; and the look changes nothing
 // in the home. With all of them resolved, it says nothing is only here.
-import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { after, before, test } from 'node:test';
-import { dropWorld, getOn } from './dropfix.mjs';
+import { Q, assert, dropWorld, getOn } from './dropfix.mjs';
 
 const { capture } = await import('../../src/setup/system.mjs');
 const { leaveCheck, AS_OF_FETCH } = await import('../../src/workspace/leave.mjs');
@@ -103,16 +102,16 @@ test('one thing of each git kind is named with its size and what to do; only a n
     const login = by('branch', at('shop/code/shop-api'), 'feature/login');
     assert.ok(login, said(rep));
     assert.match(login.what, /1 commit on feature\/login is on no git server/);
-    assert.equal(login.command, `git -C ${api} push origin feature/login`);
+    assert.equal(login.command, `git -C ${Q}${api}${Q} push origin feature/login`);
     const spike = by('branch', at('shop/code/shop-web'), 'spike');
     assert.ok(spike, said(rep));
     assert.match(spike.what, /spike \(1 commit\) has no copy on the git server/);
-    assert.equal(spike.command, `git -C ${web} push -u origin spike`);
+    assert.equal(spike.command, `git -C ${Q}${web}${Q} push -u origin spike`);
     const main = by('branch', at('shop'), 'main');
     assert.ok(main, said(rep));
     assert.match(main.what, /1 commit on main, the default branch/);
     assert.match(main.todo, /push it yourself when it may go live/);
-    assert.equal(main.command, `git -C ${c.shop} push origin main`);
+    assert.equal(main.command, `git -C ${Q}${c.shop}${Q} push origin main`);
     const work = by('work', at('shop/code/shop-api'));
     assert.equal(work.size, 50, said(rep));
     assert.match(work.todo, /commit/);

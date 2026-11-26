@@ -22,7 +22,7 @@ import { gitRead } from '../gitread.mjs';
 import { claudeDir } from '../paths.mjs';
 import { withoutSecrets } from '../secretenv.mjs';
 import { projectSlug } from '../sessions.mjs';
-import { capture, showCommand, showCommands, stream } from '../setup/system.mjs';
+import { capture, showCommand, showCommands, showLinkRemoveCommand, showThen, stream } from '../setup/system.mjs';
 import { FOLD, PRIVATE_DIRS, STATUS_ARGS, STATUS_EXCLUDES, cleanRemote, parseRepo, parseStatus } from './projects.mjs';
 import { WORKTREE_LEFT, isLinkedWorktree } from '../workspace/layout.mjs';
 import { inTheWay, inTheWayWords } from './intheway.mjs';
@@ -425,7 +425,7 @@ export function planMemories(root, memories, opts = {}) {
 }
 
 /** planMemories for pairs of absolute paths (linkMemoryPairs). */
-export function planMemoryPairs(pairs, { base = claudeDir(), fix = 'hoprig project link <name>', at = {} } = {}) {
+export function planMemoryPairs(pairs, { base = claudeDir(), fix = 'hoprig project link <name>', at = {}, platform = process.platform } = {}) {
   return pairs.map(({ launch: launchAbs, memory: repoMem, label, root }) => {
     const launch = label || launchAbs;
     const link = path.join(base, 'projects', projectSlug(launchAbs), 'memory');
@@ -444,7 +444,8 @@ export function planMemoryPairs(pairs, { base = claudeDir(), fix = 'hoprig proje
     if (st.isSymbolicLink()) {
       const to = path.resolve(path.dirname(link), fs.readlinkSync(link));
       if (to === repoMem || safeReal(to) === safeReal(repoMem)) return { ...p, action: 'already' };
-      return { ...p, action: 'conflict', detail: `it points to ${to}`, fix: `${showCommand(['rm', link])} && ${fix}` };
+      // The link only, never what it points to (on Windows a junction: showLinkRemoveCommand).
+      return { ...p, action: 'conflict', detail: `it points to ${to}`, fix: showThen(showLinkRemoveCommand(link, platform), fix, platform) };
     }
     if (st.isDirectory()) return make('merge');
     return { ...p, action: 'conflict', detail: 'a file is there', fix: `look at it, move it aside, then  ${fix}` };

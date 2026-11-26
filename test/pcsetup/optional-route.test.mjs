@@ -78,7 +78,7 @@ test('GET /api/pcsetup/kits: the new kits unticked by default, with the suggesti
   assert.match(d.java.text, /^No Java found/);
   assert.deepEqual(d.notCovered, []);
   // The page shows the same sentence and the same line as pc setup and pc status (java.mjs makes both).
-  const jbr = path.join(process.env.HOME, 'android-studio', 'jbr', 'bin', 'java');
+  const jbr = path.posix.join(process.env.HOME, 'android-studio', 'jbr', 'bin', 'java'); // a Linux computer's place, joined as java.mjs joins it
   const { call: call2 } = harness({ exists: (f) => f === jbr, run: async (argv) => (argv[0] === jbr ? { ok: true, stdout: '', stderr: 'openjdk version "21.0.6"' } : { ok: false, stdout: '', stderr: '' }) });
   const j = (await call2('GET', '/api/pcsetup/kits')).java;
   const { javaHomeText } = await import('../../src/pcsetup/java.mjs');
@@ -229,7 +229,7 @@ test('a Java that works beside a JAVA_HOME that does not: a warning note, so the
   assert.deepEqual([fine.status, fine.fix], ['ok', '']);
 });
 
-test('the kits route says, for Flutter: what it downloads and from which host, about how big, what it changes, what was found', async () => {
+test('the kits route says, for Flutter: what it downloads and from which host, about how big, what it changes, what was found', { skip: process.platform === 'win32' && 'the Flutter kit is for Linux and macOS (not offered on Windows): its plan reads this computer\'s real folders as a Linux home' }, async () => {
   const ws = path.join(tmp, 'ws');
   fs.mkdirSync(ws, { recursive: true });
   const real = { ws, blockHas: () => false, has: (b) => ['tar', 'xz', 'sudo', 'curl', 'git', 'unzip', 'zip'].includes(b), exists: (f) => fs.existsSync(f) };

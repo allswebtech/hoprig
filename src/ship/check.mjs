@@ -27,8 +27,9 @@ import { cleanText, pathsOf } from '../work/runs.mjs';
 import { isAllowed, limiterOf } from './allow.mjs';
 import { lockHolder, takeLock } from './lock.mjs';
 import { blocksDir, readCheck, showWords } from './project.mjs';
-import { alive, sameProcess, system } from '../procid.mjs';
+import { alive, askedAfter, sameProcess, startOf, system } from '../procid.mjs';
 import { commandRecord, commandRuns, endCommand, endWords, runCommand } from './runcmd.mjs';
+import { replaceFile } from '../replacefile.mjs';
 
 export const RUNS_KEPT = 10;
 const LAST_MAX = 6000;
@@ -76,15 +77,28 @@ export function readChecks(tree) {
   return closeCut(r);
 }
 
+/** The kept record of `tree` as it is on disk, or null. */
+function readRecord(tree) {
+  try {
+    const r = JSON.parse(fs.readFileSync(fileOf(tree), 'utf8'));
+    return r && r.tree === tree && Array.isArray(r.runs) ? r : null;
+  } catch {
+    return null;
+  }
+}
+
 // The check that runs now on this computer ({ tree }), beside check.lock: a check whose Hoprig was killed is found by it.
 const runnerFile = () => path.join(stateDir(), 'ship', 'check-run.json');
 
-/** Whether the process that ran `run` is shown to be gone (a run of a process that cannot be told stays as it is). */
-function runnerGone(run) {
+/**
+ * Whether the process that ran `run` is shown to be gone (a run of a process that cannot be told stays as it is): by an
+ * answer from after its start (a kept one may be of the process that had its pid before), since `after` when given.
+ */
+function runnerGone(run, { after = 0 } = {}) {
   const r = run.runner;
   if (!r || !Number.isInteger(r.pid)) return false;
   if (!alive(r.pid)) return true;
-  return !!r.proc && sameProcess(r.proc, system.of([r.pid]).get(r.pid)) === false;
+  return !!r.proc && sameProcess(r.proc, system.of([r.pid], { after, born: startOf(r.proc) }).get(r.pid)) === false;
 }
 
 /**
@@ -95,12 +109,44 @@ function closeCut(rec) {
   let changed = false;
   for (const run of rec.runs) {
     if (run.ok !== null || run.notCounted || !runnerGone(run)) continue;
+    // In the dashboard the reader never waits for the system: the run is closed after a look that waited for its
+    // answer about the command (closeLater); until then it reads as running.
+    if (run.running && run.running.proc && system.inBackground && system.inBackground()) {
+      closeLater(rec.tree, run);
+      continue;
+    }
     if (run.running) endCommand(run.running);
-    Object.assign(run, { notCounted: 'it was cut off: the Hoprig that ran it ended before it did', ended: new Date().toISOString() });
+    cutOff(run);
     changed = true;
   }
   if (changed) writeChecks(rec);
   return rec;
+}
+const cutOff = (run) => Object.assign(run, { notCounted: 'it was cut off: the Hoprig that ran it ended before it did', ended: new Date().toISOString() });
+
+const closing = new Set(); // the runs closeLater looks at now: one look each
+/**
+ * closeCut's part for the dashboard: the system is asked about the runner and the command and waited for; then the run
+ * as it is now (read again after the wait) is judged on that answer, its runner too, before anything is ended or closed.
+ */
+async function closeLater(tree, run) {
+  const key = `${tree} ${run.at} ${run.runner && run.runner.pid}`;
+  if (closing.has(key)) return;
+  closing.add(key);
+  try {
+    const after = await askedAfter([run.runner.pid, run.running.pid]);
+    const rec = readRecord(tree);
+    const open = rec && rec.runs.find((r) => r.at === run.at && r.runner && r.runner.pid === run.runner.pid && r.ok === null && !r.notCounted);
+    // Another command since the look (the record moved on), or a runner that lives: the next look decides.
+    if (!open || !open.running || open.running.pid !== run.running.pid || !runnerGone(open, { after })) return;
+    endCommand(open.running, system, { after });
+    cutOff(open);
+    writeChecks(rec);
+  } catch {
+    /* the next look closes it */
+  } finally {
+    closing.delete(key);
+  }
 }
 
 /**
@@ -119,8 +165,10 @@ async function closeLeftCheck() {
   const rec = readChecks(left && left.tree);
   const run = rec && rec.runs.find((r) => r.running && r.runner && r.runner.pid === left.pid);
   if (run && run.running) {
-    for (let i = 0; i < 40 && commandRuns(run.running) !== false; i++) await new Promise((res) => setTimeout(res, 50));
-    if (commandRuns(run.running) !== false) throw fail(409, `a check that a Hoprig which ended had started still runs (process ${run.running.pid}): it runs one at a time`, 'busy');
+    // The system's answer is waited for (in the dashboard of() never waits), and asked again while the command ends.
+    const runs = async () => commandRuns(run.running, system, { after: await askedAfter([run.running.pid]) });
+    for (const until = Date.now() + 2000; Date.now() < until && (await runs()) !== false;) await new Promise((res) => setTimeout(res, 50));
+    if ((await runs()) !== false) throw fail(409, `a check that a Hoprig which ended had started still runs (process ${run.running.pid}): it runs one at a time`, 'busy');
   }
   fs.rmSync(runnerFile(), { force: true });
 }
@@ -213,7 +261,7 @@ function writeChecks(rec) {
   fs.mkdirSync(folder(), { recursive: true, mode: 0o700 });
   const tmp = `${fileOf(rec.tree)}.${process.pid}.tmp`;
   fs.writeFileSync(tmp, `${JSON.stringify(rec, null, 2)}\n`, { mode: 0o600 });
-  fs.renameSync(tmp, fileOf(rec.tree));
+  replaceFile(tmp, fileOf(rec.tree));
 }
 
 /** A command's last lines as they may be kept and shown: masked, this computer's paths short, the home folder as ~. */
@@ -252,7 +300,13 @@ export async function runCheck(real, dir, { run = capture, busy = overloaded, en
     for (const c of commands) {
       // endGroup: a check has no server that must outlive it; what it left running would hold its folder (and write into it).
       const r = await runCommand(c.run, { cwd: own, minutes: c.minutes, env, low: true, prefix: lim.run, branches: true, endGroup: true, started: (child) => {
-        one.running = commandRecord(child, c.minutes);
+        // The dashboard learns the command's identity a moment later: it is written then, while this command still runs.
+        const later = (proc) => {
+          if (!one.running || one.running.pid !== child.pid || one.running.proc) return;
+          one.running.proc = proc;
+          writeChecks(rec);
+        };
+        one.running = commandRecord(child, c.minutes, system, { later });
         writeChecks(rec);
       } });
       one.running = null;

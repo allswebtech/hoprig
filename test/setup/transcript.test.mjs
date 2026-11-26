@@ -55,7 +55,7 @@ async function run(args) {
 
 let first;
 let second;
-test('the first run on a fresh server: each thing left to the person is said once, in the one closing list', async () => {
+test('the first run on a fresh server: each thing left to the person is said once, in the one closing list', { skip: process.platform === 'win32' && 'a Linux server is handed in (apt, sudo, loginctl)' }, async () => {
   first = await run(['--yes']);
   const { before, list, text } = first;
   assert.equal(text.split('Still yours to do:').length, 2, text);
@@ -68,7 +68,7 @@ test('the first run on a fresh server: each thing left to the person is said onc
   assert.equal(list.filter((l) => l === '· Sign in to Claude Code: On the dashboard: Home → Get started → Sign in to Claude. Or only here, on this computer: run claude, then type /login').length, 1, list.join('\n'));
 });
 
-test('the brain\'s first commit waits for the git name and e-mail: a short mark, and one item after theirs, on both runs', async () => {
+test('the brain\'s first commit waits for the git name and e-mail: a short mark, and one item after theirs, on both runs', { skip: process.platform === 'win32' && 'it reads the first run, a Linux server that is skipped on Windows' }, async () => {
   // The page's way first, then the command.
   const brain = (r) => r.list.filter((l) => l.startsWith('· The AI brain\'s first commit, once git knows your name and e-mail: On the dashboard: Home → Get started → Git and GitHub set up, then Keep on GitHub (with a GitHub account: it also keeps the brain in a new private GitHub repository). Or only here, on this computer: git -C '));
   assert.equal(brain(first).length, 1, first.list.join('\n'));
@@ -79,26 +79,26 @@ test('the brain\'s first commit waits for the git name and e-mail: a short mark,
   assert.equal(brain(second).length, 1, `the second run lists it too:\n${second.list.join('\n')}`);
 });
 
-test('lingering refused: listed among the steps, its command in the closing list, and no "starts with the computer"', () => {
+test('lingering refused: listed among the steps, its command in the closing list, and no "starts with the computer"', { skip: process.platform === 'win32' && 'a Linux server is handed in (apt, sudo, loginctl)' }, () => {
   assert.match(first.before, /Will run.*\n(?:.*\n)*? {4}sudo loginctl enable-linger alex\n/);
   assert.match(first.before, /! The dashboard stops when you log out: lingering is off\n/);
   assert.doesNotMatch(first.text, /starts with the computer/);
   assert.equal(first.list.filter((l) => l === '· Keep the dashboard running after you log out (lingering): On the dashboard: Computers → this computer → Health → Let them start after a restart. Or only here, on this computer: sudo loginctl enable-linger alex').length, 1, first.list.join('\n'));
 });
 
-test('every program set-up starts runs with the working locale (C.UTF-8, no LC_ALL)', () => {
+test('every program set-up starts runs with the working locale (C.UTF-8, no LC_ALL)', { skip: process.platform === 'win32' && 'a Linux server is handed in (apt, sudo, loginctl)' }, () => {
   assert.ok(first.calls.length > 5, first.calls.join('\n'));
   for (const c of first.calls) assert.match(c, /^\S+ LC_ALL= LANG=C\.UTF-8 :: /, c);
 });
 
-test('the run says nothing private and no QR code: the dashboard is for this computer only', () => {
+test('the run says nothing private and no QR code: the dashboard is for this computer only', { skip: process.platform === 'win32' && 'it reads the first run, a Linux server that is skipped on Windows' }, () => {
   const { text } = first;
   assert.doesNotMatch(text, /10\.0\.0\.\d|0\.0\.0\.0|Scan with your phone/);
   assert.match(text, /✓ Open to: only this computer/);
   assert.doesNotMatch(text, /logged in with/, 'no claim of a Claude login');
 });
 
-test('a second run: still one list, nothing of it earlier', async () => {
+test('a second run: still one list, nothing of it earlier', { skip: process.platform === 'win32' && 'a Linux server is handed in (apt, sudo, loginctl)' }, async () => {
   second = await run(['--yes']);
   assert.equal(second.text.split('Still yours to do:').length, 2, second.text);
   for (const said of [/commits need your name/i, /GitHub: not signed in/, /gh auth login/]) assert.doesNotMatch(second.before, said, second.before);

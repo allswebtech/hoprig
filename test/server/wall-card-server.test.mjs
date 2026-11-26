@@ -8,6 +8,10 @@ import path from 'node:path';
 import { test } from 'node:test';
 import { sandbox } from './helpers.mjs';
 
+// Hands-off is not offered on Windows (src/handsoff.mjs handsOffOffered): a test that switches it on or reads its
+// answer gets 409 or nothing there.
+const OFFERED = { skip: process.platform === 'win32' && 'Hands-off is not offered on Windows' };
+
 const box = sandbox('wall-card-server');
 test.after(() => box.cleanup());
 process.env.HOPRIG_TERM_ID = 'pty-1';
@@ -48,7 +52,7 @@ function heldSession() {
   return file;
 }
 
-test('offered: the card of a held act says what, why, and what Yes and No do', async () => {
+test('offered: the card of a held act says what, why, and what Yes and No do', OFFERED, async () => {
   saveConfig({ ...BASE, handsOff: { offered: true } });
   const file = heldSession();
   test.after(() => R.removeRun(file));
@@ -69,7 +73,7 @@ test('offered:false (hidden): the card carries nothing of the hold, whatever the
   }
 });
 
-test('the project\'s view names the sessions it cannot cover on every read, not only in the answer to the press', async () => {
+test('the project\'s view names the sessions it cannot cover on every read, not only in the answer to the press', OFFERED, async () => {
   saveConfig({ ...BASE, handsOff: { offered: true } });
   const { file } = R.createRun({ profile: 'api', cwd: SHOP });
   fs.writeFileSync(file, JSON.stringify({ ...readRun(file), termName: 'shop', status: 'waiting' })); // no hold in its handed settings
@@ -91,7 +95,7 @@ test('the project\'s view names the sessions it cannot cover on every read, not 
 // the tool's dialog draws that option (src/server/deck.mjs card.always). A plain permission still carries it.
 const ALWAYS_SCREEN = fs.readFileSync(new URL('./fixtures/claude-screens/perm-fetch-80.txt', import.meta.url), 'utf8');
 
-test('a held act carries no "Allow, and don\'t ask again", though a plain permission on the same screen does', async () => {
+test('a held act carries no "Allow, and don\'t ask again", though a plain permission on the same screen does', OFFERED, async () => {
   saveConfig({ ...BASE, handsOff: { offered: true } });
   screenNow = ALWAYS_SCREEN;
   try {

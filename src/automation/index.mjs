@@ -392,7 +392,8 @@ export function createAutomation(ctx) {
     },
     // `hers`: the request came through Tia's door (feature.mjs). The body's own word is dropped: a schedule is hers
     // when she added or changed it, and stays hers once it is.
-    changeSchedules(op, b, { hers = false } = {}) {
+    // `checks`: what only the server knows of the folder, provider and project a schedule names (switchOff: none).
+    changeSchedules(op, b, { hers = false, checks = ctx.checks } = {}) {
       const s = settings();
       const list = [...s.schedules.list];
       const at = () => {
@@ -402,12 +403,12 @@ export function createAutomation(ctx) {
       };
       if (op === 'add') {
         if (list.length >= SCHEDULES_MAX) throw new Error(`at most ${SCHEDULES_MAX} schedules`);
-        const { hers: _said, ...given } = cleanSchedule(b.schedule, ctx.checks);
+        const { hers: _said, ...given } = cleanSchedule(b.schedule, checks);
         list.push({ ...given, ...(hers ? { hers: true } : {}), id: newId(), since: now() });
       } else if (op === 'change') {
         // `since` moves to now: a schedule changed at 10:05 to run at 10:00 starts tomorrow, not right away.
         const i = at();
-        const { hers: _said, ...given } = cleanSchedule(b.schedule, ctx.checks);
+        const { hers: _said, ...given } = cleanSchedule(b.schedule, checks);
         list[i] = { ...given, ...(hers || list[i].hers === true ? { hers: true } : {}), id: b.id, since: now() };
       } else if (op === 'delete') {
         list.splice(at(), 1);
@@ -416,6 +417,18 @@ export function createAutomation(ctx) {
       }
       saveSettings({ ...s, schedules: { ...s.schedules, list } });
       return api.status().schedules;
+    },
+    // A schedule whose run by itself may have left its coding tool running (Windows: src/work/alone.mjs): switched off
+    // as the owner's own switch does it, only when it is on, and said in Activity with `why`. It names nothing new, so a
+    // provider or project gone since does not keep it on. → its name, or null.
+    switchOff(id, why) {
+      const x = settings().schedules.list.find((s) => s.id === id);
+      if (!x || !x.enabled) return null;
+      const { id: _id, since: _since, ...rest } = x;
+      api.changeSchedules('change', { id, schedule: { ...rest, enabled: false } }, { checks: {} });
+      const name = x.label || schedules.describeAction(x.action, ctx.label);
+      record({ automation: 'schedules', did: `switched off "${name}"`, outcome: `off: ${why}` });
+      return name;
     },
   };
 

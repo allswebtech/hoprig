@@ -13,6 +13,7 @@ import { runAdmin as runAdminCmd } from './adminrun.mjs';
 import { gatedDispatch } from './door.mjs';
 import * as v from '../server/validate.mjs';
 import { withoutSecrets } from '../secretenv.mjs';
+import { endTree } from '../cmdtree.mjs';
 import { LOCAL } from './shown.mjs';
 
 export const OUTPUT_MAX = 64 * 1024;
@@ -30,15 +31,18 @@ function localPath(p) {
 /**
  * Run one shell command: POSIX sh -c (Windows: cmd /d /s /c), in `cwd`, killed after `timeoutMs`. Output (stdout
  * and stderr together) keeps the last OUTPUT_MAX bytes. The dashboard's own account secrets are not passed on.
- * Resolves { code, output, timedOut }.
+ * Resolves { code, output, timedOut }. At its time limit the command and everything it started are ended as one tree
+ * (src/cmdtree.mjs: its process group; on Windows its tree by parent pid, where the shell alone would leave what it
+ * started running, holding the output pipes, so the answer would never come). `end` is what a test hands in.
  */
-export function runShell(command, { cwd, timeoutMs = 60_000, spawnImpl = spawn, platform = process.platform } = {}) {
+export function runShell(command, { cwd, timeoutMs = 60_000, spawnImpl = spawn, platform = process.platform, end = endTree } = {}) {
   return new Promise((resolve) => {
     const env = withoutSecrets(process.env);
     const [cmd, args, extra] = platform === 'win32'
       ? [process.env.ComSpec || 'cmd.exe', ['/d', '/s', '/c', `"${command}"`], { windowsVerbatimArguments: true }]
       : ['/bin/sh', ['-c', command], {}];
     let child;
+    const t0 = Date.now();
     try {
       child = spawnImpl(cmd, args, { cwd, env, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true, detached: platform !== 'win32', ...extra });
     } catch (e) {
@@ -57,21 +61,31 @@ export function runShell(command, { cwd, timeoutMs = 60_000, spawnImpl = spawn, 
     child.stdout.on('data', take);
     child.stderr.on('data', take);
     let timedOut = false;
+    let whole = null; // whether the end at the time limit reached the whole tree
+    let exitedAt = null;
     const timer = setTimeout(() => {
       timedOut = true;
-      try {
-        // The whole process group: a command that started children must not leave them running.
-        if (platform !== 'win32') process.kill(-child.pid, 'SIGKILL');
-        else child.kill('SIGKILL');
-      } catch {
-        /* gone */
-      }
+      // The whole tree: a command that started children must not leave them running. It still runs as this process
+      // sees it (alive), whatever start the system gives it.
+      // The shell as seen at the moment of each step of the end: through its own handle, never by its number.
+      whole = end({ pid: child.pid, start: t0, alive: () => child.exitCode === null && child.signalCode === null, killRoot: (s) => child.kill(s), endedAt: () => exitedAt }, 'SIGKILL', { platform }).whole;
     }, timeoutMs);
-    const done = (code) => {
+    let finished = false;
+    const done = async (code) => {
+      if (finished) return;
+      finished = true;
       clearTimeout(timer);
-      const text = out.toString('utf8');
+      // An end that may have left what the command started is said in her answer, never silently.
+      const w = whole ? await whole : null;
+      const text = out.toString('utf8') + (w && w.whole === false ? `\n(${w.why})` : '');
       resolve({ code, output: cut ? `(the first ${cut} bytes were cut)\n${text}` : text, timedOut });
     };
+    // At the time limit the answer comes even when something the command started still holds its output (an end that
+    // could not read the processes): a moment after the shell itself has ended.
+    child.on('exit', (code, signal) => {
+      exitedAt = Date.now();
+      if (timedOut) setTimeout(() => done(code ?? (signal ? 128 : 1)), 2000).unref();
+    });
     child.on('error', (e) => {
       take(Buffer.from(e.message));
       done(127);

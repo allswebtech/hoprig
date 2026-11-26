@@ -11,6 +11,10 @@ import path from 'node:path';
 import { test } from 'node:test';
 import { sandbox } from './helpers.mjs';
 
+// Hands-off is not offered on Windows (src/handsoff.mjs handsOffOffered): a test that switches it on or reads its
+// answer gets 409 or nothing there.
+const OFFERED = { skip: process.platform === 'win32' && 'Hands-off is not offered on Windows' };
+
 const box = sandbox('movecarry-press');
 test.after(() => box.cleanup());
 process.env.HOPRIG_TERM_ID = 'pty-1';
@@ -92,7 +96,7 @@ const QUESTION = { hook_event_name: 'PermissionRequest', session_id: CONV, permi
   tool_input: { questions: [{ question: 'Which test runner should this project use?', header: 'Runner', multiSelect: false, options: [{ label: 'node:test (Recommended)', description: 'Built in.' }, { label: 'vitest', description: 'Fast.' }] }] } };
 const asks = (id) => spawnSync(process.execPath, [hookFile()], { input: JSON.stringify(QUESTION), env: { ...process.env, HOPRIG_RUN_FILE: path.join(runsDir(), `${id}.json`), CLAUDE_PROJECT_DIR: SHOP }, encoding: 'utf8' }).stdout;
 
-test('Off pressed while the move waits reaches the new run, which then answers nothing', async () => {
+test('Off pressed while the move waits reaches the new run, which then answers nothing', OFFERED, async () => {
   const from = session({ on: true });
   let pressed = null;
   during = async () => {
@@ -113,7 +117,7 @@ test('Off pressed while the move waits reaches the new run, which then answers n
   assert.equal(asks(now.runId), '', 'the moved session answers nothing after the owner pressed Off');
 });
 
-test('while the old launcher\'s record is still there, its entry and the moving mark stay; a sweep is left to clear them', async () => {
+test('while the old launcher\'s record is still there, its entry and the moving mark stay; a sweep is left to clear them', OFFERED, async () => {
   const from = session({ on: false }, true); // own Off under a project that is On: the old tool must stay unanswered
   assert.equal(asks(from), '', 'before the move its own Off keeps it unanswered');
   oldOutlives = true;
@@ -129,7 +133,7 @@ test('while the old launcher\'s record is still there, its entry and the moving 
 
 // The move has returned (done() ran) but the old launcher's record is still there, so the page still finds the old
 // run: an Off pressed now must reach the run the move handed the session to, which then answers nothing.
-test('Off pressed after the move returned, while the old record is still there, reaches the new run', async () => {
+test('Off pressed after the move returned, while the old record is still there, reaches the new run', OFFERED, async () => {
   const from = session({ on: true });
   oldOutlives = true;
   try {
@@ -152,7 +156,7 @@ test('Off pressed after the move returned, while the old record is still there, 
 
 // A moving mark is kept while the old record is there (above). Once that record has gone the mark silences nothing,
 // so the next press on a session's switch drops it, not only the next dashboard start.
-test('a moving mark whose old record has gone is dropped at the next press on a session\'s switch', async () => {
+test('a moving mark whose old record has gone is dropped at the next press on a session\'s switch', OFFERED, async () => {
   const from = session({ on: false }, true);
   oldOutlives = true;
   try {
@@ -172,7 +176,7 @@ test('a moving mark whose old record has gone is dropped at the next press on a 
   assert.equal(ho.sessions[run.runId].on, false);
 });
 
-test('a press during the move window, where no run record exists yet, waits for the new run and is not 404', async () => {
+test('a press during the move window, where no run record exists yet, waits for the new run and is not 404', OFFERED, async () => {
   const from = session({ on: true });
   gapMs = 600; // the new launcher's record lands 600 ms after respawn returns: a window with no record
   try {
@@ -187,7 +191,7 @@ test('a press during the move window, where no run record exists yet, waits for 
   assert.equal(asks(now.runId), '', 'the moved session answers nothing after the owner pressed Off');
 });
 
-test('Off pressed once the new record exists but before the move is done reaches the new run, not lost', async () => {
+test('Off pressed once the new record exists but before the move is done reaches the new run, not lost', OFFERED, async () => {
   const from = session({ on: true });
   let pressed = null;
   let newId = null;
@@ -208,7 +212,7 @@ test('Off pressed once the new record exists but before the move is done reaches
   assert.equal(asks(now.runId), '', 'the moved session answers nothing after the owner pressed Off');
 });
 
-test('Off pressed in the window, before the new record, waits then reaches the new run (not lost to the move\'s done)', async () => {
+test('Off pressed in the window, before the new record, waits then reaches the new run (not lost to the move\'s done)', OFFERED, async () => {
   const from = session({ on: true });
   let status = null;
   duringWindow = async () => {
@@ -236,7 +240,7 @@ test('Off pressed in the window, before the new record, waits then reaches the n
 // the new id equal to the carried value. (The prior code compared the whole entry — `at` included — against the
 // carried value, so a fresh press already differed and won; this reconciliation reads the write time directly, the
 // same result stated plainly, so the guard holds under both.)
-test('two presses in one move: the last press wins when it equals the carried value (Off on the old id, then On on the new)', async () => {
+test('two presses in one move: the last press wins when it equals the carried value (Off on the old id, then On on the new)', OFFERED, async () => {
   const from = session({ on: true }); // the move carries On (had.at = 1_700_000_000_000)
   let newId = null;
   duringAfterNew = async () => {

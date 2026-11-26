@@ -20,7 +20,7 @@ import { brainDir } from '../workspace/layout.mjs';
 import { dormantReason, dormantWords, notOnServer, openHost, serverReason } from './server.mjs';
 import { listensOtherwise, runningFacts, whereWords } from './running.mjs';
 import { resolveListen } from '../server/serveopts.mjs';
-import { WINGET_HELP, capture, compareVersions, detectPackageManager, installCommands, isRoot, npmArgv, npmMajor, showCommand, showCommands, which, wingetState, wingetWords } from './system.mjs';
+import { WINGET_HELP, capture, compareVersions, detectPackageManager, installCommands, isRoot, npmArgv, npmMajor, showCommand, showCommands, showFileCommand, which, wingetState, wingetWords } from './system.mjs';
 import { rootCheck, rootFacts } from './rootfacts.mjs';
 import { ownerCheck, winRun } from './winowner.mjs';
 
@@ -141,12 +141,12 @@ export function loginCheck(status, profiles) {
   return result('login', 'Claude login', needsLogin ? 'warn' : 'info', `unknown: ${status.reason || 'no answer'}`, status.reason === 'Claude Code is not installed' ? '' : fix);
 }
 
-export function profilesCheck(profiles, hidden = []) {
+export function profilesCheck(profiles, hidden = [], platform = process.platform) {
   // A provider file named like a command (codex, opencode, tools…) is not listed: say so, and how to rename it.
   if (hidden.length) {
     const n = hidden[0];
     return result('profiles', 'Profiles', 'warn', `${hidden.map((x) => `"${x}"`).join(', ')} ${hidden.length === 1 ? 'is a command word now, so that provider is' : 'are command words now, so those providers are'} not used`,
-      showCommand(['mv', path.join(profilesDir(), `${n}.env`), path.join(profilesDir(), `${n}-provider.env`)]));
+      showFileCommand('mv', [path.join(profilesDir(), `${n}.env`), path.join(profilesDir(), `${n}-provider.env`)], platform));
   }
   if (!profiles.length) return result('profiles', 'Profiles', 'warn', 'none yet (the first start creates "sub" for your login)', `${APP} setup   (or: ${APP} add)`);
   return result('profiles', 'Profiles', 'ok', profiles.map((p) => `${p.name} (${p.kind})`).join(', '));

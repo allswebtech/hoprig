@@ -75,8 +75,8 @@ const relay = () => gatewayAddons().find((a) => a.id === 'relay');
 const relayPkg = () => gatewayAddons().find((a) => a.id === 'relaypkg');
 const seenHost = () => JSON.parse(fs.readFileSync(seen, 'utf8')).HOST;
 test.after(async () => {
-  await relay().stop().catch(() => {});
-  await relayPkg().stop().catch(() => {});
+  await relay()?.stop().catch(() => {}); // none where its definition was not loaded (Windows)
+  await relayPkg()?.stop().catch(() => {});
   box.cleanup();
 });
 

@@ -432,7 +432,7 @@ function runsAway(how) {
 const eventsOf = (rx) => rx.got.splice(0).map((x) => { const b = JSON.parse(x.body); return b.answer ? `${b.event} ${b.answer}` : b.event; });
 
 for (const how of ['link', 'mode']) {
-  test(`a runs folder that cannot be read from the start (${how}) does not silence a webhook: "done" is told, and Activity says so once without a path`, { skip: how === 'mode' && process.getuid?.() === 0 && 'root reads every folder' }, async () => {
+  test(`a runs folder that cannot be read from the start (${how}) does not silence a webhook: "done" is told, and Activity says so once without a path`, { skip: how === 'mode' && ((process.getuid?.() === 0 && 'root reads every folder') || (process.platform === 'win32' && 'POSIX modes: chmod on Windows sets only a read-only flag, which keeps no one out of a folder')) }, async () => {
     const rx = await receiver();
     const name = `Unreadable runs ${how} app`;
     const a = access.createWorkToken(name);

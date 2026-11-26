@@ -6,8 +6,8 @@
 //                   boot it belongs to (/proc/sys/kernel/random/boot_id). Exact, no clock involved, one small read.
 //   macOS, Windows  "T:<epoch milliseconds of the start>": a process knows its own (now - its uptime); another's comes
 //                   from the system: the start date that macOS's ps prints (lstart, whole seconds, read in UTC and
-//                   the C locale), PowerShell's creation time. Both are what the system stored when the process was
-//                   made, so a slow answer, or one read late, never moves them. A record's is the same process
+//                   the C locale), the start time .NET reads on Windows. Both are what the system stored when the
+//                   process was made, so a slow answer, or one read late, never moves them. A record's is the same process
 //                   as the system's when it is less than 3 seconds earlier, or less than a minute later: the system
 //                   gives the start of the process behind the pid, Node its own, which may come later (a wrapper
 //                   that execs node keeps its pid; a slow start under load). A dead writer's start is never later
@@ -62,9 +62,23 @@ export function parseCreations(out) {
 }
 
 // The time goes through [DateTimeOffset] as a number, so that neither the PowerShell version nor the locale decides
-// how it is written. Pids are numbers we checked, never text from elsewhere.
+// how it is written. Pids are numbers we checked, never text from elsewhere. Plain .NET, no cmdlet at all: in Windows
+// PowerShell 5.1 the first cmdlet of a module loads that module ("Preparing modules for first use"), measured at about
+// 17 s in a home whose module cache is not kept, at every call; the 15 s limit then gave no identity. A pid that is gone,
+// or whose start may not be read (another account's process), gives no line, as a missing CIM row did. The number is
+// the one Get-CimInstance's CreationDate gave (Unix milliseconds, the rest cut off), so a record written before matches.
+// The second way, for a process whose StartTime .NET may not read (another account's, a protected one: access denied;
+// such processes are what a freed pid is often handed to): its CreationDate from Win32_Process through the
+// System.Management searcher, which needs no right on the process, as the process snapshot reads it (cmdtree.mjs).
+// Both come from the kernel's creation time of the process (StartTime to 100 ns, CreationDate to the microsecond) and
+// are cut to the same Unix millisecond. A pid with no process gives no line either way.
 export const creationScript = (pids) => `$ErrorActionPreference = 'SilentlyContinue'
-Get-CimInstance Win32_Process -Filter 'ProcessId=${pids.join(' OR ProcessId=')}' | ForEach-Object { if ($_.CreationDate) { "$($_.ProcessId) $(([DateTimeOffset]$_.CreationDate).ToUnixTimeMilliseconds())" } }`;
+foreach ($id in @(${pids.join(', ')})) {
+  $ms = $null
+  try { $ms = ([DateTimeOffset][System.Diagnostics.Process]::GetProcessById($id).StartTime).ToUnixTimeMilliseconds() } catch {}
+  if ($ms -eq $null) { try { foreach ($w in [System.Management.ManagementObjectSearcher]::new("SELECT CreationDate FROM Win32_Process WHERE ProcessId=$id").Get()) { if ($w['CreationDate']) { $ms = ([DateTimeOffset][System.Management.ManagementDateTimeConverter]::ToDateTime($w['CreationDate'])).ToUnixTimeMilliseconds() } } } catch {} }
+  if ($ms -ne $null) { [Console]::Out.WriteLine("$id $ms") }
+}`;
 
 // As server/platform/win32.mjs calls it; not imported from there, because every launcher start loads this module and
 // that one costs it about 5 ms.
@@ -111,12 +125,19 @@ export function sameProcess(a, b) {
  * when it cannot), `run(cmd, args, timeout)` (stdout, or null when it cannot run), `runLater` (the same as a promise),
  * `now`, `ownStart` (this process's start in epoch ms, fixed), `osUptime` (seconds), `pid` (this process).
  *   self()          this process's identity (null on Linux when /proc cannot be read: its records carry none)
- *   of(pids, { after })  Map pid → identity or null (not known); all pids in one call to the system. `after` (epoch
- *                   ms, or a Map pid → ms): an answer the system gave before then is not used, it is asked again
+ *   of(pids, { after, born })  Map pid → identity or null (not known); all pids in one call to the system. `after`
+ *                   (epoch ms, or a Map pid → ms): an answer the system gave before then is not used, it is asked again.
+ *                   `born` (the same form): the start of the process a record names; an answer from before it is about
+ *                   an earlier holder of the pid and is never used. In the background a judge that gives `born` takes a
+ *                   kept answer from after it while the one `after` asks for is on its way: "another process" is then
+ *                   final, "the same" reads as held for one more look, and the next look has the answer it asked for
  *   refresh(pids)   asks the system about them now, without waiting for it: a promise of when it asked (0: it did not),
- *                   the `after` for of(). For the moment before a signal
+ *                   the `after` for of(). For the moment before a signal, and for a look that can wait for the answer
  *   askInBackground()  from now on of() never waits for the system: what it does not know yet is not known, and asked
- *                   in the background. For the dashboard, whose requests must not wait for PowerShell
+ *                   in the background (after the question on its way, never instead of it). For the dashboard, whose
+ *                   requests must not wait for PowerShell
+ *   inBackground()  whether of() may not know an answer at once: in the background on a system that must be asked
+ *                   (macOS, Windows; Linux reads /proc at every call)
  *   bootAt()        when this boot began, in epoch ms
  */
 export function makeIdentity({ platform = process.platform, read = (p) => fs.readFileSync(p, 'utf8'), run = runProgram, runLater = run === runProgram ? runProgramLater : async (...a) => run(...a), now = Date.now, ownStart = STARTED, osUptime = os.uptime, pid = process.pid } = {}) {
@@ -160,10 +181,13 @@ export function makeIdentity({ platform = process.platform, read = (p) => fs.rea
   let trusted = null;
   let background = false;
   let asking = null; // the background question on its way
+  let askingFor = new Set(); // the pids it asks about
+  const queued = new Set(); // pids wanted while it was on its way: asked right after it
   const learn = (pids, out, at) => {
     const starts = out === null ? null : ask.starts(out);
     for (const [p, m] of memo) if (now() - m.at >= ask.ttl) memo.delete(p);
-    for (const p of pids) memo.set(p, { start: starts && Number.isFinite(starts.get(p)) ? Math.round(starts.get(p)) : null, at });
+    // An answer to an older question (one on its way when a newer one was asked and answered) never replaces a newer one.
+    for (const p of pids) if (!(memo.has(p) && memo.get(p).at > at)) memo.set(p, { start: starts && Number.isFinite(starts.get(p)) ? Math.round(starts.get(p)) : null, at });
     const me = memo.get(pid);
     if (trusted === null && me && me.start !== null) trusted = Math.abs(me.start - ownStart) < SAME_WITHIN;
   };
@@ -182,9 +206,21 @@ export function makeIdentity({ platform = process.platform, read = (p) => fs.rea
     learn(pids, out, at);
     return at;
   };
-  const withSelf = (pids) => (trusted === null ? [...pids, pid] : pids); // the self check rides on the first call
+  const withSelf = (pids) => (trusted === null && !pids.includes(pid) ? [...pids, pid] : pids); // the self check rides on the first call
+  // One background question at a time; what it does not cover is asked when it is back.
+  const askQueued = () => {
+    if (asking || !queued.size) return;
+    const pids = withSelf([...queued]);
+    queued.clear();
+    askingFor = new Set(pids);
+    asking = askLater(pids).finally(() => {
+      asking = null;
+      askingFor = new Set();
+      askQueued();
+    });
+  };
 
-  function of(pids, { after = 0 } = {}) {
+  function of(pids, { after = 0, born = 0 } = {}) {
     const out = new Map();
     const others = valid(pids);
     if (pids.includes(pid)) out.set(pid, self());
@@ -192,17 +228,22 @@ export function makeIdentity({ platform = process.platform, read = (p) => fs.rea
       for (const p of others) out.set(p, linuxOf(p));
       return out;
     }
-    const since = (p) => (typeof after === 'number' ? after : after.get(p) || 0);
-    const known = (p) => memo.has(p) && now() - memo.get(p).at < ask.ttl && memo.get(p).at >= since(p);
+    const bound = (x, p) => (typeof x === 'number' ? x : x.get(p) || 0);
+    const kept = (p) => memo.has(p) && now() - memo.get(p).at < ask.ttl && memo.get(p).at >= bound(born, p);
+    const known = (p) => kept(p) && memo.get(p).at >= bound(after, p);
     if (ask && trusted !== false && others.length) {
       const wanted = others.filter((p) => !known(p));
       if (wanted.length || (trusted === null && !known(pid))) {
         if (!background) askNow(withSelf(wanted));
-        else if (!asking) asking = askLater(withSelf(wanted)).finally(() => (asking = null));
+        else {
+          for (const p of withSelf(wanted)) if (!askingFor.has(p)) queued.add(p);
+          askQueued();
+        }
       }
     }
+    const usable = background && born ? kept : known;
     for (const p of others) {
-      const m = trusted && known(p) ? memo.get(p) : null;
+      const m = trusted && usable(p) ? memo.get(p) : null;
       out.set(p, m && m.start !== null ? `T:${m.start}` : null);
     }
     return out;
@@ -213,10 +254,30 @@ export function makeIdentity({ platform = process.platform, read = (p) => fs.rea
     return ask && trusted !== false && others.length ? askLater(withSelf(others)) : 0;
   }
 
-  return { self, of, refresh, askInBackground: () => (background = true), bootAt: () => now() - osUptime() * 1000 };
+  return { self, of, refresh, askInBackground: () => (background = true), inBackground: () => background && ask !== null, bootAt: () => now() - osUptime() * 1000 };
 }
 
 export const system = makeIdentity();
+
+/**
+ * What a judge of one record asks for (a lock, a claim, a hold: "does the process that wrote it still run?"): an
+ * identity the system gave at most FRESH_MS ago, as `of(pids, { after: freshAfter() })` or `filedProcess(…, { after:
+ * freshAfter() })`. A kept answer (of() keeps one 30 s on macOS, five minutes on Windows) may be from before that
+ * process ended and its pid was handed to another one (Windows does that at once): the pid lives, the kept identity is
+ * the old one, and the record would read as held by a process that never wrote it. Where the reader waits (the command
+ * line, the helper) it asks then and there. In the dashboard it never waits (askInBackground): a look that can wait
+ * asks first and hands on the moment it asked (`after: await refresh(pids)`): the go-live and check looks, the coding
+ * tool server's stop, a command's identity in its record. A judge that cannot wait gives the record's start (`born`)
+ * and takes a kept answer from after it while it asks: "another process" is then final, "the same" reads as held,
+ * and the next look has the answer this one asked for. Ending a process never goes on a kept answer. On Linux every
+ * answer is read at once from /proc: nothing is kept there, so this changes nothing.
+ */
+export const FRESH_MS = 2000;
+export const freshAfter = () => Date.now() - FRESH_MS;
+/** The start a "T:<epoch ms>" identity names (of()'s `born`), else 0. */
+export const startOf = (proc) => (/^T:\d+$/.test(proc || '') ? Number(proc.slice(2)) : 0);
+/** `after` for a look that can wait: the moment the system was asked about `pids` (refresh), else freshAfter(). */
+export const askedAfter = async (pids, ident = system) => (await ident.refresh(pids.filter((p) => Number.isInteger(p)))) || freshAfter();
 
 /** The process `pid` exists (EPERM: it does, as another user's). */
 export const alive = (pid) => {
@@ -241,7 +302,10 @@ export function stillOwned(list, ident = system, { after = 0 } = {}) {
 /** stillOwned's judgement of each entry: { owned, same } (same: what the identities said, null when they could not). */
 function judge(list, ident, after) {
   const live = list.map(({ run }) => Number.isInteger(run.pid) && alive(run.pid));
-  const ids = ident.of(list.filter((e, i) => live[i] && e.run.proc).map((e) => e.run.pid), { after });
+  // Each record's own start: an answer from before it is about another process (of()'s `born`).
+  const born = new Map();
+  list.forEach(({ run }, i) => live[i] && startOf(run.proc) && born.set(run.pid, Math.max(born.get(run.pid) || 0, startOf(run.proc))));
+  const ids = ident.of(list.filter((e, i) => live[i] && e.run.proc).map((e) => e.run.pid), { after, born });
   // A kept answer that says "another process" may be from before the record's process started, about the process that
   // had its pid then (Windows hands a pid out again at once): it decides only when it was given after that start, and
   // is asked again otherwise.
@@ -250,7 +314,7 @@ function judge(list, ident, after) {
     const start = live[i] && /^T:\d+$/.test(run.proc || '') ? Number(run.proc.slice(2)) : null;
     if (start !== null && sameProcess(run.proc, ids.get(run.pid)) === false) doubt.set(run.pid, Math.max(doubt.get(run.pid) || 0, start, after));
   });
-  if (doubt.size) for (const [p, id] of ident.of([...doubt.keys()], { after: doubt })) ids.set(p, id);
+  if (doubt.size) for (const [p, id] of ident.of([...doubt.keys()], { after: doubt, born })) ids.set(p, id);
   const boot = ident.bootAt();
   return list.map(({ run, file }, i) => {
     if (!live[i]) return { owned: false, same: null };

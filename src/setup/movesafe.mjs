@@ -8,6 +8,7 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
+import { replaceFile } from '../replacefile.mjs';
 
 const { O_WRONLY, O_CREAT, O_EXCL, O_APPEND } = fs.constants;
 const NOFOLLOW = fs.constants.O_NOFOLLOW ?? 0;
@@ -70,7 +71,7 @@ export function replaceIn(home, file, data, { mode = 0o600, own = () => {} } = {
   const tmp = path.join(path.dirname(file), `.${path.basename(file)}.${crypto.randomBytes(8).toString('hex')}.tmp`);
   createIn(home, tmp, data, { mode, own });
   try {
-    fs.renameSync(tmp, file);
+    replaceFile(tmp, file);
   } catch (e) {
     fs.rmSync(tmp, { force: true });
     throw e;

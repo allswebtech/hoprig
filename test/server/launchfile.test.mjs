@@ -24,8 +24,8 @@ test('written for the owner only, in a folder of its own, under a random name; t
   assert.match(path.basename(file), /^[0-9a-f]{32}\.json$/);
   assert.deepEqual(JSON.parse(fs.readFileSync(file, 'utf8')), { v: 1, cwd: box.root, argv: ['sub', '--', msg], at: 1234 });
   if (POSIX) {
-    assert.equal(fs.statSync(file).mode & 0o777, 0o600, 'never readable by group or others');
-    assert.equal(fs.statSync(L.launchDir()).mode & 0o777, 0o700);
+    if (process.platform !== 'win32') assert.equal(fs.statSync(file).mode & 0o777, 0o600, 'never readable by group or others');
+    if (process.platform !== 'win32') assert.equal(fs.statSync(L.launchDir()).mode & 0o777, 0o700);
   }
   const other = L.writeLaunch({ cwd: box.root, argv: [] });
   assert.notEqual(other, file, 'one file per start');
@@ -38,7 +38,7 @@ test('written for the owner only, in a folder of its own, under a random name; t
 test('a folder made earlier with more access is made owner-only again', { skip: !POSIX && 'POSIX modes' }, () => {
   fs.chmodSync(L.launchDir(), 0o755);
   L.dropLaunch(L.writeLaunch({ cwd: box.root, argv: [] }));
-  assert.equal(fs.statSync(L.launchDir()).mode & 0o777, 0o700);
+  if (process.platform !== 'win32') assert.equal(fs.statSync(L.launchDir()).mode & 0o777, 0o700);
 });
 
 test('refused: outside the launch folder, a link, open to others, another name, the wrong shape', () => {
@@ -122,7 +122,8 @@ test('the launcher: started with --launch it runs in the file\'s folder as if st
 });
 
 test('the launcher in the folder: process.cwd() and $PWD are the file\'s folder, whatever the shell started in', () => {
-  const work = fs.mkdtempSync(path.join(box.root, 'tab\tand \u0015 '));
+  // Windows refuses a control character in a file name: there, the characters PowerShell and cmd.exe would read.
+  const work = fs.mkdtempSync(path.join(box.root, POSIX ? 'tab\tand \u0015 ' : "sp ace ' % $ & ^ ! (x) "));
   const file = L.writeLaunch({ cwd: work, argv: ['a', '--', 'm\n2'] });
   const script = `import { applyLaunch } from ${JSON.stringify(new URL('../../src/launchfile.mjs', import.meta.url).href)}; applyLaunch(); process.stdout.write(JSON.stringify({ argv: process.argv.slice(2), cwd: process.cwd(), pwd: process.env.PWD }));`;
   const runner = path.join(box.root, 'runner.mjs');

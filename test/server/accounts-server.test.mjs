@@ -11,6 +11,10 @@ import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { sandbox } from './helpers.mjs';
 
+// The stand-in Claude Code is a Node script (fixtures/fake-claude.mjs) started as the program itself through its #!
+// line: Windows cannot start it so (error 193), so a test that runs it is skipped there.
+const STANDIN = { skip: process.platform === 'win32' && 'the stand-in is started through its #! line' };
+
 const box = sandbox('accounts-srv');
 test.after(() => box.cleanup());
 const FAKE_CLAUDE = path.join(path.dirname(fileURLToPath(import.meta.url)), 'fixtures', 'fake-claude.mjs');
@@ -168,7 +172,7 @@ test('a plain Anthropic key is stored as ANTHROPIC_API_KEY without a base URL', 
   }
 });
 
-test('Claude subscription: link, a bad code, then a good code saves the token (never shown)', async () => {
+test('Claude subscription: link, a bad code, then a good code saves the token (never shown)', STANDIN, async () => {
   process.env.FAKE_CLAUDE_ENV_FILE = ENV_FILE;
   let r = await call('/api/accounts/subscription/start', { name: '', label: '' });
   assert.equal(r.status, 200, JSON.stringify(r.json));
@@ -200,7 +204,7 @@ test('Claude subscription: link, a bad code, then a good code saves the token (n
   assert.equal((await call('/api/accounts/subscription/code', { code: 'abcDEF123456#again' })).status, 409);
 });
 
-test('Claude subscription: cancel, no link (timeout), and Claude Code ending early', async () => {
+test('Claude subscription: cancel, no link (timeout), and Claude Code ending early', STANDIN, async () => {
   let r = await call('/api/accounts/subscription/start', {});
   assert.equal(r.json.state, 'link');
   assert.equal((await call('/api/accounts/subscription/cancel', {})).status, 200);
@@ -218,7 +222,7 @@ test('Claude subscription: cancel, no link (timeout), and Claude Code ending ear
   delete process.env.FAKE_CLAUDE_MODE;
 });
 
-test('sign in again for an existing provider: replaced only on success; everything else of it stays', async () => {
+test('sign in again for an existing provider: replaced only on success; everything else of it stays', STANDIN, async () => {
   const NEW = 'sk-ant-oat01-FAKEtokenFAKEtokenFAKEtoken_0123456789abcdefABCDEF-xyzAA';
   const OLD = 'sk-ant-oat01-OLDsigninOLDsigninOLDsignin_0123456789abcdefABCDEF-oldAA';
   const { setAutoSwitch } = await import('../../src/autoswitch.mjs');
@@ -266,7 +270,7 @@ test('sign in again for an existing provider: replaced only on success; everythi
   assert.deepEqual(p.env, { CLAUDE_CODE_OAUTH_TOKEN: NEW, CLAUDE_CODE_MAX_OUTPUT_TOKENS: '32000' });
   assert.equal(fileOf('team'), before.replace(OLD, NEW), 'the same file but for the sign-in');
   assert.deepEqual(getAutoSwitch().order, ['work', 'team'], 'its place in the order is kept');
-  assert.equal((fs.statSync(path.join(profilesDir(), 'team.env')).mode & 0o777).toString(8), '600');
+  if (process.platform !== 'win32') assert.equal((fs.statSync(path.join(profilesDir(), 'team.env')).mode & 0o777).toString(8), '600');
 
   // a provider that used Claude Code's own stored login gets its sign-in in its own file, under the same name and label
   writeProfile('stored', { label: 'Claude account (stored login)' });
@@ -286,7 +290,7 @@ test('sign in again for an existing provider: replaced only on success; everythi
   setAutoSwitch({ order: [] });
 });
 
-test('the whole flow times out', async () => {
+test('the whole flow times out', STANDIN, async () => {
   // The flow's clock starts with the sign-in program, and the stand-in shows its link 300 ms after it started. With
   // 800 ms for the whole flow a slow start on a busy computer used them up before the link came, and the start
   // itself failed. 3 s leave room for that; the flow still ends by itself, which is what is checked.

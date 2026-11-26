@@ -104,6 +104,20 @@ export function borrowedStores(dir) {
   return out;
 }
 
+/**
+ * The [from, to] pairs a git link file is read with: on Windows each also with / between its parts, the form Git for
+ * Windows writes those files in (C:/a/b); elsewhere `rewrite` itself.
+ */
+export function gitLinkPairs(rewrite = [], platform = process.platform) {
+  if (platform !== 'win32') return rewrite;
+  return [...rewrite, ...rewrite.map(([a, b]) => [a.replaceAll('\\', '/'), b.replaceAll('\\', '/')])];
+}
+
+/** The folder `p` (a path of this system) written as `was` names its folder: on Windows with / when `was` has no \\. */
+export function asGitWrote(p, was, platform = process.platform) {
+  return platform === 'win32' && !String(was).includes('\\') ? p.replaceAll('\\', '/') : p;
+}
+
 /** `text` with each [from, to] of `rewrite` replaced, the longest `from` first. */
 export function rewritten(text, rewrite = []) {
   let t = text;
@@ -124,6 +138,7 @@ export function treeOf(root, { rewrite = [], skipDirs = null, contents = true, l
   let left = 0;
   let hardLinked = 0; // files outside .git that share their content with another name (a copy makes them separate)
   const sep = Buffer.from(path.sep);
+  const linkPairs = gitLinkPairs(rewrite);
   // Names are read as bytes: a name that is not UTF-8 would otherwise come back changed, and an lstat of the changed
   // name fails (ENOENT), so the file would drop out of the listing without a word.
   const walk = (d, relDir) => {
@@ -158,7 +173,7 @@ export function treeOf(root, { rewrite = [], skipDirs = null, contents = true, l
           entries[rel] = `dir ${mode}`;
           if (!(skipDirs && skipDirs.has(name))) walk(p, rel);
         } else if (st.isFile() && ALTERNATES.test(rel)) entries[rel] = `alternates ${hash(alternatesIn(p.toString()).map((a) => movedPath(a, rewrite)).join('\n'))}`;
-        else if (st.isFile() && GITLINK(rel, st)) entries[rel] = `gitlink ${hash(rewritten(fs.readFileSync(p, 'utf8').trim(), rewrite))}`;
+        else if (st.isFile() && GITLINK(rel, st)) entries[rel] = `gitlink ${hash(rewritten(fs.readFileSync(p, 'utf8').trim(), linkPairs))}`;
         else if (st.isFile()) {
           if (st.nlink > 1 && !rel.split('/').includes('.git')) hardLinked++;
           entries[rel] = `file ${st.size} ${mode} ${st.mtimeMs}${contents ? ` ${hash(fs.readFileSync(p))}` : ''}`;

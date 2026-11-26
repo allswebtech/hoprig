@@ -49,6 +49,7 @@ put(path.join(claudeP, '.credentials.json'), '{"token":"fake-sign-in-456"}\n');
 put(path.join(box.profiles, 'work.env'), `ANTHROPIC_API_KEY=fake-sign-in-789\nCLAUDE_CONFIG_DIR=${claudeP}\n`);
 // Claude Code's default sign-in in ~/.claude, while CLAUDE_CONFIG_DIR (set by the sandbox) names another folder.
 process.env.HOME = box.home;
+process.env.USERPROFILE = box.home; // the home Windows names (os.homedir() reads it there)
 put(path.join(box.home, '.claude', '.credentials.json'), '{"token":"fake-sign-in-000"}\n');
 
 test('a file with a sign-in is never read, listed, found, changed or a folder to open', async () => {

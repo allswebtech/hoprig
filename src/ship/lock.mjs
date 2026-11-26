@@ -6,7 +6,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { gitRead } from '../gitread.mjs';
-import { filedProcess, system } from '../procid.mjs';
+import { filedProcess, freshAfter, system } from '../procid.mjs';
 import { capture } from '../setup/system.mjs';
 
 export const LOCK_NAME = 'hoprig-ship.lock';
@@ -28,8 +28,11 @@ function readLock(file) {
   }
 }
 
-/** Who holds the lock in `folder`: null (nobody), or { pid, proc, what, at, mine, gone }. */
-export function lockHolder(folder, { ident = system, name = LOCK_NAME } = {}) {
+/**
+ * Who holds the lock in `folder`: null (nobody), or { pid, proc, what, at, mine, gone }. `after`: an identity the
+ * system gave since then (procid.mjs freshAfter; a look that can wait hands on the moment it asked).
+ */
+export function lockHolder(folder, { ident = system, name = LOCK_NAME, after = freshAfter() } = {}) {
   const file = path.join(folder, name);
   const r = readLock(file);
   if (!r) return null;
@@ -44,14 +47,20 @@ export function lockHolder(folder, { ident = system, name = LOCK_NAME } = {}) {
     return { pid: null, proc: null, what: '', at: null, mine: false, gone: old };
   }
   const mine = r.pid === process.pid && (!r.proc || r.proc === ident.self());
-  return { ...r, mine, gone: !mine && filedProcess(file, r, { ident }) === false };
+  return { ...r, mine, gone: !mine && filedProcess(file, r, { ident, after }) === false }; // a fresh identity (procid.mjs freshAfter)
+}
+
+/** The pid the lock in `folder` names, or null: what a look asks the system about before it judges the lock. */
+export function lockPid(folder, name = LOCK_NAME) {
+  const r = readLock(path.join(folder, name));
+  return r && Number.isInteger(r.pid) ? r.pid : null;
 }
 
 /**
  * Take the lock in `folder` for `what` ("go live", "put together"). → a release function. Refused (409) while
  * another living process holds it; a lock of a process shown to be gone is taken over.
  */
-export function takeLock(folder, what, { ident = system, name = LOCK_NAME } = {}) {
+export function takeLock(folder, what, { ident = system, name = LOCK_NAME, after = freshAfter() } = {}) {
   const file = path.join(folder, name);
   fs.mkdirSync(folder, { recursive: true, mode: 0o700 });
   const rec = JSON.stringify({ pid: process.pid, proc: ident.self(), what, at: new Date().toISOString() });
@@ -68,7 +77,7 @@ export function takeLock(folder, what, { ident = system, name = LOCK_NAME } = {}
     } catch (e) {
       if (e.code !== 'EEXIST') throw e;
     }
-    const h = lockHolder(folder, { ident, name });
+    const h = lockHolder(folder, { ident, name, after });
     if (h && !h.gone) throw busy(h.mine ? `this dashboard is already doing "${h.what}" for this project` : `another Hoprig (process ${h.pid ?? 'unknown'}) is doing "${h.what || 'a go-live'}" for this project: it runs one at a time`);
     // Gone: away with its lock, then make ours exclusively again (another taker may win that race; then we lose).
     fs.rmSync(file, { force: true });

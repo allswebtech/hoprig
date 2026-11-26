@@ -7,12 +7,22 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { sealedPath } from '../seal.mjs';
+import { writeGitStandIn } from './gitstandin.mjs';
 
 const TRAPS = ['sudo', 'npm', 'systemctl', 'loginctl', 'apt-get', 'brew', 'ssh'];
 
-/** The real git's full path (found before the traps go on the PATH). */
+/**
+ * The real git's full path (found before the traps go on the PATH). Windows names it git.exe. There the test seal
+ * starts the shell-script traps below through Git for Windows' sh, and the git stand-in is a Node script
+ * (./gitstandin.mjs: sh would change its arguments), so trapped() holds on Windows too.
+ */
 function realGit() {
-  for (const d of String(process.env.PATH || '').split(path.delimiter)) {
+  for (const d of String(process.env.PATH || process.env.Path || '').split(path.delimiter)) {
+    if (process.platform === 'win32') {
+      const exe = path.join(d, 'git.exe');
+      if (fs.existsSync(exe)) return exe;
+      continue;
+    }
     const p = path.join(d, 'git');
     try {
       fs.accessSync(p, fs.constants.X_OK);
@@ -36,7 +46,10 @@ export function tempShip(name = 'ship') {
   fs.mkdirSync(traps);
   const git = realGit();
   for (const t of TRAPS) fs.writeFileSync(path.join(traps, t), `#!/bin/sh\necho "${t} $*" >> '${trapLog}'\necho "trap: ${t} must not run here" >&2\nexit 97\n`, { mode: 0o755 });
-  fs.writeFileSync(path.join(traps, 'git'), `#!/bin/sh\nfor a in "$@"; do if [ "$a" = push ]; then echo "git $*" >> '${trapLog}'; echo "trap: git push must not run here" >&2; exit 97; fi; done\nexec '${git}' "$@"\n`, { mode: 0o755 });
+  writeGitStandIn(path.join(traps, 'git'), {
+    git, log: trapLog, refuse: ['push'], line: 'git {args}', say: 'trap: git push must not run here', code: 97,
+    shell: `#!/bin/sh\nfor a in "$@"; do if [ "$a" = push ]; then echo "git $*" >> '${trapLog}'; echo "trap: git push must not run here" >&2; exit 97; fi; done\nexec '${git}' "$@"\n`,
+  });
   const gitcfg = path.join(root, 'gitconfig');
   fs.writeFileSync(gitcfg, '[user]\n\tname = Test Dev\n\temail = dev@example.invalid\n[init]\n\tdefaultBranch = main\n[commit]\n\tgpgsign = false\n');
   Object.assign(process.env, {
@@ -84,7 +97,8 @@ export function tempShip(name = 'ship') {
       return [];
     }
   };
-  return { root, home, ws, projects, server, traps, git: run, repo, branch, trapped, cleanup: () => fs.rmSync(root, { recursive: true, force: true }) };
+  // On Windows a folder a process just ended in (a limiter, an update command) stays held for a moment: retried there.
+  return { root, home, ws, projects, server, traps, git: run, repo, branch, trapped, cleanup: () => fs.rmSync(root, { recursive: true, force: true, ...(process.platform === 'win32' ? { maxRetries: 10, retryDelay: 100 } : {}) }) };
 }
 
 /** Write files { 'rel/path': content } below `dir`. */

@@ -19,7 +19,9 @@ const rows = data.split('\n').map((l) => l.trim()).filter((l) => l && !l.startsW
 });
 
 // The session's folder and Hoprig's own folders, made up: nothing here exists on disk.
-const places = { cwd: '/w/shop', home: '/w', workspace: '/w', projects: ['/w'], hoprig: ['/w/.config/hoprig', '/w/.local/state/hoprig'], own: '/w/shop', relative: true };
+// They are POSIX places, read as on Linux everywhere: on Windows `/w` is the drive-relative `W:`, which no home is
+// (test/wall-windows.test.mjs asks the same lines with Windows places).
+const places = { platform: 'linux', cwd: '/w/shop', home: '/w', workspace: '/w', projects: ['/w'], hoprig: ['/w/.config/hoprig', '/w/.local/state/hoprig'], own: '/w/shop', relative: true };
 // git as the wall asks it: the remote's default branch is main, the session stands on feature.
 const git = (cwd, args) => {
   const a = args.join(' ');

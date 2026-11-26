@@ -17,6 +17,7 @@ import { claudeVersionQuick } from '../claudecode.mjs';
 import { TOOL_VERSION, isSmall, namesFor, pictureModel } from './names.mjs';
 import { compareVersions } from '../setup/system.mjs';
 import { MAP_SINCE, configDirOf, ownOverrides, sessionMap } from './sessionmap.mjs';
+import { replaceFile } from '../replacefile.mjs';
 
 const TIMEOUT_MS = 15_000;
 const AT_ONCE = 4;
@@ -282,7 +283,7 @@ function keep(name, result) {
   fs.mkdirSync(path.dirname(file()), { recursive: true, mode: 0o700 });
   const tmp = `${file()}.${process.pid}.tmp`;
   fs.writeFileSync(tmp, JSON.stringify(all), { mode: 0o600 });
-  fs.renameSync(tmp, file());
+  replaceFile(tmp, file());
 }
 
 /** The last result of `name`'s check, or null. */

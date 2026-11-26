@@ -5,6 +5,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { isOwnFolder } from '../server/folders.mjs';
 import { fail, isHiddenName, isSecret, mayChangeFolder, resolveIn, rootOf } from './paths.mjs';
+import { replaceFile } from '../replacefile.mjs';
 
 export const MAX_BYTES = 5 * 1024 * 1024; // a file larger than this is not opened as text
 export const TREE_MAX = 2000;
@@ -159,7 +160,7 @@ export function writeFile(root, rel, text, version, roots) {
     if (version === null) {
       fs.linkSync(tmp, at.abs); // fails when a file appeared meanwhile: never replaces one
       fs.rmSync(tmp);
-    } else fs.renameSync(tmp, at.abs);
+    } else replaceFile(tmp, at.abs);
   } catch (e) {
     fs.rmSync(tmp, { force: true });
     throw fsError(e);

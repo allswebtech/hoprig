@@ -30,6 +30,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { offeredOnly } from './codetools/offered.mjs';
 import { profilesDir } from './paths.mjs';
+import { replaceFile } from './replacefile.mjs';
 
 export const NAME_RE = /^[a-z0-9][a-z0-9_-]{0,31}$/;
 // Words that are commands (hoprig's own, and common wrapper commands), so they cannot name a profile.
@@ -271,7 +272,7 @@ export function writeProfile(name, { label = '', prerun = '', models = '', mapSe
   const file = fileOf(name);
   const tmp = `${file}.${process.pid}.tmp`;
   fs.writeFileSync(tmp, lines.join('\n') + '\n', { mode: 0o600 });
-  fs.renameSync(tmp, file);
+  replaceFile(tmp, file);
   return readProfile(name);
 }
 

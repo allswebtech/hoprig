@@ -10,7 +10,6 @@ import { repoTree, tempWork } from './helpers.mjs';
 
 const FAKE = path.join(path.dirname(fileURLToPath(import.meta.url)), 'fixtures', 'fake-alone.mjs');
 const t = tempWork('work-alone');
-test.after(() => t.cleanup());
 const { saveConfig } = await import('../../src/config.mjs');
 const { resolvePlace, projectNames } = await import('../../src/work/place.mjs');
 const { workStore, readDoc } = await import('../../src/work/store.mjs');
@@ -36,8 +35,15 @@ const runner = aloneRunner({
   notify: (n) => notes.push(n), record: (e) => logged.push(e), settings: () => ({ atOnce }), minuteMs: 300, killGraceMs: 200,
   defaultProvider: async () => 'sub',
 });
-test.after(() => runner.close());
+// The runner is closed (its runs ended) before the home is removed: on Windows a folder a run still stands in cannot be
+// removed (EPERM), and the after hooks run in the order they are given.
+test.after(async () => {
+  await runner.close();
+  t.cleanup();
+});
 const itemOf = (id) => readDoc(place().file).doc.items.find((x) => x.id === id);
+// The worktrees git knows of `repo`, each as this system writes a path (git for Windows lists them with /).
+const gitTrees = (repo) => t.git(repo, 'worktree', 'list', '--porcelain').split('\n').filter((l) => l.startsWith('worktree ')).map((l) => path.resolve(l.slice(9)));
 let n = 0;
 async function task(brief, project = 'shop') {
   const r = await store().add({ title: `Run alone ${++n}`, project, note: brief });
@@ -253,8 +259,8 @@ test('paused or schedules off: what waits does not start and keeps its place; a 
     assert.deepEqual(r2.waiting().map((w) => w.key).sort(), [second, 'sched0002'].sort(), 'both keep their place');
     // back on in the settings, nothing called by hand: the automations start what waits
     auto.api.changeSettings({ paused: false, schedules: { enabled: true } });
-    // the save brings the tick forward (about 0.3 s), not the next slow tick
-    const end = Date.now() + 2500;
+    // the save brings the tick forward (about 0.3 s), not the next slow tick (20 s away); a slow runner took over 2.5 s
+    const end = Date.now() + 10_000;
     while (Date.now() < end && itemOf(second).status !== 'review') await new Promise((r) => setTimeout(r, 50));
     assert.equal(itemOf(second).status, 'review', 'switched back on: it ran within moments of the save');
     assert.ok(logged.some((e) => e.outcome === 'dropped: its schedule is gone'), 'the deleted schedule\'s entry is dropped and said');
@@ -354,7 +360,7 @@ test('without /proc the processes below a run are found with this computer\'s ps
   assert.deepEqual(descendants(tool.pid, { platform: 'darwin' }), [kid]);
 });
 
-test('the time limit ends a run whose tool ignores SIGTERM and left a process holding its output', { skip: process.platform === 'win32' }, async () => {
+test('the time limit ends a run whose tool ignores SIGTERM and left a process holding its output', { skip: process.platform === 'win32' && 'POSIX signals: a tool that ignores SIGTERM; Windows ends a process outright' }, async () => {
   const pids = path.join(t.root, 'escape-pids');
   process.env.FAKE_ALONE_PIDS = pids;
   try {
@@ -372,7 +378,7 @@ test('the time limit ends a run whose tool ignores SIGTERM and left a process ho
   }
 });
 
-test('stopping the dashboard ends a tool that ignores SIGTERM and does not hang', { skip: process.platform === 'win32' }, async () => {
+test('stopping the dashboard ends a tool that ignores SIGTERM and does not hang', { skip: process.platform === 'win32' && 'POSIX signals: a tool that ignores SIGTERM; Windows ends a process outright' }, async () => {
   const argsFile = path.join(t.root, 'closehang-args.jsonl');
   const r2 = aloneRunner({ config: () => cfg, command: { command: process.execPath, args: [FAKE] }, resolveEnv: async () => ({ ...process.env, FAKE_ALONE_ARGS: argsFile }), record: () => {}, settings: () => ({ atOnce: 4 }), killGraceMs: 200, defaultProvider: async () => 'sub' });
   const id = await task('DO:ignoreterm', 'blog');
@@ -384,7 +390,7 @@ test('stopping the dashboard ends a tool that ignores SIGTERM and does not hang'
   assert.equal(aliveP(lastArgs(argsFile).pid), false, 'the tool is ended');
 });
 
-test('after a crash of the dashboard, its next start ends the tool that was left running before it marks the run stopped', { skip: process.platform !== 'linux' }, async () => {
+test('after a crash of the dashboard, its next start ends the tool that was left running before it marks the run stopped', { skip: process.platform !== 'linux' && 'process groups and the /proc identity: the left tool is ended by its group, read here on Linux only' }, async () => {
   const argsFile = path.join(t.root, 'crash-args.jsonl');
   const id = await task('DO:sleep', 'blog');
   await store().edit(id, { project: 'blog' });
@@ -536,7 +542,7 @@ test('done with a schedule\'s run and its next slot at the same moment: the remo
   assert.ok(slot(), 'the next slot ran');
   const tree = runner.keptTree(top, 'work/race0001');
   assert.ok(tree && fs.existsSync(tree), 'its worktree is there');
-  assert.ok(t.git(blog, 'worktree', 'list').includes(tree), 'and git knows it');
+  assert.ok(gitTrees(blog).includes(path.resolve(tree)), 'and git knows it');
   while (slot().state === 'running' && Date.now() < end + 5000) await new Promise((r) => setTimeout(r, 50));
   assert.equal(slot().state, 'stopped', `it worked until its time limit: ${slot().reason}`);
   assert.deepEqual(runner.waiting(), []);

@@ -29,6 +29,7 @@ import { KITS } from '../pcsetup/kits.mjs';
 import { isGitRepo, projectsIn, workspaceDir } from './layout.mjs';
 import { leaves, leavesWords, realOf } from './inside.mjs';
 import { readMap, sameUrl } from './map.mjs';
+import { replaceFile } from '../replacefile.mjs';
 
 const fail = (status, message) => Object.assign(new Error(message), { status });
 export const MARK = '# hoprig-group-tool:';
@@ -257,7 +258,7 @@ export async function allowTool(group, { dir = workspaceDir(), projects = projec
   const tmp = `${launcher}.${process.pid}.tmp`;
   fs.rmSync(tmp, { force: true });
   fs.writeFileSync(tmp, launcherText(g.dir), { mode: 0o755, flag: 'wx' });
-  fs.renameSync(tmp, launcher);
+  replaceFile(tmp, launcher);
   if (out.removed) fs.rmSync(out.removed, { force: true });
   yes.set(g.dir, { name, run, url: g.url });
   saveYes(yes);
@@ -348,7 +349,13 @@ async function sayRulesFile(ui, what) {
 }
 
 const STATE_WORDS = { made: 'made', waits: 'waits for your yes', blocked: 'would not start', stale: 'cannot start', gone: 'its command is missing', absent: 'the group is not on this computer' };
-const pathLine = (bin) => `export PATH="${bin}:$PATH"`;
+/**
+ * The line that puts `bin` first on PATH, and where it goes: a POSIX shell's start file, or on Windows the PowerShell
+ * profile ($PROFILE), with the folder as one single-quoted word.
+ */
+export const pathAdvice = (bin, platform = process.platform) => (platform === 'win32'
+  ? `add this line to your PowerShell profile ($PROFILE) (Hoprig does not edit it):  $env:Path = '${String(bin).replace(/['\u2018-\u201b]/g, '$&$&')};' + $env:Path`
+  : `add this line to your shell's start file (Hoprig does not edit it):  export PATH="${bin}:$PATH"`);
 
 /** `hoprig workspace tool …`. → exit code */
 export async function toolMain(args, { ui, write, usage }) {
@@ -412,7 +419,7 @@ export async function toolMain(args, { ui, write, usage }) {
       const r = await allowTool(o._[0], { plan });
       if (o.json) return json(r);
       const bin = path.dirname(r.launcher);
-      ui.line('ok', r.onPath ? `${r.name} is a command now (${r.launcher})` : `${r.name} was made in ${bin}, which is not on your PATH: to run it by its name, add this line to your shell's start file (Hoprig does not edit it):  ${pathLine(bin)}`);
+      ui.line('ok', r.onPath ? `${r.name} is a command now (${r.launcher})` : `${r.name} was made in ${bin}, which is not on your PATH: to run it by its name, ${pathAdvice(bin)}`);
       if (r.removed) ui.note(`${r.removed} was removed`);
       await sayRulesFile(ui, `does not name ${r.name} yet`);
       return 0;

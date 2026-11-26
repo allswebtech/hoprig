@@ -494,7 +494,7 @@ test('a mission stopped while its session ran, then a restart: its task is settl
     assert.equal(old.tasks[0].run, null);
     fs.writeFileSync(process.env.FAKE_VERDICTS, '');
     const n = await mission(b, 'A later goal', [{ title: 'Later note', note: 'Files: later.md' }]);
-    const m = await until(b, n.id, (x) => x.tasks[0].runs.length > 0, 8_000);
+    const m = await until(b, n.id, (x) => x.tasks[0].runs.length > 0); // a run is in runs once it ended: the usual 30 s
     assert.ok(m.tasks[0].runs.length > 0, `the later mission started: ${m.why}`);
     await until(b, n.id, (x) => !x.tasks.some((y) => y.state === 'running'));
   } finally {

@@ -29,6 +29,7 @@ const REASON = { waiting: 'is waiting', needs_ok: 'asks for an OK', notice: 'ask
 const lastPart = (dir) => String(dir || '').split(/[\\/]/).filter(Boolean).pop()?.replace(/[\r\n]+/g, ' ').slice(0, 80) || null;
 import { ASSISTANT_NAME } from './tia.mjs';
 import { statusOf } from './tools.mjs';
+import { replaceFile } from '../replacefile.mjs';
 
 export const jobsDir = () => path.join(stateDir(), 'assistant', 'jobs');
 export const ARM_MS = 30_000; // a "waiting" seen right after watching starts is the old state, not an answer
@@ -246,7 +247,7 @@ export class JobStore {
     fs.mkdirSync(this.dir, { recursive: true, mode: 0o700 });
     const file = path.join(this.dir, `${job.id}.json`);
     fs.writeFileSync(`${file}.tmp`, JSON.stringify(job) + '\n', { mode: 0o600 });
-    fs.renameSync(`${file}.tmp`, file);
+    replaceFile(`${file}.tmp`, file);
     if (this.jobs.size > KEEP) {
       const old = [...this.jobs.values()].filter((j) => !ACTIVE.has(j.state)).sort((a, b) => a.updatedAt - b.updatedAt);
       for (const j of old.slice(0, this.jobs.size - KEEP)) {

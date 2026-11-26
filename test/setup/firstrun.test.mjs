@@ -4,7 +4,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
-import { fakeBin, fakeClaude, fakeFetch, pathWith, recorder, scratch } from './helpers.mjs';
+import { SHELL_STANDINS } from '../seal.mjs';
+import { fakeBin, fakeClaude, fakeFetch, pathWith, recorder, scratch, windowsFacts } from './helpers.mjs';
 
 const s = scratch();
 test.after(s.cleanup);
@@ -19,7 +20,7 @@ const { which } = await import('../../src/setup/system.mjs');
 const bin = fakeBin(path.join(s.tmp, 'bin'), { claude: fakeClaude({ loggedIn: true }) });
 function sys() {
   const env = { ...process.env, PATH: pathWith(s.tmp, bin) };
-  const made = K.sysInfo({ env, has: (c) => c !== 'systemctl' && !!which(c, env, process.platform), pm: null, root: false, serviceSupported: false, publicIps: [] });
+  const made = K.sysInfo({ env, has: (c) => c !== 'systemctl' && !!which(c, env, process.platform), pm: null, root: false, serviceSupported: false, publicIps: [], run: windowsFacts(env) });
   made.probe = async () => 0;
   return made;
 }
@@ -70,7 +71,7 @@ test('--only takes one part; anything else is refused', () => {
   assert.throws(() => SU.parseSetupArgs(['--only', 'all']), /--only must be one of: base, pc, git, workspace, project, skills/);
 });
 
-test('the whole run, in order: dashboard steps, this computer, a project, skills, then the summary', async () => {
+test('the whole run, in order: dashboard steps, this computer, a project, skills, then the summary', SHELL_STANDINS, async () => {
   const log = [];
   const { ui: u, rec } = ui({ yes: true });
   const code = await SU.setup(['--yes', '--no-service'], { ui: u, sys: sys(), parts: fakes(log) });
@@ -100,7 +101,7 @@ test('--dry-run: every part told so, nothing created', async () => {
   assert.equal(fs.existsSync(PROJECTS), false);
 });
 
-test('--only pc / project / skills runs that part alone; --only base runs none of them', async () => {
+test('--only pc / project / skills runs that part alone; --only base runs none of them', SHELL_STANDINS, async () => {
   for (const [only, expect] of [['pc', ['pc']], ['skills', ['userSkills']]]) {
     const log = [];
     await FR.runParts(ui({ yes: true }).ui, { yes: true }, { only, parts: fakes(log) });

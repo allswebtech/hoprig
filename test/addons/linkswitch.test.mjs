@@ -8,6 +8,10 @@ import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
 
+// The stand-in cloudflared is a Node script with no extension, started by name through its #! line: Windows starts
+// only an .exe or .com by name, so a test that runs it is skipped there.
+const STANDIN = { skip: process.platform === 'win32' && 'the stand-in is started through its #! line' };
+
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'hoprig-linkswitch-'));
 process.env.HOPRIG_CONFIG_DIR = path.join(tmp, 'config');
 process.env.HOPRIG_STATE_DIR = path.join(tmp, 'state');
@@ -90,7 +94,7 @@ test('a turn-on is refused in plain words without a strong password, and for Cus
   assert.equal(calls().length, 0, 'and nothing ran');
 });
 
-test('Temporary: on, its address from the output, the settings while it runs, the push; a crash brings a new address; off puts everything back', async () => {
+test('Temporary: on, its address from the output, the settings while it runs, the push; a crash brings a new address; off puts everything back', STANDIN, async () => {
   strong();
   const before = raw().server;
   const r = await S.turnOn('temporary');
@@ -127,7 +131,7 @@ test('Temporary: on, its address from the output, the settings while it runs, th
   assert.equal(reachableUrl(), null);
 });
 
-test('the choice is remembered: a restart of the dashboard brings the link back with a new address, shown and sent', async () => {
+test('the choice is remembered: a restart of the dashboard brings the link back with a new address, shown and sent', STANDIN, async () => {
   strong();
   const before = raw().server;
   assert.equal((await S.turnOn('temporary')).ok, true);
@@ -146,7 +150,7 @@ test('the choice is remembered: a restart of the dashboard brings the link back 
   assert.deepEqual(raw().server, before);
 });
 
-test('after a crash of the dashboard, its settings are put back before they are taken again: the owner\'s own stay his', async () => {
+test('after a crash of the dashboard, its settings are put back before they are taken again: the owner\'s own stay his', STANDIN, async () => {
   strong();
   await S.detach();
   const before = raw().server;
@@ -163,7 +167,7 @@ test('after a crash of the dashboard, its settings are put back before they are 
   assert.deepEqual(raw().server, before, 'exactly what the owner had, trustProxy absent as before');
 });
 
-test('the command line\'s choice is seen by the running dashboard', async () => {
+test('the command line\'s choice is seen by the running dashboard', STANDIN, async () => {
   strong();
   await S.detach();
   await S.attach({ installFn, notifyFn, everyMs: 100 });
@@ -175,7 +179,7 @@ test('the command line\'s choice is seen by the running dashboard', async () => 
   await S.attach({ installFn, notifyFn, everyMs: 60_000 });
 });
 
-test('Custom set up: turning it on stops the Temporary link first, so never both run', async () => {
+test('Custom set up: turning it on stops the Temporary link first, so never both run', STANDIN, async () => {
   strong();
   const before = raw().server;
   const dir = path.join(tmp, 'state', 'addons', 'fixed-link');
@@ -211,7 +215,7 @@ const dead = (pid) => {
   }
 };
 
-test('a link that is on never runs with a weak or unjudged password: held back with what it needs, and it starts by itself once it is strong', async () => {
+test('a link that is on never runs with a weak or unjudged password: held back with what it needs, and it starts by itself once it is strong', STANDIN, async () => {
   await S.detach();
   const before = raw().server;
   const n = runs();
@@ -244,7 +248,7 @@ test('a link that is on never runs with a weak or unjudged password: held back w
   await S.attach({ installFn, notifyFn, everyMs: 60_000 });
 });
 
-test('turning off while cloudflared installs answers at once, and nothing starts when the install ends', async () => {
+test('turning off while cloudflared installs answers at once, and nothing starts when the install ends', STANDIN, async () => {
   strong();
   const hidden = `${bin}-hidden`;
   fs.renameSync(bin, hidden);
@@ -275,7 +279,7 @@ test('turning off while cloudflared installs answers at once, and nothing starts
   assert.equal(runs(), n, 'nothing started after the install');
 });
 
-test('the owner\'s own turn-on of what a hub turned on makes it his; a second temporary address stops with the switch', async () => {
+test('the owner\'s own turn-on of what a hub turned on makes it his; a second temporary address stops with the switch', STANDIN, async () => {
   strong();
   assert.equal((await S.turnOn('temporary', { by: 'tok-hub' })).ok, true);
   await S.settled();
@@ -308,7 +312,7 @@ test('the owner\'s own turn-on of what a hub turned on makes it his; a second te
   await S.turnOff();
 });
 
-test('after an update: a Custom link that ran keeps running until the password is judged; judged weak, it stops; a Temporary one waits for a strong password', async () => {
+test('after an update: a Custom link that ran keeps running until the password is judged; judged weak, it stops; a Temporary one waits for a strong password', STANDIN, async () => {
   await S.detach();
   const before = raw().server;
   const dir = path.join(tmp, 'state', 'addons', 'fixed-link');

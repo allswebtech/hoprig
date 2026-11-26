@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import path from 'node:path';
 import { test } from 'node:test';
-import { fakeBin, fakeClaude, fakeFetch, pathWith, scratch } from './helpers.mjs';
+import { fakeBin, fakeClaude, fakeFetch, pathWith, scratch, windowsFacts } from './helpers.mjs';
 
 const s = scratch();
 test.after(s.cleanup);
@@ -17,7 +17,7 @@ const { which } = await import('../../src/setup/system.mjs');
 
 const bin = fakeBin(path.join(s.tmp, 'bin'), { claude: fakeClaude({ loggedIn: true }), tmux: 'echo "tmux 3.4"' });
 const env = { ...process.env, PATH: pathWith(s.tmp, bin) };
-const sys = K.sysInfo({ env, has: (c) => !!which(c, env, process.platform), pm: null, root: false });
+const sys = K.sysInfo({ env, has: (c) => !!which(c, env, process.platform), pm: null, root: false, run: windowsFacts(env) }); // run: Windows' whoami answers as facts
 
 const PC = [
   { id: 'updates', label: 'System updates', status: 'ok', detail: 'none waiting', fix: '', group: 'system' },

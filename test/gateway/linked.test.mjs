@@ -77,7 +77,7 @@ async function browser(m) {
 
 test('a linked computer\'s gateway: listed, used with one click, streamed through both dashboards, offline in plain words', { skip, timeout: 120_000 }, async (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'hop-gw-two-'));
-  const gw = await fakeGateway();
+  const gw = await fakeGateway({ hold: (body) => body.includes('hold this stream') });
   const b = await machine(root, 'b', `writeProfile('api', { label: 'API via TRouteAI', env: { ANTHROPIC_BASE_URL: 'http://localhost:${gw.port}', ANTHROPIC_AUTH_TOKEN: ${JSON.stringify(GW_KEY)}, ANTHROPIC_MODEL: 'combo-best' } });`, gw.port);
   const a = await machine(root, 'a');
   t.after(async () => {
@@ -129,13 +129,20 @@ test('a linked computer\'s gateway: listed, used with one click, streamed throug
   const checks = path.join(a.state, 'providers', 'checks.json');
   await until('the first check of the new provider', () => !!JSON.parse(fs.readFileSync(checks, 'utf8'))[used.json.name]);
   const before = gw.seen.length;
+  const wrote = gw.writes.length;
   const r = await stream(`http://127.0.0.1:${a.port}/gateway/m/b/trouteai/v1/messages`, {
     headers: { authorization: `Bearer ${key}`, 'anthropic-version': '2023-06-01' },
-    body: JSON.stringify({ model: 'combo-best', max_tokens: 1, stream: true, messages: [{ role: 'user', content: 'Hi' }] }),
+    body: JSON.stringify({ model: 'combo-best', max_tokens: 1, stream: true, messages: [{ role: 'user', content: 'Hi, hold this stream' }] }),
+    onChunk: (c, i) => i === 0 && gw.release(), // the gateway holds the rest of its answer until the first part is here
   });
   assert.equal(r.status, 200, r.text);
   assert.match(r.text, /message_start[\s\S]*message_stop/);
-  assert.ok(r.chunks.length >= 2 && r.chunks.at(-1).at - r.chunks[0].at >= 200, 'streamed through both dashboards');
+  // Streamed: the gateway held the rest of its answer until its first part had arrived here, through both dashboards,
+  // so that it came is certain whatever the delays of a busy computer. A dashboard that held the answer until its end
+  // would never hand the first part over, and the gateway would let the rest go only after 5 s, without word.
+  const mine = gw.writes.slice(wrote);
+  const t0 = mine.length ? mine[0].at : r.chunks[0].at;
+  assert.ok(mine.some((w) => w.what === 'the reader has the first part'), `streamed through both dashboards: ${r.chunks.length} chunk(s) arrived at ${r.chunks.map((c) => `+${c.at - t0} ms (${Buffer.byteLength(c.text)} bytes)`).join(', ')}; the gateway wrote ${mine.map((w) => `${w.what} at +${w.at - t0} ms`).join(', ') || 'nothing recorded'}`);
   const seen = gw.seen.slice(before);
   assert.equal(seen.length, 1);
   assert.equal(seen[0].headers.authorization, `Bearer ${GW_KEY}`);

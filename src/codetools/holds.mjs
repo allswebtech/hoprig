@@ -2,7 +2,7 @@
 // sessions attached to it (their run records) and the dashboards whose open chats hold it.
 import fs from 'node:fs';
 import path from 'node:path';
-import { filedProcess, system } from '../procid.mjs';
+import { askedAfter, filedProcess, freshAfter, system } from '../procid.mjs';
 import { listRuns } from '../runs.mjs';
 import { serverDir } from './servers.mjs';
 
@@ -39,22 +39,31 @@ export function holdServer(tool) {
  * program has now (a dashboard that died hard, then a restart of the computer); one that nothing can tell (procid.mjs
  * filedProcess: null) still holds it, as a server kept running is the safe side.
  */
-function holders(tool) {
-  let names = [];
-  try {
-    names = fs.readdirSync(serverDir()).filter((f) => f.startsWith(`${tool}-held-`));
-  } catch {
-    return [];
-  }
+function holders(tool, after = freshAfter()) {
+  const names = holdNames(tool);
   const out = [];
   for (const f of names) {
     const pid = Number(f.slice(`${tool}-held-`.length));
     const file = path.join(serverDir(), f);
-    if (pid === process.pid ? holds.get(tool) > 0 : filedProcess(file, { pid, proc: holdIdentity(file) }) !== false) out.push(pid);
+    if (pid === process.pid ? holds.get(tool) > 0 : filedProcess(file, { pid, proc: holdIdentity(file) }, { after }) !== false) out.push(pid); // a fresh identity (procid.mjs freshAfter)
     else fs.rmSync(path.join(serverDir(), f), { force: true });
   }
   return out;
 }
+
+function holdNames(tool) {
+  try {
+    return fs.readdirSync(serverDir()).filter((f) => f.startsWith(`${tool}-held-`));
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * For a look that can wait (a stop of the server, its start): the system is asked about the holders' pids and waited
+ * for; → the moment it was asked, serverUsers' `after` (in the dashboard of() never waits for the system).
+ */
+export const askHolders = (tool) => askedAfter(holdNames(tool).map((f) => Number(f.slice(`${tool}-held-`.length))).filter((p) => p !== process.pid));
 
 /** The identity a hold file names, or null (a file of an older version holds the bare pid). */
 function holdIdentity(file) {
@@ -67,9 +76,9 @@ function holdIdentity(file) {
 
 /**
  * The users of the tool's server: the runs (terminal sessions) attached to it and the dashboards whose chats hold it.
- * `except`: a run id to leave out (one that is ending).
+ * `except`: a run id to leave out (one that is ending). `after`: askHolders' answer, for a look that waited for it.
  */
-export const serverUsers = (tool, { except = null, runs = listRuns() } = {}) => [
+export const serverUsers = (tool, { except = null, runs = listRuns(), after = freshAfter() } = {}) => [
   ...runs.filter((r) => r.tool === tool && r.server === true && r.runId !== except),
-  ...holders(tool).map((pid) => ({ runId: `chat-${pid}`, tool, server: true, chats: true })),
+  ...holders(tool, after).map((pid) => ({ runId: `chat-${pid}`, tool, server: true, chats: true })),
 ];

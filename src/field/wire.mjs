@@ -3,7 +3,7 @@
 // A dry run or a check changes nothing and makes no report. Every function is safe to call: it never throws.
 import fs from 'node:fs';
 import path from 'node:path';
-import { listReports, makeReport, reportsDir } from './report.mjs';
+import { listReports, makeReport, reportsDir, writtenMs } from './report.mjs';
 import { CLASSES } from './shape.mjs';
 import './copy.mjs'; // "also write each report into this folder": for the commands too, not only the dashboard
 
@@ -21,14 +21,16 @@ export const setHintWriter = (fn) => {
   return was;
 };
 
-// This computer's reports with the time each file was written (to a fraction of a millisecond): a report's own time
-// is to the second, and a failed command and its next try can fall in the same second.
+// This computer's reports with the time each file was written: a report's own time is to the second, and a failed
+// command and its next try can fall in the same second. The writer sets each file's time later than every other
+// report's (report.mjs laterThanAll), so this order is the order of writing, also where the file system's own times
+// are coarse or the clock was set back.
 function written() {
   const dir = reportsDir();
   return listReports(dir).reports.map((x) => {
     let at = 0;
     try {
-      at = fs.statSync(path.join(dir, x.name)).mtimeMs;
+      at = writtenMs(fs.statSync(path.join(dir, x.name)));
     } catch {
       at = 0;
     }
@@ -44,7 +46,7 @@ export function followsFailure(r, { reports = written() } = {}) {
   if (!r || r.outcome !== 'ok') return false;
   const own = reports.find((x) => x.report.id === r.id);
   const at = own ? own.at : Infinity;
-  const prev = reports.filter((x) => x.report.kind === r.kind && x.report.id !== r.id && x.at <= at).sort((x, y) => y.at - x.at)[0];
+  const prev = reports.filter((x) => x.report.kind === r.kind && x.report.id !== r.id && x.at < at).sort((x, y) => y.at - x.at)[0];
   if (!prev || prev.report.outcome !== 'failed') return false;
   const gap = Date.parse(r.time) - Date.parse(prev.report.time);
   return gap >= 0 && gap <= HINT_WITHIN_MS;

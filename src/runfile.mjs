@@ -1,21 +1,27 @@
 // Reading and writing one run record (see runs.mjs for what it holds). Kept apart from runs.mjs and free of other
-// imports on purpose: the hook (hook.mjs) is started by Claude Code many times per session, and every module it
-// loads is time Claude waits.
+// imports on purpose (but the tiny replacefile.mjs): the hook (hook.mjs) is started by Claude Code many times per
+// session, and every module it loads is time Claude waits.
 import fs from 'node:fs';
+import { patiently, replaceFile } from './replacefile.mjs';
 
-export function readRun(file) {
+// On Windows a file that another program holds open for a moment (a virus scan of a file just written, a reader at the
+// instant of a replace) refuses to be read or replaced with EPERM, EACCES or EBUSY until it lets go: such a step is
+// tried again there for up to a second (src/replacefile.mjs, itself free of other imports); elsewhere it runs once.
+
+/** The record, or null when it is not there or cannot be read. `platform`: for the tests. */
+export function readRun(file, { platform = process.platform } = {}) {
   try {
-    return JSON.parse(fs.readFileSync(file, 'utf8'));
+    return JSON.parse(patiently(() => fs.readFileSync(file, 'utf8'), platform));
   } catch {
     return null;
   }
 }
 
-/** Replace the record in one step (a reader never sees half a file). */
-export function writeRun(file, run) {
+/** Replace the record in one step (a reader never sees half a file). `platform`: for the tests. */
+export function writeRun(file, run, { platform = process.platform } = {}) {
   const tmp = `${file}.${process.pid}.tmp`;
   fs.writeFileSync(tmp, JSON.stringify(run) + '\n', { mode: 0o600 });
-  fs.renameSync(tmp, file);
+  replaceFile(tmp, file, { platform });
 }
 
 // Two writers at once (the hooks of the main agent and of a subagent start side by side; the launcher) would each read
@@ -41,7 +47,7 @@ let taken = 0;
  * Take the record's lock; returns its release, whose `held` says whether the lock was had (false: given up after
  * WAIT_MS). Exported for the tests, as is `pause(step)`: called at the steps of a take-over, to widen them.
  */
-export function lockRun(file, { pause = () => {} } = {}) {
+export function lockRun(file, { pause = () => {}, platform = process.platform } = {}) {
   const l = lockFile(file);
   const me = `${process.pid}.${Date.now()}.${++taken}.${Math.random().toString(36).slice(2)}`;
   const until = Date.now() + WAIT_MS;
@@ -60,7 +66,9 @@ export function lockRun(file, { pause = () => {} } = {}) {
       fs.writeFileSync(l, me, { flag: 'wx', mode: 0o600 });
       return release;
     } catch (e) {
-      if (e.code !== 'EEXIST') return without; // no lock can be made here (the folder is gone): as before
+      // On Windows a lock another holder is removing at this moment refuses a new one with EPERM until it is gone:
+      // taken, as EEXIST is.
+      if (e.code !== 'EEXIST' && !(platform === 'win32' && e.code === 'EPERM')) return without; // no lock can be made here (the folder is gone): as before
     }
     try {
       const was = fs.statSync(l);
@@ -99,7 +107,13 @@ function takeOver(l, was, me, pause) {
   } catch {
     return false;
   } finally {
-    fs.rmSync(mine, { force: true });
+    // Best effort: on Windows a file another process touches at this moment refuses its removal, and a throw from
+    // here would turn a take-over that was decided above into an error of the caller (a hook, a command).
+    try {
+      fs.rmSync(mine, { force: true });
+    } catch {
+      /* left behind: a temporary file of this pid, removed by the next take-over that makes it again */
+    }
     try {
       if (fs.readFileSync(t, 'utf8') === me) fs.rmSync(t, { force: true });
     } catch {

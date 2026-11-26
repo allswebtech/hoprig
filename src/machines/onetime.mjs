@@ -5,6 +5,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { stateDir } from '../paths.mjs';
+import { replaceFile } from '../replacefile.mjs';
 
 const KEEP = 20; // at most this many open secrets per kind; making one more drops the oldest
 
@@ -36,7 +37,7 @@ export class OneTimeStore {
     fs.mkdirSync(stateDir(), { recursive: true, mode: 0o700 });
     const tmp = `${this.file}.${process.pid}.tmp`;
     fs.writeFileSync(tmp, JSON.stringify(d) + '\n', { mode: 0o600 });
-    fs.renameSync(tmp, this.file);
+    replaceFile(tmp, this.file);
   }
 
   #prune(d, now) {

@@ -19,6 +19,7 @@ import path from 'node:path';
 import { cleanInput } from '../assistant/fence.mjs';
 import { stateDir } from '../paths.mjs';
 import { familyOf } from '../models/tiers.mjs';
+import { replaceFile } from '../replacefile.mjs';
 
 /** A decision as counted when its provider reports no usage: above the largest measured on the cheapest model (540
  * calls: 3,434 tokens on average, 3,716 at most; Claude Code adds its own parts to the prompt). */
@@ -117,7 +118,7 @@ export function decideStore({ dir = () => path.join(stateDir(), 'operator'), now
     fs.mkdirSync(dir(), { recursive: true });
     const tmp = `${file()}.${process.pid}.tmp`;
     fs.writeFileSync(tmp, JSON.stringify(d));
-    fs.renameSync(tmp, file());
+    replaceFile(tmp, file());
   };
   const normal = (d) => {
     const t = now();
@@ -239,7 +240,7 @@ function writeHolds(h, now) {
   fs.mkdirSync(path.dirname(holdFile()), { recursive: true });
   const tmp = `${holdFile()}.${process.pid}.tmp`;
   fs.writeFileSync(tmp, JSON.stringify({ owner: h.owner, tia: h.tia, at: now }));
-  fs.renameSync(tmp, holdFile());
+  replaceFile(tmp, holdFile());
 }
 
 /** The time the hold ends (the later of his and hers), or null when none holds now. */

@@ -43,13 +43,24 @@ import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const BASE_TMP = os.tmpdir(); // before any world sets TMPDIR to its own folder
 const FAKE_GH = fileURLToPath(new URL('./fake-gh.mjs', import.meta.url));
 const DEAD_PID = 2147483000; // no process has it
 
 export const gh = (name) => `https://github.com/alex/${name}.git`;
+
+/**
+ * A stand-in that Node runs itself (`file` named as the program, `mjs` the script it runs): no sh stands between the
+ * product and the script on any system. Git for Windows' sh, started by a native program, expands wildcards in its
+ * arguments and dies on one such as `.[].login` (an access violation) before the script runs; the runner's wrap starts
+ * a `#!/usr/bin/env node` file through Node there, and Linux and macOS through the line itself.
+ */
+export function nodeStandIn(file, mjs) {
+  fs.writeFileSync(file, `#!/usr/bin/env node\nimport ${JSON.stringify(pathToFileURL(mjs).href)};\n`, { mode: 0o755 });
+  return file;
+}
 
 function writeTree(dir, files) {
   for (const [rel, content] of Object.entries(files)) {
@@ -70,12 +81,25 @@ export async function makeWorld(name, { groups = false, find = false, kits = fal
   for (const d of [home, server, bin, tmp, path.join(server, 'alex'), path.join(server, 'team')]) fs.mkdirSync(d, { recursive: true });
   const gitcfg = path.join(root, 'gitconfig');
   fs.writeFileSync(gitcfg, `[user]\n\tname = Test Dev\n\temail = dev@example.invalid\n[init]\n\tdefaultBranch = main\n[commit]\n\tgpgsign = false\n[url "${String(server).replaceAll('\\', '/')}/"]\n\tinsteadOf = https://github.com/\n[protocol "file"]\n\tallow = always\n`);
-  fs.writeFileSync(path.join(bin, 'gh'), `#!/bin/sh\nexec "${process.execPath}" "${FAKE_GH}" "$@"\n`, { mode: 0o755 });
+  nodeStandIn(path.join(bin, 'gh'), FAKE_GH);
   const env = {
     HOME: home, USERPROFILE: home, HOPRIG_CONFIG_DIR: path.join(home, '.config', 'hoprig'), HOPRIG_STATE_DIR: path.join(home, '.local', 'state', 'hoprig'),
     HOPRIG_PROFILES_DIR: path.join(home, '.config', 'hoprig', 'profiles'), CLAUDE_CONFIG_DIR: path.join(home, '.claude'), HOPRIG_WORKSPACE_DIR: ws,
     GIT_CONFIG_GLOBAL: gitcfg, GIT_CONFIG_NOSYSTEM: '1', GIT_TERMINAL_PROMPT: '0', FAKE_GH_ROOT: server, FAKE_GH_USER: 'alex', FAKE_GH_ORGS: find ? 'team' : '', TMPDIR: tmp,
   };
+  // A Windows home always has its AppData folders, and its programs are told where they are: without them a dry run
+  // there showed "added home\AppData" and "added home\AppData\Roaming", two empty folders (what made them is not
+  // known; anything written inside them would still show as a change).
+  // PowerShell (the start time of a lock's process, src/procid.mjs) keeps its own files in
+  // LOCALAPPDATA\Microsoft\Windows\PowerShell (StartupProfileData-NonInteractive, written as it starts), which a real
+  // home has long had: the world's home has that folder from the start, and the snapshot leaves it out, as it is the
+  // system's, never Hoprig's (`systemOwn`). Its module cache is the run's one (tools/test-plan.mjs psModuleCache).
+  let systemOwn = null;
+  if (process.platform === 'win32') {
+    Object.assign(env, { APPDATA: path.join(home, 'AppData', 'Roaming'), LOCALAPPDATA: path.join(home, 'AppData', 'Local') });
+    systemOwn = path.join(env.LOCALAPPDATA, 'Microsoft', 'Windows', 'PowerShell');
+    for (const d of [env.APPDATA, systemOwn]) fs.mkdirSync(d, { recursive: true });
+  }
   const pathBefore = process.env.PATH.split(path.delimiter).filter((p) => !p.includes('hoprig-dry-')).join(path.delimiter);
   const use = () => {
     Object.assign(process.env, env, { PATH: `${bin}${path.delimiter}${pathBefore}` });
@@ -171,7 +195,7 @@ export async function makeWorld(name, { groups = false, find = false, kits = fal
   }
   // Let every mtime settle before the first snapshot (a write in the same instant would look the same).
   await new Promise((r) => setTimeout(r, 20));
-  return { root, home, ws, projects, server, tmp, env, use, sh, shop, brain, leftover, locks, groups: g, ...(k || {}), cleanup: () => {
+  return { root, home, ws, projects, server, tmp, systemOwn, env, use, sh, shop, brain, leftover, locks, groups: g, ...(k || {}), cleanup: () => {
     fs.rmSync(root, { recursive: true, force: true });
     if (k) k.cleanupLog();
   } };
@@ -257,8 +281,12 @@ function addFindRepos(remote) {
 
 const typeOf = (st) => (st.isSymbolicLink() ? 'link' : st.isDirectory() ? 'dir' : st.isFile() ? 'file' : 'other');
 
+/** The name of `p` in a snapshot: relative to the world's root, with "/" between its parts on every system. */
+export const keyOf = (world, p) => path.relative(world.root, p).split(path.sep).join('/');
+
 /**
- * Everything in the world (its own temporary folder left out, and checked empty instead): every path with its type,
+ * Everything in the world (its own temporary folder left out, and checked empty instead; on Windows PowerShell's own
+ * folder left out, see makeWorld): every path with its type,
  * size, mode, modification time and inode, a hash of every file, where each link points; then the refs and HEAD of
  * every repository, the bare "server" repositories among them.
  */
@@ -268,9 +296,9 @@ export function snapshot(world) {
   const walk = (dir) => {
     for (const name of fs.readdirSync(dir).sort()) {
       const p = path.join(dir, name);
-      if (p === world.tmp) continue;
+      if (p === world.tmp || p === world.systemOwn) continue;
       const st = fs.lstatSync(p);
-      const rel = path.relative(world.root, p);
+      const rel = keyOf(world, p);
       const e = { type: typeOf(st), size: st.size, mode: st.mode, mtime: st.mtimeMs, ino: st.ino };
       if (e.type === 'file') e.hash = crypto.createHash('sha256').update(fs.readFileSync(p)).digest('hex');
       if (e.type === 'link') e.to = fs.readlinkSync(p);
@@ -290,7 +318,7 @@ export function snapshot(world) {
     } catch {
       head = '(no commit)';
     }
-    out.set(`refs:${path.relative(world.root, g)}`, { refs, head });
+    out.set(`refs:${keyOf(world, g)}`, { refs, head });
   }
   out.set('tmp:', { left: fs.readdirSync(world.tmp).sort() });
   return out;
@@ -334,10 +362,10 @@ export async function dryWorld(tc, name, opts = {}) {
     const before = snapshot(w);
     const r = await fn();
     const lines = changes(before, snapshot(w)).split('\n').filter(Boolean);
-    const state = path.relative(w.root, process.env.HOPRIG_STATE_DIR);
-    const field = path.join(state, 'field');
-    const reportsDir = path.join(field, 'reports');
-    const made = lines.filter((l) => l.startsWith(`added ${reportsDir}${path.sep}`) && /-[0-9a-f]{16}\.json$/.test(l));
+    const state = keyOf(w, process.env.HOPRIG_STATE_DIR);
+    const field = `${state}/field`;
+    const reportsDir = `${field}/reports`;
+    const made = lines.filter((l) => l.startsWith(`added ${reportsDir}/`) && /-[0-9a-f]{16}\.json$/.test(l));
     const folders = new Set([`added ${field}`, `added ${reportsDir}`, `changed ${state}: size, mtime`, `changed ${reportsDir}: size, mtime`, `changed ${state}: mtime`, `changed ${reportsDir}: mtime`]);
     const rest = lines.filter((l) => !made.includes(l) && !(made.length && folders.has(l)));
     assert.equal(rest.join('\n'), '', `${what} changed the computer:\n${rest.join('\n')}`);

@@ -8,7 +8,9 @@ import { test } from 'node:test';
 import { ADMIN_REFUSED, adminRefusal, sudoArgv } from '../../src/assistant/adminrefused.mjs';
 
 const HOPRIG = ['/home/example/.config/hoprig', '/home/example/.local/state/hoprig', '/opt/hoprig'];
-const refuse = (line) => adminRefusal(line, { hoprigDirs: HOPRIG });
+// The rows below name POSIX places, so they are read as on Linux everywhere (on Windows `/a/` is the drive A:, and a
+// folder written `/home/…` has no drive); test/assistant/adminrefused-windows.test.mjs gives Windows' own rows.
+const refuse = (line) => adminRefusal(line, { hoprigDirs: HOPRIG, platform: 'linux' });
 
 // A line that must be refused, for each entry of the list, so every entry is exercised and named.
 const CASES = {

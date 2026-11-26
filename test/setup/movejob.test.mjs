@@ -34,7 +34,7 @@ test('lines and the result go to the job file, and to the user\'s state folder o
   assert.ok(owned.length > 0);
   assert.ok(owned.every(([p, uid]) => path.dirname(p) === userState && (path.basename(p) === J.JOB_FILE || tmpName.test(path.basename(p))) && uid === 1001), owned.map(([p]) => p).join('\n'));
   assert.deepEqual(fs.readdirSync(userState), [J.JOB_FILE]);
-  assert.equal(fs.statSync(file).mode & 0o777, 0o600);
+  if (process.platform !== 'win32') assert.equal(fs.statSync(file).mode & 0o777, 0o600);
 });
 
 test('--job: a look that stops writes its lines and a failed result', async () => {

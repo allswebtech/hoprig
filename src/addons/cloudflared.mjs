@@ -8,6 +8,7 @@ import { loadConfig } from '../config.mjs';
 import { stateDir } from '../paths.mjs';
 import { runningDashboard } from '../server/dashboardfile.mjs';
 import { which } from '../setup/system.mjs';
+import { replaceFile } from '../replacefile.mjs';
 
 export const addonsDir = () => path.join(stateDir(), 'addons');
 export const binDir = () => path.join(addonsDir(), 'bin');
@@ -28,7 +29,7 @@ export function writeAtomic(file, data, mode = 0o600) {
   const tmp = `${file}.${process.pid}.${crypto.randomBytes(4).toString('hex')}.tmp`;
   try {
     fs.writeFileSync(tmp, data, { mode, flag: 'wx' });
-    fs.renameSync(tmp, file);
+    replaceFile(tmp, file);
   } catch (e) {
     fs.rmSync(tmp, { force: true });
     throw e;

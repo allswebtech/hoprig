@@ -19,6 +19,9 @@ const { tmuxUsable } = await import('../../src/server/backends/index.mjs');
 const { nodePty } = await import('../../src/server/backends/nodepty.mjs');
 const kinds = POSIX ? [...(nodePty ? ['pty'] : []), ...(tmuxUsable() ? ['tmux'] : [])] : [];
 test.after(() => box.cleanup());
+// A file with an after hook and no test makes Node's runner loop until it runs out of memory (--test-force-exit, Node 24
+// and 26): where no terminal kind is here (always on Windows) one skipped test says why instead.
+if (!kinds.length) test('real terminals', { skip: 'neither the built-in terminal nor tmux is here' }, () => {});
 
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 async function until(what, fn, ms = 15_000) {

@@ -13,6 +13,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { claudeDir, tilde } from '../paths.mjs';
 import { TREE, isDir, projectsIn, workspaceDir } from '../workspace/layout.mjs';
+import { replaceFile } from '../replacefile.mjs';
 
 export const WS_RULES_FILE = 'hoprig-workspace.md';
 export const FIRST_LINE = '<!-- Made by Hoprig (hoprig workspace rules --write) and replaced by it as a whole: write your own rules in another file. -->';
@@ -159,7 +160,7 @@ export function writeWorkspaceRules({ base = claudeDir(), text }) {
   const tmp = `${s.file}.${process.pid}.tmp`;
   fs.rmSync(tmp, { force: true });
   fs.writeFileSync(tmp, text, { flag: 'wx', mode: 0o644 });
-  fs.renameSync(tmp, s.file);
+  replaceFile(tmp, s.file);
   return { file: s.file, changed: true };
 }
 
@@ -178,8 +179,10 @@ export async function currentWorkspaceRules({ dir = workspaceDir(), projects = p
   return workspaceRules({ dir, projects, map, tools });
 }
 
+// The place in the help is the same text on every system (as the other help names ~/.claude/skills): the skill's
+// reference, built from this help, is one file for all of them.
 export const RULES_USAGE = `  hoprig workspace rules [--json]              the short text about this workspace for coding sessions (shown only)
-  hoprig workspace rules --write [--yes]       write it, after you saw it, into ${path.join('~', '.claude', 'rules', WS_RULES_FILE)}
+  hoprig workspace rules --write [--yes]       write it, after you saw it, into ${path.posix.join('~', '.claude', 'rules', WS_RULES_FILE)}
                                                (a file of Hoprig's own; your own rules files are never written)`;
 
 /** `hoprig workspace rules [--write] [--json] [--yes]`. → exit code */

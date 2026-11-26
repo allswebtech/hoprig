@@ -24,6 +24,7 @@ const RAW = [
   /\b(execFileSync|execFile|spawnSync|spawn)\(\s*(['"])(git|gh)\2/, // git or gh started directly
   // The sync names stand alone: a named import of them is an act wherever it is called.
   new RegExp(`(^|[^.\\w])(${ACTS.split('|').filter((n) => n !== 'createWriteStream').map((n) => `${n}Sync`).join('|')}|createWriteStream)\\(`),
+  /(^|[^.\w$])replaceFile\(/, // a rename over a file through src/replacefile.mjs is the same act as fs.renameSync
 ];
 // Write flags of an open: a file opened with one of them (or without flags shown to be read-only) is an act.
 const WRITE_FLAGS = /O_(WRONLY|RDWR|CREAT|TRUNC|APPEND)\b|['"][^'"]*[wa+][^'"]*['"]/;
@@ -114,7 +115,7 @@ const ALLOWED = {
   'src/pcsetup/feature.mjs': [3, 'a recipe in Hoprig\'s state folder, and the projects folder the owner chose (a base)'],
   'src/pcsetup/newprojectstart.mjs': [4, 'the command token of `project new --start` in Hoprig\'s state folder (mode 600, made at each start of the dashboard and removed with it); the project itself is only read, through inside.mjs'],
   'src/pcsetup/getproject.mjs': [4, 'signInProbe: the GIT_ASKPASS stand-in in a temporary folder made by mkdtemp (and removed after), and git ls-remote run outside any folder'],
-  'src/pcsetup/leftovers.mjs': [13, 'the locks of hoprig get in Hoprig\'s state folder; what is in a place goes through inside.mjs'],
+  'src/pcsetup/leftovers.mjs': [15, 'the locks of hoprig get in Hoprig\'s state folder, and the trace file a test names (HOPRIG_LOCK_TRACE); what is in a place goes through inside.mjs'],
   'src/pcsetup/project.mjs': [4, 'a template cloned into a temporary folder made by mkdtemp (and removed after), and git asked for the name outside any folder'],
   'src/pcsetup/rules.mjs': [7, 'the working rules in Claude Code\'s own folder, outside the workspace (as the released version)'],
   'src/pcsetup/setup.mjs': [1, 'the projects folder the owner chose (a base)'],
@@ -182,6 +183,7 @@ test('the grep sees what it must: a raw write or a git spawn in a folder is caug
   assert.equal(line("  todo.push({ command: showCommand(['git', '-C', dir, 'push']) }); fs.rmSync(d);"), true, 'a raw act beside a shown command');
   assert.equal(line("  const r = await gitIn(at, dir, ['-C', x]);"), false, 'what is inside a checked call stays checked there');
   assert.equal(line('  fs.readFileSync(file, \'utf8\');'), false, 'a read is no act');
+  assert.equal(line('  replaceFile(tmp, file);'), true, 'a rename over a file through src/replacefile.mjs');
   // The form the third version missed: an aliased import (or destructuring) of a Sync name or a write stream.
   assert.equal(inFile("import { writeFileSync as put } from 'node:fs';", '  put(file, text);'), true, 'an aliased Sync import');
   assert.equal(inFile("import { rmSync as remove } from 'node:fs';", '  remove(dir, { recursive: true });'), true, 'an aliased rmSync');

@@ -5,7 +5,7 @@ import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { MIN_NODE, MIN_NODE_MAJOR, MIN_NODE_TEXT, guard, tooOld } from '../../src/nodeguard.mjs';
 import { installLine } from '../../src/nodefloor.mjs';
 import { KNOWN } from '../../src/field/learn.mjs';
@@ -50,7 +50,7 @@ test('the command checks first: its first import is the guard, and on this Node.
   const r = spawnSync(process.execPath, [path.join(ROOT, 'bin', 'hoprig.mjs'), '--version'], { encoding: 'utf8' });
   assert.equal(r.status, 0, r.stderr);
   // The guard as the command would meet an older Node.js: loaded first, with the version handed in.
-  const old = spawnSync(process.execPath, ['--input-type=module', '-e', `import { guard } from ${JSON.stringify(path.join(ROOT, 'src', 'nodeguard.mjs'))}; guard('22.11.0'); console.log('went on');`], { encoding: 'utf8' });
+  const old = spawnSync(process.execPath, ['--input-type=module', '-e', `import { guard } from ${JSON.stringify(pathToFileURL(path.join(ROOT, 'src', 'nodeguard.mjs')).href)}; guard('22.11.0'); console.log('went on');`], { encoding: 'utf8' });
   assert.equal(old.status, 1);
   assert.equal(old.stdout, '', 'nothing after the check ran');
   assert.match(old.stderr, /^Hoprig needs Node\.js 24\.13\.1 or newer, and this computer runs Node\.js 22\.11\.0; to update it, run this line/);

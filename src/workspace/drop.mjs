@@ -16,7 +16,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { gitRead } from '../gitread.mjs';
-import { capture, showCommand } from '../setup/system.mjs';
+import { capture, showCommand, showMergeCommand } from '../setup/system.mjs';
 import { MEMORY_MESSAGE, readManifest } from '../pcsetup/workspace.mjs';
 import { sayLock, takeLock } from '../pcsetup/leftovers.mjs';
 import { LEAVES, leaves, leavesWords, myLinkCommand } from './inside.mjs';
@@ -64,9 +64,13 @@ export function findTarget(spec, ctx) {
 }
 
 /** The folder of `wt` as the owner reads it: relative to the workspace when it is in it. */
-const repoLabel = (wt, ctx) => {
-  const r = path.relative(ctx.dir, wt);
-  return r && !r.startsWith('..') && !path.isAbsolute(r) ? r : wt;
+/**
+ * How a repository is named in what the owner reads: its place in the workspace with `/` between its parts on every
+ * system (Windows' path.relative gives a backslash), else its full path. `p`: path, or path.win32 in a test.
+ */
+export const repoLabel = (wt, ctx, p = path) => {
+  const r = p.relative(ctx.dir, wt);
+  return r && !r.startsWith('..') && !p.isAbsolute(r) ? r.split(p.sep).join('/') : wt;
 };
 
 /**
@@ -135,7 +139,7 @@ export async function lookAt(t, ctx, { fetch = false, run = capture, seen = new 
       : into
         ? `the command moves its files into the project's memory folder ${repoLabel(into, ctx)} (a file of the same name there is not overwritten: then the folder stays, and you merge that file by hand), then removes the empty folder`
         : 'the project has no memory folder: copy what you need of it into the project, commit and push it, then remove the folder';
-    const command = own ? `hoprig project link ${t.ref}` : into ? `mv -n ${showCommand([m.link])}/* ${showCommand([into])}/ && rmdir ${showCommand([m.link])}` : showCommand(['ls', m.link]);
+    const command = own ? `hoprig project link ${t.ref}` : into ? showMergeCommand(m.link, into) : showCommand(['ls', m.link]);
     refusals.push({ repo: repoLabel(m.launch, ctx), what: `Claude Code's memory for it is a real folder (${m.link}, ${files}), in no git: ${what}`, command });
   }
   // A member's code repositories go, its folder stays: the group must track nothing inside them.

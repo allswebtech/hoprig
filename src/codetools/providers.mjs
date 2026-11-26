@@ -26,6 +26,7 @@ import { withoutSecrets } from '../secretenv.mjs';
 import { codex } from './codex.mjs';
 import { askAgents, opencode } from './opencode.mjs';
 import { tomlString } from './toml.mjs';
+import { replaceFile } from '../replacefile.mjs';
 
 /** The variable each tool reads the key from (named in its provider block). */
 export const KEY_VAR = Object.freeze({ codex: 'HOPRIG_CODEX_KEY', opencode: 'HOPRIG_OPENCODE_KEY' });
@@ -128,7 +129,7 @@ export function writeOpencodeConfig(profile, models = [], dir = opencodeConfigDi
   fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
   const tmp = `${file}.${process.pid}.tmp`;
   fs.writeFileSync(tmp, JSON.stringify(opencodeConfig(profile, models, { ask }), null, 2) + '\n', { mode: 0o600 });
-  fs.renameSync(tmp, file);
+  replaceFile(tmp, file);
   return { OPENCODE_CONFIG: file };
 }
 

@@ -12,6 +12,9 @@ process.env.HOPRIG_CONFIG_DIR = path.join(tmp, 'config');
 process.env.HOPRIG_STATE_DIR = path.join(tmp, 'state');
 process.env.CLAUDE_CONFIG_DIR = path.join(tmp, 'claude');
 test.after(() => fs.rmSync(tmp, { recursive: true, force: true }));
+// Hands-off is not offered on Windows (src/handsoff.mjs handsOffOffered: the wall's hold is a POSIX shell test), so a
+// test that switches it on and expects an answer or a hold has nothing to see there.
+const OFFERED = { skip: process.platform === 'win32' && 'Hands-off is not offered on Windows' };
 
 const H = await import('../src/handsoff.mjs');
 const { handsOffFor, preToolHold, handsOffActivity } = await import('../src/hook.mjs');
@@ -88,7 +91,7 @@ test('seen: each answer says why in the page\'s words, and is one line in Work â
   assert.match(lines[0], /because the tool recommended it/);
 });
 
-test('stopped: the session\'s button is "Stop Hands-off", and turning a switch off answers nothing more', () => {
+test('stopped: the session\'s button is "Stop Hands-off", and turning a switch off answers nothing more', OFFERED, () => {
   says('One press on "Stop Hands-off" on the session, or turning the project\'s switch off, stops it at once');
   assert.match(read('web/handsoff.js'), /'Stop Hands-off'/);
   const run = { cwd: SHOP, status: 'attention' };
@@ -97,7 +100,7 @@ test('stopped: the session\'s button is "Stop Hands-off", and turning a switch o
   assert.equal(handsOffFor(ask('Which runner?'), run, { cfg: off, version: V, ...keys }), null, 'off: nothing');
 });
 
-test('stopped: three answers with no work between, or ten within an hour; a read or a search is no work; on again starts the hour again', () => {
+test('stopped: three answers with no work between, or ten within an hour; a read or a search is no work; on again starts the hour again', OFFERED, () => {
   says('Three answers in a row with no work between them (no edit, write or command that went through, no message of yours; a read or a search is no work) stop it for that session until you turn it on again. So do ten answers within an hour, whatever came between. Turning it on again starts the hour again.');
   assert.equal(H.LOOP_MAX, 3);
   assert.equal(H.HOUR_MAX, 10);
@@ -113,7 +116,7 @@ test('stopped: three answers with no work between, or ten within an hour; a read
   assert.equal(H.hourFull(ten, now, now - 5 * 60_000), false, 'on again: only the answers since then count');
 });
 
-test('a stop ends the answers, not the wall: what is yours still waits until you turn the switch off', () => {
+test('a stop ends the answers, not the wall: what is yours still waits until you turn the switch off', OFFERED, () => {
   says('A stop ends the **answers**, not the **wall**.');
   says('(Only turning the switch off, on the session or the project, lets those commands run by the session\'s own permission mode again.)');
   for (const stop of ['loop', 'hour', 'reset']) {
@@ -148,7 +151,7 @@ test('a move keeps the Hands-off state: the stops, the hour\'s count and the hou
   assert.deepEqual(run.handsOffDone, done);
 });
 
-test('a start that cannot carry it starts off, whatever the project\'s switch; the wall still holds', () => {
+test('a start that cannot carry it starts off, whatever the project\'s switch; the wall still holds', OFFERED, () => {
   says('So the new run starts **off**, whatever the project\'s switch says');
   says('The wall still holds on it by the project\'s switch while it is off, so what is yours still waits for you.');
   const { run } = R.createRun({ profile: 'max', cwd: SHOP, conversation: CONV, hand: { reset: true } });

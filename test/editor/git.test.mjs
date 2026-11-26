@@ -112,7 +112,7 @@ test('stage, unstage and discard (a tracked file goes back, a new file is delete
   }
 });
 
-test('names that look like options or pathspecs are only ever those files', async () => {
+test('names that look like options or pathspecs are only ever those files', { skip: process.platform === 'win32' && 'Windows does not allow this file name (a control character, \':\', \'*\' or \'"\')' }, async () => {
   write('--output=x', 'opt\n');
   write(':(glob)*', 'magic\n');
   write('a*.txt', 'star\n');

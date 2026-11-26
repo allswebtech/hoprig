@@ -115,6 +115,48 @@ test('macOS: ps with CPU time, netstat -ib, launchctl lists and actions', async 
   assert.equal(D.journal, null, 'no journal: the log files instead');
 });
 
+test('Windows: disks, ports, network and services of the desktop pages are asked without a PowerShell module, in the shapes their readers take', async () => {
+  const MODULE_WORDS = [/\bGet-/i, /\bInvoke-/i, /\bConvertTo-Json\b/i, /\bSelect-Object\b/i, /\bSort-Object\b/i, /\bWhere-Object\b/i, /\bForEach-Object\b/i, /\bNew-Object\b/i, /\bImport-Module\b/i, /\bWrite-/i, /\bOut-/i];
+  const scripts = { disks: W.DISKS_SCRIPT, ports: W.PORTS_SCRIPT, net: W.NET_SCRIPT, services: W.SERVICES_SCRIPT };
+  for (const [what, script] of Object.entries(scripts)) {
+    for (const word of MODULE_WORDS) assert.doesNotMatch(script, word, `${what}: ${word}`);
+    assert.match(script, /^Emit \$rows\.ToArray\(\)$/m, `${what}: written in plain ASCII (win32.mjs Emit)`);
+  }
+  // The keys each reader takes are the keys each script writes.
+  for (const k of ['DeviceID = ', 'Size = ', 'FreeSpace = ']) assert.ok(W.DISKS_SCRIPT.includes(k), k);
+  for (const k of ['addr = ', 'port = ', 'pid = ', 'process = ']) assert.ok(W.PORTS_SCRIPT.includes(k), k);
+  assert.match(W.PORTS_SCRIPT, /'root\\StandardCimv2' 'SELECT LocalAddress,LocalPort,OwningProcess FROM MSFT_NetTCPConnection WHERE State=2'/);
+  for (const k of ['Name = ', 'ReceivedBytes = ', 'SentBytes = ']) assert.ok(W.NET_SCRIPT.includes(k), k);
+  assert.match(W.NET_SCRIPT, /MSFT_NetAdapterStatisticsSettingData/);
+  for (const k of ['Name = ', 'DisplayName = ', 'Status = ', 'StartType = ']) assert.ok(W.SERVICES_SCRIPT.includes(k), k);
+  // Windows' answers, as .NET's JavaScriptSerializer writes them (keys in a hashtable's own order), through each reader.
+  const io = (out) => ({ run: async () => ({ ok: true, stdout: out, stderr: '' }) });
+  assert.deepEqual(await W.disks(io('[{"FreeSpace":210770802688,"Size":510770802688,"DeviceID":"C:"},{"FreeSpace":0,"Size":0,"DeviceID":"D:"}]')),
+    [{ fs: 'C:', mount: 'C:\\', size: 510770802688, used: 300000000000, avail: 210770802688 }]);
+  assert.deepEqual(await W.ports(io('[{"process":"node","pid":5120,"port":7433,"addr":"127.0.0.1"},{"process":"System","pid":4,"port":445,"addr":"0.0.0.0"}]')).then((x) => x.map((p) => [p.addr, p.port, p.process])),
+    [['0.0.0.0', 445, 'System'], ['127.0.0.1', 7433, 'node']]);
+  assert.deepEqual(await W.net(io('[{"SentBytes":20,"ReceivedBytes":10,"Name":"Ethernet"}]')), [{ name: 'Ethernet', rx: 10, tx: 20 }]);
+  const sv = await W.services.list(io('[{"StartType":2,"Status":4,"DisplayName":"OpenSSH SSH Server","Name":"sshd"},{"StartType":null,"Status":1,"DisplayName":"A protected one","Name":"Prot"}]'));
+  assert.deepEqual(sv.services.map((x) => [x.name, x.active, x.enabled]), [['Prot', 'inactive', null], ['sshd', 'active', 'enabled']]);
+});
+
+test('Windows: the processes of the desktop pages are asked without a PowerShell module, in the shape the parser reads', () => {
+  for (const word of [/\bGet-/i, /\bInvoke-/i, /\bConvertTo-Json\b/i, /\bSelect-Object\b/i, /\bSort-Object\b/i, /\bWhere-Object\b/i, /\bForEach-Object\b/i, /\bNew-Object\b/i, /\bImport-Module\b/i]) {
+    assert.doesNotMatch(W.PROCESSES_SCRIPT, word, String(word));
+  }
+  for (const key of ['pid = ', 'ppid = ', 'name = ', 'args = ', 'rss = ', 'cpu = ', 'age = ']) assert.ok(W.PROCESSES_SCRIPT.includes(key), key);
+  // What .NET's JavaScriptSerializer writes: an array, keys in a hashtable's own order; read as ConvertTo-Json's was.
+  const dotnet = `[{"cpu":120.5,"ppid":0,"rss":1000000,"args":null,"age":9000,"name":"System","pid":4},{"cpu":2,"ppid":4,"rss":50000000,"args":"node x.js --api-key ${TOKEN}","age":60,"name":"node.exe","pid":900}]`;
+  const before = JSON.stringify([{ pid: 4, ppid: 0, name: 'System', args: null, rss: 1e6, cpu: 120.5, age: 9000 }, { pid: 900, ppid: 4, name: 'node.exe', args: `node x.js --api-key ${TOKEN}`, rss: 5e7, cpu: 2, age: 60 }]);
+  assert.deepEqual(W.parseWinProcesses(dotnet), W.parseWinProcesses(before));
+  assert.deepEqual(W.parseWinProcesses('[]'), []);
+  // Written in plain ASCII (win32.mjs Emit): the console's OEM code page turns some letters into control bytes ("•" is
+  // 0x07 in 437), which no JSON reader takes; as \uXXXX they arrive as they are.
+  assert.match(W.PROCESSES_SCRIPT, /^Emit \$rows\.ToArray\(\)$/m);
+  assert.throws(() => W.parseWinProcesses('[{"pid":1,"name":"a\x07b"}]'), SyntaxError, 'the byte the console made of "•"');
+  assert.equal(W.parseWinProcesses('[{"pid":1,"ppid":0,"name":"w","args":"node x.js \\u2022 ok","rss":1,"cpu":0,"age":1}]')[0].args, 'node x.js • ok');
+});
+
 test('Windows: processes, adapters and services from PowerShell\'s JSON; services are read-only', async () => {
   const procs = W.parseWinProcesses(JSON.stringify([{ pid: 4, ppid: 0, name: 'System', args: null, rss: 1e6, cpu: 120.5, age: 9000 }, { pid: 900, ppid: 4, name: 'node.exe', args: `node x.js --api-key ${TOKEN}`, rss: 5e7, cpu: 2, age: 60 }]));
   assert.deepEqual(procs.map((p) => [p.pid, p.name, p.cpuTime, p.user]), [[4, 'System', 120.5, null], [900, 'node.exe', 2, null]]);
@@ -178,7 +220,7 @@ test('log files: listed and read only inside the log folders, from an offset, ro
     fs.symlinkSync(outside, path.join(logs, 'link.log'));
     const dirs = [logs];
     const names = listLogFiles(dirs).map((f) => path.relative(logs, f.path)).sort();
-    assert.deepEqual(names, ['app/app.log', 'bin.log', 'nul.log', 'syslog'], 'no packed copies, no login records, no link out');
+    assert.deepEqual(names, [path.join('app', 'app.log'), 'bin.log', 'nul.log', 'syslog'], 'no packed copies, no login records, no link out');
     const first = readLogFile(path.join(logs, 'syslog'), dirs);
     assert.deepEqual([first.text, first.next], ['one\ntwo\n', 8]);
     fs.appendFileSync(path.join(logs, 'syslog'), 'three\npart');

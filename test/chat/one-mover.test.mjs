@@ -111,7 +111,7 @@ const KNOWN = {
   'src/adopt/apply.mjs': { why: 'adopt apply: the coding tool\'s memory and conversations of an old folder are copied (copySessions, mergeInto); it moves and removes none', not: [/^\s*if \((?:rec && )?readMarker\(marker\)\?\.token === (?:rec\.)?token\) fs\.rmSync\(marker, \{ force: true \}\);$/, /^\s*fs\.cpSync\(c\.from, c\.to, \{ recursive: true, preserveTimestamps: true, verbatimSymlinks: true, errorOnExist: true, force: false \}\);$/, /^\s*fs\.rmSync\(path\.join\(root, RUN_TOKEN\), \{ force: true \}\);$/, /^\s*fs\.rmSync\(tmp, \{ force: true \}\);$/] }, // its run's marker, the plan's copies of repositories and neighbours, the run's token, the marker's temporary file
   'src/adopt/cli.mjs': { why: 'adopt plan: names Claude Code\'s folder so the plan can count its conversations (reads)' },
   'src/chat/reading.mjs': { why: 'reads a chat\'s conversation' },
-  'src/chat/feature.mjs': { why: 'the open chats\' record', not: [/fs\.renameSync\(tmp, file\(\)\)/] }, // chats.json, written whole
+  'src/chat/feature.mjs': { why: 'the open chats\' record' }, // chats.json, written whole (src/replacefile.mjs)
   'src/chat/engines/claude.mjs': { why: 'starts Claude Code on a conversation', not: [/fs\.rmSync\(this\.settingsFile, \{ force: true \}\)/, /^\s*rename\(title\) \{/, /\brename: true\b/] }, // its per-process settings file; the conversation's name told to the tool
   'src/chat/engines/claude-transcript.mjs': { why: 'reads a transcript' },
   'src/menu.mjs': { why: 'lists the conversations to continue' },
@@ -122,16 +122,16 @@ const KNOWN = {
   'src/codetools/stores.mjs': { why: 'reads each coding tool\'s conversations' },
   'src/operator/sources.mjs': { why: 'reads a run\'s conversation for the Operator' },
   'src/server/deck.mjs': { why: 'finds a terminal session\'s conversation file' },
-  'src/providers/transcripts.mjs': { why: 'reads the coding tool\'s records of sessions Hoprig did not start, for the Operator; it moves and removes nothing there', not: [/fs\.renameSync\(tmp, file\(\)\)/] }, // its own kept list of conversation ids, replaced whole (state/operator/conversations.json)
+  'src/providers/transcripts.mjs': { why: 'reads the coding tool\'s records of sessions Hoprig did not start, for the Operator; it moves and removes nothing there' }, // its own kept list of conversation ids, replaced whole (state/operator/conversations.json)
   'src/server/folders.mjs': { why: 'lists a folder\'s conversations' },
   'src/server/server.mjs': { why: 'lists conversations for the routes', not: [/backend\.rename\(name, b\.name\)/] }, // a terminal session's name (tmux)
   'src/work/alone.mjs': { why: 'a project folder of its own (its own projectDir)', not: [/fs\.renameSync\(tmp, waitFile\(\)\)/] }, // its wait record
   'src/workspace/brain.mjs': { why: 'reads where Claude Code keeps the home\'s memory' },
   'src/workspace/dropfind.mjs': { why: 'finds what Claude Code keeps of a project before a drop (reads)' },
-  'src/workspace/link.mjs': { why: 'links Claude Code\'s memory folder of a project to the brain', not: [/fs\.copyFileSync\(p\.link, backup/, /fs\.rmSync\(''\s*p\.link\s*, \{ force: true \}\)/, /fs\.renameSync\(''\s*p\.link\s*, p\.link\)/, /fs\.renameSync\(p\.link, backup\)/, /fs\.renameSync\(backup, p\.link\)/] }, // the memory link, never a conversation
+  'src/workspace/link.mjs': { why: 'links Claude Code\'s memory folder of a project to the brain', not: [/fs\.copyFileSync\(p\.link, backup/, /fs\.rmSync\(''\s*p\.link\s*, \{ force: true \}\)/, /fs\.renameSync\(p\.link, backup\)/, /fs\.renameSync\(backup, p\.link\)/] }, // the memory link, never a conversation
   'src/pcsetup/workspace.mjs': { why: 'checks the memory links of the workspace', not: [/showCommand\(\['rm', link\]\)/, /fs\.renameSync\(link, backup\)/] }, // a command shown, not run; a memory link kept aside
   'src/setup/moveplan.mjs': { why: 'the look of the move to an ordinary user: counts what Claude Code\'s folder holds before it is copied (reads); the copy keeps root\'s conversations and never moves or removes one' },
-  'src/pcsetup/wsrules.mjs': { why: 'writes Claude Code\'s rules file', not: [/fs\.rmSync\(tmp, \{ force: true \}\)/, /fs\.renameSync\(tmp, s\.file\)/] }, // the rules file, replaced whole
+  'src/pcsetup/wsrules.mjs': { why: 'writes Claude Code\'s rules file', not: [/fs\.rmSync\(tmp, \{ force: true \}\)/] }, // the rules file, replaced whole (src/replacefile.mjs)
 };
 
 /** The files of `files` ([path, text]) that can touch the disk and name where conversations are. */

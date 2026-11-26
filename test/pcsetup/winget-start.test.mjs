@@ -57,7 +57,11 @@ test('pc setup on Windows with a winget that does not start: no winget step run,
   const found = await detectKits(sys, kits);
   const plan = buildPlan(kits, found, sys);
   assert.deepEqual(plan.steps.filter((s) => s.argv && s.argv[0] === 'winget'), [], 'no winget step');
-  for (const id of ['git', 'build', 'node', 'npm', 'python', 'gh', 'ripgrep', 'jq', 'docker']) {
+  // On a Windows computer the made-up Windows runs on this test's own Node: it is there, off this PATH (detect.mjs), so
+  // it is not one to install; anywhere else Node is missing from the made-up Windows like the rest.
+  const here = process.platform === 'win32' ? ['node'] : [];
+  if (here.length) assert.equal(found.node.find((i) => i.id === 'node').state, 'offpath');
+  for (const id of ['git', 'build', 'node', 'npm', 'python', 'gh', 'ripgrep', 'jq', 'docker'].filter((x) => !here.includes(x))) {
     const c = plan.cannot.find((x) => x.item === id);
     assert.ok(c, `${id} is named`);
     assert.match(c.why, new RegExp(`official installer, ${WIN_INSTALLERS[id].replace(/[.*+?^${}()|[\]\\/]/g, '\\$&')}$`), id);

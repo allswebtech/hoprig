@@ -35,17 +35,24 @@ export function report(ui, links) {
   for (const l of links) ui.line(l.done === 'conflict' ? 'warn' : 'ok', `memory for ${l.launch === '.' ? 'the project' : l.launch}: ${l.done}${l.detail ? ` (${l.detail}; ${l.fix})` : ''}`);
 }
 
+/**
+ * A folder inside the project in words: `/` between its parts on every system, as the rest of the line writes it
+ * (Windows' path.relative gives a backslash, which made "shop/code\shop-api"). Linux and macOS: path.relative as it
+ * is (the POSIX one, also when a test asks for them on another system).
+ */
+export const insideWords = (root, d, platform = process.platform) => (platform === 'win32' ? path.win32.relative(root, d).replaceAll('\\', '/') : path.posix.relative(root, d));
+
 // A planned link's launch folder in words: its key in project.json, or (a group's pairs are absolute) its path inside the project.
 const launchName = (p, root) => {
-  const l = path.isAbsolute(p.launch) ? path.relative(root, p.launch) || '.' : p.launch;
+  const l = path.isAbsolute(p.launch) ? insideWords(root, p.launch) || '.' : p.launch;
   return l === '.' ? 'the project' : l;
 };
 
-const named = (l, root) => ({ ...l, launch: path.isAbsolute(l.launch) ? path.relative(root, l.launch) || '.' : l.launch });
+const named = (l, root) => ({ ...l, launch: path.isAbsolute(l.launch) ? insideWords(root, l.launch) || '.' : l.launch });
 
 const memoryWords = (p, root) => {
   const what = `Claude Code's memory for ${launchName(p, root)}`;
-  const to = path.relative(root, p.memory);
+  const to = insideWords(root, p.memory);
   return p.action === 'merge' ? `move the files of ${what} into ${to}, keep its old folder as a backup, and link it there` : `link ${what} to ${to}`;
 };
 
@@ -59,7 +66,7 @@ export async function setupItems(root, manifest, { ui, dir, runner = stream, sys
   const notes = [];
   // A folder named as commands name its project (<place>/<name> in a group), then its path inside the project.
   const name = ref || path.basename(root);
-  const rel = (d) => (path.resolve(d) === path.resolve(root) ? name : `${name}/${path.relative(root, d)}`);
+  const rel = (d) => (path.resolve(d) === path.resolve(root) ? name : `${name}/${insideWords(root, d)}`);
   // `memories`: the planned links when they are not the project's own (a member that comes with its group's
   // repository uses the group's: groups.mjs planGroupMemories). An entry's folder is where its session starts, so a
   // code repository this run cloned into a project that was here gets its link like a fresh clone.

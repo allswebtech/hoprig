@@ -16,7 +16,15 @@ On Windows (natively, without WSL) the main paths were used by hand on one Windo
 computer setup with winget, projects, the background service and the dashboard with sessions and a chat. That first
 run needed ways round (a new project needed a global git identity, programs winget installed stayed "missing", the
 Python kit gave no Python, installing the service again left the old dashboard serving); this version has fixes for
-them that were not yet tried there. The tests do not pass on Windows yet, and `install.ps1` itself was not tried.
+them that were not yet tried there. The test suite passes on GitHub's Windows runners with Node 24 and 26, about 835
+tests skipped there, each with its cause, and a skipped test proves nothing. A runner does not prove Task Scheduler
+(the service), winget, icacls (which hands a folder back to you), a restart of the service or the `.cmd` launcher in a
+real console, nor whether a check or a go-live command opens a console window on the desktop while it runs, so Windows
+support is experimental until it has run on real Windows computers. Two things work differently there: a go-live
+command ended at its time limit also ends a server it started in the background (on Linux that server goes on
+running), and a scheduled run whose coding tool could not be ended switches its schedule off until you switch it on
+again in Work → Schedules (a schedule that names another computer is not switched off). Hands-off and the box are not
+offered on Windows, and `install.ps1` itself was not tried.
 
 ```powershell
 irm https://raw.githubusercontent.com/allswebtech/hoprig/main/install.ps1 | iex
@@ -102,7 +110,9 @@ A server that only shows your other computers (a main computer) stops after the 
 ### What it needs, and what was run
 
 - **Node.js 24.13.1 or newer.** The tests run on Linux and macOS with Node 24 and 26 on every change (and natively
-  on macOS with Node 26). On Windows they run as a job that is allowed to fail and do not pass yet (see above).
+  on macOS with Node 26). On Windows they run as a job that is still allowed to fail (a failure there does not fail
+  the run); they pass there on GitHub's runners with Node 24 and 26, about 835 tests skipped, each with its cause
+  (see above).
 - **tmux 3.2 or newer**, when you want sessions that outlive the dashboard. An older tmux is not used: the
   built-in terminals are taken instead.
 - **npm 12** needs nothing from you: setup builds the one module that needs a build (`node-pty`, the only install

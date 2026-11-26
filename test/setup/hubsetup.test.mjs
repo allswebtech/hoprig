@@ -74,7 +74,7 @@ test('an IP certificate needs 80/443 for Caddy: something else there stops it wi
   assert.match(rec.text, /nginx already uses ports 80\/443/);
 });
 
-test('--dry-run: lists every step (install Caddy, our site, the import), writes nothing', async () => {
+test('--dry-run: lists every step (install Caddy, our site, the import), writes nothing', { skip: process.platform === 'win32' && 'the HTTPS step of a Linux hub (Caddy, apt, /bin/cp in its stand-ins)' }, async () => {
   const caddyDir = path.join(s.tmp, 'etc-caddy-dry');
   const before = cfgFiles();
   const { ui: u, rec } = ui({ dryRun: true });
@@ -88,7 +88,7 @@ test('--dry-run: lists every step (install Caddy, our site, the import), writes 
   assert.deepEqual(cfgFiles(), before);
 });
 
-test('Caddy already installed: our site written, imported once, validated, reloaded; a second run changes nothing', async () => {
+test('Caddy already installed: our site written, imported once, validated, reloaded; a second run changes nothing', { skip: process.platform === 'win32' && 'the HTTPS step of a Linux hub (Caddy, apt, /bin/cp in its stand-ins)' }, async () => {
   const caddyDir = path.join(s.tmp, 'etc-caddy');
   fs.mkdirSync(caddyDir, { recursive: true });
   fs.writeFileSync(path.join(caddyDir, 'Caddyfile'), ':80 {\n\troot * /usr/share/caddy\n\tfile_server\n}\n');
@@ -117,7 +117,7 @@ test('Caddy already installed: our site written, imported once, validated, reloa
   assert.doesNotMatch(again.rec.text, /Go ahead/, 'nothing to confirm');
 });
 
-test('a hub on an IP address: Caddy is installed quietly (output in a named log), default_sni is added; moving to a domain takes it out', async () => {
+test('a hub on an IP address: Caddy is installed quietly (output in a named log), default_sni is added; moving to a domain takes it out', { skip: process.platform === 'win32' && 'the HTTPS step of a Linux hub (Caddy, apt, /bin/cp in its stand-ins)' }, async () => {
   const caddyDir = path.join(s.tmp, 'etc-caddy-ip');
   const pkgCaddyfile = ':80 {\n\troot * /usr/share/caddy\n\tfile_server\n}\n';
   const calls = path.join(s.tmp, 'ip-calls.log');
@@ -163,7 +163,7 @@ test('a hub on an IP address: Caddy is installed quietly (output in a named log)
   assert.equal(fs.readFileSync(path.join(caddyDir, 'Caddyfile'), 'utf8'), `${pkgCaddyfile}\nimport hoprig.caddy\n`);
 });
 
-test('a command of the HTTPS step that fails: its last lines are shown, and where all of it is', async () => {
+test('a command of the HTTPS step that fails: its last lines are shown, and where all of it is', { skip: process.platform === 'win32' && 'the HTTPS step of a Linux hub (Caddy, apt, /bin/cp in its stand-ins)' }, async () => {
   const caddyDir = path.join(s.tmp, 'etc-caddy-fail');
   const programs = { env: 'echo "Reading package lists..."; echo "E: Unable to locate package caddy" >&2; exit 100' };
   const { ui: u, rec } = ui({ yes: true });
@@ -173,7 +173,7 @@ test('a command of the HTTPS step that fails: its last lines are shown, and wher
   assert.match(rec.text, /"env DEBIAN_FRONTEND=noninteractive apt-get update" did not succeed/);
 });
 
-test('a configuration Caddy refuses: the Caddyfile is put back', async () => {
+test('a configuration Caddy refuses: the Caddyfile is put back', { skip: process.platform === 'win32' && 'the HTTPS step of a Linux hub (Caddy, apt, /bin/cp in its stand-ins)' }, async () => {
   const caddyDir = path.join(s.tmp, 'etc-caddy-bad');
   fs.mkdirSync(caddyDir, { recursive: true });
   fs.writeFileSync(path.join(caddyDir, 'Caddyfile'), 'example.org {\n\trespond "hi"\n}\n');

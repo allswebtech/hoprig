@@ -40,22 +40,27 @@ test('no full path, no git output and no file content in any error answer; the l
       for (const bad of [t.root, t.home, process.env.HOME, 'fatal:', 'error:', SECRET, '.tmp']) assert.ok(!text.includes(bad), `${what}: "${bad}" in ${text}`);
     };
 
-    // A folder the dashboard may not write: the temporary file's path stays in the log.
-    fs.chmodSync(dir, 0o555);
-    let r = await call('POST', '/api/work/items', { title: 'Cannot be written' });
-    fs.chmodSync(dir, 0o755);
-    assert.equal(r.status, 409);
-    assert.equal(r.body.code, 'unwritable');
-    assert.match(r.body.error, /^the Work file could not be written \(no permission\)$/);
-    clean(r, 'unwritable');
-    assert.ok(logged.some((l) => l.includes('.tmp')), 'the system\'s words are in the log');
+    let r;
+    // POSIX modes: on Windows chmod sets only a read-only flag, which keeps no one out of a folder or a file's reading,
+    // so a folder that cannot be written and a file that cannot be read are played only elsewhere.
+    if (process.platform !== 'win32') {
+      // A folder the dashboard may not write: the temporary file's path stays in the log.
+      fs.chmodSync(dir, 0o555);
+      r = await call('POST', '/api/work/items', { title: 'Cannot be written' });
+      fs.chmodSync(dir, 0o755);
+      assert.equal(r.status, 409);
+      assert.equal(r.body.code, 'unwritable');
+      assert.match(r.body.error, /^the Work file could not be written \(no permission\)$/);
+      clean(r, 'unwritable');
+      assert.ok(logged.some((l) => l.includes('.tmp')), 'the system\'s words are in the log');
 
-    // An unreadable file.
-    fs.chmodSync(file, 0o000);
-    r = await call('GET', '/api/work');
-    fs.chmodSync(file, 0o644);
-    assert.match(r.body.problem, /tasks\.json cannot be read \(no permission\)/);
-    clean(r, 'unreadable');
+      // An unreadable file.
+      fs.chmodSync(file, 0o000);
+      r = await call('GET', '/api/work');
+      fs.chmodSync(file, 0o644);
+      assert.match(r.body.problem, /tasks\.json cannot be read \(no permission\)/);
+      clean(r, 'unreadable');
+    }
 
     // A broken file: line and column, no content.
     fs.writeFileSync(file, `{\n  "items": [\n    { "id": "a", "title": "${SECRET}" },\n  ]\n}\n`);

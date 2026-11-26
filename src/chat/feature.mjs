@@ -62,6 +62,7 @@ import { readTitles } from '../titles.mjs';
 import { BYPASS, bypassAllowed, gateModes, ROOT_BYPASS_LINE, runsAsRoot } from '../bypassgate.mjs';
 import { assertHerToolBound } from '../codetools/start.mjs';
 import { chatTool, chatToolList, choicesOf, conversationIdOk, modeFor, modelOk, modelRefusal, providerOk, serves, toolOffWords } from './tools.mjs';
+import { replaceFile } from '../replacefile.mjs';
 
 const OPEN_MAX = 50;
 const WAIT_MAX_S = 25; // below the relay's 30 s idle limit, so a chat of another computer can wait too
@@ -231,7 +232,7 @@ export function chatFeature(ctx, o = {}) {
     fs.mkdirSync(path.dirname(file()), { recursive: true, mode: 0o700 });
     const tmp = `${file()}.${process.pid}.tmp`;
     fs.writeFileSync(tmp, JSON.stringify(out) + '\n', { mode: 0o600 });
-    fs.renameSync(tmp, file());
+    replaceFile(tmp, file());
   }
   function chatOr404(id) {
     load();

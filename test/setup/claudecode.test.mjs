@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
 import { fakeBin, fakeClaude, fakeFetch, pathWith, scratch } from './helpers.mjs';
+import { SHELL_STANDINS } from '../seal.mjs';
 
 const s = scratch();
 test.after(s.cleanup);
@@ -107,7 +108,7 @@ test('auth status: exit code and JSON, and nothing personal kept', () => {
   assert.deepEqual(C.parseAuthStatus({ code: null, stdout: '' }), { loggedIn: null, method: null, plan: null });
 });
 
-test('resolveClaude: configured name on PATH, else the native location, else null', () => {
+test('resolveClaude: configured name on PATH, else the native location, else null', { skip: process.platform === 'win32' && 'the places of Linux are handed in (~/.local/bin, Linux PATH rules)' }, () => {
   const bin = fakeBin(path.join(s.tmp, 'bin-a'), { claude: fakeClaude() });
   const home = path.join(s.tmp, 'home-native');
   assert.deepEqual(C.resolveClaude({ bin: 'claude', env: { PATH: bin }, platform: 'linux', home }), { path: path.join(bin, 'claude'), onPath: true }); // seal: a value no program is started with
@@ -118,7 +119,7 @@ test('resolveClaude: configured name on PATH, else the native location, else nul
   assert.equal(C.nativeBinPath('win32', 'C:\\Users\\u').endsWith('claude.exe'), true);
 });
 
-test('claudeInfo with a fake Claude Code: version, method, newest, update available', async () => {
+test('claudeInfo with a fake Claude Code: version, method, newest, update available', SHELL_STANDINS, async () => {
   const bin = fakeBin(path.join(s.tmp, 'bin-info'), { claude: fakeClaude({ version: '2.1.300' }) });
   C.clearLatestCache();
   const env = { ...process.env, PATH: pathWith(s.tmp, bin) };
@@ -133,7 +134,7 @@ test('claudeInfo with a fake Claude Code: version, method, newest, update availa
   assert.equal(none.path, null);
 });
 
-test('login status runs without the profile auth variables', async () => {
+test('login status runs without the profile auth variables', SHELL_STANDINS, async () => {
   const bin = fakeBin(path.join(s.tmp, 'bin-auth'), {
     // Logged in only when no API key leaks into its environment.
     claude: 'if [ -n "$ANTHROPIC_API_KEY" ]; then echo \'{"loggedIn":true,"authMethod":"api_key"}\'; else echo \'{"loggedIn":false,"authMethod":"none"}\'; exit 1; fi',

@@ -20,6 +20,7 @@ const { configFile, hookFile, hookSettingsDir } = await import('../src/paths.mjs
 
 const home = box.home;
 const shop = path.join(home, 'shop');
+const OFFERED = { skip: process.platform === 'win32' && 'Hands-off is not offered on Windows' };
 fs.mkdirSync(shop, { recursive: true });
 const places = { cwd: shop, home, workspace: path.join(home, 'work'), projects: [path.join(home, 'projects')], hoprig: [box.config, box.state], own: shop, relative: true };
 // git as the wall asks it: the default branch is main, the session stands on main.
@@ -97,7 +98,7 @@ test('a record the session wrote itself decides no words: the title and the reas
   assert.equal(A.heldCard(null), null);
 });
 
-test('the hook keeps the hold in the run record, and it goes when the ask is answered', () => {
+test('the hook keeps the hold in the run record, and it goes when the ask is answered', OFFERED, () => {
   const V = hoprigVersion();
   fs.mkdirSync(path.dirname(configFile()), { recursive: true });
   fs.writeFileSync(configFile(), JSON.stringify({ handsOff: { offered: true, projects: { [fs.realpathSync(shop)]: { on: true, version: V } } } }));
@@ -236,7 +237,8 @@ test('a delete after a cd behind another held act is named as a delete outside t
     assert.equal(A.heldCard(A.heldRecord(held, 'Bash', 1)).yes, A.HELD_YES_ALL, `${command}: the answer says the whole line runs`);
   }
   // Without a folder change a delete inside the session's folder stays its own: no second act.
-  assert.equal(wallHeld({ tool: 'Bash', input: { command: 'git push origin main && rm -rf build' }, cwd: shop, git, places }).acts.length, 1);
+  // On Windows no delete is plain (src/asking.mjs plainDelete reads POSIX folders only): it waits for the owner.
+  if (process.platform !== 'win32') assert.equal(wallHeld({ tool: 'Bash', input: { command: 'git push origin main && rm -rf build' }, cwd: shop, git, places }).acts.length, 1);
 });
 
 // A line of hundreds of held parts: the record, the card and the terminal line list the first ACTS_LISTED with their
@@ -288,7 +290,7 @@ test('a push the wall cannot place shows the folder change and a reason that doe
 test('the project.json card uses plain, second-person words and a relative path', () => {
   const f = wallHeld({ tool: 'Edit', input: { file_path: path.join(shop, 'sub', 'project.json') }, cwd: shop, places });
   const card = A.heldCard(A.heldRecord(f, 'Edit', 1));
-  assert.equal(card.what, 'sub/project.json');
+  assert.equal(card.what, path.join('sub', 'project.json'), 'with the separator a person on this system reads');
   assert.match(card.reason, /which you approve/);
   assert.doesNotMatch(card.reason, /the owner/);
 });

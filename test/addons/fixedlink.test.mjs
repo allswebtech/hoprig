@@ -11,6 +11,10 @@ import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
 
+// The stand-in cloudflared is a Node script with no extension, started by name through its #! line: Windows starts
+// only an .exe or .com by name, so a test that runs it is skipped there.
+const STANDIN = { skip: process.platform === 'win32' && 'the stand-in is started through its #! line' };
+
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'hoprig-fixedlink-'));
 process.env.HOPRIG_CONFIG_DIR = path.join(tmp, 'config');
 process.env.HOPRIG_STATE_DIR = path.join(tmp, 'state');
@@ -259,7 +263,7 @@ function service(withLogin, { openApi = false } = {}) {
   return new Promise((r) => s.listen(0, '127.0.0.1', () => r(s)));
 }
 
-test('set up from the page: sign in, make it, it runs and comes back after a crash; another service; off and on; stop using it', async () => {
+test('set up from the page: sign in, make it, it runs and comes back after a crash; another service; off and on; stop using it', STANDIN, async () => {
   saveConfig({ server: { port: 7433, allowedOrigins: ['https://deck.example.net'] } });
   const before = raw().server;
   assert.equal((await publicLink.status()).fixed.state, 'none');
@@ -274,7 +278,7 @@ test('set up from the page: sign in, make it, it runs and comes back after a cra
   assert.equal((await act('fixed-sign-in')).url, s1.url, 'a second press shows the same link');
   fs.writeFileSync(mark('approve'), '');
   assert.ok(await until(() => F.fixedStatus().state === 'signed-in'), 'the certificate arrived');
-  assert.equal(mode(F.certFile()), '600');
+  if (process.platform !== 'win32') assert.equal(mode(F.certFile()), '600');
   const login = calls().find((c) => c.a.includes('login'));
   assert.equal(login.home, path.join(fixedDir, 'home'), 'its own HOME: never the owner\'s ~/.cloudflared');
   assert.equal(login.path, path.join(fixedDir, 'empty'), 'a PATH with nothing to open a browser with');
@@ -296,8 +300,8 @@ test('set up from the page: sign in, make it, it runs and comes back after a cra
 
   // 3. It runs, connects, and the settings are as for any public link.
   assert.ok(await until(on), 'connected');
-  for (const f of ['tunnel.json', 'config.yml', 'fixed.json', 'base.yml']) assert.equal(mode(path.join(fixedDir, f)), '600', f);
-  assert.equal(mode(fixedDir), '700');
+  for (const f of ['tunnel.json', 'config.yml', 'fixed.json', 'base.yml']) if (process.platform !== 'win32') assert.equal(mode(path.join(fixedDir, f)), '600', f);
+  if (process.platform !== 'win32') assert.equal(mode(fixedDir), '700');
   st = F.fixedStatus();
   assert.deepEqual([st.state, st.mode, st.url], ['ready', 'named', 'https://office.example.com']);
   const sw = S.status();
@@ -382,7 +386,7 @@ test('state files are written whole or not at all: a temporary file in the same 
   const file = path.join(dir, 'fixed.json');
   C.writeAtomic(file, '{"mode":"named"}');
   assert.equal(fs.readFileSync(file, 'utf8'), '{"mode":"named"}');
-  assert.equal(mode(file), '600');
+  if (process.platform !== 'win32') assert.equal(mode(file), '600');
   const renames = [];
   const orig = fs.renameSync;
   fs.renameSync = (from, to) => (renames.push([path.dirname(from), to]), orig(from, to));
@@ -408,7 +412,7 @@ test('state files are written whole or not at all: a temporary file in the same 
   assert.deepEqual([...src.matchAll(/fs\.writeFileSync\(([^,]+),/g)].map((m) => m[1]), ['tmp'], 'only the downloaded program itself, into its temporary file beside its place');
 });
 
-test('a name outside the domain picked at sign-in: nothing is left half-made', async () => {
+test('a name outside the domain picked at sign-in: nothing is left half-made', STANDIN, async () => {
   fs.mkdirSync(path.dirname(F.certFile()), { recursive: true });
   fs.writeFileSync(F.certFile(), 'stand-in', { mode: 0o600 });
   const n = calls().length;
@@ -420,7 +424,7 @@ test('a name outside the domain picked at sign-in: nothing is left half-made', a
   assert.equal(fs.existsSync(path.join(fixedDir, 'tunnel.json')), false);
 });
 
-test('a tunnel of that name made before is used; the token cloudflared prints never shows', async () => {
+test('a tunnel of that name made before is used; the token cloudflared prints never shows', STANDIN, async () => {
   fs.writeFileSync(mark('taken-name'), '');
   try {
     const r = await act('fixed-create', { hostname: 'box3.example.com' });
@@ -434,7 +438,7 @@ test('a tunnel of that name made before is used; the token cloudflared prints ne
   assert.equal((await act('fixed-forget')).ok, true);
 });
 
-test('when cloudflared keeps failing, the page says why and when it tries again', async () => {
+test('when cloudflared keeps failing, the page says why and when it tries again', STANDIN, async () => {
   fs.mkdirSync(path.dirname(F.certFile()), { recursive: true });
   fs.writeFileSync(F.certFile(), 'stand-in', { mode: 0o600 });
   fs.writeFileSync(mark('crash'), '');
@@ -450,13 +454,13 @@ test('when cloudflared keeps failing, the page says why and when it tries again'
   assert.equal((await act('fixed-forget')).ok, true);
 });
 
-test('Advanced: a tunnel token from the Cloudflare dashboard; it is kept in a file and never shown', async () => {
+test('Advanced: a tunnel token from the Cloudflare dashboard; it is kept in a file and never shown', STANDIN, async () => {
   const token = Buffer.from(JSON.stringify({ a: 'acc', t: ID, s: 'c2VjcmV0LXNlY3JldA==' })).toString('base64');
   assert.match((await act('fixed-token', { token: 'nope', hostname: 'office.example.com' })).error, /not a tunnel token/);
   const r = await act('fixed-token', { token: `cloudflared service install ${token}`, hostname: 'office.example.com' });
   assert.equal(r.ok, true, r.error);
   assert.equal(fs.readFileSync(path.join(fixedDir, 'token'), 'utf8'), token);
-  assert.equal(mode(path.join(fixedDir, 'token')), '600');
+  if (process.platform !== 'win32') assert.equal(mode(path.join(fixedDir, 'token')), '600');
   assert.ok(await until(on));
   const run = calls().filter((c) => c.a.includes('run')).at(-1);
   assert.deepEqual(run.a.slice(-3), ['run', '--token-file', path.join(fixedDir, 'token')]);

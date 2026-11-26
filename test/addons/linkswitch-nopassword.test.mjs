@@ -32,7 +32,7 @@ test('the password taken away during the install: the start is refused with no-p
   const installFn = async () => {
     saveConfig({ server: { passwordHash: '' } }); // the password goes while it installs
     fs.mkdirSync(binDir(), { recursive: true });
-    fs.writeFileSync(path.join(binDir(), 'cloudflared'), `#!${process.execPath}\nrequire('fs').writeFileSync(${JSON.stringify(ran)}, 'x');\n`, { mode: 0o755 });
+    fs.writeFileSync(path.join(binDir(), process.platform === 'win32' ? 'cloudflared.exe' : 'cloudflared'), `#!${process.execPath}\nrequire('fs').writeFileSync(${JSON.stringify(ran)}, 'x');\n`, { mode: 0o755 });
     return { ok: true };
   };
   try {

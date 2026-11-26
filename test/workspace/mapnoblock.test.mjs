@@ -40,20 +40,36 @@ test('the upkeep never throws: a map that cannot be written is skipped with its 
   fs.rmSync(path.join(C.projects, 'kits-copy'), { recursive: true, force: true });
   // The brain's folder cannot be written: the upkeep says so and goes on, status says it too.
   w.clone(w.bare('fresh'), path.join(C.projects, 'fresh'));
+  // On Windows a folder's mode stops no write: there a read-only map file does (the write's rename over it is refused).
+  const win = process.platform === 'win32';
   const brain = path.join(C.ws, 'ai_brain');
-  fs.chmodSync(brain, 0o555);
+  const blockedOne = win ? M.mapFile(C.ws) : brain;
+  fs.chmodSync(blockedOne, win ? 0o444 : 0o555);
   try {
     const u = await upkeepMap(ctx);
     assert.equal(u.changed, false);
-    assert.match(u.skipped || '', /EACCES|permission/i);
+    assert.match(u.skipped || '', win ? /EACCES|EPERM|permission/i : /EACCES|permission/i);
     const st = await M.mapStatus(ctx);
     assert.ok(st.blocked && st.blocked.some((e) => /cannot be written/.test(e)), JSON.stringify(st.blocked));
     const q = await quietUi();
     await main(['status'], { ui: q.ui, write: () => {} });
     assert.match(q.text(), /the map cannot be written now/);
   } finally {
-    fs.chmodSync(brain, 0o755);
+    fs.chmodSync(blockedOne, win ? 0o644 : 0o755);
   }
+});
+
+test('a read-only map file blocks the write on Windows, where a folder always says it can be written; elsewhere the folder decides', () => {
+  const file = M.mapFile(C.ws);
+  fs.chmodSync(file, 0o444);
+  try {
+    // (root may write any file: as root the read-only mark blocks nothing to ask about.)
+    if (process.getuid?.() !== 0) assert.equal(M.mapWritable(C.ws, 'win32'), false, 'Windows: the read-only map file is what blocks');
+    assert.equal(M.mapWritable(C.ws, 'linux'), true, 'Linux and macOS: the folder decides, and a rename over a read-only file in it works');
+  } finally {
+    fs.chmodSync(file, 0o644);
+  }
+  assert.equal(M.mapWritable(C.ws, 'win32'), true);
 });
 
 test('a duplicate address that came through a merge is used: the map is still written, status names both with the forget', async () => {

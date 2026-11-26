@@ -10,8 +10,11 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { sandbox } from '../server/helpers.mjs';
+import { taskkillStandIn } from '../server/taskkill-standin.mjs';
 
 const box = sandbox('operator-sources');
+// Windows: taskkill is the runner's trap; a stand-in of the test's own ends its child as `taskkill /F` does.
+taskkillStandIn(box.root);
 test.after(() => box.cleanup());
 
 const { createRun, updateRun, removeRun } = await import('../../src/runs.mjs');
@@ -572,6 +575,15 @@ test('a sync or push error hides absolute paths and addresses, not branch names 
   assert.equal(said("fetch failed: '~/repos/shop.git' does not appear to be a git repository"), 'fetch failed: … does not appear to be a git repository');
   assert.equal(said('fetch failed: ssh: Could not resolve hostname box2.lan: Name or service not known'), 'fetch failed: ssh: Could not resolve hostname …: Name or service not known');
   assert.equal(said('fetch failed: ssh: connect to host box2.lan port 22: Connection refused'), 'fetch failed: ssh: connect to host … port 22: Connection refused');
+  // Windows: git names a folder with a drive letter or as a share, with backslashes.
+  const onWin = (why) => todoText([{ why }], 'win32');
+  assert.equal(onWin("fetch failed: 'C:\\Users\\alex\\notes.git' does not appear to be a git repository"), 'fetch failed: … does not appear to be a git repository');
+  assert.equal(onWin('fetch failed: \\\\files\\git\\shop.git not found'), 'fetch failed: … not found');
+  // A user name or a folder with a space, in the quotes git puts around it: masked whole, with either slash.
+  for (const p of ['C:\\Users\\Alex Smith\\notes.git', 'C:\\Users\\alex\\OneDrive - Example Co\\notes.git', 'C:/Users/Alex Smith/notes.git', '\\\\files\\git share\\shop.git']) {
+    assert.equal(onWin(`fetch failed: '${p}' does not appear to be a git repository`), 'fetch failed: … does not appear to be a git repository', p);
+  }
+  assert.equal(onWin('feature/login has no upstream'), 'feature/login has no upstream');
   for (const host of ['box2', 'box2.lan', 'git.example']) {
     for (const why of [`ssh: Could not resolve hostname ${host}: Name or service not known`, `ssh: connect to host ${host} port 22: Connection timed out`, `fatal: '${host}:shop.git/' does not appear to be a git repository`]) {
       assert.ok(!said(why).includes(host), `${why} -> ${said(why)}`);

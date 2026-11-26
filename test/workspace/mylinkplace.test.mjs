@@ -16,8 +16,10 @@ const code = path.join(A.projects, 'shop', 'code');
 fs.mkdirSync(code, { recursive: true });
 const places = {
   plain: path.join(A.home, 'disk2', 'shop-web'),
-  sibling: `${A.home}.bak/shop-web`,
-  mirror: path.join(w.root, 'mirror', ...A.home.split(path.sep).filter(Boolean), 'shop-web'),
+  sibling: path.join(`${A.home}.bak`, 'shop-web'),
+  // A backup tree that repeats the home path. A Windows folder name holds no ":", so there the drive is the folder
+  // "C" (a path cannot hold the home's whole text after its start there; the sibling above still does).
+  mirror: path.join(w.root, 'mirror', ...A.home.split(path.sep).filter(Boolean).map((p) => p.replace(/:$/, '')), 'shop-web'),
 };
 for (const [k, t] of Object.entries(places)) {
   fs.mkdirSync(t, { recursive: true });

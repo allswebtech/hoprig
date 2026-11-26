@@ -7,6 +7,72 @@ description: What changed in each version of Hoprig, newest first, in plain word
 
 Each version of Hoprig, newest first. Hoprig installs from the main branch of its repository; `hop update` brings the newest version, and **Settings → Updates** shows it in the dashboard.
 
+## 0.3.6 (26 November 2026)
+
+With this version Windows is experimental; before, it was not supported. Its tests pass on GitHub's Windows runners with Node.js 24 and 26, but about 835 of them are skipped there, each with its cause, and a skipped test proves nothing. Hoprig has run on one real Windows computer only, and what this version mends on Windows was not tried on it. Hands-off (Hoprig answering a coding tool's questions for you) and the box (a task's own copy of the project, with no network) do not exist on Windows. A few changes show on Linux and macOS too: they are under On every system.
+
+### What changes when you update
+
+- **Do not start a move to another user from an older Hoprig while this one moves.** The lock of a move of Hoprig to another user now holds the identity of the process that moves, and a Hoprig older than this version reads that lock as no lock, so it would not be kept out.
+
+### Windows: what was not tried, and what works differently
+
+- **Not tried on a real Windows desktop.** Task Scheduler (which starts the dashboard as a service), winget, icacls (the program that hands a folder back to you), a restart of the service and a coding tool's `.cmd` launcher in a real console have not run on a real Windows desktop. Nor was it seen whether a check or a go-live command (the commands that Go live, on the Work page, runs for a project) opens a console window while it runs: such a command now runs without a console of its own, so a console program it starts (npm, node, git, cmd) may open a window on the desktop for as long as it runs, and closing that window ends that program.
+- **A go-live command ended at its time limit also ends a server it started in the background.** On Linux that server goes on running.
+
+### Windows: set-up and the desktop
+
+- **The desktop no longer waits for PowerShell.** On Windows the desktop's Task manager (with its disks, network and ports) and Services load at once, where they waited about 17 seconds for PowerShell to load its modules. Taking over a dashboard that is still running no longer waits that long before it can tell whether that dashboard is yours, and doctor and Health read who owns your folders without loading a PowerShell module.
+- **Set-up and Health ask the system's own whoami.** A whoami that Git for Windows puts earlier on PATH (the folders Windows looks in for a program) can no longer make them misread whether set-up runs as administrator.
+- **A program without a window is ended with Force.** Windows cannot ask a console program or a server to close, only end it at once: the desktop's Task manager says to use **Force** for such a program, and when you end one from the Operator it is ended at once, after the same checks.
+- **Lines to paste are PowerShell lines.** Where Hoprig gives you a move or a removal of a workspace folder to paste, on Windows it is a PowerShell line (Move-Item, Remove-Item), a link is removed as a link without what it points to, and of two lines pasted together the second runs only when the first worked.
+- Smaller things on Windows: a coding tool installed as a `.cmd` file is refused at its start, with the reason, when a word of its start holds a character that cmd.exe would read; text is typed for a coding tool only while its launcher still runs; a read-only workspace map file is named as what keeps the map from being saved; an error of a sync or a push no longer shows a folder's path with a drive letter or a network share; a check or a go-live run at low priority runs below normal priority.
+
+### Windows: Files
+
+- **Files packs names in any script.** On Windows, Files packs files and folders whose names have letters in any script (Hindi, Chinese, an emoji and others), which Windows' own tar could not pack.
+- **Files unpacks them, and refuses an archive it cannot unpack there in plain words.** A .tar.gz, .tgz or .tar whose files have names in any script is unpacked. Such an archive is refused, with the reason, when a name in it could not be used on Windows: a character Windows does not allow, a part ending in a dot or a blank, a device name such as CON, or two names that differ only in letter case. An archive is refused as well when a name in it is one that Windows reads as git's own folder or as a private folder: with a dot or a blank at its end, with a part behind a colon, or the short name GIT~1. When Windows' own tar stops on a file name, Files says so and names the file.
+
+### Windows: Go live and checks
+
+- **A go-live command outlives a restart of the dashboard.** On Windows a go-live's update command and the servers it starts go on through a restart of the dashboard, keep their output up to its limit, and are ended as one tree.
+- **A command at its time limit is ended with what it started, and only that.** On Windows a check or a go-live command that reaches its time limit is ended through its own process handle, so a program that Windows has just given its old process number is never ended in its place, nor five seconds later. A command left by a dashboard that stopped is ended only when Windows still shows it with the start it was recorded with; when it does not, nothing is ended and the answer says so. When the system cannot list its processes, such a command, and a command Tia runs, is still ended at its time limit, and the answer says that what it started may still run.
+- **A step left by a dashboard that was ended is taken over.** On Windows a dashboard that comes back after a go-live restart, or its helper, now takes over a step left by the dashboard that was ended, even while the other dashboard or a reader still has the step's file open. The helper no longer gives up on a step after one look it could not decide.
+
+### Windows: Tia's commands
+
+- **A command Tia runs is ended at its time limit together with everything it started.** Her call no longer waits for a program that the command left running.
+
+### Windows: the wall
+
+- **The wall reads Windows' own spellings.** The wall is Hoprig's check that reads a command before it runs and holds the kinds that stay yours, such as a deploy or administrator rights. On Windows it now reads PowerShell's and cmd's spellings of Hoprig's folders and variables, a drive share as the drive it reaches, a short 8.3 name, and what cmd and PowerShell run behind their switches (also start, call, iex and a quoted program path), each in a bounded time. A place inside a command's text is compared as written, without asking the disk, and a line that names more than 64 places inside its texts is held.
+- **Administrator rights are told by Windows' own programs.** gsudo, runas, Start-Process with RunAs and sudo.exe are read as administrator rights. An administrator command that names a Hoprig folder, a network share or a device path, or a short name or a drive-relative word that could reach a Hoprig folder, is refused, and so is a Windows shell started as administrator.
+
+### Windows: locks and saving
+
+- **A save no longer fails when another program has the file a moment.** On Windows, when two dashboards, or a dashboard and a `hoprig` command, saved the same file at the same moment, one of them could fail with a permission error (a page of the dashboard showed a server error). Such a save now waits a moment until the other lets go; the settings file and a run's record are read again once they are let go.
+- **Sending into a session, Improve Tia and a move to another user try again.** On Windows, sending a message into a session, starting a round of **Improve Tia** and moving Hoprig to another user no longer fail with a permission error when Windows refuses a lock or state file for a moment: they try again and go on.
+- **A lock left by a program that stopped is taken over.** Getting a project and the record of what Tia spent on paid use are each kept by a lock. On Windows such a lock left by a program that stopped is now taken over also while another program that wants it is reading it, so two gets of the same project at once no longer both end as busy, or go on without a lock, and the spending record is no longer answered as busy.
+- **A hook or a command no longer fails when a lock's helper file stays a moment.** On Windows a hook (the small program of Hoprig that Claude Code calls at each step of a session) or a command no longer fails when the temporary file of a lock it took over could not be removed at that moment.
+
+### Windows: runs by themselves and schedules
+
+- **A scheduled run ends its whole tree.** On Windows a run that starts by itself at its time ends its coding tool and every process that tool started, one at a time and each checked by when it started, so a program that Windows has since given the same process number is never ended. The coding tool is started from its npm launcher. When a part could not be ended, the run says that its tool may still run, and keeps its own copy of the project until that program has closed.
+- **A schedule whose run left its coding tool running is switched off.** On Windows, when a scheduled run's coding tool could not be ended, that schedule is now switched off so its next run does not start in the same project, and Work → Activity says to switch it on again in Work → Schedules once that program has ended. A schedule that names another computer is not switched off.
+
+### On every system
+
+- **A process number given to another program no longer reads as the program that stopped.** A lock, a claim or a hold left by a program that stopped no longer reads as held because another program was given its process number within the last minutes. A stopped round of **Improve Tia**, or a stopped move of Hoprig to another user, no longer blocks the next one when another program has since been given its process number. On macOS and Windows the dashboard now ends a go-live or check command left from before its restart at the command's time limit, and records the identity of the commands it starts. On Windows the start of a process Hoprig may not open (another account's, or a protected one) is read in a second way, so a lock it left is no longer held until that process ends.
+- **The spending lock is taken over by one at a time.** When the lock of Tia's spending record is left behind, it is taken over after 5 seconds by one taker at a time, and that taker holds it at once, also at the end of its wait.
+- **The offer to keep a way round is no longer left out.** The line that offers to keep a way round, after a command works right after the same kind of command failed, now comes also when the two ran within a moment of each other.
+- **An upload past the size limit gets its answer.** An upload past the size limit that does not say its length is refused at once; the rest of what it sends is read and dropped for up to two seconds before the connection is closed, so the browser gets the refusal instead of a cut connection.
+- **A clone with a file in its way is refused and said.** When a file stands where a folder on the way to a project's place goes (on Windows a link a repository brings can be checked out as a plain file), nothing is cloned, a line names that file, and the run goes on with the next project, where it stopped with an error before.
+
+### For contributors
+
+- **The test suite passes on GitHub's Windows runners.** With Node.js 24 and 26, about 835 tests are skipped there, each with its cause: mostly a stand-in that is a shell script, or a part that does not exist on Windows (Hands-off, the box). The Windows jobs still do not block a run, and the stand-ins that keep a test away from the real programs of a computer are not proven on a real Windows computer: run the suite on Windows only on a machine you can throw away, as GitHub's runners are.
+- **The test runner says when a file's results did not all arrive.** A file whose summary never came is run once more on its own, and the runner says how that run ended; its closing line no longer says that every result arrived when that was not checked.
+
 ## 0.3.5 (25 November 2026)
 
 This version needs Node.js 24.13.1 or newer. Tia installs, discards or takes back a skill learned from your own work, each by a card that waits for your tap. Bringing in a project you already have keeps a project that is laid out as it is, leaves installed packages out of the copy and takes the name you give. The workspace can tell you once a day what exists only on this computer, and once a week whether each repository is still on its git server. There is an Android kit, a restart of the dashboard from Health, and a first set of fixes for Windows, which is not supported yet.

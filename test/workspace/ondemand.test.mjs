@@ -65,7 +65,7 @@ test('restore on a second home: the brain, the credentials, the group\'s reposit
   const r = await restoreWorkspace(u.brain, { ui, dir: B.ws, projects: B.projects });
   assert.equal(r.ok, true, JSON.stringify(r.plan));
   for (const d of ['ai_brain', 'credentials', 'kits', 'git/tool']) assert.ok(real(path.join(B.ws, d)), `${d} is cloned`);
-  assert.equal(fs.statSync(path.join(B.ws, 'credentials')).mode & 0o777, 0o700, 'only its owner opens the credentials');
+  if (process.platform !== 'win32') assert.equal(fs.statSync(path.join(B.ws, 'credentials')).mode & 0o777, 0o700, 'only its owner opens the credentials');
   for (const p of ['shop', 'blog']) assert.equal(fs.existsSync(path.join(B.projects, p)), false, `${p} is not cloned`);
   assert.deepEqual(r.notHere, ['shop', 'blog']);
   assert.ok(r.plan.filter((e) => e.action === 'notHere').every((e) => /in the map, not on this computer: hoprig get /.test(e.result)));

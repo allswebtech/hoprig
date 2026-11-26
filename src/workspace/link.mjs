@@ -30,6 +30,7 @@ import { linkMemories, mergeInto, safeReal, stamp } from '../pcsetup/workspace.m
 import { MANIFEST as SKILLS_RECORD, foldUserRecord } from '../skillhub/store.mjs';
 import { brainDir } from './layout.mjs';
 import { copyIn, kindAt, leaves, leavesWords, mkdirIn, readIn, writeIn } from './inside.mjs';
+import { replaceFile } from '../replacefile.mjs';
 
 /** The section the shared rules file gets for tools without a memory of their own (kept to a few lines). */
 export const MEMORY_BEGIN = '<!-- hoprig: memory for coding tools without their own -->';
@@ -219,7 +220,7 @@ export function applyLink({ platform = process.platform, now = new Date(), home 
         fs.rmSync(`${p.link}.tmp`, { force: true });
         fs.writeFileSync(`${p.link}.tmp`, JSON.stringify(next, null, 2) + '\n', { mode });
         fs.chmodSync(`${p.link}.tmp`, mode); // the umask must not widen or narrow it
-        fs.renameSync(`${p.link}.tmp`, p.link);
+        replaceFile(`${p.link}.tmp`, p.link);
         return { ...p, done: cur ? `added to its settings (old file kept: ${path.basename(backup)})` : 'its settings file was made with them' };
       }
       if (p.kind === 'section') {

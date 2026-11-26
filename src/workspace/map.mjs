@@ -30,7 +30,7 @@ import path from 'node:path';
 import { gitRead } from '../gitread.mjs';
 import { MANIFEST, readManifest, relOk, writeManifest } from '../pcsetup/workspace.mjs';
 import { LEAVES, kindAt, leaves, leavesWords, myLinkCommand, myLinkEntries, readIn, realOf, writeIn } from './inside.mjs';
-import { capture, showCommand, showCommands } from '../setup/system.mjs';
+import { capture, showCommands, showFileCommand } from '../setup/system.mjs';
 import { findProject, ignoreFileOf, mapTargets, missingIgnoreLines, safeFolders, unignoredMembers } from './groups.mjs';
 import { isDir, isGitRepo, isLinkedWorktree, projectsIn, workspaceDir } from './layout.mjs';
 import { onePlace, refOf, sameUrl, validateMap } from './mapcheck.mjs';
@@ -318,7 +318,7 @@ export function forget(name, dir = workspaceDir()) {
  *   unmapped  here, not in the map ("add it": workspace map)
  * → { exists, file, map, errors?, entries: [{ kind, label, url, path, state }], counts }
  */
-export async function mapStatus({ dir = workspaceDir(), projects = projectsIn(), run = capture, blind } = {}) {
+export async function mapStatus({ dir = workspaceDir(), projects = projectsIn(), run = capture, blind, platform = process.platform } = {}) {
   const cur = readMap(dir);
   const base = { exists: cur.exists, file: mapFile(dir), map: cur.map };
   if (cur.errors) return { ...base, errors: cur.errors, entries: [], counts: {} };
@@ -363,7 +363,7 @@ export async function mapStatus({ dir = workspaceDir(), projects = projectsIn(),
   for (const e of entries) {
     if (e.kind !== 'project' || e.state !== 'missing' || !e.url) continue;
     const twin = entries.find((x) => x.kind === 'project' && x.state === 'unmapped' && sameUrl(x.url, e.url));
-    if (twin) e.fix = `it is here as ${twin.label}: ${showCommand(['mv', twin.path, e.path])}`;
+    if (twin) e.fix = `it is here as ${twin.label}: ${showFileCommand('mv', [twin.path, e.path], platform)}`; // as restore says it (mvCommand)
   }
   // A project (or a code repository of one) that is only in the map is the normal state: a project lies on a computer
   // only while its owner works on it there. Its own state, with the one command that gets it; never a warning.
@@ -398,7 +398,7 @@ export async function mapStatus({ dir = workspaceDir(), projects = projectsIn(),
   const kept = merged ? leaveOutNew(cur.map, merged.map) : { map: null, left: [] };
   const vw = merged ? validateMap(kept.map, { write: true, known: onePlace(cur.map) }) : { ok: true };
   let blocked = vw.ok ? null : vw.errors;
-  if (cur.exists && !writable(path.dirname(mapFile(dir)))) (blocked || (blocked = [])).push('the brain\'s folder cannot be written on this computer');
+  if (cur.exists && !mapWritable(dir)) (blocked || (blocked = [])).push('the brain\'s folder cannot be written on this computer');
   // The brain itself (or the map file's folder) behind a link that leads out: the map is never written there. Named
   // with the command, as every other link; and it is what stops the upkeep.
   const brainOut = leaves(path.join(dir, 'ai_brain'), path.dirname(mapFile(dir)), { dir, projects });
@@ -422,6 +422,17 @@ const writable = (d) => {
     return false;
   }
 };
+
+/**
+ * Whether the map can be written here: its folder can be written. On Windows a folder always answers yes to that
+ * question (Node reads only the read-only mark, which Windows keeps for files): what stops the write there is a
+ * read-only map file, which the write's rename over it is refused on, so the file is asked too. `platform`: for the tests.
+ */
+export function mapWritable(dir, platform = process.platform) {
+  const file = mapFile(dir);
+  if (!writable(path.dirname(file))) return false;
+  return platform !== 'win32' || !fs.existsSync(file) || writable(file);
+}
 
 /** Where each entry of the maps is on this computer (their mapTargets): Map("<kind>:<label>" → folder). */
 function entryPaths(lists, ctx) {

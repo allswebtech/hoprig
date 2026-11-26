@@ -9,6 +9,9 @@ import path from 'node:path';
 import { test } from 'node:test';
 import { scratch } from './helpers.mjs';
 
+// The move to a user of its own is Linux only: root, user ids, runuser and systemd, with POSIX paths.
+const LINUX_ONLY = { skip: process.platform === 'win32' && 'the move to a user of its own is Linux only (root, chown by uid, POSIX paths)' };
+
 const s = scratch();
 test.after(s.cleanup);
 const P = await import('../../src/setup/moveplan.mjs');
@@ -41,7 +44,7 @@ const io = (over = {}) => ({
   ...over,
 });
 
-test('a stop names the line that says what failed, never an advice that came last, and where the whole output is', async () => {
+test('a stop names the line that says what failed, never an advice that came last, and where the whole output is', LINUX_ONLY, async () => {
   const out = 'hoprig setup 0.0.0\n  ✓ Node.js v24\n  ! Dashboard restarted, but set-up cannot read where it listens\n  hoprig is not ready: set-up cannot read where the dashboard running now listens\n  · Sign in to Claude Code: run claude, then type /login\n';
   assert.equal(SW.failedLine(out), 'hoprig is not ready: set-up cannot read where the dashboard running now listens');
   assert.equal(SW.failedLine('x\nhoprig installer: npm could not reach the network\n· advice\n'), 'hoprig installer: npm could not reach the network');
@@ -58,7 +61,7 @@ test('a stop names the line that says what failed, never an advice that came las
 });
 
 // The user is the runner's own id, so the hand-over's chown works without root; as uid 0 that user would be root.
-test('the install for the user: the same build root runs, packed from this Hoprig, with --no-dashboard; its output kept', { skip: process.getuid() === 0 && 'the runner is uid 0: the user would be root' }, async () => {
+test('the install for the user: the same build root runs, packed from this Hoprig, with --no-dashboard; its output kept', { skip: LINUX_ONLY.skip || (process.getuid() === 0 && 'the runner is uid 0: the user would be root') }, async () => {
   const user = { name: 'hoprig', uid: process.getuid(), gid: process.getgid(), home: path.join(s.tmp, 'own-home') };
   fs.mkdirSync(user.home, { recursive: true });
   const asked = [];
@@ -83,7 +86,7 @@ test('the install for the user: the same build root runs, packed from this Hopri
   assert.equal(fs.existsSync(path.join(user.home, '.cache/hoprig-move')), false, 'the hand-over folder is taken away');
 });
 
-test('no user Hoprig made: the move makes it first through the installer (--user-only), then copies to its real home', async () => {
+test('no user Hoprig made: the move makes it first through the installer (--user-only), then copies to its real home', LINUX_ONLY, async () => {
   const calls = [];
   const madeHome = path.join(s.tmp, 'made', 'hoprig');
   const plan = await P.movePlan({ io: io({ run: async (argv) => (calls.push(argv.join(' ')), { ok: false, code: 2, stdout: '' }) }) });
@@ -127,7 +130,7 @@ test('the making goes through the installer shipped with this Hoprig, and a fail
   assert.deepEqual(ok, { ok: true, user: { name: 'hoprig', uid: 1500, gid: 1500, home: '/home/hoprig' } });
 });
 
-test('a second run finds the move\'s own copy by its mark and goes on; a folder the move did not make still stops it', async () => {
+test('a second run finds the move\'s own copy by its mark and goes on; a folder the move did not make still stops it', LINUX_ONLY, async () => {
   const own = path.join(home, '.config/hoprig');
   write(path.join(own, 'config.json'), '{"half":true}');
   // No mark: what lies there is someone's, and it stops the move.
@@ -166,7 +169,7 @@ test('a second run finds the move\'s own copy by its mark and goes on; a folder 
   fs.rmSync(own, { recursive: true });
 });
 
-test('a move that switched (or was switching) stops a second look: nothing is cleared, renamed or copied until --back', async () => {
+test('a move that switched (or was switching) stops a second look: nothing is cleared, renamed or copied until --back', LINUX_ONLY, async () => {
   const own = path.join(home, '.config/hoprig');
   write(path.join(own, 'config.json'), '{"live":true}');
   for (const state of ['switching', 'switched']) {
@@ -197,7 +200,7 @@ test('a move that switched (or was switching) stops a second look: nothing is cl
   fs.rmSync(own, { recursive: true });
 });
 
-test('a part of a stopped copy that changed after the move made it is set aside, never deleted; an unchanged one is taken away', async () => {
+test('a part of a stopped copy that changed after the move made it is set aside, never deleted; an unchanged one is taken away', LINUX_ONLY, async () => {
   const base = path.join(s.tmp, 'changed');
   const a = path.join(base, 'Workspace');
   const b = path.join(base, '.config', 'hoprig');
@@ -224,7 +227,7 @@ test('a part of a stopped copy that changed after the move made it is set aside,
   assert.equal(r3.aside.length, 2);
 });
 
-test('the run marks "switching" before root\'s dashboard stops, and "back" when the switch failed after it', async () => {
+test('the run marks "switching" before root\'s dashboard stops, and "back" when the switch failed after it', LINUX_ONLY, async () => {
   const marks = [];
   const plan = await P.movePlan({ io: io() });
   assert.equal(plan.ok, true, plan.stops.join('\n'));
@@ -288,7 +291,7 @@ test('a stop says what it leaves behind, the one command that goes on and the on
   ]);
 });
 
-test('move-to-user --no-admin: the user is made without administrator rights; the look and its JSON say a user is made', async () => {
+test('move-to-user --no-admin: the user is made without administrator rights; the look and its JSON say a user is made', LINUX_ONLY, async () => {
   const CLI = await import('../../src/setup/movecli.mjs');
   assert.equal(CLI.parseMoveArgs(['--no-admin']).noAdmin, true);
   assert.match(CLI.MOVE_USAGE, /--no-admin/);
@@ -305,7 +308,7 @@ test('move-to-user --no-admin: the user is made without administrator rights; th
   assert.equal(view.user.name, 'hoprig');
 });
 
-test('a hang-up after the switch, while root\'s gateway is stopped and the user\'s not yet started, does not end the move', async () => {
+test('a hang-up after the switch, while root\'s gateway is stopped and the user\'s not yet started, does not end the move', LINUX_ONLY, async () => {
   const { EventEmitter } = await import('node:events');
   const proc = Object.assign(new EventEmitter(), { stdout: new EventEmitter(), stderr: new EventEmitter() });
   const plan = await P.movePlan({ io: io() });
@@ -412,7 +415,7 @@ test("after a used copy, or once root's dashboard stopped, no stop offers to tak
   }
 });
 
-test('the real clearing and copy after a used copy whose ~/.config is a link: the user\'s own settings are never offered for removal', async () => {
+test('the real clearing and copy after a used copy whose ~/.config is a link: the user\'s own settings are never offered for removal', LINUX_ONLY, async () => {
   const t = path.join(s.tmp, 'linked');
   const r0 = path.join(t, 'root');
   const h = path.join(t, 'home');

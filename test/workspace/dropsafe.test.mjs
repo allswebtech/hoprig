@@ -1,11 +1,10 @@
 // `hoprig drop` loses nothing that is only here, also where it is easy to miss: a repository inside build output or a
 // submodule, files under a build/ folder of test data, a change git hides (skip-worktree, assume-unchanged), refs other
 // than branches and tags (git notes), a private folder the project tracks, and a folder that cannot be written.
-import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
-import { dropOn, dropWorld, getOn, owner, reset } from './dropfix.mjs';
+import { assert, dropOn, dropWorld, getOn, owner, reset } from './dropfix.mjs';
 
 const w = await dropWorld('safe');
 test.after(() => w.cleanup());
@@ -65,6 +64,7 @@ test('a submodule under vendor/ with a commit only here: that commit reaches its
   const lib = path.join(api(), 'vendor', 'lib');
   const sha = w.commit(lib, 'own.txt', 'only here\n');
   const chk = await dropOn(A, ['shop', '--check', '--json']);
+  // A repository's label is written with / on every system (drop.mjs repoLabel).
   assert.ok(chk.json.projects[0].asks.some((a) => a.ask === 'default branch' && a.repo === `${API}/vendor/lib`), JSON.stringify(chk.json.projects[0].asks));
   const r = await dropOn(A, ['shop'], { answers: owner('shop', '2') });
   assert.equal(r.code, 0, r.text);
@@ -131,7 +131,7 @@ test('a read-only folder in the project (a tool\'s cache) is deleted with it; ge
   assert.equal(g.code, 0, g.text);
 });
 
-test('a leftover that cannot be deleted is named with the command; get does not throw', async () => {
+test('a leftover that cannot be deleted is named with the command; get does not throw', { skip: process.platform === 'win32' && 'a folder is not made read-only by chmod on Windows' }, async () => {
   await reset(A);
   await assert.rejects(dropOn(A, ['shop'], { onStep: (st) => {
     if (st === 'rename') throw new Error('killed');
@@ -197,6 +197,9 @@ test('a repository whose list of tracked files is over 8 MB is checked: an edit 
   for (let i = 0; i < 20_000; i++) fs.writeFileSync(path.join(deep, `f${i}`), '');
   fs.writeFileSync(path.join(big, 'local.cfg'), 'committed\n');
   w.sh(big, 'init', '-q', '-b', 'main');
+  // Git for Windows passes by a path over 260 characters (these are about 470) without core.longpaths: the many files
+  // would not be added at all, and the case would not be the one named.
+  if (process.platform === 'win32') w.sh(big, 'config', 'core.longpaths', 'true');
   w.sh(big, 'add', '-A');
   w.sh(big, 'commit', '-q', '-m', 'many files');
   const size = execFileSync('git', ['-C', big, 'ls-files', '-v', '-s', '-z'], { maxBuffer: 64 << 20 }).length;

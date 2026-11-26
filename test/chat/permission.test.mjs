@@ -55,6 +55,9 @@ function newChat(o = {}, env = {}) {
 const turnEnd = (c) => new Promise((r) => c.once('turn', r));
 const logged = (c) => fs.readFileSync(c.argsFile, 'utf8').trim().split('\n').map((l) => JSON.parse(l));
 const answers = (c) => logged(c).filter((x) => x.answer).map((x) => x.answer);
+// The one rule for a delete reads folders written as /a/b only (src/asking.mjs plainDelete): on Windows a chat's folder
+// is C:\…, so no delete is plain there and each one waits for the owner, which is the safe side.
+const DELETE_RULE = { skip: process.platform === 'win32' && 'the delete rule reads POSIX folders only; on Windows every delete waits for the owner' };
 const asks = (c) => c.events.filter((e) => e.kind === 'ask');
 const card = async (c, n = 1) => (await until(`card ${n}`, () => asks(c).length >= n && c.pending.size > 0 && asks(c))).at(-1);
 /** One message that ends without the owner. */
@@ -146,7 +149,7 @@ test('bypassPermissions: the owner\'s own settings win: a deny rule stays denied
   assert.ok(!fs.existsSync(path.join(c.cwd, 'hooked.txt')));
 });
 
-test('bypassPermissions: Claude Code\'s stop before a delete is answered by the one rule: a delete plainly inside the chat\'s folder runs, every other keeps the stop', async (t) => {
+test('bypassPermissions: Claude Code\'s stop before a delete is answered by the one rule: a delete plainly inside the chat\'s folder runs, every other keeps the stop', DELETE_RULE, async (t) => {
   const c = newChat({ permissionMode: 'bypassPermissions' });
   t.after(() => c.stopAndWait());
   // An absolute target inside the chat's folder: allowed, as in a terminal.
@@ -563,7 +566,7 @@ test('protocol: an input nested very deep, in lists or objects, is parsed withou
   assert.deepEqual(clipInput([[[[[[['x']]]]]]]), [[[[['…']]]]], 'lists end at the same depth as objects');
 });
 
-test('switching to bypass allows what the one rule allows: a question, a plan, a rule\'s or hook\'s ask, another tool, any other command or delete stay open', () => {
+test('switching to bypass allows what the one rule allows: a question, a plan, a rule\'s or hook\'s ask, another tool, any other command or delete stay open', DELETE_RULE, () => {
   const answered = [];
   const pushed = [];
   const cwd = path.join(process.env.HOPRIG_WORKSPACE_DIR, 'shop');
@@ -581,7 +584,7 @@ test('switching to bypass allows what the one rule allows: a question, a plan, a
   assert.deepEqual(pushed.map((p) => p.request), ['inside']);
 });
 
-test('bypass: the chat reads a delete against its own folder, with absolute targets only', () => {
+test('bypass: the chat reads a delete against its own folder, with absolute targets only', DELETE_RULE, () => {
   const rm = (request, command) => P.parseLine({ type: 'control_request', request_id: request, request: { subtype: 'can_use_tool', tool_name: 'Bash', input: { command }, tool_use_id: request, decision_reason_type: 'safetyCheck', classifier_approvable: false } })[0];
   const home = os.homedir();
   const workspace = process.env.HOPRIG_WORKSPACE_DIR; // the sandbox's

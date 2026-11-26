@@ -20,8 +20,8 @@ test('store: atomic writes, mode 600 in a 700 folder, no temporary file left', (
     const file = path.join(t.dir, 'automation', 'queue.json');
     assert.deepEqual(JSON.parse(fs.readFileSync(file, 'utf8')), { w: { items: [1] } });
     if (posix) {
-      assert.equal(fs.statSync(file).mode & 0o777, 0o600);
-      assert.equal(fs.statSync(path.dirname(file)).mode & 0o777, 0o700);
+      if (process.platform !== 'win32') assert.equal(fs.statSync(file).mode & 0o777, 0o600);
+      if (process.platform !== 'win32') assert.equal(fs.statSync(path.dirname(file)).mode & 0o777, 0o700);
     }
     assert.deepEqual(fs.readdirSync(path.dirname(file)), ['queue.json']);
     // A failed write leaves the old file whole and no temporary behind.

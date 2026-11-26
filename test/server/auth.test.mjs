@@ -41,7 +41,7 @@ test('session store: create, validate, persist, expire, tag, destroy', () => {
   // the file holds hashes, never the token
   const text = fs.readFileSync(file, 'utf8');
   assert.equal(text.includes(t), false);
-  assert.equal((fs.statSync(file).mode & 0o777).toString(8), '600');
+  if (process.platform !== 'win32') assert.equal((fs.statSync(file).mode & 0o777).toString(8), '600');
   // survives a restart
   const s2 = new SessionStore(file, { now: () => now });
   assert.equal(s2.valid(t, 'tagA'), true);

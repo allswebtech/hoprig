@@ -55,7 +55,18 @@ export function tempWork(name = 'work') {
     execFileSync('git', ['clone', '-q', bare, d], { stdio: 'ignore' });
     return d;
   };
-  return { root, home, ws, brain, projects, server, git, repo, otherClone, cleanup: () => fs.rmSync(root, { recursive: true, force: true }) };
+  // On Windows a folder a process just ended in (a coding tool's stand-in, git) stays held for a moment: retried there.
+  return { root, home, ws, brain, projects, server, git, repo, otherClone, cleanup: () => fs.rmSync(root, { recursive: true, force: true, ...(process.platform === 'win32' ? { maxRetries: 10, retryDelay: 100 } : {}) }) };
+}
+
+/**
+ * The signal a child of spawnSync (or the error of execFileSync) ended by. A child that ends itself with
+ * process.kill(process.pid, 'SIGKILL') has no signal on Windows: Node ends it there with TerminateProcess and exit
+ * code 1. So on Windows an exit code 1 with no error printed counts as that SIGKILL; elsewhere the signal as it is.
+ */
+export function endSignal(r, platform = process.platform) {
+  if (platform === 'win32' && r.signal == null && r.status === 1 && !/Error/.test(String(r.stderr ?? ''))) return 'SIGKILL';
+  return r.signal;
 }
 
 /** Write files { 'rel/path': content } below `dir`. */

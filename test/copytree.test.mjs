@@ -64,8 +64,8 @@ test('a folder: its mode and times set after its content, so a read-only folder 
   const dst = path.join(d, 'dst', 'ro');
   assert.equal(fs.readFileSync(path.join(dst, 'a.txt'), 'utf8'), 'a\n');
   assert.equal(fs.readFileSync(path.join(dst, 'inner', 'b.txt'), 'utf8'), 'b\n');
-  assert.equal(mode(dst), 0o555, 'read-only afterwards');
-  assert.equal(mode(path.join(dst, 'inner')), 0o500);
+  if (process.platform !== 'win32') assert.equal(mode(dst), 0o555, 'read-only afterwards');
+  if (process.platform !== 'win32') assert.equal(mode(path.join(dst, 'inner')), 0o500);
   assert.ok(Math.abs(fs.statSync(dst).mtimeMs - fs.statSync(path.join(src, 'ro')).mtimeMs) < 2, 'its time, set after its content');
   assert.ok(Math.abs(fs.statSync(path.join(dst, 'inner')).mtimeMs - fs.statSync(path.join(src, 'ro', 'inner')).mtimeMs) < 2);
 });

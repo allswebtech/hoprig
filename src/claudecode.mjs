@@ -39,6 +39,8 @@ import { listProfiles, ownFolder } from './profiles.mjs';
 import { forInstalls, withoutSecrets } from './secretenv.mjs';
 import { forgetUsage, rememberLogin } from './routerstate.mjs';
 import { capture, compareVersions, npmArgv, stream, which } from './setup/system.mjs';
+import { execFile } from 'node:child_process';
+import { resolveWindowsBin, windowsSpawnPlan } from './winspawn.mjs';
 
 export const INSTALL_SH = 'https://claude.ai/install.sh';
 export const INSTALL_PS1 = 'https://claude.ai/install.ps1';
@@ -136,8 +138,28 @@ export function claudeVersionQuick({ bin = configuredBin(), env = process.env } 
 // the network, the file tools kept to the working folder). Asked of its own help, once per installed program; a help
 // that could not be read is asked again the next time, and counts as "does not know" until then.
 const restrictedSeen = new Map();
-export async function restrictedKnown({ bin = configuredBin(), env = process.env, run = capture } = {}) {
+/** A start plan ({ command, args, options }) run once: { ok, stdout } as capture gives it. */
+const helpOfPlan = (plan, { env, timeout }) => new Promise((resolve) => {
+  try {
+    execFile(plan.command, plan.args, { env, timeout, windowsHide: true, maxBuffer: 8 << 20, ...plan.options }, (err, stdout) => resolve({ ok: !err, stdout: String(stdout || '') }));
+  } catch {
+    resolve({ ok: false, stdout: '' });
+  }
+});
+export async function restrictedKnown({ bin = configuredBin(), env = process.env, run = capture, platform = process.platform, exists, runPlan = helpOfPlan } = {}) {
   let key = bin || 'claude';
+  // Windows: an npm install is only a claude.cmd shim, which no program start finds by the bare name (ENOENT); the
+  // help is asked through the same start plan a run uses (src/winspawn.mjs: a .cmd through cmd.exe).
+  if (platform === 'win32') {
+    const file = resolveWindowsBin(key, env || {}, exists);
+    if (file) {
+      if (restrictedSeen.has(file)) return restrictedSeen.get(file);
+      const r = await runPlan(windowsSpawnPlan(file, ['--help'], env || {}), { env, timeout: 20_000 });
+      const known = !!r.ok && /^\s+--restricted\b/m.test(r.stdout || '');
+      if (r.ok) restrictedSeen.set(file, known);
+      return known;
+    }
+  }
   try {
     const found = resolveClaude({ bin, env });
     if (found) key = fs.realpathSync(found.path);

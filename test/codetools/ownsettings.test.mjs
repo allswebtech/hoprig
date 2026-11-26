@@ -129,7 +129,7 @@ test('remove: what was shown and nothing else, the backup first and whole, the i
   assert.equal(r.ok, true, r.why);
   assert.deepEqual(r.removed, ['ANTHROPIC_BASE_URL', 'ANTHROPIC_API_KEY']);
   assert.equal(fs.readFileSync(r.backup, 'utf8'), before, 'the whole file, as it was');
-  assert.equal(fs.statSync(r.backup).mode & 0o777, 0o600);
+  if (process.platform !== 'win32') assert.equal(fs.statSync(r.backup).mode & 0o777, 0o600);
   assert.doesNotMatch(path.basename(r.backup), new RegExp(KEY));
   assert.equal(fs.readFileSync(FILE, 'utf8'), settings({ KEEP: 'x' }), 'the rest as it was, four spaces');
 });
@@ -259,7 +259,7 @@ test('Providers: the page is told, the owner\'s press takes it out or takes it o
     assert.equal(p.env.ANTHROPIC_AUTH_TOKEN, KEY, 'kept where profiles keep keys');
     assert.equal(p.env.ANTHROPIC_MODEL, 'gw-big', 'the model it worked with');
     assert.equal(JSON.parse(fs.readFileSync(FILE, 'utf8')).env.ANTHROPIC_MODEL, undefined, 'out of the file with the address');
-    assert.equal(fs.statSync(path.join(box.profiles, `${r.json.name}.env`)).mode & 0o777, 0o600);
+    if (process.platform !== 'win32') assert.equal(fs.statSync(path.join(box.profiles, `${r.json.name}.env`)).mode & 0o777, 0o600);
     assert.equal(JSON.parse(fs.readFileSync(FILE, 'utf8')).env.ANTHROPIC_BASE_URL, undefined);
     const backupOf = r.json.backup;
     assert.equal(fs.readFileSync(r.json.backup, 'utf8'), settings({ ANTHROPIC_BASE_URL: 'http://127.0.0.1:8273', ANTHROPIC_AUTH_TOKEN: KEY, ANTHROPIC_MODEL: 'gw-big' }, 2));

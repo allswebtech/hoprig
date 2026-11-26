@@ -23,14 +23,14 @@
 //     that mode, and it is ended at once when its own first line names any other tool. Such a run cannot commit:
 //     when it has ended by itself, the dashboard makes the one commit of what it changed (alonecommit.mjs).
 //     The same holds for every session Tia starts by herself (hers(), below: a mission's run and a look).
-import { spawn, spawnSync } from 'node:child_process';
+import { execFile, spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { EFFORTS, PERMISSION_MODES } from '../config.mjs';
 import { heldUntil, holdWords } from '../operator/decide-store.mjs';
 import { MODEL_RE } from '../server/endpoint.mjs';
 import { stateDir } from '../paths.mjs';
-import { sameProcess, system as procIdent } from '../procid.mjs';
+import { SAME_WITHIN, sameProcess, system as procIdent } from '../procid.mjs';
 import { capture } from '../setup/system.mjs';
 import { restrictedKnown } from '../claudecode.mjs';
 import { projectsIn, workspaceDir } from '../workspace/layout.mjs';
@@ -39,13 +39,14 @@ import { withLock } from './lock.mjs';
 import { CLOSED, ID_RE, briefOf, checkBrief, findItem, fromOf, setStatus, statusOf, todayIn } from './model.mjs';
 import { resolvePlace } from './place.mjs';
 import { WAIT_OVER } from './planview.mjs';
-import { endsByItself, tokensOf, usedOf, cleanFolder, cleanText, dropStart, keepStart, listRuns, newRunId, pathsOf, readRun, readStart, viewRun, writeRun, writerId } from './runs.mjs';
+import { endsByItself, tokensOf, usedOf, cleanFolder, cleanText, dropStart, keepStart, listRuns, newRunId, pathsOf, readRun, readStart, treePaths, viewRun, writeRun, writerId } from './runs.mjs';
 import { changeHeld, readDoc } from './store.mjs';
 import { commitWords, currentBranch, dropRunBranch, keptTree, noHooksEnv, refsOf, releaseTree, repoTop, treeFor } from './alonegit.mjs';
 import { commitRun, gitEntryOf } from './alonecommit.mjs';
 import { endAsHers, startAsHers } from '../assistant/hersignin.mjs';
 import { credsDir } from '../workspace/credlinks.mjs';
 import { fileURLToPath } from 'node:url';
+import { resolveWindowsBin, windowsSpawnPlan } from '../winspawn.mjs';
 
 // A mission's session that may run the project's tests in the box (src/mission/boxtool.mjs): the one tool server of the
 // product's own, by its file, started with the Node that runs Hoprig; its one tool by the name the coding tool gives it.
@@ -72,6 +73,41 @@ export const ALONE_ASK = `Nobody is watching this run: do the work, then end wit
 const KILL_GRACE_MS = 5_000;
 const EXIT_WAIT_MS = 1_000; // after the tool is gone, how long what it started may still hold its output
 const CLOSE_WAIT_MS = 15_000; // how long the dashboard's stop waits for its runs to settle
+export const MAY_STILL_RUN = 'The coding tool may still be running'; // Windows: its tree could not be ended
+// What a run record's reason keeps (settle: words(…, 400)) and an Activity outcome keeps (src/automation/store.mjs).
+// When a schedule is switched off, its sentence ends the reason and must stay whole: the detail before it is cut
+// instead (REASON_SPARE leaves room for the masking of paths, which can change the length a little).
+const REASON_MAX = 400;
+const REASON_SPARE = 12;
+const ACTIVITY_MAX = 300;
+/** `s` cut to at most `room` characters (never fewer than `min`), ending in "…" when it was cut. */
+const fitTo = (s, room, min = 20) => {
+  const t = String(s ?? '');
+  const r = Math.max(min, room);
+  return t.length <= r ? t : r <= 1 ? '…' : `${t.slice(0, r - 1)}…`;
+};
+const refusedSentence = (tools) => `A step needed an OK and was refused (${tools.join(', ')}): nobody was there to allow it`;
+// The sentence before it already says the coding tool may still be running: this one says what was done and what to do.
+const offSentence = (name) => `. The schedule "${name}" was switched off: switch it on again in Work → Schedules once that program has ended`;
+/**
+ * The reason of a run whose tool may still run: `head` (what stopped it, then MAY_STILL_RUN's opening), `detail` (why
+ * it could not be ended), `tail` (a sentence after it, such as a refused step) and, when its schedule was switched off
+ * (`name`), the switch sentence LAST. With a switch it is made to fit REASON_MAX − REASON_SPARE as a whole, so the
+ * record's cut never takes the instruction: the detail is cut first (down to "…"), then the schedule's name inside the
+ * sentence (down to 8 characters), then the tail. Without a switch it is as it always was.
+ */
+export function stillReason(head, detail, tail, name) {
+  if (name === null || name === undefined) return `${head}${detail})${tail}`;
+  const budget = REASON_MAX - REASON_SPARE;
+  let d = String(detail ?? '');
+  let t = String(tail ?? '');
+  let n = String(name);
+  const over = () => head.length + d.length + 1 + t.length + offSentence(n).length - budget;
+  if (over() > 0) d = fitTo(d, d.length - over(), 1);
+  if (over() > 0) n = fitTo(n, n.length - over(), 8);
+  if (over() > 0) t = fitTo(t, t.length - over(), 0);
+  return `${head}${d})${t}${offSentence(n)}`;
+}
 const WAITING_MAX = 50;
 const fail = (status, message, code) => Object.assign(new Error(message), { status, ...(code ? { details: { code } } : {}) });
 const isObj = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
@@ -100,6 +136,18 @@ export function hasNews(run, refused = []) {
   if (run.state !== 'done' || refused.length) return true;
   if (run.commits.length || run.changed.length || run.more) return true;
   return !String(run.answer || '').trimStart().startsWith(NOTHING);
+}
+
+/**
+ * How the coding tool `bin` (the settings' claudeBin, or `claude`) is started: { command, args, options } for spawn.
+ * On Windows a bare name is found as Windows finds it (an npm install is a `claude.cmd` shim, which Node does not
+ * start by itself) and a `.cmd` goes to cmd.exe with every argument escaped, as src/launch.mjs starts it; a name that
+ * is found as nothing stays as it is. Elsewhere the program itself.
+ */
+export function toolPlan(bin, args, { platform = process.platform, env = process.env, exists } = {}) {
+  if (platform !== 'win32') return { command: bin, args, options: {} };
+  const found = resolveWindowsBin(bin, env || {}, exists);
+  return found ? windowsSpawnPlan(found, args, env || {}) : { command: bin, args, options: {} };
 }
 
 /**
@@ -239,12 +287,290 @@ const signal = (pid, sig, group) => {
     /* gone already */
   }
 };
+// Windows: a run's tree. taskkill /T follows the parent pid a process recorded, and that pid can be handed out again:
+// /T can end a program of the person's that started BEFORE the run's cmd.exe and only shares the number. So, as
+// src/server/service/wintree.mjs does, one PowerShell table of every process (pid, parent, start; the owner's SID
+// of those below the run's pid, and this account's), walked DOWN from the run's pid here, and each one kept ended
+// alone, never by /T: what is below the root in one end call (endBelowScript), the root last (endWinTree).
+
+/** Every process with its parent and start, the owner of each below `pid`, and this account's SID, as JSON. */
+export const runTreeScript = (pid) => {
+  if (!Number.isInteger(pid) || pid <= 4) throw new Error('bad pid');
+  // No cmdlet at all, as src/server/platform/win32.mjs NO_MODULE_PRELUDE (not imported: that is the server's module):
+  // Get-CimInstance and Invoke-CimMethod load a module, which took about 17 s per call on a test runner. WMI through
+  // the System.Management searcher, the owner through the WMI method GetOwnerSid of each row (it needs Handle, the
+  // key), and the JSON written by .NET. CreationDate comes as a DMTF string here (yyyymmddHHMMSS.ffffff+UUU):
+  // ManagementDateTimeConverter turns it into the same DateTime that Get-CimInstance gave, microseconds and offset
+  // included, so through [DateTimeOffset] and ToUnixTimeMilliseconds it is the same instant, cut to the same whole ms.
+  return `$ErrorActionPreference = 'SilentlyContinue'
+[void][System.Reflection.Assembly]::LoadWithPartialName('System.Web.Extensions')
+$json = [System.Web.Script.Serialization.JavaScriptSerializer]::new()
+$json.MaxJsonLength = [int]::MaxValue
+$me = [System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+$all = [System.Collections.ArrayList]::new()
+foreach ($r in [System.Management.ManagementObjectSearcher]::new('SELECT Handle,ProcessId,ParentProcessId,CreationDate FROM Win32_Process').Get()) { [void]$all.Add($r) }
+$below = @{ ${pid} = $true }
+do {
+  $more = $false
+  foreach ($p in $all) { $id = [int]$p['ProcessId']; if (-not $below.ContainsKey($id) -and $below.ContainsKey([int]$p['ParentProcessId'])) { $below[$id] = $true; $more = $true } }
+} while ($more)
+$procs = [System.Collections.ArrayList]::new()
+foreach ($p in $all) {
+  $id = [int]$p['ProcessId']
+  $sid = $null
+  if ($below.ContainsKey($id)) { $o = $p.InvokeMethod('GetOwnerSid', $null, $null); if ($o -and $o['ReturnValue'] -eq 0) { $sid = [string]$o['Sid'] } }
+  $start = $null
+  if ($p['CreationDate']) { $start = ([DateTimeOffset][System.Management.ManagementDateTimeConverter]::ToDateTime($p['CreationDate'])).ToUnixTimeMilliseconds() }
+  [void]$procs.Add(@{ pid = $id; ppid = [int]$p['ParentProcessId']; start = $start; sid = $sid })
+}
+[Console]::Out.Write([regex]::Replace($json.Serialize(@{ me = $me; procs = $procs.ToArray() }), '[^\\x20-\\x7e]', { param($m) '\\u{0:x4}' -f [int][char]$m.Value }))`;
+};
+
+const psArgs = (script) => ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', Buffer.from(script, 'utf16le').toString('base64')];
+const listOf = (x) => (Array.isArray(x) ? x : x === null || x === undefined ? [] : [x]);
+
+/** That JSON → { me: SID, procs: Map(pid → { pid, ppid, start, sid }) }, or null when it is not that. */
+export function parseRunTree(out) {
+  let d;
+  try {
+    d = JSON.parse(out);
+  } catch {
+    return null;
+  }
+  if (!d || typeof d !== 'object' || typeof d.me !== 'string' || !d.me) return null;
+  const procs = new Map();
+  for (const p of listOf(d.procs)) {
+    if (p && Number.isInteger(p.pid)) procs.set(p.pid, { pid: p.pid, ppid: Number(p.ppid), start: Number.isFinite(p.start) ? p.start : null, sid: typeof p.sid === 'string' ? p.sid : null });
+  }
+  return { me: d.me, procs };
+}
+
+/**
+ * The processes of the run started as `root`, from that table, `root` first: walked down from it, a child kept only
+ * when it started no earlier than its parent (else its number was handed out again) and runs as this account. Never
+ * `self` (this process), a process above it or above `root`, nor a system process (pid 4 or less). The list also
+ * carries `refused` (not enumerated): the children that started no earlier than their parent, so may be the run's,
+ * but whose owner could not be read or is another account (or whose start is not known), as [{ pid, why }]. Those
+ * are never ended, and the run may still run through them.
+ */
+export function runTreeOf(snap, root, self = process.pid) {
+  const out = [];
+  const refused = [];
+  Object.defineProperty(out, 'refused', { value: refused, enumerable: false });
+  if (!snap || !snap.procs.has(root)) return out;
+  const mine = (p) => typeof p.sid === 'string' && p.sid.toUpperCase() === snap.me.toUpperCase();
+  const above = new Set([self]);
+  for (const from of [self, root]) {
+    for (let p = from, i = 0; i < 64; i++) {
+      const q = snap.procs.get(p)?.ppid;
+      if (!Number.isInteger(q) || q <= 0 || above.has(q)) break;
+      above.add(q);
+      p = q;
+    }
+  }
+  const top = snap.procs.get(root);
+  if (root <= 4 || above.has(root) || !mine(top) || top.start === null) return out;
+  const all = [...snap.procs.values()];
+  const seen = new Set([root]);
+  const queue = [top];
+  while (queue.length) {
+    const p = queue.shift();
+    out.push(p.pid);
+    for (const c of all) {
+      if (c.ppid !== p.pid || seen.has(c.pid) || above.has(c.pid) || c.pid <= 4) continue;
+      if (c.start !== null && c.start < p.start) continue; // its parent's number was handed out again: not the run's
+      seen.add(c.pid);
+      if (c.start === null || !mine(c)) {
+        // Perhaps the run's, but not checked: neither it nor what is below it is ended, and it is said.
+        refused.push({ pid: c.pid, why: c.start === null ? 'its start is not known' : typeof c.sid === 'string' ? 'it runs as another account' : 'its owner could not be read' });
+        continue;
+      }
+      queue.push(c);
+    }
+  }
+  return out;
+}
+
+const runWin = (cmd, args) =>
+  new Promise((resolve) => {
+    try {
+      execFile(cmd, args, { timeout: 30_000, windowsHide: true }, (err, stdout) => resolve({ ok: !err, out: String(stdout || '').trim() }));
+    } catch {
+      resolve({ ok: false, out: '' });
+    }
+  });
+
+// The one end call that holds each process while its start is compared (shared with src/cmdtree.mjs).
+export { END_SAME_MS, endBelowScript, parseEndLines } from '../winend.mjs';
+import { END_SAME_MS, endBelowScript, parseEndLines } from '../winend.mjs';
+
+/** The start (epoch ms) in an identity "T:<ms>" of src/procid.mjs (macOS, Windows), or null. */
+export const startOfIdent = (id) => {
+  const m = /^T:(\d+)$/.exec(typeof id === 'string' ? id : '');
+  return m ? Number(m[1]) : null;
+};
+
+// Node marks its child as exited (exitCode, signalCode, the 'exit' event) only once its own loop has seen the process
+// end, a moment after the system did: when Claude Code is ended, cmd.exe of an npm shim exits at once by itself, and
+// kill() on its handle then answers false (as Node does for ESRCH) before Node knows. So a root end that answers false
+// waits for that exit, at most ROOT_EXIT_WAIT_MS, looked at every 10 ms: an exit within it is the end, not a failure.
+// Half a second is many times the lag of that case (about 30 ms), and short against the close wait (CLOSE_WAIT_MS)
+// that both tries of an end must fit in.
+export const ROOT_EXIT_WAIT_MS = 500;
+async function exitedSoon(gone) {
+  for (let t = 0; ; t += 10) {
+    if (gone()) return true;
+    if (t >= ROOT_EXIT_WAIT_MS) return false;
+    await new Promise((res) => setTimeout(res, 10));
+  }
+}
+
+/**
+ * End the tree of the run started as `pid` once (Windows), each process alone, the lowest first. → { ok, ended,
+ * why }: ok when every process of the tree was ended, or there was none any more (a child that answered "other
+ * start" is not ended and is not ok: it may be the run's tool still). `gone()`: the run's own process
+ * has exited (its pid is not the run's any more), then nothing more is ended: asked before the table, once it is
+ * back, and before the end call and the root's end. `start`: when the run's process started (epoch ms, the system's),
+ * when known: a root whose start in the table is more than SAME_WITHIN from it is another program, and nothing is
+ * ended. `endRoot()` → true when ended: a live run's end of the root through its own child handle; without it (a
+ * leftover after a crash) the root is the last of the end call, at that start.
+ */
+export async function endWinTree(pid, { run = runWin, gone = () => false, start = null, self = process.pid, endRoot = null, first = [] } = {}) {
+  if (gone()) return { ok: true, ended: [], gone: true };
+  const r = await run('powershell.exe', psArgs(runTreeScript(pid)));
+  if (gone()) return { ok: true, ended: [], gone: true }; // it exited while the table was asked: its pid is free now
+  const snap = r && r.ok && r.out ? parseRunTree(r.out) : null;
+  if (!snap) return { ok: false, ended: [], why: 'the system did not say which processes run' };
+  const top = snap.procs.get(pid);
+  // A live run (endRoot) kept Node's own start, compared within SAME_WITHIN. A leftover after a crash (no endRoot) kept
+  // the system's own start (startOfIdent: Process.StartTime to whole ms), so its root is the run's only when the table's
+  // CreationDate is that start or 1 ms above it (END_SAME_MS, as the end call compares): a program that got the number
+  // later, also within SAME_WITHIN, is another, and nothing below it is the run's. Refused before any end call.
+  const notSame = (t) => (endRoot ? Math.abs(t - start) > SAME_WITHIN : t - start < 0 || t - start > END_SAME_MS);
+  if (Number.isFinite(start) && top && top.start !== null && notSame(top.start)) {
+    return { ok: false, ended: [], why: `process ${pid} is not the one the run started (it started at another time): nothing was ended` };
+  }
+  // Not in the table: it has ended (`missing`). Only a first try counts that as ok; after a try that failed, what
+  // that try left below it may still run, and is not found from that pid any more (endTree).
+  if (!top) return { ok: true, ended: [], missing: true };
+  const tree = runTreeOf(snap, pid, self);
+  // In the table but refused (its owner not read or another's, its start not known, this process below it): nothing
+  // is ended, and it is never "ended" either.
+  if (!tree.includes(pid)) return { ok: false, ended: [], why: `process ${pid} of the run could not be checked: nothing was ended` };
+  const ended = [];
+  const failed = [];
+  // A process that could not be ended keeps every process above it in the tree, the run's own (`pid`) too: from
+  // that pid the next try still finds it (a process whose parent has gone is found from nowhere).
+  const keep = new Set();
+  const keepAbove = (x) => {
+    for (let q = snap.procs.get(x)?.ppid, i = 0; i < 64 && tree.includes(q) && !keep.has(q); q = snap.procs.get(q)?.ppid, i++) keep.add(q);
+  };
+  // A child that could not be checked is not ended, and keeps what is above it as one that failed does.
+  const unchecked = (tree.refused || []).map((x) => x.pid);
+  for (const x of unchecked) keepAbove(x);
+  // The lowest first, in one call: each compared by its start with the table's, while the call holds it, and ended
+  // only then (endBelowScript). One that has exited is "gone": nothing ended, no failure. One that answers "other
+  // start" is never ended either (it may be another program that has its number now), and what is above it is still
+  // ended (a number handed out again must not keep the run's own tree alive); but it is not proven gone: the two
+  // readings of one start may differ, and then it is the run's own tool, still running. So the end fails, naming it.
+  const other = [];
+  const otherWhy = () => `process ${other.slice(0, 3).join(', ')} answered with another start than the table's: it may be another program now; it was not ended`;
+  // What this try could not end or prove gone, each with the start the table showed (its root aside: a next try
+  // finds the root again). endTree hands it to the second try (`first`).
+  const leftOf = () => [...new Set([...failed, ...other, ...unchecked, ...keep])].filter((x) => x !== pid).map((x) => ({ pid: x, start: snap.procs.get(x)?.start ?? null }));
+  const fail = (why) => ({ ok: false, ended, why: other.length ? `${why}; ${otherWhy()}` : why, left: leftOf() });
+  // A second try: what the first could not end and this one no longer finds below the run (its parent has exited, and
+  // a child of a dead parent keeps naming it) but that still runs at the start the first try saw. While one does,
+  // this try is not ok, whatever it ended: the run's tool, or a program it started, may still be running.
+  const lostRunning = () => (Array.isArray(first) ? first : []).filter((x) => x && !tree.includes(x.pid) && snap.procs.has(x.pid) && (x.start === null || snap.procs.get(x.pid).start === x.start)).map((x) => x.pid);
+  const below = [...tree].reverse().filter((x) => x !== pid && !keep.has(x));
+  // The root (cmd.exe of the npm shim) is ended last, and never by taskkill. A live run hands `endRoot`: the end
+  // through the run's own child handle (Node's child.kill() is TerminateProcess on the handle Node holds, so that
+  // number cannot be handed out again meanwhile). A leftover after a crash has no handle: its root goes into the same
+  // end call, LAST, with the start the run kept, and is ended there only when the start read now is that one, by the
+  // same one-sided compare as a child (END_SAME_MS), not within SAME_WITHIN: the kept start is the system's
+  // (src/procid.mjs creationScript: Process.StartTime to whole ms), read the way the end call reads it, so the two are
+  // equal; SAME_WITHIN is the margin for Node's own start against the system's, and would end a program that got the
+  // number up to 3 s later. Without a kept start, the table's is used, as for a child. A root kept by a child that
+  // failed is "kept" in that call (the script keeps what is above a failure), and one kept here is not in it.
+  const rootLast = !endRoot && !keep.has(pid);
+  const asked = rootLast ? [...below, pid] : below;
+  let rootSaid = null;
+  if (asked.length) {
+    if (gone()) {
+      // The run exited first: what is below it was not ended.
+      if (!unchecked.length && below.length) return { ok: false, ended, why: `process ${below.slice(0, 3).join(', ')} below the run was not ended: the run exited first` };
+    } else {
+      const rootStart = Number.isInteger(start) && start >= 0 ? start : top.start;
+      const entries = asked.map((x) => ({ pid: x, start: x === pid ? rootStart : snap.procs.get(x).start, ppid: snap.procs.get(x).ppid }));
+      const k = await run('powershell.exe', psArgs(endBelowScript(entries)));
+      const said = parseEndLines(k && k.ok !== false ? k.out : '', asked);
+      // Only "ended", "gone" and "other start" keep nothing above them. Any other answer ("failed", "kept", no line,
+      // another word) is not ended: it keeps what is above it, the root too, and the end fails.
+      for (const x of below) {
+        const s = said.get(x);
+        if (s === 'ended') ended.push(x);
+        else if (s === 'other start') other.push(x);
+        else if (s !== 'gone') {
+          failed.push(x);
+          keepAbove(x);
+        }
+      }
+      if (rootLast) rootSaid = said.get(pid);
+    }
+  }
+  if (rootSaid === 'ended') ended.push(pid);
+  else if (rootSaid === 'other start') other.push(pid);
+  if (failed.length) return fail(`process ${failed.slice(0, 3).join(', ')} could not be ended`);
+  if (unchecked.length) return fail(`process ${unchecked.slice(0, 3).join(', ')} below the run could not be checked`);
+  if (rootLast && rootSaid !== null && rootSaid !== 'ended' && rootSaid !== 'gone' && rootSaid !== 'other start') return fail(`process ${pid} could not be ended`);
+  if (endRoot && !gone()) {
+    let k = false;
+    try {
+      k = await endRoot();
+    } catch {
+      k = false;
+    }
+    if (k === true) ended.push(pid);
+    else if (await exitedSoon(gone)) ended.push(pid); // it exited meanwhile, or Node saw its exit late: ended
+    else return fail(`process ${pid} could not be ended`);
+  }
+  const lost = lostRunning();
+  if (lost.length) return fail(`process ${lost.slice(0, 3).join(', ')} that the first try could not end still runs and is not found from the run any more`);
+  if (other.length) return { ok: false, ended, why: otherWhy(), left: leftOf() };
+  return { ok: true, ended };
+}
+
 /**
  * End the coding tool started as `pid` (a group leader) and everything it started: SIGTERM now, SIGKILL after `grace`
  * ms, to its group and to each process below it (one that made a group of its own too; found before the tool goes,
- * since its children then belong to init).
+ * since its children then belong to init). On Windows a child does not end with its parent (an npm install starts
+ * cmd.exe, and Claude Code is its child): the run's tree is ended at once, each process alone (endWinTree, or
+ * `killTree` a test hands in). Windows → a promise of { ok, why } (ok: false, the tool may still be running).
  */
-function endTree(pid, grace) {
+function endTree(pid, grace, { platform = process.platform, killTree = null, run = runWin, gone, start = null, endRoot = null } = {}) {
+  if (platform === 'win32') {
+    if (!Number.isInteger(pid) || pid <= 4) return Promise.resolve({ ok: true });
+    const once = (first = []) => {
+      try {
+        return Promise.resolve(killTree ? killTree(pid, gone, start) : endWinTree(pid, { run, gone, start, endRoot, first })).then((x) => x || { ok: true }, (e) => ({ ok: false, why: String(e && e.message) }));
+      } catch (e) {
+        return Promise.resolve({ ok: false, why: String(e && e.message) });
+      }
+    };
+    // Tried once more when it fails; never the lone pid instead (cmd.exe alone: Claude Code below it would go on). A
+    // second try that ends nothing because the run is gone, or no longer finds its pid in the table, says nothing of
+    // what the first one left: the first one's failure stays. When both tries fail but the second fails for its own
+    // reason (it could not read the table, say), it names none of the pids the first try named; those are kept in the
+    // reason, so the pid that may still run is never lost.
+    const keepPids = (now, first) => {
+      const has = new Set(String(now.why || '').match(/\d+/g) || []);
+      const lost = [...new Set(String(first.why || '').match(/\d+/g) || [])].filter((n) => !has.has(n));
+      return lost.length ? { ...now, why: `${now.why}; the first try left process ${lost.join(', ')} unended` } : now;
+    };
+    // The second try is handed what the first left (`first`), so a smaller tree it ends is not taken as the whole one.
+    return once().then((r) => (r.ok ? r : once(r.left || []).then((r2) => (r2.ok ? (r2.gone || r2.missing ? r : r2) : keepPids(r2, r)))));
+  }
   const below = descendants(pid);
   signal(pid, 'SIGTERM', true);
   for (const d of below) signal(d, 'SIGTERM', false);
@@ -257,9 +583,15 @@ function endTree(pid, grace) {
 /**
  * o: { config(), places() (stand-ins), run (git), now(), log, settings() → { atOnce }, resolveEnv(provider) → env,
  * command: { command, args } (a stand-in coding tool: the arguments go after its own), notify({ title, message }),
- * record({ did, outcome }) (the activity log), killGraceMs, defaultProvider(dir, last, tool) (a run that names none) }.
+ * record({ did, outcome }) (the activity log), killGraceMs, defaultProvider(dir, last, tool) (a run that names none),
+ * scheduleOff(id, why) → the schedule's name when it was switched off, else null (src/automation index.mjs switchOff);
+ * for tests: platform, exists (toolPlan's), spawn, killTree(pid) (Windows' end of a tree), winRun(cmd, args) →
+ * { ok, out } (the program of Windows' end of a tree: PowerShell only), ident (src/procid.mjs) }.
  */
 export function aloneRunner(o) {
+  const platform = o.platform || process.platform;
+  const ident = o.ident || procIdent;
+  const endRun = (pid, gone, start = null, endRoot = null) => endTree(pid, o.killGraceMs ?? KILL_GRACE_MS, { platform, killTree: o.killTree, run: o.winRun, gone, start, endRoot });
   const cfg = () => (o.config ? o.config() : {});
   const places = () => (o.places ? o.places() : {});
   const run = o.run || capture;
@@ -303,6 +635,26 @@ export function aloneRunner(o) {
     if (job.remote || !Array.isArray(list) || !isObj(job.schedule)) return null;
     return list.some((x) => isObj(x) && x.id === job.schedule.id) ? null : 'its schedule is gone';
   };
+
+  /**
+   * Windows: a schedule's run whose coding tool may still be running in `project` (`why`: what could not be ended)
+   * switches that schedule off, as the owner's own switch does it, so its next slot does not start there meanwhile.
+   * → the schedule's name when it was switched off (stillReason then ends the reason with it), else null (no
+   * schedule, off already, or not Windows).
+   */
+  async function offWords(id, project, why) {
+    if (platform !== 'win32' || !id || !o.scheduleOff) return null;
+    try {
+      // The Activity line keeps ACTIVITY_MAX characters after "off: ": a long detail is cut, never the instruction.
+      const pre = `a program of its last run may still be running in ${project} (it could not be ended: `;
+      const post = '); switch it on again in Work → Schedules once that program has ended';
+      const name = await o.scheduleOff(id, `${pre}${fitTo(why, ACTIVITY_MAX - 'off: '.length - pre.length - post.length)}${post}`);
+      return name || null;
+    } catch (e) {
+      log(`the schedule of a run by itself could not be switched off: ${e.message}`);
+      return null;
+    }
+  }
 
   const atOnce = () => {
     const n = Number((o.settings ? o.settings() : {}).atOnce);
@@ -430,7 +782,8 @@ export function aloneRunner(o) {
     const held = heldUntil();
     // The one measure of slots: these runs and every other session that runs by itself here (a Lead chat's parts).
     const taken = busy.length + (o.othersRunning ? Number(o.othersRunning()) || 0 : 0);
-    const why = held ? holdWords(held) : busy.some((r) => r.project === j.project) ? `another run of ${j.project} works now` : freeing ? `the worktree of ${branch} is being removed now` : taken >= atOnce() ? `${taken} run${taken === 1 ? '' : 's'} by ${taken === 1 ? 'itself works' : 'themselves work'} now (at most ${atOnce()} at once)` : null;
+    const still = [...claims.values()].find((c) => c.still && c.project === j.project);
+    const why = held ? holdWords(held) : still ? `the coding tool of an earlier run of ${j.project} may still be running in ${still.branch}` : busy.some((r) => r.project === j.project) ? `another run of ${j.project} works now` : freeing ? `the worktree of ${branch} is being removed now` : taken >= atOnce() ? `${taken} run${taken === 1 ? '' : 's'} by ${taken === 1 ? 'itself works' : 'themselves work'} now (at most ${atOnce()} at once)` : null;
     // A mission keeps its own place (its file): it is told why, and nothing of it waits in this dashboard's list.
     if (why && hers(j)) return { waiting: true, why };
     if (why) {
@@ -498,7 +851,7 @@ export function aloneRunner(o) {
     const args = aloneArgs({ mode: j.mode, model: j.model, effort: j.effort, allowed: j.allowed, denied: j.denied, budget: j.budget, restricted: j.restricted, dirs: j.dirs, tool: j.tool });
     // A look answers with its finding only (src/operator/look.mjs parses it strictly): no report is asked of it.
     const prompt = j.by === 'look' ? j.prompt : `${j.prompt}\n\n${ALONE_ASK}`;
-    const plan = o.command ? { command: o.command.command, args: [...o.command.args, ...args] } : { command: cfg().claudeBin || 'claude', args };
+    const plan = o.command ? { command: o.command.command, args: [...o.command.args, ...args], options: {} } : toolPlan(cfg().claudeBin || 'claude', args, { env, platform, exists: o.exists });
     // Work's own door starts a mission's run and a look as Tia's (hers(j), HERS). Each goes through the ONE startAsHers,
     // which both MARKS the run hers and SIGNS the session in to git with the
     // token the owner chose in place of his own; endAsHers removes the mark when the session ends. With no sign-in file
@@ -512,13 +865,41 @@ export function aloneRunner(o) {
     let child;
     try {
       // noHooksEnv: an allowed `git commit` of the session runs no repository hook (a program the owner did not ask it to start).
-      child = spawn(plan.command, plan.args, { cwd: inTree, env: { ...env, ...noHooksEnv(env), HOPRIG_RUN_FILE: '' }, stdio: ['pipe', 'pipe', 'pipe'], detached: process.platform !== 'win32', windowsHide: true });
+      child = (o.spawn || spawn)(plan.command, plan.args, { cwd: inTree, env: { ...env, ...noHooksEnv(env), HOPRIG_RUN_FILE: '' }, stdio: ['pipe', 'pipe', 'pipe'], detached: process.platform !== 'win32', windowsHide: true, ...plan.options });
       child.stdin.on('error', () => {}); // a tool that ends before it reads its prompt: its end says why
       child.stdin.end(prompt);
     } catch (e) {
       if (herRunFile) endAsHers(herRunFile);
       return { run: await settle(r, j, repos, { state: 'failed', reason: `The run did not start: ${e.message}`, answer: '', refused: [] }) };
     }
+    // Windows hands a pid out again once its process has exited: from then on that number may be another program's,
+    // and its tree is not this run's. So once the child has exited, nothing is ended by its pid there (the time limit,
+    // a stop, the dashboard's stop, a first line read late).
+    let exited = false;
+    const gone = () => exited || typeof child.exitCode === 'number' || typeof child.signalCode === 'string';
+    // Windows: an end that failed twice is said plainly in the log and in the run's reason (notEnded: why).
+    let notEnded = null;
+    let ending = null;
+    let keptIdent = null; // the identity keepProc kept: its start is compared with the table's (endWinTree)
+    let settleNow = null; // the run's end without its close (set below)
+    let childClosed = false;
+    const endChild = () => {
+      if (platform === 'win32' && gone()) return;
+      // Windows: the root (the process the run started) is ended last through this child's own handle: Node's kill()
+      // is TerminateProcess on the handle it holds, so its number cannot have gone to another program meanwhile.
+      const p = endRun(child.pid, gone, startOfIdent(keptIdent), platform === 'win32' ? () => child.kill('SIGKILL') === true : null);
+      if (p && typeof p.then === 'function') {
+        ending = p.then((x) => {
+          if (x && !x.ok) {
+            notEnded = String(x.why || 'the system did not say why').slice(0, 200);
+            log(`a run by itself (${r.id}) could not end its coding tool: ${notEnded}. ${MAY_STILL_RUN}`);
+            // Windows: what could not be ended may run on for ever, and with it the run's process: the run is
+            // settled now, its reason saying its tool may still be running (its close later changes nothing).
+            if (!gone() && settleNow) setImmediate(settleNow);
+          }
+        });
+      }
+    };
     const lines = [];
     let buf = '';
     let err = '';
@@ -546,7 +927,7 @@ export function aloneRunner(o) {
       ];
       if (!said.length) return;
       firstLine.wrong = said.join('; ').replace(/[^\x20-\x7e]/g, ' ').slice(0, 200);
-      endTree(child.pid, o.killGraceMs ?? KILL_GRACE_MS);
+      endChild();
     };
     child.stdout.setEncoding('utf8');
     child.stdout.on('data', (d) => {
@@ -563,13 +944,26 @@ export function aloneRunner(o) {
     child.stderr.on('data', (d) => (err = (err + d).slice(-1000)));
     const entry = { child, project: j.project, timedOut: false, timer: null, done: null, end: null };
     // The process and when it started, so a dashboard that crashed ends it at its next start (settleLeftovers).
-    try {
-      const ident = procIdent.of([child.pid]).get(child.pid);
-      if (ident) keepStart(r.id, { ...readStart(r.id), proc: { pid: child.pid, ident } });
-    } catch {
-      /* not known on this system: settleLeftovers cannot end it, and says nothing of it */
-    }
-    entry.end = () => endTree(child.pid, o.killGraceMs ?? KILL_GRACE_MS);
+    const keepProc = (after = 0) => {
+      try {
+        const id = ident.of([child.pid], { after }).get(child.pid);
+        if (id) {
+          keptIdent = id;
+          keepStart(r.id, { ...readStart(r.id), proc: { pid: child.pid, ident: id } });
+        }
+      } catch {
+        /* not known on this system: settleLeftovers cannot end it, and says nothing of it */
+      }
+    };
+    // Windows asks PowerShell, and the dashboard asks it in the background (src/procid.mjs askInBackground), so an
+    // answer read at once is "not known" and the run's process was never kept: asked without waiting (refresh), and
+    // kept once that answer is there, while the run still works.
+    if (platform === 'win32') {
+      Promise.resolve().then(() => ident.refresh([child.pid])).catch(() => 0).then((at) => {
+        if (live.get(r.id) === entry) keepProc(at || 0);
+      });
+    } else keepProc();
+    entry.end = endChild;
     entry.timer = setTimeout(() => {
       entry.timedOut = true;
       entry.end();
@@ -581,12 +975,17 @@ export function aloneRunner(o) {
       // A process the tool started that keeps its output open (in a group of its own) must not keep the run
       // running: a short while after the tool itself is gone, its output is closed and the run settles.
       child.on('exit', () => {
+        exited = true;
+        if (platform === 'win32') clearTimeout(entry.timer); // its time limit would end a pid that is free now
         setTimeout(() => {
           child.stdout.destroy();
           child.stderr.destroy();
         }, EXIT_WAIT_MS).unref?.();
       });
-      child.once('close', async (code) => {
+      let settling = false;
+      const finish = async (code) => {
+        if (settling) return;
+        settling = true;
         clearTimeout(entry.timer);
         if (herRunFile) endAsHers(herRunFile); // the session has ended: its Tia mark goes
         // The mission's own first step at the session's end (its tool's token dies, a run of its tests ends) comes
@@ -610,7 +1009,18 @@ export function aloneRunner(o) {
         else if (s.result && s.result.limit) end = { state: 'limit', reason: 'The provider reached its usage limit', answer: s.text, refused: s.result.refused };
         else end = { state: 'failed', reason: `The run ended in an error: ${String((s.result && s.result.error) || err.trim().split('\n').pop() || `exit code ${code}`).replace(/\s+/g, ' ').slice(0, 300)}`, answer: s.text, refused: s.result ? s.result.refused : [] };
         end.used = used;
-        if (end.refused.length) end.reason = `${end.reason ? `${end.reason}. ` : ''}A step needed an OK and was refused (${end.refused.join(', ')}): nobody was there to allow it`;
+        if (ending) {
+          // Two tries of a tree end can take longer than this wait: one not finished by then may have left the tool.
+          const late = await Promise.race([ending.then(() => false), new Promise((res) => setTimeout(() => res(true), o.closeWaitMs ?? CLOSE_WAIT_MS).unref?.())]);
+          if (late && !notEnded) notEnded = 'its end did not finish in time';
+        }
+        // A refused step is said after what could not be ended; a switched-off schedule's sentence comes last of all.
+        const refusedWords = end.refused.length ? refusedSentence(end.refused) : '';
+        if (notEnded) {
+          const name = await offWords(j.schedule, j.project, notEnded);
+          const head = `${end.reason ? `${end.reason}. ` : ''}${MAY_STILL_RUN} (it could not be ended: `;
+          end.reason = stillReason(head, notEnded, refusedWords ? `. ${refusedWords}` : '', name);
+        } else if (refusedWords) end.reason = `${end.reason ? `${end.reason}. ` : ''}${refusedWords}`;
         // A run that has no git: the dashboard itself commits what it changed, once it has ended by itself.
         if (j.commit && end.state === 'done') {
           let c;
@@ -622,15 +1032,28 @@ export function aloneRunner(o) {
           if (!c.ok) end.reason = `${end.reason ? `${end.reason}. ` : ''}What it changed is not committed: ${c.why}`;
           else if (c.skipped && c.skipped.length) end.reason = `${end.reason ? `${end.reason}. ` : ''}Left out of its commit (no file git can keep): ${c.skipped.slice(0, 3).join(', ')}`;
         }
+        // Windows: settled while its tool may still run there (its child has not closed): its project and branch stay
+        // claimed until that child closes, so no next run (a schedule's next slot) starts in that worktree meanwhile.
+        if (platform === 'win32' && notEnded && !childClosed) {
+          const hold = Symbol(r.id);
+          claims.set(hold, { project: j.project, branch: asked, still: true });
+          child.once('close', () => {
+            claims.delete(hold);
+            if (!closed) drain().catch((e) => log(`runs that end by themselves: ${e.message}`));
+          });
+        }
         live.delete(r.id);
         resolve(await settle(r, j, repos, end));
         drain();
-      });
+      };
+      child.once('close', () => (childClosed = true));
+      child.once('close', finish);
+      settleNow = () => finish(null);
     });
     return { run: viewRun(r, me()), done: entry.done };
   }
 
-  const words = (s, max, tree = null) => cleanText(s, max, [...(tree ? [[`${tree}/`, ''], [tree, '.']] : []), ...pathsOf({ projectsDir: projectsDir(), workspace: places().workspace || workspaceDir(cfg()) })]);
+  const words = (s, max, tree = null) => cleanText(s, max, [...treePaths(tree), ...pathsOf({ projectsDir: projectsDir(), workspace: places().workspace || workspaceDir(cfg()) })]);
   const ctxOf = (p) => ({ today: todayIn(p.settings.timeZone, now()), ownerId: p.settings.ownerId, projects: [...projectsByName(projectsDir()).keys()] });
 
   /** The item's status for a run, under the file's lock (held by the caller). → null, or why it could not be written. */
@@ -780,18 +1203,29 @@ export function aloneRunner(o) {
       if (r.state !== 'running' || r.writer !== me() || !endsByItself(r) || live.has(r.id)) continue;
       // The coding tool may outlive a dashboard that crashed: ended first, when it is still that same process.
       const st = readStart(r.id);
+      let still = null;
       if (st && st.proc) {
-        const nowId = procIdent.of([st.proc.pid]).get(st.proc.pid);
+        // Windows: asked without holding the thread (refresh), then read from that answer.
+        const after = platform === 'win32' ? await Promise.resolve().then(() => ident.refresh([st.proc.pid])).catch(() => 0) : 0;
+        const nowId = ident.of([st.proc.pid], { after: after || 0 }).get(st.proc.pid);
         if (sameProcess(st.proc.ident, nowId) === true) {
-          endTree(st.proc.pid, o.killGraceMs ?? KILL_GRACE_MS);
-          log(`a run left by a dashboard that stopped was still working: ended (${r.id})`);
+          // Windows: the start kept goes with it, so that a pid handed out again since the identity answer is refused.
+          const res = await endRun(st.proc.pid, undefined, platform === 'win32' ? startOfIdent(st.proc.ident) : null);
+          if (res && !res.ok) {
+            still = String(res.why || 'the system did not say why').slice(0, 200);
+            log(`a run left by a dashboard that stopped was still working and could not be ended (${r.id}): ${still}. ${MAY_STILL_RUN}`);
+          } else log(`a run left by a dashboard that stopped was still working: ended (${r.id})`);
         }
       }
+      const offName = still ? await offWords(r.schedule, r.project, still) : null;
       await withLock(p.file, async () => {
         const cur = readRun(p, r.id);
         if (!cur || cur.state !== 'running') return;
         if (cur.item && ID_RE.test(cur.item)) await itemStatus(p, cur.item, cur.was, 'doing');
-        writeRun(p, { ...cur, state: 'stopped', reason: 'The dashboard stopped while it ran', endedAt: now().toISOString() });
+        const head = `The dashboard stopped while it ran. ${MAY_STILL_RUN} (it could not be ended: `;
+        const base = still ? stillReason(head, still, '', offName) : 'The dashboard stopped while it ran';
+        const reason = offName ? words(base, 400) : base; // a record's reason holds at most 400 characters
+        writeRun(p, { ...cur, state: 'stopped', reason, endedAt: now().toISOString() });
       });
       dropStart(r.id);
     }

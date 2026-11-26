@@ -23,7 +23,7 @@ test('a handed conversation\'s title outlives a restart of the dashboard; at mos
   assert.deepEqual(after.titleOf('conv-2', 'claude'), {}, 'a conversation stays with its coding tool');
   assert.equal(after.get('c1').conversation, 'conv-1');
   assert.ok(after.has('c2'));
-  assert.equal((fs.statSync(file).mode & 0o777).toString(8), '600');
+  if (process.platform !== 'win32') assert.equal((fs.statSync(file).mode & 0o777).toString(8), '600');
   for (let i = 0; i < 60; i++) after.set(`n${i}`, { conversation: `x${i}`, tool: 'claude', title: `t${i}` });
   const third = handedChats(() => file);
   assert.equal(third.has('c1'), false, 'the oldest went');

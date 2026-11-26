@@ -14,6 +14,9 @@ import path from 'node:path';
 import { test } from 'node:test';
 import { scratch } from './helpers.mjs';
 
+// The move to a user of its own is Linux only: root, user ids, runuser and systemd, with POSIX paths.
+const LINUX_ONLY = { skip: process.platform === 'win32' && 'the move to a user of its own is Linux only (root, chown by uid, POSIX paths)' };
+
 const s = scratch();
 test.after(s.cleanup);
 const M = await import('../../src/setup/movecli.mjs');
@@ -147,7 +150,7 @@ async function lowIsUsed() {
   return asked;
 }
 
-test('only root, one command: every real step of the move works for the user the installer made', async () => {
+test('only root, one command: every real step of the move works for the user the installer made', LINUX_ONLY, async () => {
   assert.deepEqual(await lowIsUsed(), ['low'], "the real steps take this test's lowest calls: without that nothing real is started here");
   const out = [];
   const job = path.join(dirs.state, 'move-job.json');

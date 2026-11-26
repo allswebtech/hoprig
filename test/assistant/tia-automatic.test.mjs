@@ -10,6 +10,7 @@ import test from 'node:test';
 import { resolveTia } from '../../src/assistant/tia.mjs';
 import * as feature from '../../src/assistant/feature.mjs';
 import { sandbox } from '../server/helpers.mjs';
+import { fileURLToPath } from 'node:url';
 
 const HOUR = 3600_000;
 // Looked up on the module, so each case below fails on its own rule when the line is missing.
@@ -79,7 +80,7 @@ test('no subscription and no provider she may use: none, and readiness says wher
   assert.equal(resolveTia({ accounts: ['api'] }, acc([api], { enabled: false, order: [] })).noneAllowed, false);
   // No provider at all: the older sentence ("Add a provider").
   assert.equal(resolveTia({}, acc([], { enabled: false, order: [] })).noneAllowed, false);
-  const src = fs.readFileSync(path.join(path.dirname(new URL(import.meta.url).pathname), '..', '..', 'src', 'assistant', 'feature.mjs'), 'utf8');
+  const src = fs.readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..', 'src', 'assistant', 'feature.mjs'), 'utf8');
   assert.match(src, /if \(!tia\.runsOn && tia\.noneAllowed\) return \{ ok: false, code: 'none-allowed', problem: `None of the providers \$\{ASSISTANT_NAME\} may use can run her\. Tick one under Settings → \$\{ASSISTANT_NAME\} → "Providers she may use"/);
 });
 

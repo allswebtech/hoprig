@@ -37,6 +37,7 @@ import { applyDecidePatch, cleanNote, heldBy, heldUntil, liftHold, mayEndFor, se
 import { elsewhereOf, endElsewhere, readElsewhere, setElsewhere } from './where-hold.mjs';
 import { applyLookPatch, looks as lookPart } from './look.mjs';
 import { applyCorrectionsPatch, correctionCounts, forgetCorrections, noteCorrection, readCorrections, writeEvidence } from './corrections.mjs';
+import { replaceFile } from '../replacefile.mjs';
 
 const TAP_KEEP_MS = 60_000;
 const TIMELINE_SHOWN = 30;
@@ -70,7 +71,7 @@ const writeJson = (file, value) => {
   fs.mkdirSync(path.dirname(file), { recursive: true });
   const tmp = `${file}.${process.pid}.tmp`;
   fs.writeFileSync(tmp, JSON.stringify(value));
-  fs.renameSync(tmp, file);
+  replaceFile(tmp, file);
 };
 
 /** The timeline: one JSON line per tap, the newest last; cut to its newest half when it grows too big. */
