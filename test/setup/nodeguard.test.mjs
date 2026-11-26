@@ -79,8 +79,8 @@ test('the package, the installers and the workflows name the same lowest Node.js
   // PowerShell cannot run here: its check compares the whole version, never the major alone.
   assert.match(ps, /\(\$v -ge \[version\]\$MinNode\)/);
   assert.doesNotMatch(ps, /split\('\.'\)\[0\]/, 'no check of the major alone is left');
-  // Every workflow that runs the tests runs them on the floor's major first, and on no older one.
-  for (const wf of ['test.yml', 'windows.yml']) {
+  // Every workflow that runs the tests or the packed package runs it on the floor's major first, and on no older one.
+  for (const wf of ['test.yml', 'windows.yml', 'pack-smoke.yml']) {
     const text = fs.readFileSync(path.join(ROOT, '.github', 'workflows', wf), 'utf8');
     const lists = [...text.matchAll(/node: \[([\d, ]+)\]/g)].map((m) => m[1].split(/,\s*/).map(Number));
     assert.ok(lists.length > 0, wf);

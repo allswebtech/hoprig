@@ -28,6 +28,12 @@ node bin/hoprig.mjs demo   # the dashboard with sample data, no coding tool need
   proves it, name it in `HOPRIG_SEAL_REAL` with a reason), "A TEST KNOCKED ON
   THE DEFAULT PORT" (give its settings ports of their own). What each means, what the seal holds and what it does
   not: AGENTS.md, "The suite cannot touch the computer it runs on".
+- **"Passed only on its second run".** The workflows run the tests with `--again`: a test file with a failing test
+  runs once more by itself, and when that second run passes whole the run does not fail for it, but names it in a
+  block that starts "⚠ PASSED ONLY ON ITS SECOND RUN:" (with the tests that failed), in the closing line and on the
+  run's page. Such a line is a defect to look at, a test that depends on timing or on another test, not a pass to
+  ignore. At most three files run again, never one the seal marked, and a release runs without it. The same on your
+  computer: `node tools/test.mjs --again test/x.test.mjs`, or `HOPRIG_TEST_AGAIN=1 npm test`.
 - Agree to the [contributor licence agreement](CLA.md): keep the line "I have read the CLA and agree to it" with
   your name in the pull request (the template has it). Without it a pull request is not merged.
 - Say what you ran, on which system, and what you could not run.

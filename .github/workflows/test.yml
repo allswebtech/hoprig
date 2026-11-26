@@ -39,7 +39,9 @@ jobs:
         if: matrix.os == 'ubuntu-latest'
         run: sudo apt-get update && sudo apt-get install -y tmux
       - run: npm ci
-      - run: npm test -- --part=${{ matrix.part }}
+      # --again: a file with a failing test runs once more by itself; one that passes then does not fail the run and is
+      # named loudly (CONTRIBUTING.md). A release (release.yml) runs the tests without it.
+      - run: npm test -- --part=${{ matrix.part }} --again
 
   # Windows is not supported yet: its jobs tell, they do not block. Their results are shown, a failure does not fail
   # the run. The same Node.js versions as above (24, the lowest Hoprig runs on, and 26). Every test process
@@ -63,4 +65,4 @@ jobs:
         with:
           node-version: ${{ matrix.node }}
       - run: npm ci
-      - run: npm test -- --part=${{ matrix.part }}
+      - run: npm test -- --part=${{ matrix.part }} --again

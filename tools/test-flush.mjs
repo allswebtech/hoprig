@@ -4,7 +4,9 @@ import { relative } from 'node:path';
 // results to the runner through a pipe, and with --test-force-exit it ends as soon as the last result is handed over:
 // where that pipe does not block (a socket pair on Linux, any pipe on macOS) the last result was sometimes lost, so a
 // file's last test, its failure message included, was missing from the report. Writes that block are never lost.
-if (process.env.NODE_TEST_CONTEXT) {
+// A file that tools/test.mjs --again runs once more by itself is no child of `node --test` and ends the same way
+// (--test-force-exit, its report on a pipe): HOPRIG_TEST_ALONE says so.
+if (process.env.NODE_TEST_CONTEXT || process.env.HOPRIG_TEST_ALONE === '1') {
   for (const stream of [process.stdout, process.stderr]) stream._handle?.setBlocking?.(true);
 }
 
