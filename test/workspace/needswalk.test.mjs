@@ -57,7 +57,7 @@ test('decision 1: a private folder of the need is never entered; links in it are
     assert.deepEqual(seen.filter((c) => PRIV.test(c)), [], 'no file call names a private folder');
     assert.ok(!/plum/.test(JSON.stringify(r.f)), 'no name from inside a private folder');
     for (const p of ['ai-ignore-dir', 'no-ai', 'ignore']) {
-      for (const rule of [`Read(/${d}/${p})`, `Read(/${d}/${p}/**)`, `Read(/${d}/**/${p})`, `Read(/${d}/**/${p}/**)`]) assert.ok(r.s.deny.includes(rule), rule);
+      for (const rule of [`Read(/${W.ruleForm(d)}/${p})`, `Read(/${W.ruleForm(d)}/${p}/**)`, `Read(/${W.ruleForm(d)}/**/${p})`, `Read(/${W.ruleForm(d)}/**/${p}/**)`]) assert.ok(r.s.deny.includes(rule), rule);
     }
   } finally {
     w.cleanup();
@@ -77,8 +77,9 @@ test('decision 1: a link (outside any private folder) that leads into a private 
     assert.equal(r.ok, true, r.why);
     assert.deepEqual(seen.filter((c) => PRIV.test(c)), [], 'not resolved through the private folder');
     const s = await N.extraSettings([d], { dir: w.ws, projects: w.projects, walked: { [d]: r.walked } });
-    const blogIgnore = path.join(fs.realpathSync(path.join(w.projects, 'blog')), 'ignore');
-    for (const rule of [`Read(/${d}/theirs)`, `Read(/${d}/theirs/**)`, `Read(/${blogIgnore})`, `Read(/${blogIgnore}/**)`, `Read(/${d}/deeper)`, `Read(/${d}/deeper/**)`]) assert.ok(s.deny.includes(rule), rule);
+    const blogIgnore = W.ruleForm(path.join(fs.realpathSync(path.join(w.projects, 'blog')), 'ignore'));
+    const rd = W.ruleForm(d);
+    for (const rule of [`Read(/${rd}/theirs)`, `Read(/${rd}/theirs/**)`, `Read(/${blogIgnore})`, `Read(/${blogIgnore}/**)`, `Read(/${rd}/deeper)`, `Read(/${rd}/deeper/**)`]) assert.ok(s.deny.includes(rule), rule);
     // Into a private folder of the credentials folder or of the brain: never opened.
     fs.mkdirSync(path.join(w.ws, 'ai_brain', 'ignore'), { recursive: true });
     fs.symlinkSync(path.join(w.ws, 'ai_brain', 'ignore'), path.join(w.parts, 'mem'));
@@ -100,7 +101,7 @@ test('decision 3: a link out of the workspace keeps the folder closed and names 
     fs.symlinkSync(path.join(w.root, 'elsewhere'), link);
     const r = await N.extraFolder('kits/parts', { map: w.map, ctx: w.ctx, self });
     assert.equal(r.ok, false);
-    assert.match(r.why, /kits\/parts: its link lib\/far leads out of the workspace \(to .*elsewhere\), so it is not opened \(if that link is yours: {2}hoprig workspace mylink add .*lib\/far\)/);
+    assert.match(r.why, /kits\/parts: its link lib\/far leads out of the workspace \(to .*elsewhere\), so it is not opened \(if that link is yours: {2}hoprig workspace mylink add .*lib[\\/]far'?\)/); // Windows: a quoted backslash path
     // The same for --with, and for a session's need.
     const ex = await N.sessionExtras(w.shop, { withs: [], dir: w.ws, projects: w.projects });
     assert.deepEqual(ex.dirs, []);

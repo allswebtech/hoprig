@@ -10,6 +10,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { sandbox } from '../server/helpers.mjs';
+import { SHELL_STANDINS } from '../seal.mjs';
 
 const OURS = /src[\\/]box[\\/]/;
 const MEANS = /(^|[\\/])(bwrap|sandbox-exec)$/;
@@ -65,7 +66,7 @@ function watch() {
   };
 }
 
-test('a server start and three ticks: the box runs nothing, reads nothing and changes nothing', { timeout: 120_000, skip: process.platform === 'win32' && 'the stand-ins are POSIX' }, async (t) => {
+test('a server start and three ticks: the box runs nothing, reads nothing and changes nothing', { timeout: 120_000, skip: SHELL_STANDINS.skip }, async (t) => {
   // This test's own temporary folder: the self-test of the box makes its folders under os.tmpdir(), and other box
   // test files run beside this one in the same shared one. Pointing TMPDIR here before src/box is imported keeps the
   // check below ("the box made no temporary folder") about THIS test's folder, never another file's by chance.

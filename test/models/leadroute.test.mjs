@@ -8,6 +8,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { sandbox } from '../server/helpers.mjs';
+import { SHELL_STANDINS } from '../seal.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const FAKE_CLAUDE = path.join(HERE, '..', 'chat', 'fixtures', 'fake-claude.mjs');
@@ -53,7 +54,7 @@ async function dashboard(t, box, work) {
   return { app, owner: (method, p, body) => request(base, method, p, { body, headers: { Cookie: cookie } }) };
 }
 
-test('Lead through the routes: chosen, the folder\'s last, Settings; saved; one line; off as before', { timeout: 120_000, skip: process.platform === 'win32' && 'the stand-ins are POSIX' }, async (t) => {
+test('Lead through the routes: chosen, the folder\'s last, Settings; saved; one line; off as before', { timeout: 120_000, skip: SHELL_STANDINS.skip }, async (t) => {
   const box = sandbox('leadroute');
   t.after(() => box.cleanup());
   const work = path.join(box.root, 'work');
@@ -135,7 +136,7 @@ test('Lead through the routes: chosen, the folder\'s last, Settings; saved; one 
   assert.ok(!JSON.stringify(rec).includes('sk-ant-oat'), 'no key in the saved chats');
 });
 
-test('a start with the provider left as it is: Settings\' ticks never include the provider the server picks, and the folder\'s last Lead counts', { timeout: 120_000, skip: process.platform === 'win32' && 'the stand-ins are POSIX' }, async (t) => {
+test('a start with the provider left as it is: Settings\' ticks never include the provider the server picks, and the folder\'s last Lead counts', { timeout: 120_000, skip: SHELL_STANDINS.skip }, async (t) => {
   const box = sandbox('leadpick');
   t.after(() => box.cleanup());
   const work = path.join(box.root, 'work');

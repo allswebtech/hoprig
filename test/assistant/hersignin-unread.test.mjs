@@ -33,7 +33,7 @@ test('a chosen sign-in file that cannot be read cuts off every sign-in of the ow
     assert.notEqual(out.GH_CONFIG_DIR, path.join(os.homedir(), '.config', 'gh'), 'not his own gh folder');
     assert.ok(fs.statSync(out.GH_CONFIG_DIR).isDirectory(), 'the folder gh is pointed at exists');
     assert.equal(fs.readdirSync(out.GH_CONFIG_DIR).length, 0, 'and it is empty: no stored sign-in there');
-    assert.equal(fs.statSync(out.GH_CONFIG_DIR).mode & 0o777, fs.statSync(path.join(credsDir, 'github')).mode & 0o777, 'made no more open than the folder the token lives in');
+    if (process.platform !== 'win32') assert.equal(fs.statSync(out.GH_CONFIG_DIR).mode & 0o777, fs.statSync(path.join(credsDir, 'github')).mode & 0o777, 'made no more open than the folder the token lives in');
 
     // git's credential helper for github.com is cleared with an empty value (which resets the host's helper list).
     const keys = Object.keys(out).filter((k) => /^GIT_CONFIG_KEY_\d+$/.test(k));

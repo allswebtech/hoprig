@@ -24,7 +24,8 @@ import { stateDir } from '../paths.mjs';
 import { alive, sameProcess, system as procIdent } from '../procid.mjs';
 import { PRIVATE_DIRS } from '../pcsetup/projects.mjs';
 import { extraSettings, sessionExtras } from '../workspace/needs.mjs';
-import { isPrivate } from '../workspace/needswalk.mjs';
+import { isPrivate, ruleForm } from '../workspace/needswalk.mjs';
+import { replaceFile } from '../replacefile.mjs';
 
 export const DEPS = 'node_modules';
 const linksFile = () => path.join(stateDir(), 'mission-links.json');
@@ -50,7 +51,7 @@ function writeLinks(d) {
   fs.mkdirSync(path.dirname(linksFile()), { recursive: true, mode: 0o700 });
   const tmp = `${linksFile()}.${process.pid}.tmp`;
   fs.writeFileSync(tmp, `${JSON.stringify(d, null, 2)}\n`, { mode: 0o600 });
-  fs.renameSync(tmp, linksFile());
+  replaceFile(tmp, linksFile());
 }
 
 /** The links the product made and has not taken away yet: { [worktree]: { target, pid } }. */
@@ -103,14 +104,17 @@ function holdsPrivate(d) {
  * `given`: every folder the box gets. A rule passes only when what it names is not there, or is a link that leads
  * out of every folder the box gets (it dangles inside). A pattern, or the whole folder, never passes. → '' or why.
  */
-function hidden(d, deny, given) {
-  const quartet = new Set(PRIVATE_DIRS.flatMap((p) => [`Read(/${d}/${p})`, `Read(/${d}/${p}/**)`, `Read(/${d}/**/${p})`, `Read(/${d}/**/${p}/**)`]));
+export function hidden(d, deny, given, platform = process.platform) {
+  // The rules name `d` as needs.mjs wrote them: on Windows in its POSIX form (C:\a\b as /c/a/b, needswalk.mjs ruleForm).
+  const rd = ruleForm(d, platform) ?? d;
+  const quartet = new Set(PRIVATE_DIRS.flatMap((p) => [`Read(/${rd}/${p})`, `Read(/${rd}/${p}/**)`, `Read(/${rd}/**/${p})`, `Read(/${rd}/**/${p}/**)`]));
   const reads = deny.filter((r) => /^Read\(/.test(r) && !quartet.has(r));
   if (holdsPrivate(d)) return 'it holds a private folder';
   for (const r of reads) {
     const spec = r.slice(5, -1).replace(/\/\*\*$/, '');
     if (!spec.startsWith('/') || spec.includes('*')) return 'its session may not read some of its files';
-    const at = spec.slice(1);
+    const at = diskPath(spec.slice(1), platform);
+    if (at === null) return 'its session may not read some of its files';
     let st;
     try {
       st = fs.lstatSync(at);
@@ -122,6 +126,13 @@ function hidden(d, deny, given) {
     return 'its session may not read some of its files';
   }
   return '';
+}
+
+/** A rule's path as a path on this disk: itself, on Windows /c/a/b as C:\a\b. → the path, or null (none on Windows). */
+function diskPath(at, platform) {
+  if (platform !== 'win32') return at;
+  const m = /^\/([A-Za-z])(?:\/|$)/.exec(at);
+  return m ? path.win32.join(`${m[1].toUpperCase()}:\\`, ...at.slice(3).split('/').filter(Boolean)) : null;
 }
 
 /**
@@ -247,7 +258,7 @@ function setGroup(tree, group) {
     rec.groupIdent = procIdent.of([group]).get(group) || null;
     const tmp = `${f}.${process.pid}.tmp`;
     fs.writeFileSync(tmp, JSON.stringify(rec), { mode: 0o600 });
-    fs.renameSync(tmp, f);
+    replaceFile(tmp, f);
   } catch { /* the lock is gone: the run is ending anyway */ }
 }
 function holder(tree) {

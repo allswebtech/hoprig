@@ -45,7 +45,8 @@ const itemOf = (c) => makeItem({ kind: 'asks', cls: 'waits', subject: `session c
 const boardOf = (c) => ({ sessions: [{ name: `chat:${c.id}`, chatId: c.id, askType: 'question', asks: ['main'] }] });
 const offeredOf = (c, adapter) => prepared(itemOf(c), boardOf(c), { card: (n) => adapter.card(n), alone: (t) => adapter.alone(t) }).map((s) => s.id);
 
-test('a real question with three options and no mark, Hands-off on: offered, and answered through answerAsk with its label', async (t) => {
+// Hands-off is not offered on Windows (src/handsoff.mjs handsOffOffered: the wall's hold is a POSIX shell test).
+test('a real question with three options and no mark, Hands-off on: offered, and answered through answerAsk with its label', { skip: process.platform === 'win32' && 'Hands-off is not offered on Windows' }, async (t) => {
   const c = newChat();
   t.after(() => c.stopAndWait());
   const turn = new Promise((r) => c.once('turn', r));

@@ -41,7 +41,7 @@ At any time, open **Computers**, then this computer, then its **Health** tab: it
 
 ## What it does not do
 
-- **Windows is not ready yet.** Its code is written, but the tests do not pass on Windows.
+- **Windows is not ready yet.** Its code is written and its tests pass on GitHub's Windows runners, but it has not run on real Windows computers beyond one: Windows support is experimental.
 - It does not teach you to code, and it cannot make the AI's work correct. Read what the chat says it did, and try the result.
 - You still need the terminal once, to paste the install line.
 - An install on a real Mac has not been run yet; Linux installs were run on clean Ubuntu, Debian and Fedora.

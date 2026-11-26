@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
+import { SHELL_STANDINS } from '../seal.mjs';
 import { fakeBin, scratch } from './helpers.mjs';
 
 const s = scratch();
@@ -75,7 +76,7 @@ test('a quiet run keeps the output in a log and gives the last lines back only w
   const text = fs.readFileSync(log, 'utf8');
   assert.match(text, /^\$ sh -c 'echo line one; echo line two'\nline one\nline two\n\(exit 0\)\n\$ sh -c /);
   assert.match(text, /E: it broke\n\(exit 3\)\n$/);
-  assert.equal((fs.statSync(log).mode & 0o777).toString(8), '600');
+  if (process.platform !== 'win32') assert.equal((fs.statSync(log).mode & 0o777).toString(8), '600');
 });
 
 test('showCommand quotes only what needs it', () => {
@@ -103,7 +104,7 @@ function madeUpNode(name) {
   return { node: path.join(root, 'bin', 'node'), bin: path.join(root, 'bin'), cli: path.join(cli, 'npm-cli.js') };
 }
 
-test('npm: the one on PATH when there is one, else the npm of the Node Hoprig runs on, else one plain sentence', async () => {
+test('npm: the one on PATH when there is one, else the npm of the Node Hoprig runs on, else one plain sentence', { skip: process.platform === 'win32' && 'the made-up Node folder has the layout of Linux and macOS (bin/node, lib/node_modules/npm)' }, async () => {
   const withNpm = fakeBin(path.join(s.tmp, 'g5-path'), { npm: 'echo "path npm $*"' });
   const empty = fakeBin(path.join(s.tmp, 'g5-empty'), {});
   const n = madeUpNode('g5-node');
@@ -135,7 +136,7 @@ test('npm: the one on PATH when there is one, else the npm of the Node Hoprig ru
   assert.equal(await S.npmMajor({ env: { PATH: withNpm }, platform: 'linux' }), null, 'the stand-in prints no version'); // seal: only the test's own folders, in an environment that keeps the runner's variables
 });
 
-test('npm 12 and newer get the flag that allows a package named by an address; older npm and other sources get none', async () => {
+test('npm 12 and newer get the flag that allows a package named by an address; older npm and other sources get none', SHELL_STANDINS, async () => {
   const url = 'https://github.com/allswebtech/hoprig/archive/refs/heads/main.tar.gz';
   assert.deepEqual(S.npmSourceFlags(url, 12), ['--allow-remote=root']);
   assert.deepEqual(S.npmSourceFlags(url, 13), ['--allow-remote=root']);
@@ -161,7 +162,7 @@ test('versions: parse and compare', () => {
   assert.equal(S.compareVersions('x', '1.0.0'), -1);
 });
 
-test('which finds executables on the given PATH only', () => {
+test('which finds executables on the given PATH only', { skip: process.platform === 'win32' && 'file modes: Windows has no execute bit, and Linux PATH rules are handed in' }, () => {
   const dir = fakeBin(path.join(s.tmp, 'bin-which'), { tool: 'exit 0' });
   fs.writeFileSync(path.join(dir, 'notexec'), 'x', { mode: 0o644 });
   const env = { PATH: dir }; // seal: a value no program is started with
@@ -199,7 +200,7 @@ test('which on Windows takes the file Windows can start, not the shell script np
   assert.equal(S.which('plain', { Path: other }, 'win32'), path.join(other, 'plain.CMD'));  // seal: which() is a pure function; no program is started
 });
 
-test('capture and stream report output, exit codes and programs that do not exist', async () => {
+test('capture and stream report output, exit codes and programs that do not exist', SHELL_STANDINS, async () => {
   const dir = fakeBin(path.join(s.tmp, 'bin-run'), { two: 'echo one; echo two >&2; exit 3' });
   const c = await S.capture([path.join(dir, 'two')]);
   assert.equal(c.ok, false);
@@ -219,4 +220,28 @@ test('os-release is read into fields', () => {
   fs.writeFileSync(f, 'ID=debian\nPRETTY_NAME="Debian GNU/Linux 12 (bookworm)"\n');
   assert.deepEqual(S.osRelease(f), { ID: 'debian', PRETTY_NAME: 'Debian GNU/Linux 12 (bookworm)' });
   assert.deepEqual(S.osRelease(path.join(s.tmp, 'none')), {});
+});
+
+test('a move or a removal as a person types it: the POSIX line on Linux and macOS, PowerShell on Windows; a link removed alone', () => {
+  const odd = "C:\\Users\\al'ex\\my $(x) folder";
+  for (const p of ['linux', 'darwin']) {
+    assert.equal(S.showFileCommand('mv', ['/a b/x', '/a b/y'], p), "mv '/a b/x' '/a b/y'");
+    assert.equal(S.showFileCommand('rm -rf', ['/a/x'], p), 'rm -rf /a/x');
+    assert.equal(S.showLinkRemoveCommand('/a b/memory', p), "rm '/a b/memory'");
+    assert.equal(S.showThen('rm /a/l', 'hoprig project link x', p), 'rm /a/l && hoprig project link x');
+  }
+  assert.equal(S.showFileCommand('mv', [odd, 'C:\\y'], 'win32'), "Move-Item -LiteralPath 'C:\\Users\\al''ex\\my $(x) folder' -Destination 'C:\\y'");
+  assert.equal(S.showFileCommand('rm', ['C:\\x\\lock'], 'win32'), "Remove-Item -LiteralPath 'C:\\x\\lock'");
+  // A folder: walked by the block itself, each link inside removed as a link (never Remove-Item -Recurse, which in
+  // Windows PowerShell 5.1 could go into a junction); proven on the real system in pastelines-windows.test.mjs.
+  const tree = S.showFileCommand('rm -rf', ["C:\\it's"], 'win32');
+  assert.match(tree, /^& \{ param\(\$p\) \$ErrorActionPreference = 'Stop'; .*ReparsePoint.*\} 'C:\\it''s'$/);
+  assert.doesNotMatch(tree, /-Recurse/);
+  // A junction or a folder link: Get-Item does not follow it, and Delete() removes the link itself (never -Recurse).
+  assert.equal(S.showLinkRemoveCommand(odd, 'win32'), "(Get-Item -LiteralPath 'C:\\Users\\al''ex\\my $(x) folder' -Force).Delete()");
+  // Windows PowerShell 5.1 has no &&.
+  assert.equal(S.showThen('a', 'b', 'win32'), 'a; if ($?) { b }', 'the second only when the first worked');
+  // A memory folder merged into another, never over a file there, removed once empty.
+  for (const p of ['linux', 'darwin']) assert.equal(S.showMergeCommand('/a b/mem', '/p/mem', p), "mv -n '/a b/mem'/* /p/mem/ && rmdir '/a b/mem'");
+  assert.equal(S.showMergeCommand("C:\\al'ex\\mem", 'C:\\p\\mem', 'win32'), "Get-ChildItem -LiteralPath 'C:\\al''ex\\mem' -Force | Move-Item -Destination 'C:\\p\\mem'; (Get-Item -LiteralPath 'C:\\al''ex\\mem' -Force).Delete()");
 });

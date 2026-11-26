@@ -84,9 +84,10 @@ test('a chat\'s record sits with the launchers\' records, but only the readers o
 
 test('the launcher from a plain shell: a chat or another terminal on the conversation keeps it, said in one sentence', () => {
   clear();
-  const fake = path.join(box.root, 'claude-started.sh');
+  // A Node stand-in without an extension: the test seal starts it with Node on Windows too, as the system does here.
+  const fake = path.join(box.root, 'fake-claude');
   const started = path.join(box.root, 'claude-started');
-  fs.writeFileSync(fake, `#!/bin/sh\ntouch '${started}'\n`, { mode: 0o755 });
+  fs.writeFileSync(fake, `#!/usr/bin/env node\nprocess.getBuiltinModule('node:fs').writeFileSync(${JSON.stringify(started)}, '');\n`, { mode: 0o755 });
   saveConfig({ claudeBin: fake, usage: false });
   writeProfile('work', { label: 'Work', env: { ANTHROPIC_API_KEY: 'sk-test-not-real' } });
   const env = { ...process.env };
@@ -343,7 +344,8 @@ test('the start\'s mark on Windows: the built-in terminal removes it when its co
   fs.writeFileSync(mark, '');
   const plan = startPlan({ platform: 'win32', dir: 'C:\\w', argv: ['node.exe', 'hoprig.mjs', 'work'], mark });
   assert.equal(plan.mark, mark);
-  assert.equal(startPlan({ platform: 'linux', dir: '/w', argv: ['/n'], mark, shell: { file: '/bin/sh', args: ['-l'] } }).type, shellLine(['/n'], { mark }).line);
+  const posixMark = '/w/.start-win'; // the Linux plan is given a Linux path, also when the test runs on Windows
+  assert.equal(startPlan({ platform: 'linux', dir: '/w', argv: ['/n'], mark: posixMark, shell: { file: '/bin/sh', args: ['-l'] } }).type, shellLine(['/n'], { mark: posixMark }).line);
   const procs = [];
   const spawn = (file) => {
     const exits = [];

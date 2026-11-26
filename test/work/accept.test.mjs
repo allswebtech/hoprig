@@ -6,8 +6,8 @@ import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
-import { fileURLToPath } from 'node:url';
-import { tempWork } from './helpers.mjs';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { endSignal, tempWork } from './helpers.mjs';
 
 const t = tempWork('work-accept');
 test.after(() => t.cleanup());
@@ -119,8 +119,8 @@ test('a kill at each step of Accept leaves nothing, or everything once the next 
   const full = tree();
   assert.notDeepEqual(full, original);
   const child = `
-    const { resolvePlace, projectNames } = await import(${JSON.stringify(path.join(ROOT, 'src/work/place.mjs'))});
-    const S = await import(${JSON.stringify(path.join(ROOT, 'src/work/planstore.mjs'))});
+    const { resolvePlace, projectNames } = await import(${JSON.stringify(pathToFileURL(path.join(ROOT, 'src/work/place.mjs')).href)});
+    const S = await import(${JSON.stringify(pathToFileURL(path.join(ROOT, 'src/work/planstore.mjs')).href)});
     const cfg = ${JSON.stringify(cfg)};
     const ctx = { today: '2026-11-18', ownerId: 'alex', projects: projectNames(), now: () => new Date(${JSON.stringify(NOW)}) };
     await S.acceptProposal(resolvePlace(cfg), ${JSON.stringify(proposal())}, ctx, { pid: ${JSON.stringify(PID)} });
@@ -129,7 +129,7 @@ test('a kill at each step of Accept leaves nothing, or everything once the next 
     reset();
     record();
     const r = spawnSync(process.execPath, ['--input-type=module', '-e', child], { env: { ...process.env, HOPRIG_TEST_WORK_STOP_AFTER: step }, encoding: 'utf8' });
-    assert.equal(r.signal, 'SIGKILL', `${step}: the child was killed there (${r.stderr})`);
+    assert.equal(endSignal(r), 'SIGKILL', `${step}: the child was killed there (${r.stderr})`);
     const fin = await finishInterrupted(place());
     const now = tree();
     if (step === 'accept-planned') {
@@ -149,11 +149,11 @@ test('a file changed after a kill is never written over: the owner is told, unti
   reset();
   record();
   const child = `
-    const { resolvePlace, projectNames } = await import(${JSON.stringify(path.join(ROOT, 'src/work/place.mjs'))});
-    const S = await import(${JSON.stringify(path.join(ROOT, 'src/work/planstore.mjs'))});
+    const { resolvePlace, projectNames } = await import(${JSON.stringify(pathToFileURL(path.join(ROOT, 'src/work/place.mjs')).href)});
+    const S = await import(${JSON.stringify(pathToFileURL(path.join(ROOT, 'src/work/planstore.mjs')).href)});
     await S.acceptProposal(resolvePlace(${JSON.stringify(cfg)}), ${JSON.stringify(proposal())}, { today: '2026-11-18', ownerId: 'alex', projects: projectNames() }, {});`;
   const r = spawnSync(process.execPath, ['--input-type=module', '-e', child], { env: { ...process.env, HOPRIG_TEST_WORK_STOP_AFTER: 'accept-note' }, encoding: 'utf8' });
-  assert.equal(r.signal, 'SIGKILL');
+  assert.equal(endSignal(r), 'SIGKILL');
   fs.appendFileSync(place().file, ' ');
   const mine = fs.readFileSync(place().file, 'utf8');
   const fin = await finishInterrupted(place());
@@ -171,11 +171,11 @@ test('while an interrupted Accept waits on the owner, no other change of plans i
   record();
   const hand = await S.createPlan(place(), { title: 'Grow the blog', goal: 'Twice the visits.', projects: ['blog'] }, ctx());
   const child = `
-    const { resolvePlace, projectNames } = await import(${JSON.stringify(path.join(ROOT, 'src/work/place.mjs'))});
-    const S = await import(${JSON.stringify(path.join(ROOT, 'src/work/planstore.mjs'))});
+    const { resolvePlace, projectNames } = await import(${JSON.stringify(pathToFileURL(path.join(ROOT, 'src/work/place.mjs')).href)});
+    const S = await import(${JSON.stringify(pathToFileURL(path.join(ROOT, 'src/work/planstore.mjs')).href)});
     await S.acceptProposal(resolvePlace(${JSON.stringify(cfg)}), ${JSON.stringify(proposal())}, { today: '2026-11-18', ownerId: 'alex', projects: projectNames() }, { pid: ${JSON.stringify(PID)} });`;
   const r = spawnSync(process.execPath, ['--input-type=module', '-e', child], { env: { ...process.env, HOPRIG_TEST_WORK_STOP_AFTER: 'accept-plan' }, encoding: 'utf8' });
-  assert.equal(r.signal, 'SIGKILL', r.stderr);
+  assert.equal(endSignal(r), 'SIGKILL', r.stderr);
   fs.appendFileSync(place().file, ' '); // a hand edit after the kill: the Accept cannot be finished by itself
   assert.equal((await finishInterrupted(place())).code, 'interrupted');
   const before = tree();

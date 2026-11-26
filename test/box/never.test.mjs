@@ -29,6 +29,8 @@ const OPTS = { cwd: work, write: [work], timeoutMs: 5000 };
 // Before the first test: a test registered after an await that comes later is lost by the runner.
 const real = await boxCheck();
 
+const noBox = process.platform === 'win32' && 'the box is made for Linux and macOS: Windows has none (means.mjs)';
+
 test('no means: the check says no with one line why and a step, and the self-test never starts', async () => {
   const c = counter();
   const r = await checkWith({ means: () => ({ kind: null, why: 'bubblewrap is not installed', step: 'install bubblewrap' }), run: c.run });
@@ -38,7 +40,7 @@ test('no means: the check says no with one line why and a step, and the self-tes
   assert.equal(c.calls.length, 0);
 });
 
-test('a self-test that fails is a no, and so is one that throws', async () => {
+test('a self-test that fails is a no, and so is one that throws', { skip: noBox }, async () => {
   const means = () => ({ kind: 'bwrap', file: '/usr/bin/bwrap' });
   const failed = await checkWith({ means, run: async () => ({ started: true, code: 1, out: '', timedOut: false }) });
   assert.equal(failed.ok, false);
@@ -88,7 +90,7 @@ test('a wrong option or a folder that is not there: nothing runs', async () => {
   }
 });
 
-test('a start that fails is a failure, never a run outside', async () => {
+test('a start that fails is a failure, never a run outside', { skip: noBox }, async () => {
   const c = counter({ started: false, code: null, signal: null, out: 'bwrap: Unknown option --size\n', timedOut: false });
   const r = await runWith(['/bin/true'], OPTS, { check: YES, run: c.run });
   assert.equal(r.ok, false);
@@ -97,7 +99,7 @@ test('a start that fails is a failure, never a run outside', async () => {
   assert.equal(c.calls[0][0], '/usr/bin/bwrap', 'only the means is started');
 });
 
-test('the plan keeps the command as a list of words after "--"', () => {
+test('the plan keeps the command as a list of words after "--"', { skip: noBox }, () => {
   const p = planRun(['-x', 'a b'], OPTS);
   assert.deepEqual(p.argv, ['-x', 'a b']);
 });

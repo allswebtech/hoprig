@@ -28,6 +28,9 @@ const { terminals } = await import('../../src/chat/handoff.mjs');
 const { listRuns } = await import('../../src/runs.mjs');
 const kinds = POSIX ? [...(nodePty ? ['pty'] : []), ...(tmuxUsable() ? ['tmux'] : [])] : [];
 test.after(() => box.cleanup());
+// A file with an after hook and no test makes Node's runner loop until it runs out of memory (--test-force-exit, Node 24
+// and 26): where no terminal kind is here (always on Windows) one skipped test says why instead.
+if (!kinds.length) test('real terminals', { skip: 'neither the built-in terminal nor tmux is here' }, () => {});
 
 const ID = '5c1e7a9d-3b2f-4d8e-a6c4-9e0b1f2d3a47';
 const TICK_MS = 5000; // the watcher's own tick (watcher.mjs tickMs)

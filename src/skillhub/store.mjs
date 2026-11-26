@@ -9,6 +9,7 @@ import { copyTree } from '../copytree.mjs';
 import { claudeDir, stateDir } from '../paths.mjs';
 import { parseFrontMatter } from './frontmatter.mjs';
 import { safeRel } from './scan.mjs';
+import { replaceFile } from '../replacefile.mjs';
 
 export const MANIFEST = '.hoprig-skills.json';
 export const sha256 = (buf) => crypto.createHash('sha256').update(buf).digest('hex');
@@ -95,7 +96,7 @@ function writeRecord(file, m) {
   fs.mkdirSync(path.dirname(file), { recursive: true });
   const tmp = `${file}.${process.pid}.tmp`;
   fs.writeFileSync(tmp, `${JSON.stringify(m, null, 2)}\n`);
-  fs.renameSync(tmp, file);
+  replaceFile(tmp, file);
 }
 
 export function writeManifest(dir, m) {

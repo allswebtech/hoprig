@@ -14,6 +14,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { herSignedEnv } from '../../src/assistant/hersignin.mjs';
+import { SHELL_STANDINS } from '../seal.mjs';
 
 const VARS = ['GH_TOKEN', 'GITHUB_TOKEN', 'GH_ENTERPRISE_TOKEN', 'GITHUB_ENTERPRISE_TOKEN'];
 const KEYRING_SECRET = 'ghp_OWNER_keyring_madeup_0001';
@@ -70,7 +71,7 @@ test('the blank sign-in gives each token variable gh reads the same value, one t
   }
 });
 
-test('gh in her blank session fails with a sign-in error and never gets as far as the keyring', () => {
+test('gh in her blank session fails with a sign-in error and never gets as far as the keyring', SHELL_STANDINS, () => {
   const c = setup();
   try {
     // Baseline: with no token variable at all (his taken out and nothing in their place), the stand-in reaches the
@@ -95,7 +96,7 @@ test('gh in her blank session fails with a sign-in error and never gets as far a
   }
 });
 
-test('the owner\'s own session is unchanged and its gh signs in with his own token', () => {
+test('the owner\'s own session is unchanged and its gh signs in with his own token', SHELL_STANDINS, () => {
   const c = setup();
   try {
     for (const cfg of [{}, readable, unreadable]) {
@@ -109,7 +110,7 @@ test('the owner\'s own session is unchanged and its gh signs in with his own tok
   }
 });
 
-test('her session with a readable file still signs gh in with HER token, not a placeholder', () => {
+test('her session with a readable file still signs gh in with HER token, not a placeholder', SHELL_STANDINS, () => {
   const c = setup();
   try {
     const out = herSignedEnv(c.his, { byTia: true, cfg: readable, credsDir: c.credsDir, onProblem: () => { throw new Error('the file reads'); } });

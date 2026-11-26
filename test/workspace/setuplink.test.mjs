@@ -25,13 +25,13 @@ const { myLinkCommand } = await import('../../src/workspace/inside.mjs');
 
 test('setup: a tree folder behind a link is named with the mylink command, the rest is made, nothing outside', async () => {
   const dry = await workspaceSetup({ dryRun: true });
-  const named = dry.left.find((l) => /database\/postgresql$/.test(l.path));
+  const named = dry.left.find((l) => /database[\\/]postgresql$/.test(l.path));
   assert.ok(named, JSON.stringify(dry.left));
   assert.match(named.why, /database leaves its folder through a link: not followed; if that link is yours: +hoprig workspace mylink add /);
   assert.ok(named.why.endsWith(myLinkCommand(path.join(B.ws, 'database'))));
-  assert.ok(!dry.did.some((d) => /database\//.test(d.path)), 'not planned');
+  assert.ok(!dry.did.some((d) => /database[\\/]/.test(d.path)), 'not planned');
   const r = await workspaceSetup({});
-  assert.ok(r.left.some((l) => /database\/postgresql$/.test(l.path)));
+  assert.ok(r.left.some((l) => /database[\\/]postgresql$/.test(l.path)));
   assert.deepEqual(fs.readdirSync(disk), [], 'nothing made on the other disk');
   assert.ok(fs.existsSync(path.join(B.ws, 'credentials')), 'the rest of the tree is made');
 });

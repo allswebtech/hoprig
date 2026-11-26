@@ -55,7 +55,7 @@ test('a file of the workspace that is a hard link to a file outside: a write rep
   assert.equal(fs.readFileSync(secret, 'utf8'), 'SECRET\n');
   assert.equal(fs.readFileSync(path.join(shop, 'project.json'), 'utf8'), '{"x":1}');
   assert.equal(fs.statSync(path.join(shop, 'project.json')).nlink, 1);
-  assert.equal(fs.statSync(path.join(shop, 'project.json')).mode & 0o777, 0o600, 'it keeps the mode it had');
+  if (process.platform !== 'win32') assert.equal(fs.statSync(path.join(shop, 'project.json')).mode & 0o777, 0o600, 'it keeps the mode it had');
 });
 
 test('a template whose links each look inside but lead out through each other is refused, and nothing leads out', { skip: !posix && 'links need rights on Windows' }, () => {

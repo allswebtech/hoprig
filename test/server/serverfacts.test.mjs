@@ -32,7 +32,7 @@ test('the settings answer names the server reason and the ways to reach it', { t
   assert.match(s.network.server.why, /this is a server \(reached over ssh, with no desktop of its own\)/);
   assert.equal(s.network.server.ways.length, 4);
   assert.match(s.network.server.ways.join('\n'), /Computers → Add a computer → "I can reach it by SSH"/);
-  assert.match(s.network.server.forward, new RegExp(`^ssh -N -L ${port + 10000}:127\\.0\\.0\\.1:${port} -p 2222 `), 'the ssh port set-up saw, the command alone');
+  assert.match(s.network.server.forward, new RegExp(`^ssh -N -L ${port + 10000 <= 65535 ? port + 10000 : port - 1000}:127\\.0\\.0\\.1:${port} -p 2222 `), 'the ssh port set-up saw, the command alone');
   assert.doesNotMatch(JSON.stringify(s.network.server), /10\.0\.0\.5|192\.168\.1\.20/, 'no private address');
   assert.ok(fs.existsSync(box.config));
 });

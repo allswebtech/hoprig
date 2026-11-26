@@ -38,9 +38,9 @@ process.env.PATH = `${bin}${path.delimiter}${process.env.PATH}`;
 // other ports below are only words in files and commands; nothing listens on them.
 const { freePort } = await import('../src/machines/tunnels.mjs');
 const GATEWAY_PORT = await freePort();
-// The stand-ins are scripts started by their "#!" line, and a tunnel's command line, the fact that shows an older file's
-// tunnel is ours, is not read on Windows (linkmigrate.mjs): those tests run elsewhere.
-const POSIX = { skip: process.platform === 'win32' };
+// A tunnel's command line, the fact that shows an older file's tunnel is ours, is not read on Windows (linkmigrate.mjs):
+// the tests of the temporary addresses run elsewhere. The gateway's run on Windows too.
+const TUNNEL = { skip: process.platform === 'win32' && 'a tunnel\'s command line, which shows an older file\'s tunnel is ours, is not read on Windows (linkmigrate.mjs)' };
 const SERVICE_PORT = 7975;
 
 const { saveConfig } = await import('../src/config.mjs');
@@ -109,7 +109,7 @@ test.afterEach(() => fs.rmSync(serviceFile(), { force: true }));
 const look = async () => ({ status: 401, headers: new Headers(), text: async () => '<form>password</form>' });
 const addService = () => P.temporarySteps['add-service']({ port: SERVICE_PORT, confirmed: true }, { notify: async () => ({ sent: false }), fetchImpl: look, waitMs: 10_000 });
 
-test('the second temporary address: a pid of another program now is not said to run and gets no signal', POSIX, async () => {
+test('the second temporary address: a pid of another program now is not said to run and gets no signal', TUNNEL, async () => {
   for (const rec of [
     (pid) => ({ pid, proc: earlier(pid) }), // written with an identity: another process has its pid now
     (pid) => ({ pid }), // written before identities, in this boot: its command line is not a tunnel of ours
@@ -133,7 +133,7 @@ test('the second temporary address: a pid of another program now is not said to 
   await P.stopService();
 });
 
-test('the second temporary address of ours: found running and stopped; a file from before identities still works in this boot, not after a restart', POSIX, async () => {
+test('the second temporary address of ours: found running and stopped; a file from before identities still works in this boot, not after a restart', TUNNEL, async () => {
   const r = await addService();
   assert.equal(r.ok, true, r.error);
   const rec = JSON.parse(fs.readFileSync(serviceFile(), 'utf8'));
@@ -172,7 +172,7 @@ async function commandLineUnread(fn) {
   }
 }
 
-test('the second temporary address that cannot be told from another program: no signal, the file kept, the caller told', POSIX, async () => {
+test('the second temporary address that cannot be told from another program: no signal, the file kept, the caller told', TUNNEL, async () => {
   // A file of an older version (no identity) of this boot, where the command line cannot be read: it may be our
   // tunnel, open to everyone, or another program under its pid.
   const pid = stranger();
@@ -196,7 +196,7 @@ test('the second temporary address that cannot be told from another program: no 
   assert.ok(!fs.existsSync(serviceFile()));
 });
 
-test('the second temporary address of an older file: a tunnel of ours to another port (the switch\'s own) is not it', POSIX, async () => {
+test('the second temporary address of an older file: a tunnel of ours to another port (the switch\'s own) is not it', TUNNEL, async () => {
   const pid = await tunnel(7971); // the main Temporary address leads to the dashboard's port
   write(serviceFile(), { pid, url: 'https://old-words.trycloudflare.com', port: SERVICE_PORT, openedBy: 'tok' });
   assert.deepEqual(P.serviceStatus(), STATUS_TELLS ? null : { port: SERVICE_PORT, url: 'https://old-words.trycloudflare.com' });
@@ -206,7 +206,7 @@ test('the second temporary address of an older file: a tunnel of ours to another
   assert.ok(!fs.existsSync(serviceFile()));
 });
 
-test('status of an older file on macOS: the dashboard does not wait for ps to read a command line', POSIX, async () => {
+test('status of an older file on macOS: the dashboard does not wait for ps to read a command line', TUNNEL, async () => {
   // A stand-in ps that only notes it was run; the identities on this system come from /proc, so ps is asked only
   // for a command line (linkmigrate.mjs).
   const psDir = path.join(box.root, 'ps-bin');
@@ -238,7 +238,7 @@ test('status of an older file on macOS: the dashboard does not wait for ps to re
 const gatewayPidFile = () => path.join(box.state, 'addons', 'trouteai.pid');
 const listening = () => T.status().then((s) => s.running);
 
-test('the gateway: stop ends what listens on its port, never another program under the file\'s pid', POSIX, async () => {
+test('the gateway: stop ends what listens on its port, never another program under the file\'s pid', async () => {
   for (const content of [(pid) => String(pid), (pid) => JSON.stringify({ pid, proc: earlier(pid) })]) {
     const gw = spawned([path.join(bin, 'trouteai'), '--port', String(GATEWAY_PORT)]);
     assert.ok(await until(listening), 'the stand-in gateway listens');
@@ -251,7 +251,7 @@ test('the gateway: stop ends what listens on its port, never another program und
   }
 });
 
-test('the gateway: where the process on its port cannot be found, a file without an identity shows nothing and gets no signal', POSIX, async () => {
+test('the gateway: where the process on its port cannot be found, a file without an identity shows nothing and gets no signal', async () => {
   const none = path.join(box.root, 'nothing');
   fs.mkdirSync(none, { recursive: true });
   for (const content of [(pid) => String(pid), (pid) => JSON.stringify({ pid, proc: null })]) {
@@ -277,7 +277,9 @@ test('the gateway: where the process on its port cannot be found, a file without
   }
 });
 
-test('the gateway of ours: started, its identity in the file, stopped; an old file of its parent still works in this boot, not after a restart', POSIX, async () => {
+// Windows: a wrapper that stays after its gateway (this test's node wrapper) is a POSIX shell's shape; the .cmd shim that
+// stands in that place there ends with its gateway by itself, and no process group ties the two.
+test('the gateway of ours: started, its identity in the file, stopped; an old file of its parent still works in this boot, not after a restart', { skip: process.platform === 'win32' && 'a wrapper that outlives its gateway is a POSIX shell\'s shape, ended through its process group; Windows has no groups, and its .cmd shim ends with the gateway' }, async () => {
   const s = await T.start();
   assert.equal(s.ok, true, s.error);
   const rec = JSON.parse(fs.readFileSync(gatewayPidFile(), 'utf8'));
@@ -359,7 +361,7 @@ test('a hold of another dashboard process of ours counts while it lives', async 
 const URL_NOW = 'https://live-words.trycloudflare.com';
 const record = (rec) => write(linkRecordFile(), { kind: 'temporary', url: URL_NOW, connected: true, ...rec });
 
-test('the Temporary address: not shown as live when its pid is another program now', POSIX, async () => {
+test('the Temporary address: not shown as live when its pid is another program now', TUNNEL, async () => {
   saveConfig({ publicLink: { on: true, kind: 'temporary' } });
   const pid = stranger();
   for (const rec of [{ pid, proc: earlier(pid) }, { pid }]) {
@@ -377,7 +379,7 @@ test('the Temporary address: not shown as live when its pid is another program n
   assert.ok(alive(pid));
 });
 
-test('the Temporary address of ours is live; a record from before identities in this boot too, not one from before it', POSIX, async () => {
+test('the Temporary address of ours is live; a record from before identities in this boot too, not one from before it', TUNNEL, async () => {
   saveConfig({ publicLink: { on: true, kind: 'temporary' } });
   const pid = await tunnel(7971);
   record({ pid, proc: identity(pid) });
@@ -392,7 +394,7 @@ test('the Temporary address of ours is live; a record from before identities in 
   saveConfig({ publicLink: { on: false, kind: 'temporary' } });
 });
 
-test('the switch\'s start ends its own leftover tunnel, never another tunnel of ours under an older record\'s pid', POSIX, async () => {
+test('the switch\'s start ends its own leftover tunnel, never another tunnel of ours under an older record\'s pid', TUNNEL, async () => {
   saveConfig({ publicLink: { on: false, kind: 'temporary' } });
   fs.rmSync(serviceFile(), { force: true });
   const S = await import('../src/addons/linkswitch.mjs');

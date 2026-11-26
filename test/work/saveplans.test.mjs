@@ -7,7 +7,7 @@ import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
-import { tempWork, write } from './helpers.mjs';
+import { endSignal, tempWork, write } from './helpers.mjs';
 
 const t = tempWork('work-saveplans');
 test.after(() => t.cleanup());
@@ -171,7 +171,7 @@ for (const step of STEPS) {
     const code = `import { saveWork } from ${JSON.stringify(SAVE)};
       await saveWork(${JSON.stringify(c.place)}, { subject: ${JSON.stringify(SUBJECT)}, decisions: ${JSON.stringify({ [key]: 'mine' })} });`;
     const k = spawnSync(process.execPath, ['--input-type=module', '-e', code], { env: { ...process.env, [STOP_ENV]: step }, encoding: 'utf8', timeout: 60_000 });
-    assert.equal(k.signal, 'SIGKILL', `${step}: ${k.stderr}`);
+    assert.equal(endSignal(k), 'SIGKILL', `${step}: ${k.stderr}`);
     const look = await savePlan(c.place);
     assert.match(look.recovered || '', /^A save of the Work list was interrupted/, `${step}: ${JSON.stringify(look.problem || look.recovered)}`);
     // Before the server's commits came in, his own title is back; after, the one he chose (his own as well).

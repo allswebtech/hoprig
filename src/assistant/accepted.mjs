@@ -15,6 +15,7 @@ import { PATTERNS, RISKY, foldLooks } from '../skillhub/learnscan.mjs';
 import { scanText } from '../skillhub/scan.mjs';
 import { PROTECTED, sectionRefusal, shippedSection, systemPrompt } from './prompt.mjs';
 import { byName, mcpToolsJson } from './tools.mjs';
+import { replaceFile } from '../replacefile.mjs';
 
 export const acceptedDir = () => path.join(stateDir(), 'assistant', 'accepted');
 export const STALE_WHY = "no longer applies: Hoprig's own text changed since it was measured";
@@ -155,7 +156,7 @@ export const acceptedOf = (kind, name, dir = acceptedDir()) => readAccepted(dir)
 const writeAtomic = (file, text) => {
   const tmp = `${file}.${process.pid}.tmp`;
   fs.writeFileSync(tmp, text, { mode: 0o600 });
-  fs.renameSync(tmp, file);
+  replaceFile(tmp, file);
 };
 
 /** Write an accepted text with its record (checked again here; throws with a plain reason). */

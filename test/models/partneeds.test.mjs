@@ -8,7 +8,7 @@ import http from 'node:http';
 import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { closedGateways } from '../seal.mjs';
+import { SHELL_STANDINS, closedGateways } from '../seal.mjs';
 import { acceptAll, needsWorld } from '../workspace/needsfix.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -54,7 +54,7 @@ const settingsOf = (args) => {
   return s;
 };
 
-test('a part in a project with needs gets the same read-only extra folders and deny rules as the chat that leads it', { timeout: 120_000, skip: process.platform === 'win32' && 'the stand-ins are POSIX' }, async (t) => {
+test('a part in a project with needs gets the same read-only extra folders and deny rules as the chat that leads it', { timeout: 120_000, skip: SHELL_STANDINS.skip }, async (t) => {
   const w = needsWorld('partneeds', { shopNeeds: ['kits/parts'], accept: false });
   process.env.HOPRIG_WORKSPACE_DIR = w.ws;
   const asked = [];
@@ -106,7 +106,10 @@ test('a part in a project with needs gets the same read-only extra folders and d
   const part = await until('the part\'s start', () => starts()[1]);
   const partSettings = settingsOf(part);
   assert.deepEqual(partSettings.permissions.additionalDirectories, [parts, blog], 'the part reads the same extra folders');
-  for (const r of [`Write(/${parts}/**)`, `Edit(/${blog}/**)`, `Read(/${parts}/ai-ignore-dir/**)`, `Read(/${parts}/.env)`]) assert.ok(partSettings.permissions.deny.includes(r), `read-only for the part too: ${r}`);
+  // A folder as a rule of the coding tool names it (on Windows its POSIX form, `C:\a` → `/c/a`; elsewhere the path itself).
+  const { ruleForm } = await import('../../src/workspace/needswalk.mjs');
+  const [rp, rb] = [ruleForm(parts), ruleForm(blog)];
+  for (const r of [`Write(/${rp}/**)`, `Edit(/${rb}/**)`, `Read(/${rp}/ai-ignore-dir/**)`, `Read(/${rp}/.env)`]) assert.ok(partSettings.permissions.deny.includes(r), `read-only for the part too: ${r}`);
   assert.ok(!JSON.stringify(partSettings).includes('Bash(rm'), 'no allow rule of the need travels');
   assert.ok(partSettings.hooks && partSettings.hooks.PermissionRequest, 'under the same hook');
   assert.deepEqual(partSettings, leadSettings, 'the same settings as the chat that leads it');

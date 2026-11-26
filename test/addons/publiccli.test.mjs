@@ -10,6 +10,10 @@ import { promisify } from 'node:util';
 import { REPO } from '../machines/harness.mjs';
 import { sandbox } from '../server/helpers.mjs';
 
+// The stand-in cloudflared is a Node script with no extension, started by name through its #! line: Windows starts
+// only an .exe or .com by name, so a test that runs it is skipped there.
+const STANDIN = { skip: process.platform === 'win32' && 'the stand-in is started through its #! line' };
+
 const box = sandbox('publiccli');
 const bin = path.join(box.root, 'bin');
 fs.mkdirSync(bin);
@@ -66,7 +70,7 @@ test('refusals say what to do; a strong password in one step; with no dashboard 
   r = await run(['public', 'on', '--custom', '--yes', '--new-password', path.join(box.root, 'pw.txt')]);
   assert.equal(r.code, 1, 'the password is strong now, but Custom is not set up');
   assert.match(r.out, /Settings → Public link → Custom → Set up/);
-  assert.equal((fs.statSync(path.join(box.root, 'pw.txt')).mode & 0o777).toString(8), '600');
+  if (process.platform !== 'win32') assert.equal((fs.statSync(path.join(box.root, 'pw.txt')).mode & 0o777).toString(8), '600');
   assert.equal(loadConfig().server.passwordCheck.strong, true);
   r = await run(['public', 'on']);
   assert.equal(r.code, 1);
@@ -86,7 +90,7 @@ test('refusals say what to do; a strong password in one step; with no dashboard 
   assert.deepEqual([r.code, r.out.trim()], [0, 'The public link is off.']);
 });
 
-test('with the dashboard running: on waits for the address and shows it with a sign-in QR; the old words lead here', async () => {
+test('with the dashboard running: on waits for the address and shows it with a sign-in QR; the old words lead here', STANDIN, async () => {
   // This process is "the dashboard": its address file, and the switch attached as the dashboard does.
   fs.writeFileSync(path.join(box.state, 'dashboard.json'), JSON.stringify({ pid: process.pid, host: '127.0.0.1', port: 7666, at: Date.now() }));
   await S.attach({ installFn, notifyFn: async () => ({ sent: false }), everyMs: 100 });
@@ -117,7 +121,7 @@ test('with the dashboard running: on waits for the address and shows it with a s
   await S.detach();
 });
 
-test('a start that failed is tried again by the next `hoprig public on`, and its old error is not this one\'s answer', async () => {
+test('a start that failed is tried again by the next `hoprig public on`, and its old error is not this one\'s answer', STANDIN, async () => {
   fs.writeFileSync(path.join(box.state, 'dashboard.json'), JSON.stringify({ pid: process.pid, host: '127.0.0.1', port: 7666, at: Date.now() }));
   saveConfig({ publicLink: { on: false, kind: 'temporary' } });
   await S.attach({ installFn, notifyFn: async () => ({ sent: false }), everyMs: 100 });

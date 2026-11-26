@@ -23,7 +23,7 @@ import { parseRepo } from '../pcsetup/projects.mjs';
 import { insideOr, mkdirIn, readIn, removeIn, writeIn } from '../workspace/inside.mjs';
 import { copySessions, projectDir } from '../sessions.mjs';
 import { MOVED_FILE, addsOf, bitingIn, fingerprint, plansDir, readPlan, takenWords } from './plan.mjs';
-import { alternatesIn, isPrivate, movedPath, proveRepo, rewritten, treeDiff, treeOf } from './proof.mjs';
+import { alternatesIn, asGitWrote, isPrivate, movedPath, proveRepo, rewritten, treeDiff, treeOf } from './proof.mjs';
 import { withoutAWord } from '../workspace/dropsilent.mjs';
 import { RECENT_MS, noSignIn, walk } from './scan.mjs';
 import { secretCount } from './secrets.mjs';
@@ -83,8 +83,9 @@ function relink(c, map) {
     const m = /^gitdir:\s*(.+)$/m.exec(t);
     const line = m ? m[1].trim() : t.trim();
     const abs = path.resolve(path.dirname(file), line);
-    const now = rewritten(abs, map);
-    if (now !== abs) fs.writeFileSync(file, m ? t.replace(m[1], now) : `${now}\n`);
+    const moved = rewritten(abs, map);
+    const now = asGitWrote(moved, line); // in the form git wrote it (on Windows C:/a/b)
+    if (moved !== abs) rewrite(file, m ? t.replace(m[1], now) : `${now}\n`);
   };
   for (const r of c.filter((x) => x.kind === 'repo')) {
     const admin = path.join(r.to, '.git', 'worktrees');
@@ -101,6 +102,20 @@ function relink(c, map) {
     if (now.some((a, i) => a !== was[i])) fs.writeFileSync(alt, `${now.join('\n')}\n`);
     // Each worktree's copy where copies() put it (never worked out again from the repository's place).
     for (const w of r.repo.worktrees || []) fix(path.join(w.inside ? path.join(r.to, path.relative(r.from, w.from)) : c.find((x) => x.kind === 'worktree' && x.from === w.from).to, '.git'));
+  }
+}
+
+/**
+ * A file written anew in place: opened as it is, then cut to its new text. Git for Windows marks a worktree's .git file
+ * hidden, and Windows refuses to open a hidden file for a new write (EPERM) but not for a change in place.
+ */
+function rewrite(file, text) {
+  const fd = fs.openSync(file, 'r+');
+  try {
+    fs.ftruncateSync(fd, 0);
+    fs.writeSync(fd, text, 0);
+  } finally {
+    fs.closeSync(fd);
   }
 }
 
@@ -166,7 +181,9 @@ export async function applyPlan(name, { projects, workspace, identity = null, dr
       const rec = readMarker(marker);
       if (rec) {
         if (runOf(marker, rec) !== 'stopped') throw fail('ERUNNING', `an apply of ${name} is running now (process ${rec.pid}, making ${rec.root}): wait until it ends. If none runs (after a restart, for example), remove ${marker} and run this again`);
-        const when = `started ${fs.statSync(marker).mtime.toISOString().slice(0, 16).replace('T', ' ')} UTC`;
+        // The run that held it may end, and take its marker away, while it was read.
+        const st = fs.statSync(marker, { throwIfNoEntry: false });
+        const when = st ? `started ${st.mtime.toISOString().slice(0, 16).replace('T', ' ')} UTC` : 'its marker went away meanwhile';
         if (path.resolve(rec.root) === path.resolve(root) && rec.token && tokenIn(root) === rec.token) {
           if (!cleanStopped || dryRun) throw fail('ESTOPPED', `${root} is a half-made copy: an earlier apply of ${name} stopped partway (${when}). Your originals were not touched. To remove only that folder and arrange again: hoprig adopt apply ${name} --clean-stopped`);
           removeIn(at, root, { recursive: true, writable: true });

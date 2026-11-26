@@ -10,7 +10,6 @@ import { test } from 'node:test';
 import { sandbox } from '../server/helpers.mjs';
 
 const box = sandbox('gateways');
-const POSIX = { skip: process.platform === 'win32' }; // the stand-in is a script started by its "#!" line
 const freePort = () => new Promise((r) => { const s = net.createServer().listen(0, '127.0.0.1', () => { const p = s.address().port; s.close(() => r(p)); }); });
 // The tests use RELAY_PORT and some ports after it (+1 to +21), and the product refuses a port on which something
 // answers. A port the system hands out is followed by the ports it hands to the next askers (macOS gives them out one
@@ -102,9 +101,9 @@ test('an npm package name is checked as npm checks one, and never reads as an op
   for (const no of ['', 'Relay', '-g', '--prefix=/tmp', '.hidden', '_x', 'http://x/y.tgz', 'git+ssh://x', '../relay', 'a b', 'relay@1.0.0', 'fs', 'node_modules', '@example/', '@/x', 'x'.repeat(215)]) {
     assert.ok(G.npmNameProblem(no), no);
   }
-  const d = check({ id: 'relay', title: 'Relay', npm: '@example/relay', port: RELAY_PORT }).def;
+  const d = check({ id: 'relay', title: 'Relay', npm: '@example/relay', port: RELAY_PORT }, { platform: 'linux' }).def; // the rules of an npm gateway: Windows refuses one (gatewaypin tests that)
   assert.deepEqual([d.npm, d.bin], ['@example/relay', 'relay'], 'the program is the package\'s own name');
-  assert.match(check({ id: 'relay', title: 'Relay', npm: 'relay', bin: '/abs/relay', port: RELAY_PORT }).error, /plain name/);
+  assert.match(check({ id: 'relay', title: 'Relay', npm: 'relay', bin: '/abs/relay', port: RELAY_PORT }, { platform: 'linux' }).error, /plain name/);
 });
 
 test('the words an id may not take include every other add-on', () => {
@@ -129,7 +128,7 @@ test('definitions live next to the sharing state and leave it as it was; a broke
   assert.deepEqual(loadConfig().gateways.shared, { trouteai: { provider: 'api' } });
 });
 
-test('Relay is an add-on like the shipped one: nothing to install, started with exactly its arguments, a profile, stopped', POSIX, async () => {
+test('Relay is an add-on like the shipped one: nothing to install, started with exactly its arguments, a profile, stopped', async () => {
   const a = findAddon('relay');
   assert.ok(a && a.gateway && a.defined && a.installable === false);
   assert.deepEqual(allAddons().map((x) => x.id), ['trouteai', 'relay', 'public-link']);
@@ -169,6 +168,9 @@ test('the page\'s sentences come from the definition, plain ones where it says n
 
 test('remove forgets everything kept about the gateway: a program added later under its id is not shared', async () => {
   const keys = await import('../../src/gateway/keys.mjs');
+  // The Relay add-on test removes the Relay the first test added; should it not have run (a filter), it is still here.
+  // A no-op where it ran.
+  G.removeDefinition('relay');
   assert.equal((await G.addDefinition(RELAY)).ok, true);
   keys.setShared('relay', 'api');
   const made = keys.createKey('relay', 'laptop');
@@ -241,7 +243,7 @@ test('a port config.json already keeps for the id is the one checked and shown: 
   }
 });
 
-test('a program Hoprig did not start on a gateway\'s port is refused at add, and never used, reported or stopped as it', POSIX, async () => {
+test('a program Hoprig did not start on a gateway\'s port is refused at add, and never used, reported or stopped as it', async () => {
   const { spawn } = await import('node:child_process');
   const idle = await import('../../src/automation/idle.mjs');
   const { main } = await import('../../src/addons/gatewaycli.mjs');

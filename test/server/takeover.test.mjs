@@ -38,6 +38,8 @@ function fakeWindows({ cmd = WIN_SERVE, sid = MY_SID, start = OLD_START, endable
   const calls = [];
   let running = true;
   const run = async (c, args) => {
+    // Windows' own whoami comes by its full path there (setup/winowner.mjs whoamiBin): recorded by its name.
+    if (/[\\/]whoami\.exe$/i.test(c)) c = 'whoami';
     calls.push([c, ...args]);
     if (c === 'whoami') return { ok: true, out: me, err: '' };
     if (c === 'powershell.exe' && script(args).includes('ParentProcessId')) return table ? { ok: true, out: table.map(([p, q]) => `${p} ${q}`).join('\r\n'), err: '' } : { ok: false, out: '', err: 'no' };
@@ -111,6 +113,15 @@ test('Windows: the recorded dashboard may be ended only when start, program and 
   const garbled = fakeWindows({ me: '"BOX2\\Jos\uFFFD","S-1-5-21-1-2-3-1001"' });
   assert.equal((await T.judgeRecord(recordOf(), garbled)).ok, true, 'the SID matches, whatever the name says');
   assert.match(T.facts32Script(5120), /GetOwnerSid/);
+  // No module (Get-CimInstance cost about 17 s at its first call): WMI through System.Management, the start from .NET
+  // as procid.mjs reads it, the JSON in plain ASCII.
+  for (const script of [T.facts32Script(5120), T.TABLE_SCRIPT]) {
+    for (const word of [/\bGet-/i, /\bInvoke-/i, /\bConvertTo-Json\b/i, /\bForEach-Object\b/i, /\bSelect-Object\b/i]) assert.doesNotMatch(script, word, String(word));
+  }
+  assert.match(T.facts32Script(5120), /WHERE ProcessId=5120'/);
+  assert.match(T.facts32Script(5120), /\[System\.Diagnostics\.Process\]::GetProcessById\(5120\)\.StartTime/);
+  assert.match(T.facts32Script(5120), /Emit @\{ cmd = \$p\['CommandLine'\]; sid = \$sid; start = \$start \}/);
+  assert.match(T.TABLE_SCRIPT, /\[Console\]::Out\.WriteLine\("\$\(\$p\['ProcessId'\]\) \$\(\$p\['ParentProcessId'\]\)"\)/);
   assert.match(await no(fakeWindows(), recordOf({ proc: undefined })), /not shown to be the recorded one/, 'no identity in the record: never ended');
   for (const pid of [0, 4, process.pid]) assert.match(await no(fakeWindows(), recordOf({ pid })), /not one that may be ended/);
   // Its parent (the window this command runs in) with the recorded start: never ended.

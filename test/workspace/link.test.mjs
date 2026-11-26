@@ -144,7 +144,7 @@ test('every coding tool that is on: Codex and OpenCode read the same rules and s
   const oc = JSON.parse(fs.readFileSync(path.join(homes.opencode, 'opencode.json'), 'utf8'));
   assert.deepEqual(oc, { model: 'x/y', instructions: ['mine.md', `${path.join(a.base, 'rules')}/*.md`, 'ai_brain/claude-memory/MEMORY.md'] }, 'the owner\'s keys stay');
   assert.ok(fs.readdirSync(homes.opencode).some((f) => f.startsWith('opencode.json.backup-')), 'the old settings are kept');
-  assert.equal(fs.statSync(path.join(homes.opencode, 'opencode.json')).mode & 0o777, 0o600, 'the merged file keeps its private mode');
+  if (process.platform !== 'win32') assert.equal(fs.statSync(path.join(homes.opencode, 'opencode.json')).mode & 0o777, 0o600, 'the merged file keeps its private mode');
   const text = fs.readFileSync(rules, 'utf8');
   assert.ok(text.startsWith('my rules\n\n<!-- hoprig: memory'), 'the section goes after the owner\'s text');
   assert.match(text, /ai_brain\/claude-memory\/` \(in the project's own folder\); `MEMORY\.md` there is\nthe index/);
@@ -157,7 +157,7 @@ test('every coding tool that is on: Codex and OpenCode read the same rules and s
   // A settings file Hoprig makes is the owner's only.
   fs.rmSync(path.join(homes.opencode, 'opencode.json'));
   applyLink(all);
-  assert.equal(fs.statSync(path.join(homes.opencode, 'opencode.json')).mode & 0o777, 0o600);
+  if (process.platform !== 'win32') assert.equal(fs.statSync(path.join(homes.opencode, 'opencode.json')).mode & 0o777, 0o600);
   // OpenCode alone: its own skills entry.
   const alone = planLink({ ...a, homes, tools: ['opencode'] });
   assert.deepEqual(alone.map((p) => p.id), ['opencode:rules', 'opencode:skills', 'opencode:instructions', 'memory-note']);

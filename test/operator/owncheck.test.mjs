@@ -5,6 +5,7 @@ import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import test from 'node:test';
 import { sandbox } from '../server/helpers.mjs';
+import { SHELL_STANDINS } from '../seal.mjs';
 
 const box = sandbox('operator-owncheck');
 test.after(() => box.cleanup());
@@ -49,13 +50,13 @@ test('a clock set back does not stop the minute\'s checks: a last look later tha
   assert.equal(asked, 2, 'set back an hour: looked at again');
 });
 
-test('a gateway asked with version false does not start its program; asked plainly, it does', { skip: process.platform === 'win32' && 'a POSIX stand-in' }, async () => {
+test('a gateway asked with version false does not start its program; asked plainly, it does', { skip: SHELL_STANDINS.skip }, async () => {
   const fs = await import('node:fs');
   const path = await import('node:path');
   const { localGateway } = await import('../../src/addons/localgateway.mjs');
   const marker = path.join(box.root, 'started');
   const bin = path.join(box.root, 'gate-stand-in');
-  fs.writeFileSync(bin, `#!/bin/sh\necho x >> '${marker}'\necho 1.2.3\n`, { mode: 0o755 });
+  fs.writeFileSync(bin, `#!/bin/sh\necho x >> '${marker.replaceAll('\\', '/')}'\necho 1.2.3\n`, { mode: 0o755 });
   const g = localGateway({ id: 'gate', title: 'Gate', bin, port: 8119, args: [], version: ['--version'], dashboard: null });
   const st = await g.status({ version: false });
   assert.equal(st.installed, true);

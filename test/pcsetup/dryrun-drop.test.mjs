@@ -13,6 +13,7 @@ import test from 'node:test';
 import { dryWorld, gh, runCli } from './dryrun-fixture.mjs';
 
 const { main } = await import('../../src/workspace/dropcli.mjs');
+const { repoLabel } = await import('../../src/workspace/drop.mjs');
 const drop = (args) => runCli((a, o) => main(a, o), args);
 
 test('drop --dry-run and --check of every project, alone and together, with --json: nothing changes', async (tc) => {
@@ -75,7 +76,7 @@ test('drop --dry-run and --check of every project, alone and together, with --js
   }
   const d = await w.unchanged('drop of all --dry-run', () => drop([...all, '--dry-run']));
   assert.equal(d.code, 1, 'shop and blog are refused');
-  for (const re of [/a stash with 1 entry/, /tag v0\.1 is only on this computer/, /HEAD is detached/, /projects\/shop\/tools\/local: it has no git server/, /a linked worktree of it is at .*side-wt, outside the project/, /Claude Code's memory for it is a real folder/, /projects\/blog leaves its folder through a link: drop does not follow it/]) assert.match(d.text, re);
+  for (const re of [/a stash with 1 entry/, /tag v0\.1 is only on this computer/, /HEAD is detached/, /projects\/shop\/tools\/local: it has no git server/, /a linked worktree of it is at .*side-wt, outside the project/, /Claude Code's memory for it is a real folder/, /projects[\\/]blog leaves its folder through a link: drop does not follow it/]) assert.match(d.text, re);
   const c = await w.unchanged('drop of all --check --json', () => drop([...all, '--check', '--json']));
   const j = JSON.parse(c.text.slice(c.text.indexOf('{')));
   assert.equal(j.mode, 'check');
@@ -91,4 +92,11 @@ test('drop --dry-run and --check of every project, alone and together, with --js
   const real = await w.changed('drop clients/acme', () => drop(['clients/acme']));
   assert.equal(real.r.code, 0, real.r.text);
   assert.match(real.diff, /removed home\/Workspace\/clients\/acme\n/);
+});
+
+test('a repository is named by its place in the workspace with / between its parts, also on Windows', () => {
+  const ws = 'C:\\Users\\ann\\Workspace';
+  assert.equal(repoLabel(`${ws}\\projects\\shop\\tools\\local`, { dir: ws }, path.win32), 'projects/shop/tools/local');
+  assert.equal(repoLabel('D:\\elsewhere\\shop', { dir: ws }, path.win32), 'D:\\elsewhere\\shop', 'outside the workspace: its full path');
+  assert.equal(repoLabel('/home/ann/Workspace/projects/shop/code/shop-api', { dir: '/home/ann/Workspace' }, path.posix), 'projects/shop/code/shop-api');
 });

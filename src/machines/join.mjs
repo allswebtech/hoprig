@@ -34,6 +34,7 @@ import { createToken, revokeToken, storedTokens } from './tokens.mjs';
 import { Tunnel } from './tunnels.mjs';
 import { LinkClient, claimLink, leaveLink } from './link.mjs';
 import { parsePin, pinMatches } from './hubcert.mjs';
+import { replaceFile } from '../replacefile.mjs';
 
 const ID_RE = /^[0-9a-f]{12}$/;
 const TOKEN_RE = /^hop_[A-Za-z0-9_-]{43}$/;
@@ -44,7 +45,7 @@ const writeJson = (file, data, mode = 0o600) => {
   const tmp = `${file}.${process.pid}.tmp`;
   fs.writeFileSync(tmp, JSON.stringify(data, null, 2) + '\n', { mode });
   fs.chmodSync(tmp, mode);
-  fs.renameSync(tmp, file);
+  replaceFile(tmp, file);
 };
 const readJson = (file, dflt) => {
   try {

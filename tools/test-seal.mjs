@@ -96,4 +96,4 @@
 //    internalBinding today, but no rule holds that. What would: a grep rule over src/ and test/ that names them.
 import { createRequire } from 'node:module';
 
-export const { trapAlong, systemAlong, logForbidden, allowFullPath, windowsTrap } = createRequire(import.meta.url)('./test-seal.cjs');
+export const { trapAlong, systemAlong, logForbidden, allowFullPath, windowsTrap, windowsStandIn, windowsStart, windowsSh, msysNoglob } = createRequire(import.meta.url)('./test-seal.cjs');

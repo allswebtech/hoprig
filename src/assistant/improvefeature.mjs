@@ -13,7 +13,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { stateDir } from '../paths.mjs';
+import { freshAfter, sameProcess, startOf, system } from '../procid.mjs';
 import { listProfiles, publicProfile } from '../profiles.mjs';
+import { BUSY, patiently, replaceFile } from '../replacefile.mjs';
 import { billedLogin } from '../routerstate.mjs';
 import { claudeTurn } from '../skillhub/learnlook.mjs';
 import { estimate, Round } from './improve.mjs';
@@ -36,11 +38,11 @@ function readJsonFile(file) {
     return null;
   }
 }
-function writeJsonFile(file, v) {
+function writeJsonFile(file, v, platform = process.platform) {
   fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
   const tmp = `${file}.${process.pid}.tmp`;
   fs.writeFileSync(tmp, `${JSON.stringify(v, null, 2)}\n`, { mode: 0o600 });
-  fs.renameSync(tmp, file);
+  replaceFile(tmp, file, { platform }); // the page reads it while a round writes it
 }
 
 export function readSettings() {
@@ -57,28 +59,68 @@ const alive = (pid) => {
   }
 };
 
-/** The lock of one round: taken with 'wx'; one whose round's process ended is taken over. → true when taken. */
-function takeLock(id) {
+// Windows: a name whose removal is not through yet (another program, a virus scan, still holds the file a moment)
+// refuses a new file there, and a removal of it, with EPERM (or EACCES, EBUSY): something is there, as EEXIST says,
+// and it is waited for and looked at again, for up to PENDING_MS. Elsewhere those errors are refusals, as before.
+const PENDING_MS = 1000;
+const heldAt = (e, platform = process.platform) => e.code === 'EEXIST' || (platform === 'win32' && BUSY.has(e.code));
+const nap = new Int32Array(new SharedArrayBuffer(4));
+
+/** For the tests: a state file written as a round writes it. */
+export const writeStateForTest = (file, v, platform) => writeJsonFile(file, v, platform);
+
+/**
+ * Is the round of lock `held` ({ pid, proc?, id }) still running? Its pid alive, and, when the lock carries the process
+ * identity (procid.mjs: pid and start), that very process: a pid another process has now (Windows hands one out again
+ * at once) is a round that ended. An identity that cannot be told counts as running (never take a live round's lock).
+ * A lock of an older version (no identity): its pid alive, as before; a round has no fixed length to bound its age by.
+ * The identity is asked only here, when a round starts and meets a lock: an answer the system gave at most FRESH_MS ago
+ * (procid.mjs freshAfter). In the dashboard, which never waits for the system, the press asks it and counts as running;
+ * the next press (or tick, on Windows within 5 minutes) has that answer.
+ */
+function roundRuns(held, ident) {
+  if (!held || !Number.isInteger(held.pid) || !alive(held.pid)) return false;
+  if (typeof held.proc !== 'string') return true;
+  return sameProcess(held.proc, ident.of([held.pid], { after: freshAfter(), born: startOf(held.proc) }).get(held.pid)) !== false; // a fresh identity (procid.mjs freshAfter)
+}
+
+/**
+ * The lock of one round: taken with 'wx', holding this process's identity; one whose round's process ended is taken
+ * over (roundRuns). → true when taken. A lock a live round holds: false at once, as before. A name still held a moment
+ * (heldAt, not EEXIST): looked at again for up to PENDING_MS. `platform`, `ident`: for the tests.
+ */
+export function takeLock(id, { platform = process.platform, ident = system } = {}) {
   fs.mkdirSync(dir(), { recursive: true, mode: 0o700 });
-  for (let i = 0; i < 2; i++) {
+  const until = Date.now() + PENDING_MS;
+  let pending = false;
+  for (let i = 0; i < 2 || (pending && Date.now() < until); i++) {
+    if (i >= 2) Atomics.wait(nap, 0, 0, 20);
     try {
-      fs.writeFileSync(lockFile(), JSON.stringify({ pid: process.pid, id }), { flag: 'wx', mode: 0o600 });
+      fs.writeFileSync(lockFile(), JSON.stringify({ pid: process.pid, proc: ident.self() || undefined, id }), { flag: 'wx', mode: 0o600 });
       return true;
     } catch (e) {
-      if (e.code !== 'EEXIST') throw e;
-      const held = readJsonFile(lockFile());
-      if (held && Number.isInteger(held.pid) && alive(held.pid)) return false;
-      fs.rmSync(lockFile(), { force: true });
+      if (!heldAt(e, platform)) throw e;
+      if (e.code !== 'EEXIST') {
+        pending = true;
+        continue;
+      }
+      if (roundRuns(readJsonFile(lockFile()), ident)) return false;
+      try {
+        fs.rmSync(lockFile(), { force: true });
+      } catch (e2) {
+        if (!heldAt(e2, platform)) throw e2;
+        pending = true;
+      }
     }
   }
   return false;
 }
 const dropLock = (id) => {
   const held = readJsonFile(lockFile());
-  if (held && held.id === id) fs.rmSync(lockFile(), { force: true });
+  if (held && held.id === id) patiently(() => fs.rmSync(lockFile(), { force: true }));
 };
 
-/** `opts`: { turn (a stand-in for the model call), runner (a stand-in eval), env, now, ledger, demo (why no round runs) }. */
+/** `opts`: { turn (a stand-in for the model call), runner (a stand-in eval), env, now, ledger, demo (why no round runs), ident (procid.mjs system, for the tests) }. */
 export function improveFeature(sctx, opts = {}) {
   const cfg = () => (sctx.config ? sctx.config() : {});
   const now = opts.now || Date.now;
@@ -115,7 +157,9 @@ export function improveFeature(sctx, opts = {}) {
   function settleLeftOver() {
     const s = readJsonFile(stateFile());
     if (!s || s.running !== true || (current && current.state.id === s.id)) return;
-    if (Number.isInteger(s.pid) && s.pid !== process.pid && alive(s.pid)) return; // another dashboard runs it
+    // Another dashboard runs it: judged as its lock is (roundRuns), so a pid that another process has now is a round
+    // that ended. A state an older Hoprig wrote (no identity): its pid alive, as before.
+    if (Number.isInteger(s.pid) && s.pid !== process.pid && roundRuns({ pid: s.pid, proc: s.proc }, opts.ident || system)) return;
     const l = ledger();
     for (const id of Array.isArray(s.holds) ? s.holds : []) if (typeof id === 'string' && /^improve-[0-9a-f]{12}$/.test(id)) l.spent(l.heldFor(id), 'Improve Tia (stopped by a restart)', id);
     writeJsonFile(stateFile(), { ...s, running: false, holds: [], stopped: RESTART_WHY, endedAt: new Date(now()).toISOString() });
@@ -136,15 +180,36 @@ export function improveFeature(sctx, opts = {}) {
       turn: opts.turn || claudeTurn, runner: opts.runner, env: opts.env || process.env, perCaseUsd: p.estimate.perCaseUsd,
       save: (st) => writeJsonFile(stateFile(), st),
     });
+    // A lock of this very dashboard (its pid and identity) while no round of its own runs is one whose removal at the
+    // end of a round failed (below): it is taken over, never answered "another dashboard".
+    const held = readJsonFile(lockFile());
+    if (held && held.pid === process.pid && typeof held.proc === 'string' && held.proc === system.self()) {
+      try {
+        patiently(() => fs.rmSync(lockFile(), { force: true }));
+      } catch {
+        /* takeLock says why */
+      }
+    }
     if (!takeLock(round.state.id)) throw fail(409, 'a round runs already on another dashboard of this computer', 'running');
     current = round;
     round.save();
+    // Nothing may leave this chain: no handler follows it, and a rejection there would end the dashboard. A state that
+    // cannot be written, or a lock that cannot be removed, is left: the next start settles the state (settleLeftOver)
+    // and takes over a lock of this dashboard's own (above).
     round.run().catch((e) => {
       round.state.failed = String(e && e.message).slice(0, 300);
-      round.end();
+      try {
+        round.end();
+      } catch {
+        /* its state stays "running": the next start marks it stopped */
+      }
     }).finally(() => {
-      dropLock(round.state.id);
       if (current === round) current = null;
+      try {
+        dropLock(round.state.id);
+      } catch {
+        /* the next start takes over this dashboard's own lock */
+      }
     });
     return round.state;
   }
@@ -215,9 +280,14 @@ export function improveFeature(sctx, opts = {}) {
     tick,
     current: () => current,
     start() {
-      settleLeftOver();
+      // The timer first: a state or lock file refused for a moment (Windows) must not leave the weekly round unset.
       timer = setInterval(tick, 3600_000);
       timer.unref?.();
+      try {
+        settleLeftOver();
+      } catch {
+        /* settled at the next look: every read of the round runs it again */
+      }
     },
     close() {
       if (timer) clearInterval(timer);

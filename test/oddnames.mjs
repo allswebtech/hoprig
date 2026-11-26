@@ -5,13 +5,15 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-export const ODD_NAMES_SKIP = 'this disk refuses a file name that is not UTF-8 (EILSEQ, as APFS on macOS does): such a name cannot exist here';
+export const ODD_NAMES_SKIP = 'this disk refuses a file name that is not UTF-8 (EILSEQ, as APFS on macOS does; Windows keeps names as UTF-16): such a name cannot exist here';
 
 /**
  * True when a name with the byte 0xFF can be made in `dir` (a fresh folder under os.tmpdir() when none is given).
- * `write` makes the file (handed in by the helper's own test); any error other than EILSEQ is thrown.
+ * `write` makes the file (handed in by the helper's own test); any error other than EILSEQ is thrown. On Windows a
+ * name is UTF-16, so a name of bytes that are not UTF-8 cannot exist there (Node's probe gives ENOENT): false.
  */
-export function oddNamesWork({ dir = null, write = fs.writeFileSync } = {}) {
+export function oddNamesWork({ dir = null, write = fs.writeFileSync, platform = process.platform } = {}) {
+  if (platform === 'win32') return false;
   const at = dir || fs.mkdtempSync(path.join(os.tmpdir(), 'oddnames-'));
   try {
     write(Buffer.concat([Buffer.from(`${at}/probe-`), Buffer.from([0xff])]), '');

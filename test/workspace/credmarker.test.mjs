@@ -10,6 +10,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
 import { dryWorld, gh, runCli } from '../pcsetup/dryrun-fixture.mjs';
+import { SHELL_STANDINS } from '../seal.mjs';
+
+// The stand-in gh (and ssh) of these tests are shell scripts: on Windows the runner starts them through sh.
+const SH_GH = SHELL_STANDINS;
 
 const ws = await import('../../src/workspace/cli.mjs');
 const { getMain } = await import('../../src/pcsetup/getproject.mjs');
@@ -31,7 +35,7 @@ function allText(dir) {
   return out;
 }
 
-test('the marker value and the marker name are in no output, log, map, answer or other repository', async (tc) => {
+test('the marker value and the marker name are in no output, log, map, answer or other repository', SH_GH, async (tc) => {
   const w = await dryWorld(tc, 'credmarker');
   const said = [];
   const cli = async (args, uiOpts) => {
@@ -113,8 +117,21 @@ test('the marker value and the marker name are in no output, log, map, answer or
   look('Hoprig\'s state folder', allText(w.env.HOPRIG_STATE_DIR));
   look('Hoprig\'s config folder', allText(w.env.HOPRIG_CONFIG_DIR));
   // Every repository but the credentials one: its whole history, its index and its working files that git sees.
-  const repos = execFileSync('find', [w.home, w.server, '-name', '.git', '-prune', '-o', '-name', '*.git', '-type', 'd', '-print', '-prune'], { encoding: 'utf8' }).split('\n').filter(Boolean);
-  const work = execFileSync('find', [w.home, '-name', '.git', '-print', '-prune'], { encoding: 'utf8' }).split('\n').filter(Boolean).map((x) => path.dirname(x));
+  // Found by Node, not by `find` (on Windows that name is the system's own find.exe): a folder named *.git under the
+  // home and the server is a bare repository, a folder of the home that holds a .git is a working copy.
+  const repos = [];
+  const work = [];
+  const walk = (d, inHome) => {
+    for (const e of fs.readdirSync(d, { withFileTypes: true })) {
+      const p = path.join(d, e.name);
+      if (e.name === '.git') { if (inHome) work.push(d); continue; }
+      if (!e.isDirectory()) continue;
+      if (e.name.endsWith('.git')) { repos.push(p); continue; }
+      walk(p, inHome);
+    }
+  };
+  walk(w.home, true);
+  walk(w.server, false);
   for (const d of [...repos, ...work]) {
     if (d === c || d.endsWith(`${path.sep}credentials.git`)) continue;
     const gd = d.endsWith('.git') ? ['--git-dir', d] : ['-C', d];

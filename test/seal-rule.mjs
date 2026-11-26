@@ -85,8 +85,14 @@ export function clearedEnvs(dir) {
 // test files, so a new one is a choice someone made and read, never a way round the stand-ins by accident.
 export const REAL_PROGRAMS = [
   'test/desktop/feature.test.mjs', // ps: the processes above the dashboard (the runner's) are guarded; read only
+  'test/desktop/files.test.mjs', // tar on Windows: the system's own by its full path packs and unpacks the test's tiny archives
+  'test/editor/archive-own.test.mjs', // tar on Windows: what the system's own does with an archive of the test's holding names outside its code page
   'test/machines/forward-browser.test.mjs', // the browser: which cookies a real browser sends; pages on 127.0.0.1 only
   'test/machines/hostkeys.test.mjs', // ssh-keygen: its print of a key file the test wrote; reaches no other computer
+  'test/pcsetup/flutterkit.test.mjs', // tar on Windows: the system's own by its full path unpacks the test's tiny archives
+  'test/pcsetup/unpack.test.mjs', // tar on Windows: the system's own by its full path unpacks the test's tiny archives
+  'test/setup/doctor.test.mjs', // whoami on Windows: doctor as its own process reads this account's SID; it only reads
+  'test/skill/claims.test.mjs', // whoami on Windows: doctor in a child reads this account's SID; it only reads
 ];
 
 /** The test files of `dir` that set HOPRIG_SEAL_REAL, and the lines that set it without a reason. */

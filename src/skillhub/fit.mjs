@@ -19,6 +19,7 @@ import { detectProject, signalEvidence } from './detect.mjs';
 import { parseFrontMatter } from './frontmatter.mjs';
 import * as hub from './hub.mjs';
 import { hubDir, listInstalled, scopeOf } from './store.mjs';
+import { replaceFile } from '../replacefile.mjs';
 
 /** A low-risk skill is small: at most this many files and bytes in all. */
 export const LOW_RISK = { files: 50, bytes: 512 * 1024 };
@@ -190,7 +191,7 @@ function writeFits(all) {
   fs.mkdirSync(hubDir(), { recursive: true });
   const tmp = `${fitFile()}.${process.pid}.tmp`;
   fs.writeFileSync(tmp, JSON.stringify(all));
-  fs.renameSync(tmp, fitFile());
+  replaceFile(tmp, fitFile());
 }
 
 /** A project's choice: { fit (off unless he chose it), firstCode (the first-code fit ran), last (the last fit) }. */

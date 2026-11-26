@@ -8,6 +8,10 @@ import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
 
+// Hands-off is not offered on Windows (src/handsoff.mjs handsOffOffered): a test that switches it on or reads its
+// answer gets 409 or nothing there.
+const OFFERED = { skip: process.platform === 'win32' && 'Hands-off is not offered on Windows' };
+
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'hoprig-wallcover-'));
 process.env.HOPRIG_STATE_DIR = path.join(tmp, 'state');
 test.after(() => fs.rmSync(tmp, { recursive: true, force: true }));
@@ -35,7 +39,7 @@ test('settingsHoldWall: the wall\'s own entry counts; the Lead model\'s does not
   assert.equal(settingsHoldWall(S([{ matcher: 'Bash', hooks: hook }])), false);
 });
 
-test('the real settings the launcher and the chat hand carry the wall\'s entry, and recognise it', () => {
+test('the real settings the launcher and the chat hand carry the wall\'s entry, and recognise it', OFFERED, () => {
   assert.equal(settingsHoldWall(hookSettings({ offered: true })), true, 'a launched terminal session');
   assert.equal(settingsHoldWall(hookSettings({ offered: false })), false, 'nothing held while not offered');
   // A chat that leads: the wall entry and the lead entry are joined (chat/engines/claude.mjs); still covered.

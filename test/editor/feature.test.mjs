@@ -75,7 +75,7 @@ test('a save keeps the file mode and leaves no temporary file; version null make
   fs.chmodSync(f, 0o751);
   const v = (await get('/api/code/file', { root: proj, path: 'run.sh' })).json.version;
   assert.equal((await post('/api/code/file', { root: proj, path: 'run.sh', text: '#!/bin/sh\necho hi\n', version: v })).status, 200);
-  assert.equal(fs.statSync(f).mode & 0o777, 0o751);
+  if (process.platform !== 'win32') assert.equal(fs.statSync(f).mode & 0o777, 0o751);
   assert.deepEqual(fs.readdirSync(proj).filter((n) => n.endsWith('.tmp')), []);
   let r = await post('/api/code/file', { root: proj, path: 'new.txt', text: 'new\n', version: null });
   assert.equal(r.status, 200);

@@ -47,6 +47,10 @@ function outcome(ev, { cwd = PROJECT, mode = 'bypassPermissions' } = {}) {
   return chat.pending.has(ev.request) ? 'card' : 'nothing';
 }
 
+// The one rule for a delete reads folders written as /a/b only (src/asking.mjs plainDelete): on Windows a folder is
+// C:\…, so no delete is plain there and each one waits for the owner, which is the safe side.
+const DELETE_RULE = { skip: process.platform === 'win32' && 'the delete rule reads POSIX folders only; on Windows every delete waits for the owner' };
+
 test('every delete of the stopped list written in plain sight is the owner\'s card in an OpenCode chat in bypass', () => {
   // All but the one whose name is built at run time (a variable: not caught on purpose, src/asking.mjs mayDelete).
   const seen = STOPPED.filter((l) => l !== 'R=rm; $R -rf ~');
@@ -68,7 +72,7 @@ test('every delete of the stopped list written in plain sight is the owner\'s ca
   for (const command of ['git rm -r src', 'npm rm lodash', 'docker rm web']) assert.equal(outcome(okFor('shell', { command })), 'answered', command);
 });
 
-test('a plain delete inside the folder is answered, read in the folder the command runs in; any other command as before', () => {
+test('a plain delete inside the folder is answered, read in the folder the command runs in; any other command as before', DELETE_RULE, () => {
   for (const command of ordinary(PROJECT)) assert.equal(outcome(okFor('shell', { command })), 'answered', command);
   assert.equal(outcome(okFor('shell', { command: 'rm -rf t1/*/*', workdir: 'sub' })), 'answered', 'a workdir inside the folder');
   assert.equal(outcome(okFor('shell', { command: 'rm -rf t1/*/*', workdir: './sub' })), 'answered');
@@ -82,7 +86,7 @@ test('a plain delete inside the folder is answered, read in the folder the comma
   assert.equal(outcome(okFor('webfetch', { url: 'https://example.com' })), 'answered');
 });
 
-test('the folder that holds the projects: no delete there is plain, also through a workdir that leads to it', () => {
+test('the folder that holds the projects: no delete there is plain, also through a workdir that leads to it', DELETE_RULE, () => {
   const projects = projectsIn();
   const shop = path.join(projects, 'shop');
   assert.equal(outcome(okFor('shell', { command: 'rm -rf shop/*/*' }), { cwd: projects }), 'card');
@@ -137,7 +141,7 @@ test('the conversation\'s rules: bypass asks for every shell call and nothing el
   }
 });
 
-test('a workdir the chat cannot be sure of is a card, whatever the command: the home (~), a variable, an absolute folder, .., a link that leads out', () => {
+test('a workdir the chat cannot be sure of is a card, whatever the command: the home (~), a variable, an absolute folder, .., a link that leads out', DELETE_RULE, () => {
   // OpenCode 2.3 reads ~ and ~/x as the home folder (its FileAccess): <chat folder>/~ is not where the command runs.
   for (const workdir of ['~', '~/x', '$HOME', '${HOME}', '`pwd`', '/', os.homedir(), path.dirname(PROJECT), `${PROJECT}/..`, path.join(PROJECT, 'away'), '..', 'sub/..', '../shop', 'away', 'away/x', 'missing', 'sub\\..', 7, {}]) {
     for (const command of ['rm -rf keep-home', 'ls', 'echo hi']) assert.equal(outcome(okFor('shell', { command, workdir })), 'card', `${command} in ${JSON.stringify(workdir)}`);
@@ -151,7 +155,7 @@ test('a workdir the chat cannot be sure of is a card, whatever the command: the 
   }
 });
 
-test('a delete written in plain sight is a card unless plainly inside; a name built at run time is not seen, on purpose; ordinary lines stay unasked', () => {
+test('a delete written in plain sight is a card unless plainly inside; a name built at run time is not seen, on purpose; ordinary lines stay unasked', DELETE_RULE, () => {
   for (const command of [
     "r$'m' -rf ../beside/keep2", 'r\\\nm -rf ../x', 'rm -rf \\\n  ../x', 'find .. -name x -delete', 'git clean -fdx', 'git -C ../other clean -f', 'rsync -a --delete empty/ ../other/', 'rsync -a --del empty/ ../x/',
     'shred -u ../x', 'unlink ../x', 'truncate -s0 ../x', 'bash -c "rm -rf ../x"', 'echo "rm -rf ../x" | sh', 'echo "$(rm -rf ../x)"',

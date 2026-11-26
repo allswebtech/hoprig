@@ -215,7 +215,7 @@ test('a bundled skill is copied into its review folder whole: every file, its co
     assert.deepEqual(list(review.folder), list(from));
     for (const r of list(from)) {
       assert.ok(fs.readFileSync(path.join(review.folder, r)).equals(fs.readFileSync(path.join(from, r))), r);
-      assert.equal(fs.statSync(path.join(review.folder, r)).mode & 0o777, fs.statSync(path.join(from, r)).mode & 0o777, r);
+      if (process.platform !== 'win32') assert.equal(fs.statSync(path.join(review.folder, r)).mode & 0o777, fs.statSync(path.join(from, r)).mode & 0o777, r);
     }
   } finally {
     hub.cancel(review.id);

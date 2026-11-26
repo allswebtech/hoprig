@@ -23,7 +23,7 @@ function fillGithub(env) {
   return { status: r.status, out: `${r.stdout || ''}${r.stderr || ''}` };
 }
 
-test('the blank sign-in shuts every https way to the owner\'s GitHub sign-in: helper (host and unscoped) and askpass', () => {
+test('the blank sign-in shuts every https way to the owner\'s GitHub sign-in: helper (host and unscoped) and askpass', { skip: process.platform === 'win32' && 'the stand-ins are shell scripts' }, () => {
   const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'hersignin-third-')));
   try {
     const bin = path.join(root, 'bin');

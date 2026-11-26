@@ -69,7 +69,7 @@ test('the chat page\'s card: one row per part with its kind, model and tokens, a
 test('the card is readable in the rail and below it: rows wrap, carry their full text, and open in a sheet from the menu', async () => {
   globalThis.location ||= { hash: '', search: '', pathname: '/' };
   const { byClass } = await import('../chat/fakedom.mjs');
-  const WEB = path.join(path.dirname(new URL(import.meta.url).pathname), '..', '..', 'web');
+  const WEB = path.join(import.meta.dirname, '..', '..', 'web');
   globalThis.fetch = async () => ({ ok: true, status: 200, json: async () => ({ lead: null, parts: [{ agent: 'hoprig-coder', kind: 'Writing and reviewing code', tier: 'strong', model: 'claude-sonnet-4-5-20250929', tokens: 7500, use: { in: 5000, out: 2500, cached: 120000 } }], tiers: [] }) });
   const { partsCard } = await import('../../web/chat/parts.js');
   const card = partsCard({ A: '/api/chats/x' });

@@ -82,13 +82,13 @@ test('the sheet asks first (nothing saved), his yes names the link: the same ent
     assert.equal((await post({ path: path.join(shop, 'code') }, page)).status, 400, 'a folder that is no link');
     // The sheet's question: where it leads, nothing saved.
     const look = await post({ path: link, dryRun: true }, page);
-    assert.deepEqual([look.status, look.json], [200, { ok: true, path: '~/Workspace/projects/shop/code/shop-web', to: '~/disk2/shop-web', added: false, dryRun: true, seen: look.json.seen }]);
+    assert.deepEqual([look.status, look.json], [200, { ok: true, path: path.join('~', 'Workspace', 'projects', 'shop', 'code', 'shop-web'), to: path.join('~', 'disk2', 'shop-web'), added: false, dryRun: true, seen: look.json.seen }]);
     assert.match(look.json.seen, /^[0-9a-f]{64}$/);
     assert.deepEqual(myLinkEntries(), [], 'the question saved nothing');
     assert.deepEqual([...snapshot(A.home).entries()].sort(), [...before.entries()].sort(), 'nothing in the home changed before his yes');
     // His yes.
     const yes = await post({ ...body, seen: look.json.seen }, page);
-    assert.deepEqual([yes.status, yes.json], [200, { ok: true, path: '~/Workspace/projects/shop/code/shop-web', to: '~/disk2/shop-web', added: true }]);
+    assert.deepEqual([yes.status, yes.json], [200, { ok: true, path: path.join('~', 'Workspace', 'projects', 'shop', 'code', 'shop-web'), to: path.join('~', 'disk2', 'shop-web'), added: true }]);
     assert.deepEqual(myLinkEntries(), [{ path: link, to: away }], 'the entry `hoprig workspace mylink add` keeps');
     assert.equal(leaves(shop, link), null, 'followed now');
     // Only the settings file changed, and in it only the list of his links.

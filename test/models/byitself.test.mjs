@@ -7,7 +7,7 @@ import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
 import test from 'node:test';
-import { closedGateways } from '../seal.mjs';
+import { SHELL_STANDINS, closedGateways } from '../seal.mjs';
 import { tempWork } from '../work/helpers.mjs';
 
 /** Every file under `root` → a hash of its content. */
@@ -25,7 +25,10 @@ function snapshot(root) {
   walk(root);
   return out;
 }
-const changes = (a, b) => [...new Set([...Object.keys(a), ...Object.keys(b)])].filter((k) => a[k] !== b[k]).sort();
+// Windows: PowerShell (which Hoprig asks about processes there) makes its own module cache in a home that never had
+// one; that file is the system's, not a change of Hoprig's.
+const POWERSHELL_CACHE = /(^|\/)AppData\/Local\/Microsoft\/Windows\/PowerShell\/ModuleAnalysisCache$/;
+const changes = (a, b) => [...new Set([...Object.keys(a), ...Object.keys(b)])].filter((k) => a[k] !== b[k] && !(process.platform === 'win32' && POWERSHELL_CACHE.test(k))).sort();
 
 /** An endpoint that must never be asked: every request is kept, and answered with a list (so a hidden ask still "works"). */
 async function mustNotBeAsked(ids = ['relay-1']) {
@@ -39,7 +42,7 @@ async function mustNotBeAsked(ids = ['relay-1']) {
   return { seen, url: `http://127.0.0.1:${srv.address().port}`, close: () => new Promise((r) => srv.close(r)) };
 }
 
-test('a start, page loads and three ticks ask no endpoint for its models and change nothing in the home', { timeout: 90_000, skip: process.platform === 'win32' && 'the stand-ins are POSIX' }, async (t) => {
+test('a start, page loads and three ticks ask no endpoint for its models and change nothing in the home', { timeout: 90_000, skip: SHELL_STANDINS.skip }, async (t) => {
   const w = tempWork('models-byitself');
   assert.ok(process.env.HOPRIG_WORKSPACE_DIR.startsWith(w.root), 'a workspace of its own, never the real one');
   const gate = await mustNotBeAsked();
@@ -86,7 +89,7 @@ test('a start, page loads and three ticks ask no endpoint for its models and cha
   assert.deepEqual(changes(before, after).filter((f) => /model/i.test(f)), [], 'no file of the model lists');
 });
 
-test('a start with both switches off asks no endpoint; a real Lead start asks its provider\'s list once, for its reason; neither changes the home', { timeout: 90_000, skip: process.platform === 'win32' && 'the stand-ins are POSIX' }, async (t) => {
+test('a start with both switches off asks no endpoint; a real Lead start asks its provider\'s list once, for its reason; neither changes the home', { timeout: 90_000, skip: SHELL_STANDINS.skip }, async (t) => {
   const w = tempWork('models-leadstart');
   // Here it may be asked once, by the Lead start only: every request is kept. Its list names model families (tiers).
   const gate = await mustNotBeAsked(['relay-haiku-1', 'relay-sonnet-2', 'relay-opus-3']);

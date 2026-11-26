@@ -46,8 +46,8 @@ async function phpKit({ dryRun = false } = {}) {
 
 test('a new computer: set-up makes database/postgresql and database/mysql (owner-only), and the description names both', async () => {
   const r = await workspaceSetup();
-  assert.ok(r.did.some((d) => d.path === '~/Workspace/database/postgresql'));
-  assert.ok(r.did.some((d) => d.path === '~/Workspace/database/mysql'));
+  assert.ok(r.did.some((d) => d.path === path.join('~', 'Workspace', 'database', 'postgresql')));
+  assert.ok(r.did.some((d) => d.path === path.join('~', 'Workspace', 'database', 'mysql')));
   for (const d of [pg, mysql]) assert.ok(fs.statSync(d).isDirectory(), d);
   if (posix) assert.equal(fs.statSync(mysql).mode & 0o777, 0o700);
   const st = workspaceStatus();
@@ -64,8 +64,8 @@ test('a computer set up before: the dry run names only database/mysql and change
   fs.writeFileSync(path.join(pg, 'dump.sql'), 'mine\n');
   const before = snapshot();
   const dry = await workspaceSetup({ dryRun: true });
-  assert.deepEqual(dry.did, [{ path: '~/Workspace/database/mysql', what: 'database/mysql' }]);
-  assert.ok(dry.left.some((l) => l.path === '~/Workspace/database/postgresql' && l.why === 'already there'));
+  assert.deepEqual(dry.did, [{ path: path.join('~', 'Workspace', 'database', 'mysql'), what: 'database/mysql' }]);
+  assert.ok(dry.left.some((l) => l.path === path.join('~', 'Workspace', 'database', 'postgresql') && l.why === 'already there'));
   assert.deepEqual(snapshot(), before, 'a dry run changes nothing');
   const r = await workspaceSetup();
   assert.deepEqual(r.did, dry.did, 'what the dry run said is what was done');
@@ -80,7 +80,7 @@ test('one folder: made only when missing, never another one, nothing in a folder
   fs.rmdirSync(mysql);
   fs.rmdirSync(path.join(t.ws, 'backups'));
   const r = await setUpFolder('database-mysql');
-  assert.deepEqual(r.did.map((d) => d.path), ['~/Workspace/database/mysql']);
+  assert.deepEqual(r.did.map((d) => d.path), [path.join('~', 'Workspace', 'database', 'mysql')]);
   assert.equal(fs.existsSync(path.join(t.ws, 'backups')), false, 'only the folder asked for');
   assert.deepEqual(fs.readdirSync(mysql), []);
   assert.deepEqual((await setUpFolder('database-mysql')).did, [], 'there already: nothing');
@@ -101,13 +101,13 @@ test('the PHP kit: its dry run says it makes database/mysql with MariaDB and cha
   fs.rmdirSync(mysql);
   const before = snapshot();
   const dry = await phpKit({ dryRun: true });
-  assert.match(dry.text, /With MariaDB it also makes ~\/Workspace\/database\/mysql\/, the workspace's folder for this database's dumps and local data \(only you can open it\)\. MariaDB keeps its own data where its package puts it\.[^\n]*\n[\s\S]*would ask: Install these 2 steps now\?/, 'said before the one question');
+  assert.match(dry.text, /With MariaDB it also makes ~[\\/]Workspace[\\/]database[\\/]mysql[\\/], the workspace's folder for this database's dumps and local data \(only you can open it\)\. MariaDB keeps its own data where its package puts it\.[^\n]*\n[\s\S]*would ask: Install these 2 steps now\?/, 'said before the one question');
   assert.deepEqual(dry.ran, []);
   assert.deepEqual(snapshot(), before, 'the kit\'s dry run changes nothing');
 
   const run = await phpKit();
   assert.ok(run.ran.some((argv) => argv.includes('mariadb-server')), 'MariaDB was in the steps');
-  assert.match(run.text, /made ~\/Workspace\/database\/mysql\/: the workspace's folder for this database's dumps and local data \(only you can open it\)/);
+  assert.match(run.text, /made ~[\\/]Workspace[\\/]database[\\/]mysql[\\/]: the workspace's folder for this database's dumps and local data \(only you can open it\)/);
   assert.deepEqual(fs.readdirSync(mysql), [], 'never a file inside it');
   if (posix) assert.equal(fs.statSync(mysql).mode & 0o777, 0o700);
   const after = snapshot();
@@ -115,7 +115,7 @@ test('the PHP kit: its dry run says it makes database/mysql with MariaDB and cha
   assert.equal(fs.readFileSync(path.join(pg, 'dump.sql'), 'utf8'), 'mine\n', 'PostgreSQL\'s folder is never touched');
 
   const again = await phpKit();
-  assert.doesNotMatch(again.text, /database\/mysql/, 'there already: neither said nor made again');
+  assert.doesNotMatch(again.text, /database[\\/]mysql/, 'there already: neither said nor made again');
 });
 
 test('the docs name both folders as the code makes them: the tree of WORKSPACE.md and README.md, and the kit in PC-SETUP.md', async () => {
@@ -159,7 +159,7 @@ test('the Setup tab: the sheet of the PHP kit carries the folder sentence while 
     return (await fn(Readable.from([]), null, new URLSearchParams())).kits.find((k) => k.id === 'php');
   };
   assert.equal(fs.existsSync(mysql), false);
-  assert.deepEqual((await kits()).folder, ['With MariaDB it also makes ~/Workspace/database/mysql/, the workspace\'s folder for this database\'s dumps and local data (only you can open it). MariaDB keeps its own data where its package puts it.']);
+  assert.deepEqual((await kits()).folder, [`With MariaDB it also makes ${path.join('~', 'Workspace', 'database', 'mysql', path.sep)}, the workspace's folder for this database's dumps and local data (only you can open it). MariaDB keeps its own data where its package puts it.`]);
   assert.equal(fs.existsSync(mysql), false, 'the sheet changes nothing');
   fs.mkdirSync(mysql);
   assert.deepEqual((await kits()).folder, []);

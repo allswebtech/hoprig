@@ -12,6 +12,10 @@ import path from 'node:path';
 import { test } from 'node:test';
 import { sandbox } from './helpers.mjs';
 
+// Hands-off is not offered on Windows (src/handsoff.mjs handsOffOffered): a test that switches it on or reads its
+// answer gets 409 or nothing there.
+const OFFERED = { skip: process.platform === 'win32' && 'Hands-off is not offered on Windows' };
+
 const box = sandbox('movepress');
 test.after(() => box.cleanup());
 
@@ -40,7 +44,7 @@ const sessionRoute = (deck) => {
 };
 const sessionsNow = () => (loadConfig().handsOff || {}).sessions || {};
 
-test('a switch pressed while the move is still in flight reaches the NEW run, never the old id that is going away', async () => {
+test('a switch pressed while the move is still in flight reaches the NEW run, never the old id that is going away', OFFERED, async () => {
   saveConfig({ handsOff: { offered: true } });
   writeRecord(OLD);
   writeRecord(NEW);
@@ -64,7 +68,7 @@ test('a switch pressed while the move is still in flight reaches the NEW run, ne
   assert.equal(sessions[OLD], undefined, 'nothing is written under the old id that is going away');
 });
 
-test('with no move in flight the press writes the current run at once (no wait, no regression)', async () => {
+test('with no move in flight the press writes the current run at once (no wait, no regression)', OFFERED, async () => {
   saveConfig({ handsOff: { offered: true, sessions: {} } });
   writeRecord(NEW);
   const deck = {

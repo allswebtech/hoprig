@@ -11,16 +11,16 @@
 //   node tools/test.mjs test/server     one area
 //   node tools/test.mjs --test-only     arguments starting with "-" go to `node --test` unchanged
 
-import { spawn } from 'node:child_process';
-import { closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, readSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { spawn, spawnSync } from 'node:child_process';
+import { closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, readSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { delimiter, join, relative, resolve, sep } from 'node:path';
+import { delimiter, dirname, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { changes, guardOn, realPlaces, snapshot, writtenDuring } from './home-guard.mjs';
 import { createRequire } from 'node:module';
 import { extraTraps, makeTraps, reached, UNKNOWN_FILE } from './test-traps.mjs';
 import { MIN_NODE_TEXT, belowFloor } from '../src/nodefloor.mjs';
-import { longTemp, partOfPlan, testArgs, unlisted } from './test-plan.mjs';
+import { longTemp, partOfPlan, psCachePlan, psWarmCall, testArgs, unlisted } from './test-plan.mjs';
 
 // Below the lowest Node.js Hoprig supports the suite proves nothing that counts (and its proof that every result
 // arrived needs each file's own summary, which Node sends from 22.10): one plain line, and no test is started.
@@ -147,6 +147,26 @@ Object.assign(env, {
   GIT_CONFIG_NOSYSTEM: '1',
 });
 if (process.platform === 'win32') Object.assign(env, { APPDATA: join(home, 'AppData', 'Roaming'), LOCALAPPDATA: join(home, 'AppData', 'Local') });
+// Windows: one PowerShell module cache for the whole run, outside every test's home (tools/test-plan.mjs says why).
+// Its folder is made here, once: PowerShell writes the file but may not make the folder. Then one call writes the
+// cache before the first test (psWarmCall), so no call of a test analyses the modules again (17 s each); the line it
+// prints says whether the file was written. A runner started inside a test uses the outer run's cache as it is.
+const psCache = psCachePlan(sandbox, { nested: !!process.env.HOPRIG_TEST_TRAPS, inherited: process.env.PSModuleAnalysisCachePath, exists: existsSync });
+if (psCache) {
+  mkdirSync(dirname(psCache.vars.PSModuleAnalysisCachePath), { recursive: true });
+  Object.assign(env, psCache.vars);
+  if (psCache.warm) {
+    const warm = psWarmCall();
+    const t0 = Date.now();
+    const r = spawnSync(warm.command, warm.args, { env, timeout: warm.timeout, encoding: 'utf8', windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'] });
+    const file = psCache.vars.PSModuleAnalysisCachePath;
+    const size = existsSync(file) ? statSync(file).size : 0;
+    const took = `${Math.round((Date.now() - t0) / 100) / 10} s`;
+    console.error(size
+      ? `ℹ PowerShell module cache for this run: written in ${took} (${size} bytes)`
+      : `ℹ PowerShell module cache for this run: not written in ${took} (${r.error ? r.error.code || r.error.message : `exit ${r.status}, ${String(r.stdout || '').trim() || 'no answer'}`}); each PowerShell call of a test may take 17 s`);
+  }
+}
 
 // No test reaches the real system of the computer that runs it (tools/test-traps.mjs): sudo, systemctl, loginctl,
 // the package managers and a global npm are traps first on the PATH, and a test that reaches one fails the run by
@@ -239,6 +259,10 @@ child.on('exit', (code, signal) => {
     copyReport();
     closeSync(live.reader);
   }
+  // The count first, and the second run of each file whose own summary never came (lostAgain), before the traps' log,
+  // the real home and the repository root are read: what that second run does is checked as the first run is.
+  const lost = ownReporters ? [] : incomplete();
+  const again = summaryNeverCame.length ? lostAgain(summaryNeverCame) : '';
   const asked = reached(forbidden);
   const special = new Set(['knock', 'fullpath', 'registry']); // log lines that are not a trapped program name
   for (const r of asked.filter((x) => !special.has(x.program))) console.error(`\n✖ A TEST REACHED THE REAL ${r.program}: ${r.file} (it asked: ${r.program}${r.args ? ` ${r.args}` : ''}; stopped by the runner's trap)`);
@@ -274,10 +298,12 @@ child.on('exit', (code, signal) => {
     /* the root could not be read again */
   }
   if (strayRoot.length) console.error(`\n✖ WORKTREE ROOT CHANGED: a test made ${strayRoot.length} new entr${strayRoot.length === 1 ? 'y' : 'ies'} in the repository root (a Windows-style path built on POSIX, or a missing temporary home?):\n${strayRoot.map((e) => `  ${e}`).join('\n')}`);
-  const lost = ownReporters ? [] : incomplete();
+  // One chain: the closing line never says more than was checked, nor the opposite of the lines above it.
   if (ownReporters) console.error('(Reporters of your own: the count of every file\'s results is left out.)');
-  else if (lost.length) console.error(`\n✖ RESULTS LOST: ${lost.length} test file(s) did not report all they ran, so the totals above miss tests (failing ones may be among them):\n${lost.map((l) => `  ${l}`).join('\n')}`);
-  else console.error(`ℹ every result arrived: ${files.length} file(s), each with its own summary`);
+  else if (lost.length) {
+    console.error(`\n✖ RESULTS LOST: ${lost.length} test file(s) did not report all they ran, so the totals above miss tests (failing ones may be among them):\n${lost.map((l) => `  ${l}`).join('\n')}`);
+    if (again) console.error(again);
+  } else console.error(`ℹ every result arrived: ${files.length} file(s), each with its own summary`);
   rmSync(sandbox, { recursive: true, force: true });
   if (tmuxDir) rmSync(tmuxDir, { recursive: true, force: true });
   // No process.exit: it would cut off what is still being written to a pipe, the very thing above prevents.
@@ -313,6 +339,45 @@ function namesThisRun(file) {
   return [tmpdir(), sandbox, root].some((d) => text.includes(d));
 }
 
+// The files whose own summary never came (incomplete fills it): run once more by lostAgain.
+const summaryNeverCame = [];
+
+/**
+ * How a file whose own summary never came ends when it runs alone. All files run inside one `node --test`, which never
+ * says how a file's own process ended: so each such file (three at most) is run once more by itself, as a process of
+ * its own (node with the same preloads and the same sealed environment, before the run's own folder goes), and its exit
+ * code (decimal and hex: a Windows crash such as 0xC0000005), its signal and the last lines of its error output and
+ * output are said in one block that starts with "LOST FILE:". It changes no total and not the run's exit code.
+ */
+function lostAgain(list) {
+  const LINES = 27;
+  const tail = (text) => {
+    const all = String(text || '').replace(/\s+$/, '').split(/\r?\n/);
+    const shown = all.slice(-LINES).map((l) => `    ${l.length > 300 ? `${l.slice(0, 300)}…` : l}`);
+    return { n: all.filter(Boolean).length ? all.length : 0, shown };
+  };
+  const blocks = [];
+  for (const file of list.slice(0, 3)) {
+    const name = file.startsWith(root + sep) ? relative(root, file) : file;
+    const t0 = Date.now();
+    const r = spawnSync(process.execPath, [...imports, file], { cwd: root, env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 300_000, maxBuffer: 64 << 20, windowsHide: true });
+    const ms = Date.now() - t0;
+    const code = Number.isInteger(r.status) ? `exit code ${r.status} (0x${(r.status >>> 0).toString(16).toUpperCase()})` : 'no exit code';
+    const how = r.error && r.error.code === 'ETIMEDOUT' ? ', stopped by this runner after 300 s' : r.error ? `, ${r.error.message}` : '';
+    const err = tail(r.stderr);
+    const out = tail(r.stdout);
+    blocks.push([
+      `LOST FILE: ${name}: run again by itself, as a process of its own, it ended with ${code}, signal ${r.signal || 'none'}, after ${ms} ms${how}`,
+      `  its error output, ${err.n ? `the last ${err.shown.length} of ${err.n} line(s)` : 'empty'}${err.n ? ':' : ''}`,
+      ...(err.n ? err.shown : []),
+      `  its output, ${out.n ? `the last ${out.shown.length} of ${out.n} line(s)` : 'empty'}${out.n ? ':' : ''}`,
+      ...(out.n ? out.shown : []),
+    ].join('\n'));
+  }
+  if (list.length > 3) blocks.push(`LOST FILE: ${list.length - 3} more file(s) whose own summary never came were not run again (three at most)`);
+  return `\n${blocks.join('\n')}`;
+}
+
 /** The files whose results did not all arrive (tools/test-guard.mjs): one line each, saying what came. */
 function incomplete() {
   let seen;
@@ -328,6 +393,7 @@ function incomplete() {
   for (const file of files) {
     const c = seen[file];
     const name = file.startsWith(root + sep) ? relative(root, file) : file;
+    if (!c || !c.summary) summaryNeverCame.push(file);
     if (!c || !c.summary) out.push(`${name}: its own summary never came (${c ? `${c.results} result(s) came${c.asFile ? `, and the runner's line for the whole file says ${c.asFile}` : ''}` : 'nothing came'})`);
     else if (c.results !== c.summary.tests || c.suites !== c.summary.suites) out.push(`${name}: ${c.results} result(s) and ${c.suites} suite(s) came of the ${c.summary.tests} and ${c.summary.suites} it ran`);
   }

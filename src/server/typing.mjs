@@ -12,6 +12,7 @@
 //                     that writes (./backends/front.mjs). Windows: the built-in terminal's own child is the launcher
 import path from 'node:path';
 import { runsDir } from '../paths.mjs';
+import { alive } from '../procid.mjs';
 import { readRun } from '../runs.mjs';
 import { noteTyped, whileTyping } from '../typinglock.mjs';
 import { FRONT_GONE, groups, notInFront } from './backends/front.mjs';
@@ -45,11 +46,20 @@ async function look(deck, name) {
   if (!found) throw notInFront(`Nothing was typed: there is no session "${name}" any more`);
   if (!found.run) throw notInFront(noTool(name));
   const { term, run } = found;
-  const g = groups(run.pid);
-  // POSIX: the launcher's process group must be the one in front (its tool runs in it). Windows: no groups.
-  if (!g && process.platform !== 'win32') throw notInFront(FRONT_GONE);
   const file = path.join(runsDir(), `${path.basename(String(run.runId))}.json`);
-  return { term, run, file, front: g ? { group: g.pgrp, pid: run.pid } : { pid: run.pid } };
+  return { term, run, file, front: frontOf(run) };
+}
+
+/**
+ * What says the coding tool of `run` is in front: POSIX, the launcher's process group, which must be the one in front
+ * (its tool runs in it). Windows has no groups: there the launcher itself must still run (a record whose launcher has
+ * ended stands for a terminal back at its shell). Throws notInFront(FRONT_GONE) when it is not. The options: tests.
+ */
+export function frontOf(run, { platform = process.platform, groupsOf = groups, isAlive = alive } = {}) {
+  const g = groupsOf(run.pid);
+  if (g) return { group: g.pgrp, pid: run.pid };
+  if (platform !== 'win32' || !isAlive(run.pid)) throw notInFront(FRONT_GONE);
+  return { pid: run.pid };
 }
 
 /**

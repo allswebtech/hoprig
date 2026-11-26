@@ -17,6 +17,7 @@ import fs from 'node:fs';
 import { dashboardFile, ownVersion, stateKey } from './dashboardfile.mjs';
 import { alive as isAlive, sameProcess, system } from '../procid.mjs';
 import { compareVersions } from '../setup/system.mjs';
+import { NO_MODULE_PRELUDE } from './platform/win32.mjs';
 
 /**
  * The words of a Hoprig dashboard's command line: its bin and the word "serve" after it. The bin is bin/hoprig.mjs (an
@@ -35,15 +36,13 @@ export function isHoprigServe(cmd) {
 // (a Microsoft or work account), while a SID is plain ASCII and one string.
 export const facts32Script = (pid) => {
   if (!Number.isInteger(pid) || pid <= 0) throw new Error('bad pid');
-  return `$ErrorActionPreference = 'SilentlyContinue'
-$p = Get-CimInstance Win32_Process -Filter 'ProcessId=${pid}'
-if ($p) {
-  $o = Invoke-CimMethod -InputObject $p -MethodName GetOwnerSid
-  [pscustomobject]@{
-    cmd = $p.CommandLine
-    sid = if ($o.ReturnValue -eq 0) { $o.Sid } else { $null }
-    start = if ($p.CreationDate) { ([DateTimeOffset]$p.CreationDate).ToUnixTimeMilliseconds() } else { $null }
-  } | ConvertTo-Json -Compress
+  // No module (platform/win32.mjs NO_MODULE_PRELUDE: Get-CimInstance cost about 17 s at its first call). The start is
+  // .NET's, the one procid.mjs reads, so the identity written here and the one it tells are the same number.
+  return `${NO_MODULE_PRELUDE}foreach ($p in (Rows 'root\\cimv2' 'SELECT Handle,CommandLine FROM Win32_Process WHERE ProcessId=${pid}')) {
+  $o = $p.InvokeMethod('GetOwnerSid', $null, $null)
+  $sid = $null; if ($o -and $o['ReturnValue'] -eq 0) { $sid = [string]$o['Sid'] }
+  $start = $null; try { $start = ([DateTimeOffset][System.Diagnostics.Process]::GetProcessById(${pid}).StartTime).ToUnixTimeMilliseconds() } catch {}
+  Emit @{ cmd = $p['CommandLine']; sid = $sid; start = $start }
 }`;
 };
 
@@ -171,9 +170,8 @@ export async function endDashboard(pid, { platform = process.platform, run = run
   return !alive(pid);
 }
 
-// Windows: every process's pid and its parent's, one line each, in one PowerShell call.
-const TABLE_SCRIPT = `$ErrorActionPreference = 'SilentlyContinue'
-Get-CimInstance Win32_Process -Property ProcessId,ParentProcessId | ForEach-Object { "$($_.ProcessId) $($_.ParentProcessId)" }`;
+// Windows: every process's pid and its parent's, one line each, in one PowerShell call; no module (NO_MODULE_PRELUDE).
+export const TABLE_SCRIPT = `${NO_MODULE_PRELUDE}foreach ($p in (Rows 'root\\cimv2' 'SELECT ProcessId,ParentProcessId FROM Win32_Process')) { [Console]::Out.WriteLine("$($p['ProcessId']) $($p['ParentProcessId'])") }`;
 
 /** The pids above `pid` (its parent, then that one's parent, …), nearest first; null when the system cannot tell. */
 export async function parentChain(pid = process.pid, { platform = process.platform, run = runReal, read = (p) => fs.readFileSync(p, 'utf8') } = {}) {

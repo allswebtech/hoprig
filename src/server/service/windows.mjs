@@ -20,6 +20,7 @@ import { endOldDashboard, insideWords, portBase, readRecord, refusedFromInside }
 import { stateKey } from '../dashboardfile.mjs';
 import { clearPort, insideTree, readTree, tail, treeOf, waitForNew } from './wintree.mjs';
 import { WHOAMI, parseWhoami } from '../platform/win32.mjs';
+import { whoamiBin } from '../../setup/winowner.mjs';
 
 export const TASK = APP_NAME;
 
@@ -110,9 +111,12 @@ export const utf16 = (text) => Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.
 
 export { WHOAMI, parseWhoami };
 
-/** Who this process really is, asked of the system (never USERDOMAIN): { name, sid } or null. */
-export async function whoAmI(runner = run) {
-  const r = await runner(...WHOAMI);
+/**
+ * Who this process really is, asked of the system (never USERDOMAIN): { name, sid } or null. Windows' own whoami by its
+ * full path (setup/winowner.mjs whoamiBin): another whoami earlier on PATH would name another user, or none.
+ */
+export async function whoAmI(runner = run, bin = whoamiBin()) {
+  const r = await runner(bin, WHOAMI[1]);
   return r.ok ? parseWhoami(r.out) : null;
 }
 
@@ -186,13 +190,14 @@ async function lookBefore(run, deps) {
  * before shows it. True after saying so; nothing was ended or changed.
  */
 function insideOld(b, deps) {
-  const pid = insideTree(b.snap, scriptFile(), deps.kept);
+  const pid = insideTree(b.snap, scriptFile(), deps.kept, deps.self);
   if (pid) console.error(insideWords(pid));
   return !!pid;
 }
 
 /** After the old one was ended: its port is free, or each holder is named and false comes back. */
-const portFreed = (b, run, deps, me) => clearPort({ port: b.port, before: b.snap, run, me, script: scriptFile(), kept: deps.kept, sleep: deps.sleep || realSleep });
+// `deps.self`: this process's pid and parent (tests hand in their own; wintree.mjs selfAndAbove says why).
+const portFreed = (b, run, deps, me) => clearPort({ port: b.port, before: b.snap, run, me, script: scriptFile(), kept: deps.kept, sleep: deps.sleep || realSleep, self: deps.self });
 
 const WAIT_MS = 30_000;
 

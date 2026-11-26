@@ -89,7 +89,7 @@ const made = (dir, files) => {
   return dir;
 };
 
-test('the stand-in vendor: the command-line tools land at cmdline-tools/latest, the shell block once; a second run does nothing', async (tc) => {
+test('the stand-in vendor: the command-line tools land at cmdline-tools/latest, the shell block once; a second run does nothing', { skip: process.platform === 'win32' && 'the Android kit is for Linux and macOS (not offered on Windows)' }, async (tc) => {
   const w = world(tc);
   const archive = zipOf(TOOLS);
   const v = await vendor(tc, { [LIST]: { body: listFor(archive) }, [ARCHIVE]: { headers: { 'content-length': String(archive.length) }, body: archive } });
@@ -124,7 +124,7 @@ test('the stand-in vendor: the command-line tools land at cmdline-tools/latest, 
   assert.deepEqual(snap(w.home), before, 'the second run changed nothing');
 });
 
-test('the plan says it before the yes: list, host, size, place, the shell lines, the licence and where Android Studio comes from', async (tc) => {
+test('the plan says it before the yes: list, host, size, place, the shell lines, the licence and where Android Studio comes from', { skip: process.platform === 'win32' && 'the Android kit is for Linux and macOS (not offered on Windows)' }, async (tc) => {
   const w = world(tc);
   const sys = await sysOf(w);
   const found = await detectKits(sys, ['android']);
@@ -253,7 +253,7 @@ test('the place already taken (a folder, a file, a broken link): never written o
   assert.deepEqual(v.asked, []);
 });
 
-test('adoption: an SDK in ~/Android/Sdk and an Android Studio in ~/android-studio are used where they are; links only for a named kit', async (tc) => {
+test('adoption: an SDK in ~/Android/Sdk and an Android Studio in ~/android-studio are used where they are; links only for a named kit', { skip: process.platform === 'win32' && 'the Android kit is for Linux and macOS (not offered on Windows)' }, async (tc) => {
   const w = world(tc);
   const sdk = made(path.join(w.home, 'Android', 'Sdk'), { 'cmdline-tools/latest/bin/sdkmanager': '#!/bin/sh\n', 'cmdline-tools/latest/source.properties': 'Pkg.Revision=19.0\n', 'platform-tools/adb': '#!/bin/sh\n', 'licenses/android-sdk-license': '\nabc\n' });
   const studio = made(path.join(w.home, 'android-studio'), { 'bin/studio.sh': '#!/bin/sh\n', 'product-info.json': '{"version":"2026.1.1.2"}\n' });
@@ -282,7 +282,7 @@ test('adoption: an SDK in ~/Android/Sdk and an Android Studio in ~/android-studi
   assert.deepEqual(buildPlan(['android'], again, sys2, { named: ['android'] }).steps, []);
 });
 
-test('an ANDROID_HOME of the owner\'s is never overruled: the link is made, no line of the block names the SDK', async (tc) => {
+test('an ANDROID_HOME of the owner\'s is never overruled: the link is made, no line of the block names the SDK', { skip: process.platform === 'win32' && 'the Android kit is for Linux and macOS (not offered on Windows)' }, async (tc) => {
   const w = world(tc);
   const sdk = made(path.join(w.root, 'mysdk'), { 'cmdline-tools/latest/bin/sdkmanager': '#!/bin/sh\n', 'platform-tools/adb': '#!/bin/sh\n' });
   const env = { PATH: '', SHELL: '/bin/bash', ANDROID_HOME: sdk }; // seal: an environment given as data to the made-up system facts; no process is started with it
@@ -307,7 +307,7 @@ test('an SDK found without sdkmanager: said so, and no command names a program t
   assert.equal(y[0].command, undefined);
 });
 
-test('macOS: the archive for this CPU; an Android Studio in Applications is shown where it is and never linked', async (tc) => {
+test('macOS: the archive for this CPU; an Android Studio in Applications is shown where it is and never linked', { skip: process.platform === 'win32' && 'the Android kit is for Linux and macOS (not offered on Windows)' }, async (tc) => {
   const w = world(tc);
   made(path.join(w.home, 'Applications', 'Android Studio.app', 'Contents'), { 'MacOS/studio': '#!/bin/sh\n', 'Resources/product-info.json': '{"version":"2026.1.1.2"}\n' });
   const mac = await sysOf(w, { platform: 'darwin', pm: 'brew', arch: 'arm64', clt: true });
@@ -318,7 +318,7 @@ test('macOS: the archive for this CPU; an Android Studio in Applications is show
   assert.equal(plan.steps[0].platform, 'darwin');
 });
 
-test('an ANDROID_HOME the owner sets in ~/.bashrc (not in this run\'s environment): his SDK is used, no file gets a line over his', async (tc) => {
+test('an ANDROID_HOME the owner sets in ~/.bashrc (not in this run\'s environment): his SDK is used, no file gets a line over his', { skip: process.platform === 'win32' && 'the Android kit is for Linux and macOS (not offered on Windows)' }, async (tc) => {
   const w = world(tc);
   const sdk = made(path.join(w.home, 'mysdk'), { 'cmdline-tools/latest/bin/sdkmanager': '#!/bin/sh\n', 'platform-tools/adb': '#!/bin/sh\n', 'licenses/android-sdk-license': '\nabc\n' });
   fs.writeFileSync(path.join(w.home, '.bashrc'), 'export ANDROID_HOME="$HOME/mysdk"\n');
@@ -338,7 +338,7 @@ test('an ANDROID_HOME the owner sets in ~/.bashrc (not in this run\'s environmen
   assert.doesNotMatch(r.text, /ANDROID_HOME and its bin folders are in your shell start files/);
 });
 
-test('the commands to paste keep a home with a space as one word', async (tc) => {
+test('the commands to paste keep a home with a space as one word', { skip: process.platform === 'win32' && 'the Android kit is for Linux and macOS (not offered on Windows)' }, async (tc) => {
   const w = world(tc);
   const home = path.join(w.root, 'my home');
   const ws = path.join(home, 'Workspace');

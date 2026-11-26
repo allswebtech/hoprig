@@ -6,6 +6,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
+import { SHELL_STANDINS } from '../seal.mjs';
 import { dryWorld, runCli } from './dryrun-fixture.mjs';
 
 const ws = await import('../../src/workspace/cli.mjs');
@@ -19,7 +20,7 @@ const mapOf = (w) => JSON.parse(fs.readFileSync(path.join(w.ws, 'ai_brain', 'wor
 /** Only the map (and its folder's time, as the file is replaced) changed. */
 const onlyMap = (diff) => diff.split('\n').filter(Boolean).every((l) => /^changed home\/Workspace\/ai_brain(\/workspace\.json)?:/.test(l));
 
-test('workspace find lists both projects with their code repositories and folders, and the misfits as "does not fit"', async (tc) => {
+test('workspace find lists both projects with their code repositories and folders, and the misfits as "does not fit"', SHELL_STANDINS, async (tc) => {
   const w = await dryWorld(tc, 'find', find);
   const r = await w.unchanged('workspace find --json', () => workspace(['find', '--in', 'kits/builds', '--json']));
   assert.equal(r.code, 0, r.text);
@@ -43,7 +44,7 @@ test('workspace find lists both projects with their code repositories and folder
   assert.match(jsonOf(nowhere).error, /not a group or a held folder/);
 });
 
-test('workspace find --add writes both into the map and clones nothing; --place-it records a misfit under the folder named', async (tc) => {
+test('workspace find --add writes both into the map and clones nothing; --place-it records a misfit under the folder named', SHELL_STANDINS, async (tc) => {
   const w = await dryWorld(tc, 'findadd', find);
   await w.unchanged('workspace find --add --dry-run', () => workspace(['find', '--in', 'kits/builds', '--add', '--dry-run']));
   const add = await w.changed('workspace find --add', () => workspace(['find', '--in', 'kits/builds', '--add', '--json']));
@@ -99,13 +100,13 @@ const untouched = (w, root) => {
   for (const d of fs.readdirSync(path.join(root, 'code'))) assert.ok(!exists(path.join(root, 'code', d, '.env')), `no .env in code/${d}`);
 };
 
-test('get shop --in kits/builds: the look-up, then kits/builds/alpha-shop with its code repositories, apps/, the old one left out, nothing written into it', async (tc) => {
+test('get shop --in kits/builds: the look-up, then kits/builds/alpha-shop with its code repositories, apps/, the old one left out, nothing written into it', SHELL_STANDINS, async (tc) => {
   const w = await dryWorld(tc, 'getrule', find);
   const dry = await w.unchanged('get shop --in kits/builds --dry-run', () => get(['shop', '--in', 'kits/builds', '--dry-run']));
   assert.equal(dry.code, 0, dry.text);
   assert.match(dry.text, /parent +https:\/\/github\.com\/alex\/shop-alpha-project\.git/);
   assert.match(dry.text, /left out +shop-alpha-old-api \(the word "old"\)/);
-  assert.match(dry.text, /\(dry run\) would clone .*shop-alpha-project\.git into .*\/kits\/builds\/alpha-shop .*code\/shop-alpha-app, code\/shop-alpha-web.*make code\/ and apps\/.*nothing is written into it/);
+  assert.match(dry.text, /\(dry run\) would clone .*shop-alpha-project\.git into .*[\\/]kits[\\/]builds[\\/]alpha-shop .*code\/shop-alpha-app, code\/shop-alpha-web.*make code\/ and apps\/.*nothing is written into it/);
   await w.unchanged('get shop --in kits/builds --dry-run --json', () => get(['shop', '--in', 'kits/builds', '--dry-run', '--json']));
   const real = await w.changed('get shop --in kits/builds', () => get(['shop', '--in', 'kits/builds', '--json']));
   assert.equal(real.r.code, 0, real.r.text);
@@ -132,7 +133,7 @@ test('get shop --in kits/builds: the look-up, then kits/builds/alpha-shop with i
   untouched(w, root);
 });
 
-test('get <place>/<folder> of a project only the hosting site has, two fits for one word asked once (an error without a terminal), a word that fits nothing', async (tc) => {
+test('get <place>/<folder> of a project only the hosting site has, two fits for one word asked once (an error without a terminal), a word that fits nothing', SHELL_STANDINS, async (tc) => {
   const w = await dryWorld(tc, 'getrule2', find);
   onServer(w, 'team', 'shop-delta-project', { 'README.md': '# delta\n', '.gitignore': '/code/\n/apps/\n' });
   const json = await w.unchanged('get shop --in kits/builds --json (two fit)', () => get(['shop', '--in', 'kits/builds', '--json']), { reports: 1 });
@@ -164,7 +165,7 @@ test('get <place>/<folder> of a project only the hosting site has, two fits for 
   assert.equal(no.ui.asked.length, 1);
 });
 
-test('a plain group without a rule: get still writes project.json after asking; a project another tool made in a place with a rule is seen by the next scan', async (tc) => {
+test('a plain group without a rule: get still writes project.json after asking; a project another tool made in a place with a rule is seen by the next scan', SHELL_STANDINS, async (tc) => {
   const w = await dryWorld(tc, 'getrule3', find);
   const plain = await w.changed('get alex/shop-alpha --in clients', () => get(['alex/shop-alpha', '--in', 'clients'], { interactive: true, answers: () => 'y' }));
   assert.equal(plain.r.code, 0, plain.r.text);
@@ -183,7 +184,7 @@ test('a plain group without a rule: get still writes project.json after asking; 
   assert.ok(!exists(path.join(root, 'project.json')));
 });
 
-test('restore of a project of a place with a naming rule writes nothing into it either', async (tc) => {
+test('restore of a project of a place with a naming rule writes nothing into it either', SHELL_STANDINS, async (tc) => {
   const w = await dryWorld(tc, 'getrule4', find);
   await workspace(['find', '--in', 'kits/builds', '--add']);
   const r = await workspace(['restore', 'https://github.com/alex/brain.git', '--with-projects', '--yes']);
@@ -197,7 +198,7 @@ test('restore of a project of a place with a naming rule writes nothing into it 
 
 // ---- the review's cases for the naming rule and the look-up ----
 
-test('get <owner/name> or <git address> --in a place with a rule follows the rule: its folder, its code repositories, the map entry', async (tc) => {
+test('get <owner/name> or <git address> --in a place with a rule follows the rule: its folder, its code repositories, the map entry', SHELL_STANDINS, async (tc) => {
   const w = await dryWorld(tc, 'getrule-spec', find);
   const r = await w.changed('get alex/shop-alpha-project --in kits/builds', () => get(['alex/shop-alpha-project', '--in', 'kits/builds', '--json']));
   assert.equal(r.r.code, 0, r.r.text);
@@ -216,14 +217,14 @@ test('get <owner/name> or <git address> --in a place with a rule follows the rul
   assert.match(no.text, /alex\/zine-gamma-app does not fit the naming rule of kits\/builds \(\{project\}-\{product\}-project\)/);
 });
 
-test('get <bare repository name> --in a place with a rule is that repository', async (tc) => {
+test('get <bare repository name> --in a place with a rule is that repository', SHELL_STANDINS, async (tc) => {
   const w = await dryWorld(tc, 'getrule-bare', find);
   const r = await w.changed('get shop-alpha-project --in kits/builds', () => get(['shop-alpha-project', '--in', 'kits/builds', '--json']));
   assert.equal(r.r.code, 0, r.r.text);
   assert.equal(jsonOf(r.r).projects[0].folder, 'alpha-shop');
 });
 
-test('a get by rule whose clone fails leaves the map as it was, and its retry is hoprig get <place>/<folder>', async (tc) => {
+test('a get by rule whose clone fails leaves the map as it was, and its retry is hoprig get <place>/<folder>', SHELL_STANDINS, async (tc) => {
   const w = await dryWorld(tc, 'getrule-fail', find);
   const objects = path.join(w.server, 'team', 'blog-beta-project.git', 'objects');
   fs.rmSync(objects, { recursive: true });
@@ -237,7 +238,7 @@ test('a get by rule whose clone fails leaves the map as it was, and its retry is
   assert.equal(fs.readFileSync(path.join(w.ws, 'ai_brain', 'workspace.json'), 'utf8'), before, 'no entry for what no computer has');
 });
 
-test('one folder in a place whatever its letter case, one address once: find --add, --place-it and get by rule', async (tc) => {
+test('one folder in a place whatever its letter case, one address once: find --add, --place-it and get by rule', SHELL_STANDINS, async (tc) => {
   const w = await dryWorld(tc, 'getrule-once', find);
   await workspace(['find', '--in', 'kits/builds', '--add']);
   // The same address under a second folder: refused, naming the entry it has.
@@ -255,7 +256,7 @@ test('one folder in a place whatever its letter case, one address once: find --a
   assert.deepEqual(jsonOf(add).added, [], 'beta-blog counts as in the map');
 });
 
-test('a repository renamed on the hosting site is not added again', async (tc) => {
+test('a repository renamed on the hosting site is not added again', SHELL_STANDINS, async (tc) => {
   const w = await dryWorld(tc, 'getrule-rename', find);
   await workspace(['find', '--in', 'kits/builds', '--add']);
   const o = path.join(w.server, 'alex');
@@ -282,7 +283,7 @@ test('an organisation whose login starts with "-" is never passed to gh', async 
   assert.deepEqual(await githubOwners(run), ['alex', 'team']);
 });
 
-test('a get by rule whose code repository fails to clone keeps it in the map, and the retry fetches it', async (tc) => {
+test('a get by rule whose code repository fails to clone keeps it in the map, and the retry fetches it', SHELL_STANDINS, async (tc) => {
   const w = await dryWorld(tc, 'getrule-codefail', find);
   const broken = path.join(w.server, 'team', 'blog-beta-api.git');
   fs.rmSync(path.join(broken, 'objects'), { recursive: true });
@@ -301,11 +302,10 @@ test('a get by rule whose code repository fails to clone keeps it in the map, an
   assert.ok(entry().repos.some((x) => x.dir === 'code/blog-beta-api'));
 });
 
-test('one organisation GitHub does not list (single sign-on): the look-up uses the other accounts and names it', async (tc) => {
+test('one organisation GitHub does not list (single sign-on): the look-up uses the other accounts and names it', SHELL_STANDINS, async (tc) => {
   const w = await dryWorld(tc, 'getrule-sso', find);
-  const ghBin = path.join(w.root, 'bin', 'gh');
-  const orig = fs.readFileSync(ghBin, 'utf8');
-  fs.writeFileSync(ghBin, `#!/bin/sh\nif [ "$1" = repo ] && [ "$2" = list ] && [ "$3" = team ]; then echo 'GraphQL: Resource protected by organization SAML enforcement.' >&2; exit 1; fi\n${orig.split('\n').slice(1).join('\n')}`, { mode: 0o755 });
+  process.env.FAKE_GH_SAML = 'team'; // the stand-in refuses team's list as GitHub does under single sign-on
+  tc.after(() => delete process.env.FAKE_GH_SAML);
   const f = await w.unchanged('find with one account not listed', () => workspace(['find', '--in', 'kits/builds', '--json']));
   assert.equal(f.code, 0, f.text);
   const j = jsonOf(f);
@@ -323,7 +323,7 @@ test('one organisation GitHub does not list (single sign-on): the look-up uses t
   assert.match(jsonOf(t).projects[0].message, /GitHub did not list the repositories of team/);
 });
 
-test('an address on another host in a place with a naming rule is refused, never matched to the GitHub repository of that name', async (tc) => {
+test('an address on another host in a place with a naming rule is refused, never matched to the GitHub repository of that name', SHELL_STANDINS, async (tc) => {
   const w = await dryWorld(tc, 'getrule-host', find);
   for (const addr of ['https://gitlab.example.com/alex/shop-alpha-project.git', 'git@gitlab.example.com:alex/shop-alpha-project.git', 'https://notgithub.com/alex/shop-alpha-project.git']) {
     const dry = await w.unchanged(`get ${addr} --in --dry-run`, () => get([addr, '--in', 'kits/builds', '--dry-run']));
@@ -339,7 +339,7 @@ test('an address on another host in a place with a naming rule is refused, never
   assert.equal(jsonOf(ok).projects[0].result, 'cloned', ok.text);
 });
 
-test('two parents in two accounts that give one folder: the refusal suggests owner/name, and that command fetches it', async (tc) => {
+test('two parents in two accounts that give one folder: the refusal suggests owner/name, and that command fetches it', SHELL_STANDINS, async (tc) => {
   const w = await dryWorld(tc, 'getrule-twoowners', find);
   const seed = path.join(w.root, 'seed', 'team', 'shop-alpha-project');
   fs.mkdirSync(seed, { recursive: true });
@@ -358,7 +358,7 @@ test('two parents in two accounts that give one folder: the refusal suggests own
   assert.equal(w.sh(path.join(w.groups.builds, 'alpha-shop'), 'remote', 'get-url', 'origin').trim().endsWith('team/shop-alpha-project.git'), true);
 });
 
-test('the dashboard\'s and Tia\'s get of <place>/<folder> that only the hosting site has fetches it by the rule', async (tc) => {
+test('the dashboard\'s and Tia\'s get of <place>/<folder> that only the hosting site has fetches it by the rule', SHELL_STANDINS, async (tc) => {
   const w = await dryWorld(tc, 'getrule-dash', find);
   const { cloneProject } = await import('../../src/pcsetup/project.mjs');
   const { makeUi } = await import('../../src/setup/ui.mjs');
@@ -383,7 +383,7 @@ test('the dashboard\'s and Tia\'s get of <place>/<folder> that only the hosting 
   assert.equal(started, 'kits/builds/alpha-shop');
 });
 
-test('find --add and --place-it leave out a code repository the map has under another project', async (tc) => {
+test('find --add and --place-it leave out a code repository the map has under another project', SHELL_STANDINS, async (tc) => {
   const w = await dryWorld(tc, 'getrule-codeonce', find);
   const m = mapOf(w);
   m.projects.find((p) => p.name === 'shop').repos.push({ dir: 'code/shop-alpha-app', url: 'https://github.com/alex/shop-alpha-app.git' });

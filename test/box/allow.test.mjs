@@ -24,7 +24,9 @@ const skip = !real.ok && `no box here: ${real.why}`;
 /** The pairs of a bind option in `args`: [[from, to], ...]. */
 const binds = (args, opt) => args.flatMap((a, i) => (a === opt ? [[args[i + 1], args[i + 2]]] : []));
 
-test('the arguments name a closed list: /usr and the loader\'s names of /etc, never /, /home, /etc, /opt or /var', () => {
+const noBox = process.platform === 'win32' && 'the box is made for Linux and macOS: Windows has none (means.mjs)';
+
+test('the arguments name a closed list: /usr and the loader\'s names of /etc, never /, /home, /etc, /opt or /var', { skip: noBox }, () => {
   const p = planRun(['/bin/true'], { cwd: work, write: [work], read: [lib], timeoutMs: 1000 }, { homes: ['/home/alex'] });
   assert.equal(p.why, undefined);
   const { args } = bwrapArgs(p);
@@ -42,7 +44,7 @@ test('the arguments name a closed list: /usr and the loader\'s names of /etc, ne
   assert.ok(args.join(' ').includes('--dev /dev') && args.join(' ').includes('--proc /proc'));
 });
 
-test('the whole disk, a real home, or a folder that holds one is refused: nothing runs', () => {
+test('the whole disk, a real home, or a folder that holds one is refused: nothing runs', { skip: noBox }, () => {
   const homes = ['/home/alex', '/srv/users/alex'];
   assert.equal(refused('/', homes), 'the whole disk');
   assert.equal(refused('/home/alex', homes), 'a home');
@@ -112,7 +114,7 @@ test('a system folder, or a folder that holds one, is refused: those bring socke
   assert.equal(refused('/var/lib/made-up-under-var', []), '', 'a folder under a system folder, not the folder itself, may be named');
 });
 
-test('planRun refuses a system folder as a read or a write folder: nothing runs', () => {
+test('planRun refuses a system folder as a read or a write folder: nothing runs', { skip: noBox }, () => {
   // The ones this computer has (macOS has no /proc and no /run).
   const here = ['/proc', '/run', '/var', '/etc', '/tmp'].filter((d) => fs.existsSync(d));
   assert.ok(here.length >= 3, here.join(' '));
@@ -137,7 +139,7 @@ test('a system folder reached through a link (macOS: /var, /etc and /tmp lead to
   assert.match(planRun(['/bin/true'], { cwd: work, write: [work], read: ['/private'], timeoutMs: 1000 }, inj).why || '', /holds a system folder/);
 });
 
-test('a write folder that is, or holds, the folder of Node is refused: its Node and global packages would be writable', () => {
+test('a write folder that is, or holds, the folder of Node is refused: its Node and global packages would be writable', { skip: noBox }, () => {
   const inj = { execPath: '/opt/mk-rt/v1/bin/node', real: (x) => x, stat: () => ({ isDirectory: () => true }), lstat: () => ({ isSymbolicLink: () => false }), homes: ['/home/alex'] };
   const isRt = planRun(['/bin/true'], { cwd: '/opt/mk-rt/v1', write: ['/opt/mk-rt/v1'], timeoutMs: 1000 }, inj);
   assert.match(isRt.why, /folder of Node or holds it/);
@@ -145,7 +147,7 @@ test('a write folder that is, or holds, the folder of Node is refused: its Node 
   assert.match(holdsRt.why, /folder of Node or holds it/);
 });
 
-test('a write folder inside the folder of Node is refused, and in the real box its node stays as it was', async () => {
+test('a write folder inside the folder of Node is refused, and in the real box its node stays as it was', { skip: noBox }, async () => {
   const inj = { execPath: '/opt/mk-rt/v1/bin/node', real: (x) => x, stat: () => ({ isDirectory: () => true }), lstat: () => ({ isSymbolicLink: () => false }), homes: ['/home/alex'] };
   for (const d of ['/opt/mk-rt/v1/bin', '/opt/mk-rt/v1/lib/node_modules']) {
     const p = planRun(['/bin/true'], { cwd: d, write: [d], timeoutMs: 1000 }, inj);
@@ -168,7 +170,7 @@ test('a write folder inside the folder of Node is refused, and in the real box i
   assert.equal(fs.readFileSync(path.join(bin, 'node'), 'utf8'), 'ORIGINAL\n');
 });
 
-test('a named folder reached through a link planted inside a write folder is refused; the real target is allowed', () => {
+test('a named folder reached through a link planted inside a write folder is refused; the real target is allowed', { skip: noBox }, () => {
   const proj = path.join(tmp, 'proj7');
   const secretDir = path.join(tmp, 'made-up-private7');
   fs.mkdirSync(proj, { recursive: true });
@@ -180,7 +182,7 @@ test('a named folder reached through a link planted inside a write folder is ref
   assert.equal(named.why, undefined, 'naming the real target is allowed (DECIDED 5)');
 });
 
-test('a link left in a folder named only as read (a write folder of an earlier run) is refused, however the path is spelt', async () => {
+test('a link left in a folder named only as read (a write folder of an earlier run) is refused, however the path is spelt', { skip: noBox }, async () => {
   const base = path.join(tmp, 'link-read');
   const proj = path.join(base, 'proj');
   const other = path.join(base, 'other');
@@ -209,7 +211,7 @@ test('a link left in a folder named only as read (a write folder of an earlier r
   }
 });
 
-test('a named folder is one place: a spelling that reads to another place than it walks to is refused, and nothing is read through it', async () => {
+test('a named folder is one place: a spelling that reads to another place than it walks to is refused, and nothing is read through it', { skip: noBox }, async () => {
   const base = path.join(tmp, 'one-place');
   const proj = path.join(base, 'proj');
   const other = path.join(base, 'other');
@@ -251,7 +253,7 @@ test('a named folder is one place: a spelling that reads to another place than i
   }
 });
 
-test('a link of the system (root\'s) on the way to a folder is followed, a link of the user is not', () => {
+test('a link of the system (root\'s) on the way to a folder is followed, a link of the user is not', { skip: noBox }, () => {
   const st = (uid, link) => ({ uid, isSymbolicLink: () => link });
   const fake = { '/sys-link': st(0, true), '/real': st(0, false), '/real/proj': st(1000, false), '/real/proj/l': st(1000, true) };
   const lstat = (p) => {
@@ -264,7 +266,7 @@ test('a link of the system (root\'s) on the way to a folder is followed, a link 
   assert.equal(userLink('/sys-link/proj', { lstat, readlink, uid: 0 }), '/sys-link', 'run as root, every link counts');
 });
 
-test('the arguments bind a read folder inside a write folder read-only AFTER the write folder, so read-only wins', () => {
+test('the arguments bind a read folder inside a write folder read-only AFTER the write folder, so read-only wins', { skip: noBox }, () => {
   const inner = path.join(work, 'vendor-ro');
   fs.mkdirSync(inner, { recursive: true });
   const p = planRun(['/bin/true'], { cwd: work, write: [work], read: [inner], timeoutMs: 1000 }, { homes: ['/home/alex'] });
@@ -276,7 +278,7 @@ test('the arguments bind a read folder inside a write folder read-only AFTER the
   assert.ok(roInner > bindWork, `the read folder inside the write folder is bound read-only after it (bind@${bindWork}, ro@${roInner})`);
 });
 
-test('the arguments hide the runtime\'s own etc with an empty folder, where the runtime has one', () => {
+test('the arguments hide the runtime\'s own etc with an empty folder, where the runtime has one', { skip: noBox }, () => {
   const rt = path.join(tmp, 'rt-with-etc');
   fs.mkdirSync(path.join(rt, 'etc'), { recursive: true });
   const p = planRun(['/bin/true'], { cwd: work, write: [work], timeoutMs: 1000 }, { homes: ['/home/alex'] });

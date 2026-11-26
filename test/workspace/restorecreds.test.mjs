@@ -31,6 +31,10 @@ function brainNaming(made = true) {
   return { brainUrl, creds, makeCreds: () => w.bare(`creds${k}`) };
 }
 const mode = (d) => fs.statSync(d).mode & 0o777;
+// What the folder git clones into was when the clone started: owner-only (700). Windows keeps no POSIX mode: there,
+// that Hoprig made the folder before git started (git's own mkdir is what could leave it open on Linux and macOS).
+const beforeClone = (seen) => (process.platform === 'win32' ? seen.map((m) => m !== 'not there') : seen);
+const OWNER_ONLY = process.platform === 'win32' ? [true] : [0o700];
 
 test('the credentials folder is owner-only before git writes its first file', async () => {
   const { brainUrl } = brainNaming();
@@ -45,8 +49,8 @@ test('the credentials folder is owner-only before git writes its first file', as
   const { ui } = await quietUi();
   const r = await restoreWorkspace(brainUrl, { ui, dir: B.ws, runner });
   assert.equal(r.plan.find((e) => e.kind === 'credentials').result, 'cloned');
-  assert.deepEqual(seen, [0o700], 'the folder git clones into is owner-only already');
-  assert.equal(mode(cdir), 0o700);
+  assert.deepEqual(beforeClone(seen), OWNER_ONLY, 'the folder git clones into is owner-only already');
+  if (process.platform !== 'win32') assert.equal(mode(cdir), 0o700);
   assert.ok(fs.existsSync(path.join(cdir, '.git')));
 });
 
@@ -79,7 +83,7 @@ test('a credentials clone that failed: no starting folder is made in its place, 
   const r2 = await restoreWorkspace(brainUrl, { ui, dir: B.ws });
   assert.equal(r2.plan.find((e) => e.kind === 'credentials').result, 'cloned', JSON.stringify(r2.plan[1]));
   assert.ok(fs.existsSync(path.join(cdir, '.git')));
-  assert.equal(mode(cdir), 0o700);
+  if (process.platform !== 'win32') assert.equal(mode(cdir), 0o700);
 });
 
 test('the credentials repository is kept in step: a commit on the server reaches the second home after one upkeep round', async () => {
@@ -95,7 +99,7 @@ test('the credentials repository is kept in step: a commit on the server reaches
   const r = await syncAll({ dir: B.ws, projects: path.join(B.ws, 'projects'), upkeep: true });
   assert.ok(r.repos.some((x) => x.label === 'credentials'), JSON.stringify(r.repos));
   assert.equal(w.sh(path.join(B.ws, 'credentials'), 'rev-parse', 'HEAD'), sha);
-  assert.equal(mode(path.join(B.ws, 'credentials')), 0o700, 'still only its owner\'s');
+  if (process.platform !== 'win32') assert.equal(mode(path.join(B.ws, 'credentials')), 0o700, 'still only its owner\'s');
 });
 
 /** A brain whose map names credentials and one project, shop, whose project.json names a credential link. */
@@ -157,7 +161,7 @@ test('a restore whose credentials cannot be cloned goes on: the link waits, and 
   assert.match(text(), /shop\/\.env\.local → credentials\/shop\/shop\.env: waiting for the credentials/);
   const link = path.join(B.ws, 'projects', 'shop', '.env.local');
   assert.equal(fs.lstatSync(link, { throwIfNoEntry: false }), undefined, 'no empty file in its place');
-  assert.equal(mode(path.join(B.ws, 'credentials')), 0o700);
+  if (process.platform !== 'win32') assert.equal(mode(path.join(B.ws, 'credentials')), 0o700);
   makeCreds();
   const q2 = await quietUi();
   const r2 = await restoreWorkspace(brainUrl, { ui: q2.ui, dir: B.ws, withProjects: true });
@@ -209,13 +213,13 @@ test('a re-clone after a cut-off clone is owner-only before git writes, and a lo
   };
   const r2 = await restoreWorkspace(brainUrl, { ui, dir: B.ws, runner: runner2 });
   assert.equal(r2.plan.find((e) => e.kind === 'credentials').result, 'cloned');
-  assert.deepEqual(seen, [0o700], 'the folder git clones into is owner-only already');
+  assert.deepEqual(beforeClone(seen), OWNER_ONLY, 'the folder git clones into is owner-only already');
   assert.equal(fs.readFileSync(path.join(cdir, 'shop', 'shop.env'), 'utf8'), 'KEY=cut-secret\n');
   // A credentials repository others can open (what a kill right after git's own mkdir left): restore makes it 700.
   fs.chmodSync(cdir, 0o775);
   const r3 = await restoreWorkspace(brainUrl, { ui, dir: B.ws });
   assert.equal(r3.plan.find((e) => e.kind === 'credentials').result, 'here');
-  assert.equal(mode(cdir), 0o700);
+  if (process.platform !== 'win32') assert.equal(mode(cdir), 0o700);
 });
 
 test('a cut-off credentials clone that restore moves aside is said by restore and named by workspace status', async () => {

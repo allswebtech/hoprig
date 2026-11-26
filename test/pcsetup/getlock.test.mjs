@@ -7,10 +7,10 @@ import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
-import { fileURLToPath } from 'node:url';
 import { makeWorld, quietUi } from './dryrun-fixture.mjs';
 
-const src = (rel) => fileURLToPath(new URL(`../../src/${rel}`, import.meta.url));
+// The child imports them by their file URL: Windows' import() takes no C:\… path.
+const src = (rel) => new URL(`../../src/${rel}`, import.meta.url).href;
 const { getMain, getProject } = await import('../../src/pcsetup/getproject.mjs');
 const { findLocks, lockPathFor } = await import('../../src/pcsetup/leftovers.mjs');
 const { stream } = await import('../../src/setup/system.mjs');

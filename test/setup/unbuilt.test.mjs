@@ -50,7 +50,7 @@ const run = (args) =>
     execFile(process.execPath, args, { env: { ...process.env, ...s.env, PATH: `${standIns}${path.delimiter}${process.env.PATH}` }, timeout: 60_000, maxBuffer: 8 << 20 }, (err, stdout, stderr) => resolve({ code: err ? err.code : 0, stdout, stderr }));
   });
 
-test('a terminal module that was never built: doctor names the cause and the fix, the dashboard still loads', async () => {
+test('a terminal module that was never built: doctor names the cause and the fix, the dashboard still loads', { skip: process.platform === 'win32' && 'a never-built node-pty and its fix are those of Linux and macOS (Windows gets npm install)' }, async () => {
   const app = copyWithUnbuiltPty();
 
   const d = await run([path.join(app, 'bin', 'hoprig.mjs'), 'doctor', '--offline', '--json']);

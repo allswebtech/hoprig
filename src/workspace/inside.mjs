@@ -30,6 +30,7 @@ import { loadConfig, saveConfig } from '../config.mjs';
 import { withoutSecrets } from '../secretenv.mjs';
 import { capture } from '../setup/system.mjs';
 import { projectsIn, workspaceDir } from './layout.mjs';
+import { replaceFile } from '../replacefile.mjs';
 
 export const LEAVES = 'leaves its folder through a link';
 const NOT_IN = 'is not in the workspace';
@@ -276,6 +277,14 @@ export async function cloneInto(at, destGiven, url, { run, env = {}, onLine = ()
     renameIn({ ...a, root: path.dirname(dest) }, dest, aside);
     onLine(`${dest} held a broken clone of ${url} (its first commit was never checked out in full): it was moved aside as ${aside} and is cloned again`);
   }
+  // A file where a folder on the way to it goes (on Windows a link a repository brings is checked out as a plain file
+  // when git makes no links): nothing is cloned, and it is said; the run goes on with the next.
+  const file = fileOnTheWay(path.dirname(dest));
+  if (file) {
+    const why = `a file is where the folder ${file} goes: nothing was cloned`;
+    onLine(why);
+    return { ok: false, code: 1, stdout: '', stderr: why, output: why, dest };
+  }
   fs.mkdirSync(path.dirname(dest), { recursive: true });
   // `mode`: the folder git clones into is made with it first (git keeps an empty folder's mode), so the clone never
   // has a moment with the umask's mode: also after a cut-off clone was moved aside from under the caller's folder.
@@ -284,6 +293,20 @@ export async function cloneInto(at, destGiven, url, { run, env = {}, onLine = ()
   const e = { ...withoutSecrets(process.env), ...(quiet ? { GIT_TERMINAL_PROMPT: '0' } : {}), ...env };
   const r = await run(['git', 'clone', '--', url, dest], { env: e, onLine, interactive: false });
   return { ok: r.ok, dest, output: r.output, ...(aside ? { aside } : {}) };
+}
+
+/** The nearest part of `dir` that exists, when it is not a folder (a file in the way); else null. */
+function fileOnTheWay(dir) {
+  for (let p = path.resolve(dir); ; p = path.dirname(p)) {
+    let st = null;
+    try {
+      st = fs.statSync(p);
+    } catch {
+      /* not there, or a file above it (ENOTDIR): look one folder up */
+    }
+    if (st) return st.isDirectory() ? null : p;
+    if (path.dirname(p) === p) return null;
+  }
 }
 
 /**
@@ -377,7 +400,7 @@ export function writeIn(at, fileGiven, data, { mode, excl = false, atomic: atomi
     const tmp = `${file}.${process.pid}.tmp`;
     fs.rmSync(tmp, { force: true });
     fs.writeFileSync(tmp, data, { flag: 'wx', ...(mode ? { mode } : {}) });
-    fs.renameSync(tmp, file);
+    replaceFile(tmp, file);
     return file;
   }
   const flags = fs.constants.O_WRONLY | fs.constants.O_CREAT | NOFOLLOW | (excl ? fs.constants.O_EXCL : fs.constants.O_TRUNC);

@@ -30,7 +30,7 @@ test('remotes lose any user name or password before they go into a recipe', () =
 });
 
 test('projects folder: "~/x" and absolute only; it becomes the first folder-picker root, the others stay', () => {
-  assert.equal(expandDir('~/code', '/home/dev'), '/home/dev/code');
+  assert.equal(expandDir('~/code', '/home/dev'), path.join('/home/dev', 'code')); // the system's own separator
   assert.equal(expandDir('relative', '/home/dev'), null);
   assert.equal(expandDir('~/a/../b', '/home/dev'), null);
   let saved;

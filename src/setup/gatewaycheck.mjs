@@ -7,7 +7,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { stateDir } from '../paths.mjs';
-import { filedProcess } from '../procid.mjs';
+import { filedProcess, freshAfter } from '../procid.mjs';
 
 /** The listening sockets in /proc/net/tcp text: [{ port, wide }], wide when the address is not a loopback one. */
 export function listeners(text) {
@@ -47,7 +47,7 @@ function startedByHoprig(id) {
   } catch {
     return false;
   }
-  return Number.isInteger(rec?.pid) && rec.pid > 0 && filedProcess(file, rec) === true;
+  return Number.isInteger(rec?.pid) && rec.pid > 0 && filedProcess(file, rec, { after: freshAfter() }) === true; // a fresh identity (procid.mjs freshAfter)
 }
 
 /**

@@ -9,7 +9,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { sandbox } from '../server/helpers.mjs';
 import { traps } from './traps.mjs';
-import { sealedPath } from '../seal.mjs';
+import { SHELL_STANDINS, sealedPath } from '../seal.mjs';
 
 const box = sandbox('machines-hostkeys');
 test.after(() => box.cleanup());
@@ -49,7 +49,7 @@ test('parseKeys: keyscan lines and comments; a blob that does not say its own ki
   assert.match(keys[0].print, /^SHA256:[A-Za-z0-9+/]{43}$/);
 });
 
-test('scanHostKey through a stand-in: the key, or a plain sentence; nothing real is reached', async () => {
+test('scanHostKey through a stand-in: the key, or a plain sentence; nothing real is reached', SHELL_STANDINS, async () => {
   const t = traps(box.root);
   const bin = path.join(box.root, 'bin');
   fs.mkdirSync(bin, { recursive: true });
@@ -69,7 +69,7 @@ test('the kept host key: its own file, mode 600, under the alias; the options tr
   const file = path.join(box.config, 'ssh-keys', 'box2.known_hosts');
   const [key] = parseKeys(`x ${madeUpHostKey()}`);
   keepHostKey(file, key);
-  assert.equal(fs.statSync(file).mode & 0o777, 0o600);
+  if (process.platform !== 'win32') assert.equal(fs.statSync(file).mode & 0o777, 0o600);
   assert.equal(fs.readFileSync(file, 'utf8'), `${ALIAS} ${key.kind} ${key.b64}\n`);
   assert.deepEqual(keptHostKey(file), key);
   assert.equal(keptHostKey(path.join(box.root, 'nothing')), null);

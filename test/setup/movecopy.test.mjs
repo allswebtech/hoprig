@@ -12,6 +12,9 @@ import path from 'node:path';
 import { test } from 'node:test';
 import { fakeBin, scratch } from './helpers.mjs';
 
+// The move to a user of its own is Linux only: root, user ids, runuser and systemd, with POSIX paths.
+const LINUX_ONLY = { skip: process.platform === 'win32' && 'the move to a user of its own is Linux only (root, chown by uid, POSIX paths)' };
+
 const s = scratch();
 test.after(s.cleanup);
 const P = await import('../../src/setup/moveplan.mjs');
@@ -130,7 +133,7 @@ function snapshot(dir) {
   return out;
 }
 
-test('a repository with a branch, a stash, an untracked and an ignored file and a linked work tree arrives whole, and the check finds it the same', async () => {
+test('a repository with a branch, a stash, an untracked and an ignored file and a linked work tree arrives whole, and the check finds it the same', LINUX_ONLY, async () => {
   const srv = server('whole');
   const h = hands(srv, { foreign: path.join(srv.shop, 'notes.txt') });
   const plan = await P.movePlan({ io: h.look });
@@ -174,7 +177,7 @@ test('a repository with a branch, a stash, an untracked and an ignored file and 
   assert.deepEqual(c.hashes, { same: 2, total: 2, differ: [] }, "the conversation and the agent's file four folders down");
 });
 
-test('settings name the new home in the copy only: JSON values and keys, config.yml, the provider file, the workspace map, Claude Code\'s settings', async () => {
+test('settings name the new home in the copy only: JSON values and keys, config.yml, the provider file, the workspace map, Claude Code\'s settings', LINUX_ONLY, async () => {
   const srv = server('paths');
   const h = hands(srv);
   const plan = await P.movePlan({ io: h.look });
@@ -196,13 +199,13 @@ test('settings name the new home in the copy only: JSON values and keys, config.
   const newProj = path.join(srv.home, '.claude/projects', slug(path.join(srv.home, 'Workspace/projects/shop')));
   assert.equal(fs.readFileSync(path.join(newProj, `${ID}.jsonl`), 'utf8'), `{"cwd":"${srv.shop}"}\n`);
   // The keys git uses come with their modes; the login keys file does not.
-  assert.equal(fs.statSync(path.join(srv.home, '.ssh/id_ed25519')).mode & 0o777, 0o600);
+  if (process.platform !== 'win32') assert.equal(fs.statSync(path.join(srv.home, '.ssh/id_ed25519')).mode & 0o777, 0o600);
   assert.equal(fs.existsSync(path.join(srv.home, '.ssh/authorized_keys')), false);
   // Root's settings still name root's home.
   assert.equal(JSON.parse(fs.readFileSync(path.join(srv.dirs.config, 'config.json'), 'utf8')).workspaceDir, srv.dirs.workspace);
 });
 
-test("a project's conversations are listed in its new place and one is continued there with the stand-in tool", async () => {
+test("a project's conversations are listed in its new place and one is continued there with the stand-in tool", LINUX_ONLY, async () => {
   const srv = server('talk');
   const h = hands(srv);
   const plan = await P.movePlan({ io: h.look });
@@ -228,7 +231,7 @@ test("a project's conversations are listed in its new place and one is continued
   assert.match(fs.readFileSync(path.join(srv.home, '.claude/projects', slug(newShop), `${ID}.jsonl`), 'utf8'), /continued/);
 });
 
-test('a folder of the new name already there keeps its files; only missing ones are added', async () => {
+test('a folder of the new name already there keeps its files; only missing ones are added', LINUX_ONLY, async () => {
   const srv = server('keep');
   const h = hands(srv);
   const plan = await P.movePlan({ io: h.look });
@@ -244,7 +247,7 @@ test('a folder of the new name already there keeps its files; only missing ones 
   assert.ok(plan.ok);
 });
 
-test('a socket in a copied part is skipped by the copy and not counted by the check: the check passes', async () => {
+test('a socket in a copied part is skipped by the copy and not counted by the check: the check passes', LINUX_ONLY, async () => {
   const srv = server('socket');
   const sock = path.join(srv.dirs.workspace, 'projects', 'shop', 'agent.sock');
   const listener = await listenIn(path.dirname(sock), 'agent.sock');
@@ -262,7 +265,7 @@ test('a socket in a copied part is skipped by the copy and not counted by the ch
   }
 });
 
-test("the copy counts what the look counted: its last progress is the look's total and never more", async () => {
+test("the copy counts what the look counted: its last progress is the look's total and never more", LINUX_ONLY, async () => {
   // A tree with what counted twice or not at all: the keys git uses (beside the login keys), a project folder of
   // Claude Code that is also placed under its new path's name, and a socket the copy cannot copy.
   const srv = server('count');
@@ -284,7 +287,7 @@ test("the copy counts what the look counted: its last progress is the look's tot
   }
 });
 
-test('a failure in the middle of the copy leaves root unchanged and says what was made and how to take it away', async () => {
+test('a failure in the middle of the copy leaves root unchanged and says what was made and how to take it away', LINUX_ONLY, async () => {
   const srv = server('fail');
   let n = 0;
   const h = hands(srv, {
@@ -310,7 +313,7 @@ test('a failure in the middle of the copy leaves root unchanged and says what wa
   assert.match(again.stops.join('\n'), /is already in hoprig's home: the move does not write over it/);
 });
 
-test('the check counts an entry of the copy that is not the user\'s, and a head that differs', async () => {
+test('the check counts an entry of the copy that is not the user\'s, and a head that differs', LINUX_ONLY, async () => {
   const srv = server('bad');
   const h = hands(srv);
   const plan = await P.movePlan({ io: h.look });

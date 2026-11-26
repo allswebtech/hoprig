@@ -8,7 +8,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
 import { FAKE, missionHome } from '../mission/helpers.mjs';
-import { repoTree } from '../work/helpers.mjs';
+import { endSignal, repoTree } from '../work/helpers.mjs';
 
 const t = missionHome('operator-look');
 test.after(() => t.cleanup());
@@ -234,7 +234,7 @@ test('a dashboard that dies while its look runs: the next one removes its worktr
   const env = { ...process.env, FAKE_LOOK: 'SLOW' };
   delete env.NODE_TEST_CONTEXT;
   const a = spawnSync(process.execPath, [path.join(import.meta.dirname, 'fixtures', 'look-dies.mjs'), JSON.stringify(it)], { env, encoding: 'utf8', timeout: 30_000 });
-  assert.equal(a.signal, 'SIGKILL', a.stderr);
+  assert.equal(endSignal(a), 'SIGKILL', a.stderr);
   assert.ok(JSON.parse(a.stdout).started, a.stdout);
   assert.ok(branches().some((b) => b.includes('look-unknown-0123456789ab')), 'its branch was made');
   assert.ok(fs.existsSync(path.join(stateDir(), 'operator', 'look-facts', 'look-unknown-0123456789ab')));
@@ -266,7 +266,7 @@ test('a look lost to a stopped dashboard is cleared by the next one also while l
   const env = { ...process.env, FAKE_LOOK: 'SLOW' };
   delete env.NODE_TEST_CONTEXT;
   const a = spawnSync(process.execPath, [path.join(import.meta.dirname, 'fixtures', 'look-dies.mjs'), JSON.stringify(it)], { env, encoding: 'utf8', timeout: 30_000 });
-  assert.equal(a.signal, 'SIGKILL', a.stderr);
+  assert.equal(endSignal(a), 'SIGKILL', a.stderr);
   assert.ok(JSON.parse(a.stdout).started, a.stdout);
   const facts = path.join(stateDir(), 'operator', 'look-facts', 'look-unknown-0123456789ac');
   assert.ok(fs.existsSync(facts));

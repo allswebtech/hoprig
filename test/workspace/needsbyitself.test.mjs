@@ -9,6 +9,7 @@ import { syncBuiltinESMExports } from 'node:module';
 import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
+import { SHELL_STANDINS } from '../seal.mjs';
 import { needsWorld } from './needsfix.mjs';
 
 const OURS = /src[\\/]workspace[\\/]needs\.mjs/;
@@ -57,14 +58,14 @@ function watch() {
   };
 }
 
-test('the start and three upkeep ticks read no need and fetch none; one asked request does read them', { timeout: 90_000, skip: process.platform === 'win32' && 'the stand-ins are POSIX' }, async (t) => {
+test('the start and three upkeep ticks read no need and fetch none; one asked request does read them', { timeout: 90_000, skip: SHELL_STANDINS.skip }, async (t) => {
   const w = needsWorld('needs-byitself', { shopNeeds: ['kits/parts', 'docs'] });
   process.env.HOPRIG_WORKSPACE_DIR = w.ws;
   for (const k of ['HOPRIG_RUN_FILE', 'HOPRIG_TERM_ID']) delete process.env[k];
   const { saveConfig } = await import('../../src/config.mjs');
   const { hashPassword } = await import('../../src/server/auth.mjs');
-  const claudeBin = path.join(w.root, 'fake-claude.sh');
-  fs.writeFileSync(claudeBin, `#!/bin/sh\nexec '${process.execPath}' '${FAKE_CLAUDE}' "$@"\n`, { mode: 0o755 });
+  const claudeBin = path.join(w.root, 'fake-claude'); // no extension: on Windows the runner starts a #! stand-in without one
+  fs.writeFileSync(claudeBin, `#!/bin/sh\nexec '${process.execPath.replaceAll('\\', '/')}' '${FAKE_CLAUDE.replaceAll('\\', '/')}' "$@"\n`, { mode: 0o755 });
   // Default settings: the automations as they come.
   saveConfig({ claudeBin, usage: false, server: { backend: 'pty', roots: [w.ws], passwordHash: await hashPassword('pw-for-tests') } });
   const before = snapshot(w.home);

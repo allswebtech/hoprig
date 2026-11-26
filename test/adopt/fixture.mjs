@@ -4,6 +4,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
+import { writeGitStandIn } from '../ship/gitstandin.mjs';
 import { writeTree } from '../workspace/helpers.mjs';
 
 // The real git, found before any trap is put on PATH (the fixture builds its tree with it). On Windows the `sh` of Git
@@ -65,7 +66,11 @@ export function traps(root) {
   for (const n of ['npm', 'npx', 'ssh', 'gh', 'sudo', 'systemctl', 'loginctl', 'apt-get', 'brew']) {
     fs.writeFileSync(path.join(bin, n), `#!/bin/sh\necho "TRAP ${n} $*" >> '${log}'\necho "trap: ${n} must not run in this test" >&2\nexit 97\n`, { mode: 0o755 });
   }
-  fs.writeFileSync(path.join(bin, 'git'), `#!/bin/sh\necho "git $*" >> '${log}'\nfor a in "$@"; do case "$a" in push|fetch|pull|ls-remote) echo "TRAP git $a" >> '${log}'; echo "trap: git $a must not run in this test" >&2; exit 97;; esac; done\nexec '${REAL_GIT}' "$@"\n`, { mode: 0o755 });
+  // On Windows a Node script with the same answers (../ship/gitstandin.mjs: the sh there would change its arguments).
+  writeGitStandIn(path.join(bin, 'git'), {
+    git: REAL_GIT, log, every: true, refuse: ['push', 'fetch', 'pull', 'ls-remote'], line: 'TRAP git {a}', say: 'trap: git {a} must not run in this test', code: 97,
+    shell: `#!/bin/sh\necho "git $*" >> '${log}'\nfor a in "$@"; do case "$a" in push|fetch|pull|ls-remote) echo "TRAP git $a" >> '${log}'; echo "trap: git $a must not run in this test" >&2; exit 97;; esac; done\nexec '${REAL_GIT}' "$@"\n`,
+  });
   process.env.PATH = `${bin}${path.delimiter}${process.env.PATH}`;
   const calls = () => (fs.existsSync(log) ? fs.readFileSync(log, 'utf8').split('\n').filter(Boolean) : []);
   return { bin, log, calls, trapped: () => calls().filter((l) => l.startsWith('TRAP')) };

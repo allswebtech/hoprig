@@ -4,6 +4,7 @@
 // its terminal (an update does one) does not lose it.
 import fs from 'node:fs';
 import path from 'node:path';
+import { replaceFile } from '../replacefile.mjs';
 
 const HANDED_MAX = 50;
 
@@ -32,7 +33,7 @@ export function handedChats(file) {
       fs.mkdirSync(path.dirname(file()), { recursive: true, mode: 0o700 });
       const tmp = `${file()}.${process.pid}.tmp`;
       fs.writeFileSync(tmp, JSON.stringify([...map]) + '\n', { mode: 0o600 });
-      fs.renameSync(tmp, file());
+      replaceFile(tmp, file());
     } catch {
       /* a full disk loses only the title after a restart */
     }

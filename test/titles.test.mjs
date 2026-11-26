@@ -77,7 +77,7 @@ test('the person\'s newest rename wins, wherever it was typed (here, or /rename 
   assert.equal(T.sessionName(f, id), 'Notes for 1.4', 'a later title of Claude Code\'s model does not replace it');
   const kept = JSON.parse(fs.readFileSync(path.join(box.state, 'session-names.json'), 'utf8'));
   assert.equal(kept[id].title, 'Notes for 1.4', 'kept in the state folder');
-  assert.equal(fs.statSync(path.join(box.state, 'session-names.json')).mode & 0o777, 0o600);
+  if (process.platform !== 'win32') assert.equal(fs.statSync(path.join(box.state, 'session-names.json')).mode & 0o777, 0o600);
   // A restart: another process reads the same state folder.
   const after = execFileSync(process.execPath, ['--input-type=module', '-e', `import('${new URL('../src/titles.mjs', import.meta.url).href}').then((T) => process.stdout.write(T.sessionName(${JSON.stringify(f)}, ${JSON.stringify(id)})))`], { env: process.env }).toString();
   assert.equal(after, 'Notes for 1.4', 'after a restart');

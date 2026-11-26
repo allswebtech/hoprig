@@ -119,7 +119,9 @@ test('hoprig update on an npm install: newer, the same, older and unreadable', a
   const newer = await go({ version: `${a}.${b}.${c + 1}`, note: null });
   assert.equal(newer.code, 0, newer.out);
   assert.match(newer.out, new RegExp(`Version ${a}\\.${b}\\.${c + 1} is available`));
-  assert.match(newer.out, /would run: npm install -g .*archive\/refs\/heads\/main\.tar\.gz/);
+  // Windows starts npm (npm.cmd) through cmd.exe, and the line says so.
+  const npmStart = process.platform === 'win32' ? 'cmd\\.exe /d /s /c npm' : 'npm';
+  assert.match(newer.out, new RegExp(`would run: ${npmStart} install -g .*archive/refs/heads/main\\.tar\\.gz`));
   for (const v of [current, `${a}.${Math.max(b - 1, 0)}.0`, '0.0.1']) {
     const same = await go({ version: v, note: null });
     assert.equal(same.code, 0, same.out);
@@ -133,7 +135,7 @@ test('hoprig update on an npm install: newer, the same, older and unreadable', a
 });
 
 test('install.sh and install.ps1 install from the same place the update and its lookup read', () => {
-  const root = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..', '..');
+  const root = path.resolve(import.meta.dirname, '..', '..');
   const from = hoprigSource().package;
   assert.ok(fs.readFileSync(path.join(root, 'install.sh'), 'utf8').includes(`SOURCE=\${HOPRIG_SOURCE:-${from}}`));
   assert.ok(fs.readFileSync(path.join(root, 'install.ps1'), 'utf8').includes(`else { '${from}' }`));

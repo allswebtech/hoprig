@@ -71,7 +71,9 @@ test('the old path where it bites: the copy\'s credential helper in .git/config 
 
 test('secrets: their count is said, never a value', () => {
   const s = r.lines.find((l) => l.what === 'secrets');
-  assert.match(s.words, /^1 secret-shaped value in files a first push would take, tracked or not \(code\/tools: config\.js \(1\)\)/);
+  // The folder is named in the platform's form (code\tools on Windows).
+  const want = `1 secret-shaped value in files a first push would take, tracked or not (${path.join('code', 'tools')}: config.js (1))`;
+  assert.ok(s.words.startsWith(want), s.words);
   assert.ok(!JSON.stringify(r).includes('ghp_abcdef'));
   assert.deepEqual(trap.trapped(), []);
 });
@@ -118,7 +120,7 @@ test('the secret search covers each linked worktree, outside the repository and 
   assert.ok(a.ok, JSON.stringify(a.lines.filter((l) => !l.ok)));
   const line = a.lines.find((l) => l.what === 'secrets').words;
   assert.match(line, /^2 secret-shaped values/, line);
-  assert.ok(line.includes('code/web.web-feature: config.json (1)') && line.includes('code/web/wt-fix: keys.txt (1)'), line);
+  assert.ok(line.includes(`${path.join('code', 'web.web-feature')}: config.json (1)`) && line.includes(`${path.join('code', 'web', 'wt-fix')}: keys.txt (1)`), line);
   assert.ok(a.needs.some((n) => n.kind === 'secrets' && n.words.startsWith('2 ')), JSON.stringify(a.needs));
   assert.ok(!JSON.stringify(a).includes('ghp_'), 'no value is shown');
 });

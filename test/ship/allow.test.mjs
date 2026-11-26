@@ -46,7 +46,7 @@ test('a yes written by hand or copied from another computer holds nothing', () =
   }
   saveConfig({ ship: { allowed: { [shop]: { check: blockHash(check) } } } });
   assert.equal(isAllowed(shop, 'check', check), false, 'the plain hash of the block is not a yes');
-  assert.equal(fs.statSync(path.join(root, 'state', 'ship', 'computer.key')).mode & 0o777, 0o600);
+  if (process.platform !== 'win32') assert.equal(fs.statSync(path.join(root, 'state', 'ship', 'computer.key')).mode & 0o777, 0o600);
 });
 
 test('the limiter prefix is confirmed like a block; one written by hand is not', () => {

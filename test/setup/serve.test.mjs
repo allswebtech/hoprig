@@ -25,7 +25,7 @@ test('address: flags > HOST/PORT > config > default', () => {
 test('password file: flag > HOPRIG_PASSWORD_FILE; created (600), reused, too short refused', async () => {
   assert.equal(O.passwordFileFrom({ env: {} }), null);
   assert.equal(O.passwordFileFrom({ env: { HOPRIG_PASSWORD_FILE: 'pw.txt' } }), path.resolve('pw.txt'));
-  assert.equal(O.passwordFileFrom({ flags: { passwordFile: '/a/b' }, env: { HOPRIG_PASSWORD_FILE: 'pw.txt' } }), '/a/b');
+  assert.equal(O.passwordFileFrom({ flags: { passwordFile: '/a/b' }, env: { HOPRIG_PASSWORD_FILE: 'pw.txt' } }), path.resolve('/a/b')); // Windows puts the drive in front
   const set = [];
   const file = path.join(s.tmp, 'pw', 'deep', 'password.txt');
   assert.deepEqual(await O.firstPassword(file, { setPassword: async (p) => set.push(p), generate: () => 'generated-password-123' }), { created: true, reused: false });

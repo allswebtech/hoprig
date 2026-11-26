@@ -42,6 +42,7 @@ import { readUsage, recordUsage, summarizeUsage, turnUsage, usageFile } from './
 import { progressAnswer } from './answercheck.mjs';
 import { noteCorrection } from '../operator/corrections.mjs';
 import { BUSY, SpendLedger, measureChats, paidName } from './spend.mjs';
+import { replaceFile } from '../replacefile.mjs';
 
 /** A time in this computer's clock, with the day when it is not today: "11:27", "09:00 on Tue, 24 Nov". */
 function atWords(until, now) {
@@ -207,7 +208,7 @@ export function assistantFeature(ctx, o = {}) {
     const file = tokenFile();
     fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
     fs.writeFileSync(`${file}.tmp`, serverToken + '\n', { mode: 0o600 });
-    fs.renameSync(`${file}.tmp`, file);
+    replaceFile(`${file}.tmp`, file);
   }
   /** "engine" for her own token, "client" for the owner's MCP client token, null for anything else. */
   function tokenKind(t) {

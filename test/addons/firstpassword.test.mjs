@@ -81,7 +81,7 @@ test('named in its definition: the first lines come once with the start, the pas
     const log = fs.readFileSync(logOf('relay'), 'utf8');
     assert.ok(!log.includes(PW), `the log holds the password: ${log}`);
     assert.match(log, /Relay 1\.0 starting/, 'the rest is logged as it printed it');
-    assert.equal(fs.statSync(logOf('relay')).mode & 0o777, 0o600);
+    if (process.platform !== 'win32') assert.equal(fs.statSync(logOf('relay')).mode & 0o777, 0o600);
     // Once: a second ask gives nothing, and nothing is left to show.
     assert.deepEqual((await route('POST', '/api/gatewayhost/relay/first')({ confirm: 'box2' })).first, []);
     assert.equal((await route('GET', '/api/gatewayhost')()).gateways.find((g) => g.id === 'relay').firstWaiting, false);
@@ -141,7 +141,7 @@ test('not named: the log is as the gateway prints it, mode 600, nothing is hande
     assert.equal(r.first, undefined);
     for (let i = 0; i < 20 && !fs.readFileSync(logOf('plainrelay'), 'utf8').includes(PW); i++) await new Promise((x) => setTimeout(x, 100));
     assert.ok(fs.readFileSync(logOf('plainrelay'), 'utf8').includes(`Relay first password: ${PW}`), 'as it printed it');
-    assert.equal(fs.statSync(logOf('plainrelay')).mode & 0o777, 0o600, 'a wider log of an older version is closed too');
+    if (process.platform !== 'win32') assert.equal(fs.statSync(logOf('plainrelay')).mode & 0o777, 0o600, 'a wider log of an older version is closed too');
     assert.equal((await route('GET', '/api/gatewayhost')()).gateways.find((g) => g.id === 'plainrelay').marksFirst, false);
     const page = fs.readFileSync(path.join(import.meta.dirname, '..', '..', 'web', 'health.js'), 'utf8');
     assert.match(page, /What it prints goes to its log on \$\{d\.computer\} as it prints it, in a file only your user there can read\./);

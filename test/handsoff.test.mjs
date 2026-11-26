@@ -15,12 +15,14 @@ const card = (...questions) => cardOf({ tool: 'AskUserQuestion', input: { questi
 test('the shipped state (slice 9): Hands-off is offered by default, an explicit offered:false hides it, offering turns nothing on', () => {
   // Offered is the shipped default now that the wall is built and validated. An absent flag reads as offered; only the
   // exact boolean false hides the feature (the owner's own choice), and any other value still reads as offered.
-  assert.equal(handsOffOffered({}), true);
-  assert.equal(handsOffOffered({ handsOff: {} }), true);
-  assert.equal(handsOffOffered({ handsOff: { projects: { '/w/shop': { on: true } } } }), true);
-  assert.equal(handsOffOffered({ handsOff: { offered: false } }), false, 'the owner hid the feature on purpose: honoured');
-  assert.equal(handsOffOffered({ handsOff: { offered: 'no' } }), true, 'only the exact boolean false hides it');
-  assert.equal(handsOffOffered({ handsOff: { offered: true } }), true);
+  // The rule of the config, read where the wall is installed (on Windows Hands-off is never offered: the test below).
+  const P = 'linux';
+  assert.equal(handsOffOffered({}, P), true);
+  assert.equal(handsOffOffered({ handsOff: {} }, P), true);
+  assert.equal(handsOffOffered({ handsOff: { projects: { '/w/shop': { on: true } } } }, P), true);
+  assert.equal(handsOffOffered({ handsOff: { offered: false } }, P), false, 'the owner hid the feature on purpose: honoured');
+  assert.equal(handsOffOffered({ handsOff: { offered: 'no' } }, P), true, 'only the exact boolean false hides it');
+  assert.equal(handsOffOffered({ handsOff: { offered: true } }, P), true);
   // Offering turns NOTHING on: with no project and no session switch pressed, the state reads off (the load-bearing
   // guard that offering the switch does not turn it on — the switches, not the default, decide).
   assert.equal(switchState({ session: null, project: projectEntry({}, '/w/shop'), version: '0.3.3' }).on, false);

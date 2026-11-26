@@ -6,6 +6,7 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { gitExeOnPath, writeGitStandIn } from '../ship/gitstandin.mjs';
 import { tempWork } from '../work/helpers.mjs';
 
 export const FAKE = path.join(path.dirname(fileURLToPath(import.meta.url)), 'fixtures', 'fake-tool.mjs');
@@ -28,11 +29,15 @@ export function missionHome(name) {
   const bin = path.join(t.root, 'traps');
   const trapLog = path.join(t.root, 'traps.log');
   fs.mkdirSync(bin, { recursive: true });
-  const realGit = execFileSync('which', ['git'], { encoding: 'utf8' }).trim();
+  const realGit = process.platform === 'win32' ? gitExeOnPath() || 'git' : execFileSync('which', ['git'], { encoding: 'utf8' }).trim();
   for (const n of TRAPPED) {
     fs.writeFileSync(path.join(bin, n), `#!/bin/sh\necho "${n} $*" >> "${trapLog}"\necho "TRAP: ${n} was called" >&2\nexit 99\n`, { mode: 0o755 });
   }
-  fs.writeFileSync(path.join(bin, 'git'), `#!/bin/sh\nfor a in "$@"; do if [ "$a" = push ]; then echo "git push $*" >> "${trapLog}"; echo "TRAP: git push" >&2; exit 99; fi; done\nexec "${realGit}" "$@"\n`, { mode: 0o755 });
+  // On Windows a Node script with the same answers (../ship/gitstandin.mjs: the sh there would change its arguments).
+  writeGitStandIn(path.join(bin, 'git'), {
+    git: realGit, log: trapLog, refuse: ['push'], line: 'git push {args}', say: 'TRAP: git push', code: 99,
+    shell: `#!/bin/sh\nfor a in "$@"; do if [ "$a" = push ]; then echo "git push $*" >> "${trapLog}"; echo "TRAP: git push" >&2; exit 99; fi; done\nexec "${realGit}" "$@"\n`,
+  });
   const arm = () => {
     if (!process.env.PATH.startsWith(`${bin}${path.delimiter}`)) process.env.PATH = `${bin}${path.delimiter}${process.env.PATH}`;
   };

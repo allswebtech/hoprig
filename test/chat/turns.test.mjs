@@ -43,6 +43,10 @@ async function turn(c, text) {
   await until(`the end of "${text}"`, () => ends(c).length > n && !c.turn);
 }
 
+// The one rule for a delete reads folders written as /a/b only (src/asking.mjs plainDelete): on Windows a folder is
+// C:\…, so no delete is plain there and each one waits for the owner, which is the safe side.
+const DELETE_RULE = { skip: process.platform === 'win32' && 'the delete rule reads POSIX folders only; on Windows every delete waits for the owner' };
+
 test('"requesting" ends when the answer streams or a tool runs, and on Claude Code\'s own status null', () => {
   const c = newChat();
   hear(c, { kind: 'status', state: 'requesting' });
@@ -141,7 +145,7 @@ test('rewind of the conversation to its first message starts it over; files and 
   await assert.rejects(c.rewind('no-such-message', { files: false, conversation: true }), /not in the conversation's file/);
 });
 
-test('bypass allows what waits where the one rule allows it: a plain delete inside the chat\'s folder, nothing else', () => {
+test('bypass allows what waits where the one rule allows it: a plain delete inside the chat\'s folder, nothing else', DELETE_RULE, () => {
   const answered = [];
   const pushed = [];
   const cwd = path.join(process.env.HOPRIG_WORKSPACE_DIR, 'shop');

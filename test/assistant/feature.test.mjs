@@ -121,7 +121,7 @@ for (const kind of kinds) {
 
     // ---- her token: written 600, reaches exactly one route ----
     const tokenPath = path.join(stateDir(), 'assistant-token');
-    assert.equal((fs.statSync(tokenPath).mode & 0o777).toString(8), '600');
+    if (process.platform !== 'win32') assert.equal((fs.statSync(tokenPath).mode & 0o777).toString(8), '600');
     const tia = fs.readFileSync(tokenPath, 'utf8').trim();
     assert.match(tia, /^tia_/);
     const asTia = (method, p, body, conv = 'conv-t') => request(base, method, p, { body, headers: { Authorization: `Bearer ${tia}`, 'X-Hoprig-Conversation': conv } });

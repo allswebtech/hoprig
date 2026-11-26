@@ -20,6 +20,7 @@ import { loadConfig, saveConfig } from './config.mjs';
 import { stateDir } from './paths.mjs';
 import { listProfiles, servesTools, validName } from './profiles.mjs';
 import { billedLogin } from './routerstate.mjs';
+import { replaceFile } from './replacefile.mjs';
 
 export const DEFAULTS = {
   enabled: false,
@@ -121,7 +122,7 @@ function writeLimits(data) {
   fs.mkdirSync(stateDir(), { recursive: true, mode: 0o700 });
   const tmp = `${limitsFile()}.${process.pid}.tmp`;
   fs.writeFileSync(tmp, JSON.stringify(data) + '\n', { mode: 0o600 });
-  fs.renameSync(tmp, limitsFile());
+  replaceFile(tmp, limitsFile());
 }
 
 /** Profiles that are at their limit right now: { name: { at, until, reason, text } }. Expired entries are dropped. */

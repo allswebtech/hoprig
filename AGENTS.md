@@ -43,7 +43,12 @@ of the page is one file registered through `web/registry.js`.
     PATH: traps for `sudo`, `systemctl`, `loginctl`, the package managers, a global `npm`, `ssh`, `gh`, `docker`,
     `tailscale`, `cloudflared` and more (`TRAPPED` in `tools/seal-core.cjs`), and stand-ins for `df`, `ps` and `ss`
     (`tools/seal-standins.cjs`): `df` answers one made-up disk with room, `ps` and `ss` only the test file's own
-    processes and listeners. The wrap (`tools/test-seal.cjs`, preloaded into every test file's process and, through
+    processes and listeners; on Windows `winget --version` is answered as a winget that does not start
+    (`tools/test-seal.cjs` windowsTrap), and any other `winget` call is a trap. On Windows a test's own stand-in
+    that Node cannot start (a `#!/bin/sh` file without an extension, or a `.cmd`, first on the child's PATH or named
+    by a full path into the test's area) is started through Git for Windows' `sh` or `cmd.exe` (windowsStandIn); a
+    test whose stand-ins are shell scripts takes `SHELL_STANDINS` from `test/seal.mjs`, which skips it only where no
+    `sh` is found. The wrap (`tools/test-seal.cjs`, preloaded into every test file's process and, through
     `NODE_OPTIONS=--require`, into every Node child) seals any environment a test hands a child (no PATH, an empty
     PATH, `env -i`, `env -u PATH`, a fork, a Node child of a Node child), sends a full path to a trapped name to its
     trap, refuses any other program of the computer started by a full path (allowed: node, a shell, `env`, `git`,

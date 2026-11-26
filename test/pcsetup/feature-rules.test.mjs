@@ -96,7 +96,7 @@ test('recipes from the page are validated before anything runs', async () => {
   assert.equal(r.session, 'recipe');
   const file = created[0].argv.at(-1);
   assert.deepEqual(JSON.parse(fs.readFileSync(file, 'utf8')), { hoprigRecipe: 1, kits: ['node'], repos: ['https://github.com/octo/app.git'] });
-  assert.equal(fs.statSync(file).mode & 0o077, 0);
+  if (process.platform !== 'win32') assert.equal(fs.statSync(file).mode & 0o077, 0);
   const { call: call2, runs } = harness();
   const j = await call2('POST', '/api/pcsetup/recipe', { recipe: { hoprigRecipe: 1, kits: ['node'], repos: ['octo/app'] } });
   assert.equal(j.started, true);

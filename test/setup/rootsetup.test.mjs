@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
-import { fakeBin, fakeClaude, pathWith, recorder, scratch } from './helpers.mjs';
+import { fakeClaudeNode, fakeNodeBin, pathWith, recorder, scratch } from './helpers.mjs';
 
 const s = scratch();
 test.after(s.cleanup);
@@ -17,7 +17,8 @@ const { makeUi } = await import('../../src/setup/ui.mjs');
 const { which } = await import('../../src/setup/system.mjs');
 const { STAY_ROOT_KEY } = await import('../../src/setup/rootfacts.mjs');
 
-const bin = fakeBin(path.join(s.tmp, 'bin'), { claude: fakeClaude(), loginctl: 'echo Linger=yes', systemctl: 'exit 0' });
+// Node stand-ins: on Windows the seal starts them with this Node; this PATH of the test's own folders holds no sh.
+const bin = fakeNodeBin(path.join(s.tmp, 'bin'), { claude: fakeClaudeNode(), loginctl: "console.log('Linger=yes')", systemctl: 'process.exitCode = 0;' });
 process.env.PATH = pathWith(s.tmp, bin);
 function sys(over = {}) {
   const env = { ...Object.fromEntries(Object.entries(process.env).filter(([k]) => !/^(SSH_|DISPLAY$|WAYLAND_DISPLAY$|container$)/.test(k))), PATH: pathWith(s.tmp, bin) }; // seal: only the test's own folders, in an environment that keeps the runner's variables

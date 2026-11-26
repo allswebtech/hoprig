@@ -70,5 +70,6 @@ test('a plan: approved in the App with the mode it had, never a wider one; it wa
   const cfg = { handsOff: { projects: { '/w/shop': { on: true, version, at: 1 } } } };
   const ev = { hook_event_name: 'PermissionRequest', tool_name: 'ExitPlanMode', tool_input: { plan: 'Add a test.' } };
   const run = { runId: 'r1', cwd: '/w/shop' };
-  assert.deepEqual(handsOffFor(ev, run, { cfg, version, runId: 'r1', project: '/w/shop' }), { wait: 'plan-terminal' }, 'a plan in a terminal waits for him');
+  // Hands-off is not offered on Windows (handsOffOffered), so the hook gives no answer and no wait there.
+  if (process.platform !== 'win32') assert.deepEqual(handsOffFor(ev, run, { cfg, version, runId: 'r1', project: '/w/shop' }), { wait: 'plan-terminal' }, 'a plan in a terminal waits for him');
 });

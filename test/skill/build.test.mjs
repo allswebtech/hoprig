@@ -3,6 +3,7 @@
 // fails here; and they hold the skill to the Agent Skills format (agentskills.io/specification).
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
 import { parseFrontMatter } from '../../src/skillhub/frontmatter.mjs';
@@ -49,7 +50,7 @@ test('the hand-written part names only commands, subcommands and options the pro
 });
 
 test('a file on disk that differs, is missing or is no longer made is named', () => {
-  const tmp = fs.mkdtempSync(path.join(fs.realpathSync(process.env.TMPDIR || '/tmp'), 'skill-stale-'));
+  const tmp = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), 'skill-stale-'));
   for (const [rel, text] of Object.entries(built)) {
     fs.mkdirSync(path.dirname(path.join(tmp, rel)), { recursive: true });
     fs.writeFileSync(path.join(tmp, rel), text);
@@ -105,4 +106,9 @@ test('the hoprig-skill package carries the generated skill, Hoprig\'s version an
   assert.equal(pkg.engines.node, '>=24.13.1','the lowest Node.js Hoprig supports (src/nodefloor.mjs)');
   assert.equal(built['packages/hoprig-skill/skill/SKILL.md'], built['templates/skills/hoprig/SKILL.md']);
   assert.equal(built['packages/hoprig-skill/LICENSE'], fs.readFileSync(path.join(ROOT, 'LICENSE'), 'utf8'));
+});
+
+test('a help text the skill quotes names a place the same way on every system (on Windows too, where path.join gives backslashes)', async () => {
+  const { RULES_USAGE } = await import('../../src/pcsetup/wsrules.mjs');
+  assert.match(RULES_USAGE, /into ~\/\.claude\/rules\/hoprig-workspace\.md\n/);
 });

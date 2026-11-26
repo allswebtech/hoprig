@@ -12,6 +12,8 @@
 //   "compact"        compacting: status, compact_boundary
 //   "title <words>"  the conversation gets a title
 //   "slow <ms>"      answers after <ms> (a turn that runs a while)
+//   "waitfor <file>" answers by itself once <file> exists (looked at every 50 ms), at the latest after 60 s: a turn
+//                    that runs exactly until a test lets it end
 //   "clear"          the conversation gets a new id (conversation_reset), as /clear does
 //   "commit <file>"  writes <file>, commits it (git) and leaves <file>.draft not committed; its report names the
 //                    folder by its full path and carries a key
@@ -142,6 +144,13 @@ export function tasks({ out, assistant, user, tool, result, sessionId, ownTurn }
     if ((m = /^slow (\d+)/.exec(text))) {
       await new Promise((r) => setTimeout(r, Number(m[1])));
       assistant([{ type: 'text', text: `slow: done after ${m[1]} ms` }]);
+      return result(true) || true;
+    }
+    if ((m = /^waitfor (.+)/.exec(text))) {
+      const file = m[1].trim();
+      const until = Date.now() + 60_000;
+      while (!fs.existsSync(file) && Date.now() < until) await new Promise((r) => setTimeout(r, 50));
+      assistant([{ type: 'text', text: `waitfor: done (${fs.existsSync(file) ? 'the file is there' : 'after 60 s'})` }]);
       return result(true) || true;
     }
     if (text === 'clear') {

@@ -10,6 +10,7 @@ import { loadConfig, saveConfig } from '../config.mjs';
 import { stateDir } from '../paths.mjs';
 import { tokenName } from './names.mjs';
 import { recordHubActivity, revokedWords } from './tokenaudit.mjs';
+import { replaceFile } from '../replacefile.mjs';
 
 export const TOKEN_PREFIX = 'hop_';
 const TOKEN_RE = /^hop_[A-Za-z0-9_-]{43}$/;
@@ -144,7 +145,7 @@ export function touchToken(id, { now = Date.now() } = {}) {
     fs.mkdirSync(stateDir(), { recursive: true, mode: 0o700 });
     const tmp = `${useFile()}.${process.pid}.tmp`;
     fs.writeFileSync(tmp, JSON.stringify(use) + '\n', { mode: 0o600 });
-    fs.renameSync(tmp, useFile());
+    replaceFile(tmp, useFile());
   } catch {
     /* only a convenience: never fail a request over it */
   }

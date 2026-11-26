@@ -10,14 +10,17 @@ const port = Number(process.env.SEAL_PORT);
 
 test('knocks on its own port', async () => {
   let accepted = 0;
-  const server = net.createServer((s) => { accepted++; s.destroy(); });
+  // The caller sees its connection before the listener is told of it now and then: the count is read once it was told.
+  let told;
+  const tellsOnce = new Promise((res) => { told = res; });
+  const server = net.createServer((s) => { accepted++; s.destroy(); told(); });
   await new Promise((res) => server.listen(port, '127.0.0.1', res));
   let saw;
   try {
     if (process.env.SEAL_KNOCK === 'net') {
       saw = await new Promise((res) => {
         const s = net.connect({ port, host: '127.0.0.1' });
-        s.once('connect', () => { s.destroy(); res('connected'); });
+        s.once('connect', () => Promise.race([tellsOnce, new Promise((r) => setTimeout(r, 5000))]).then(() => { s.destroy(); res('connected'); }));
         s.once('error', (e) => res(e.code));
       });
     } else if (process.env.SEAL_KNOCK === 'http') {

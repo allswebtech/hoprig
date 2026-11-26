@@ -5,6 +5,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { stateDir } from './paths.mjs';
+import { replaceFile } from './replacefile.mjs';
 
 const DAY = 24 * 3600_000;
 const MAX = 200;
@@ -30,7 +31,7 @@ export function noteMove({ session, from, to, at = Date.now() }) {
     fs.mkdirSync(stateDir(), { recursive: true });
     const tmp = `${file()}.${process.pid}.tmp`;
     fs.writeFileSync(tmp, JSON.stringify(list));
-    fs.renameSync(tmp, file());
+    replaceFile(tmp, file());
   } catch {
     /* a move that is not noted is still a move */
   }

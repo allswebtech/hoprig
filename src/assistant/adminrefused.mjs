@@ -24,6 +24,9 @@ import { adminReads, hoprigRelation, pastWrappers, readCommands, runsItsWords } 
 // The escalators the wall counts as administrator (src/wall.mjs ADMIN set), plus `runas` (Windows). `sudo` is the one
 // the owner may allow a card or Full for; the rest are refused at every level.
 const ESCALATORS = new Set(['sudo', 'sudoedit', 'su', 'doas', 'pkexec', 'run0', 'runas']);
+// Windows escalators that are not sudo: gsudo is a third-party sudo-for-Windows. Refused at every level on win32, as
+// `su`/`doas` are elsewhere (it is never a command of hers). `sudo`/`sudo.exe` is read by base() dropping the .exe.
+const WIN_ESCALATORS = new Set(['gsudo']);
 // A program that runs its own words as a command (the wall's ONE list, runsItsWords: the passers, the wrappers, the
 // programs that take a command to run) is stepped over in FRONT of sudo, so `env sudo …` still shows sudo as the
 // escalator. It matters a second time AFTER sudo: run as sudo's program it runs an arbitrary program as root while
@@ -49,6 +52,9 @@ const SUDO_LOGIN_SHELL = new Set(['-i', '--login', '-s', '--shell']);
 
 // A shell as administrator: it could run anything as root, so no level allows it.
 const SHELLS = new Set(['sh', 'bash', 'zsh', 'dash', 'ksh', 'mksh', 'ash', 'csh', 'tcsh', 'fish']);
+// On Windows a command processor or a shell launcher is a shell as well: cmd and PowerShell run anything, and wsl
+// runs a command in the Linux side as its own administrator. Refused as a shell at every level on win32 only.
+const WIN_SHELLS = new Set(['cmd', 'powershell', 'pwsh', 'wsl']);
 // Tools that hand their caller the full rights of root directly — a credential change, a new namespace, a changed
 // root — so run as administrator they open a root shell or run an arbitrary program as root by another door
 // (`sudo setpriv --reuid 0 bash`, `sudo unshare -r bash`, `sudo chroot / bash`). Refused as the program at every level.
@@ -68,8 +74,18 @@ const PROTECTED_PATHS = [
   '/etc/polkit-1', '/usr/share/polkit-1', '/etc/passwd', '/etc/shadow', '/etc/group', '/etc/gshadow', '/etc/doas.conf',
 ];
 
-const base = (w) => {
-  const noSlash = String(w).slice(String(w).lastIndexOf('/') + 1);
+// A trailing executable extension Windows runs without it being written (`bash.exe` is `bash`).
+const WIN_EXE = /\.(?:exe|com|bat|cmd)$/;
+// The program name from a word. Elsewhere a path cut at its last `/`, lower-cased. On Windows (`platform`) either
+// separator ends the path, and a trailing .exe/.com/.bat/.cmd is dropped, so `C:\…\bash.exe`, `sh.exe` and `Bash.EXE`
+// all read as the program Windows would run.
+const base = (w, platform) => {
+  const s = String(w);
+  if (platform === 'win32') {
+    const cut = Math.max(s.lastIndexOf('/'), s.lastIndexOf('\\'));
+    return s.slice(cut + 1).toLowerCase().replace(WIN_EXE, '');
+  }
+  const noSlash = s.slice(s.lastIndexOf('/') + 1);
   return noSlash.toLowerCase();
 };
 const isOption = (w) => typeof w === 'string' && w.startsWith('-');
@@ -110,9 +126,14 @@ const under = (p, dir) => {
 // that HOLDS one of them, all the way up to `/`, counts for a program that does not only read (a move, a change of
 // owner, a delete or a write there takes Hoprig's rules with it). A pattern names the entries of its folder, and is
 // protected where a protected file could be one of them.
+// On Windows (`ctx.platform`) Hoprig's folders are places as Windows names them: the working folder is a Windows
+// folder (`C:\…`), a relative word is read from it, and the wall compares with either separator and in any case. The
+// protected administrator files are POSIX files and are read as before: a word that names one as written is refused.
 function touchesProtected(c, ctx) {
   const reads = adminReads(c.effProg, c.effArgs);
+  const win = ctx.platform === 'win32';
   const cwd = typeof ctx.cwd === 'string' && ctx.cwd.startsWith('/') ? ctx.cwd : null;
+  const hoprigCwd = !win ? cwd : typeof ctx.cwd === 'string' && path.win32.isAbsolute(ctx.cwd) ? ctx.cwd : null;
   for (const t of ctx.texts || []) {
     if (t.unsure) continue;
     const abs = t.text.startsWith('/') ? path.posix.normalize(t.text) : cwd ? path.posix.resolve(cwd, t.text) : null;
@@ -121,10 +142,67 @@ function touchesProtected(c, ctx) {
       const fixed = path.posix.normalize(t.fixed);
       if (PROTECTED_PATHS.some((p) => p.startsWith(fixed))) return 'protected';
     }
-    const rel = hoprigRelation(t.text, { hoprig: ctx.hoprigDirs }, cwd);
+    const spell = win ? winText(t) : t.text;
+    const rel = hoprigRelation(spell, { hoprig: ctx.hoprigDirs, platform: ctx.platform }, hoprigCwd);
     if (rel === 'inside' || (rel === 'above' && !reads)) return 'hoprig';
+    // On Windows a word Hoprig cannot place against its folders, but that could name one, is refused rather than run
+    // (fail closed). A `~<digit>` is a volume's 8.3 short name (`.config` → `CONFIG~1`), which cannot be expanded here.
+    if (win && /~\d/.test(spell)) return 'hoprig';
+    // A drive-relative word (`C:..`, `C:.\…`) is read from the current folder on that drive — a place Hoprig cannot
+    // tell from the line — so it could climb into a Hoprig folder. A bare drive or an absolute `C:\…` is not caught.
+    if (win && /^[A-Za-z]:\.\.?(?:[\\/]|$)/.test(spell)) return 'hoprig';
+    // A UNC or device path (`\\host\share`, `\\.\C:\…`, `\\?\UNC\…`, their `//` spelling) names a place on this
+    // computer — a loopback administrative share reaches a local drive — that Hoprig cannot place against its folders.
+    if (win && /^[\\/]{2}/.test(spell)) return 'hoprig';
   }
   return null;
+}
+// The folder a word names on Windows: a pattern is matched in the folder up to its last separator of either kind
+// (`C:\Users\*` in `C:\Users\`, the root's separator kept so `C:\*` stays the drive's root and not `C:`).
+function winText(t) {
+  if (!t.glob || typeof t.fixed !== 'string') return t.text;
+  const cut = Math.max(t.fixed.lastIndexOf('/'), t.fixed.lastIndexOf('\\'));
+  return cut < 0 ? '.' : t.fixed.slice(0, cut + 1);
+}
+// The words of one command for the checks of paths. Bash takes an unquoted backslash away (`C:\Users` reaches the
+// program as `C:Users`), but on Windows a command may name a place the way the system does: there the words are also
+// read with each backslash kept as written, as the wall reads them. Only the certain words of that second reading are
+// added, so it can add a refusal and never takes one away; elsewhere the words are Bash's alone.
+function commandWords(text, home, platform) {
+  const words = shellWords(text, { home, platform });
+  if (platform !== 'win32' || !text.includes('\\')) return words;
+  return [...words, ...shellWords(backslashesKept(text), { home, platform }).filter((w) => !w.unsure)];
+}
+// The line with each backslash doubled where Bash would take it away or read it as an escape (outside quotes and in
+// double quotes), so the second reading keeps it as written. Inside single quotes Bash keeps a backslash already: a
+// doubled one there stayed doubled (`'\tmp\x'` read as the share `\\tmp\x`), so it is left as it is.
+function backslashesKept(text) {
+  let out = '';
+  let quote = null;
+  for (const ch of text) {
+    if (quote === "'") {
+      if (ch === "'") quote = null;
+      out += ch;
+      continue;
+    }
+    if (ch === '"') quote = quote === '"' ? null : '"';
+    else if (ch === "'" && !quote) quote = "'";
+    out += ch === '\\' ? '\\\\' : ch;
+  }
+  return out;
+}
+// Is there a backslash outside every quote on the line? (For her own tool on Windows: an unquoted backslash is taken
+// away by the reading it uses, so the run would land elsewhere.) A backslash inside single or double quotes is kept.
+function hasUnquotedBackslash(line) {
+  let quote = null;
+  for (let i = 0; i < line.length; i += 1) {
+    const ch = line[i];
+    if (quote === "'") { if (ch === "'") quote = null; continue; }
+    if (quote === '"') { if (ch === '"') quote = null; else if (ch === '\\') i += 1; continue; }
+    if (ch === "'" || ch === '"') quote = ch;
+    else if (ch === '\\') return true;
+  }
+  return false;
 }
 
 // Reduce one command (readCommands' list of { word, quoted }) to the administrator form the list below reads, or null
@@ -134,7 +212,7 @@ function touchesProtected(c, ctx) {
 // and its arguments, read through an `env NAME=VALUE…` wrapper; `viaPasser` the program is a wrapper the reader will
 // not break down (a non-env passer, or env with an option); `after` every word after sudo; `wrapped` a program stands
 // in front of the escalator (a variable set for it does not count).
-function adminForm(cmd) {
+function adminForm(cmd, platform) {
   // Step over any leading wrappers (env, nice, timeout, chrt, taskset, flock, busybox, …) to the escalator they run,
   // through the ONE reader the wall uses (pastWrappers), so a passer with a value or an argument no longer hides the
   // escalator from the floor: `nice -n 5 sudo su`, `timeout -s KILL 5 sudo su`, `flock /tmp/l sudo su`, `busybox sudo
@@ -142,8 +220,8 @@ function adminForm(cmd) {
   // wrapper AFTER sudo, is the separate question `viaPasser` answers below, so that `sudo nice bash` is refused.)
   const k = pastWrappers(cmd);
   if (k >= cmd.length) return null;
-  const esc = base(cmd[k].word);
-  if (!ESCALATORS.has(esc)) return null;
+  const esc = base(cmd[k].word, platform);
+  if (!(ESCALATORS.has(esc) || (platform === 'win32' && WIN_ESCALATORS.has(esc)))) return null;
   const after = cmd.slice(k + 1).map((t) => t.word);
   const wrapped = cmd.slice(0, k).some((t) => !isAssignment(t.word));
   if (esc !== 'sudo') return { esc, after, wrapped };
@@ -166,7 +244,7 @@ function adminForm(cmd) {
   // carried into the run). Without this step `FOO=bar` reads as the program and a root shell slips through.
   while (i < after.length && isAssignment(after[i])) i += 1;
   const hasProg = i < after.length;
-  const prog = !optUnread && hasProg ? base(after[i]) : '';
+  const prog = !optUnread && hasProg ? base(after[i], platform) : '';
   const progRaw = hasProg ? after[i] : null; // the program word as it was written (for the argv that will run)
   const args = after.slice(i + 1);
   // The program that would actually run as root. `sudo env NAME=VALUE… PROGRAM` runs PROGRAM as root (env only sets
@@ -183,13 +261,13 @@ function adminForm(cmd) {
   let wrapUnread = false;
   if (!optUnread && hasProg) {
     let j = i;
-    while (base(after[j]) === 'env') {
+    while (base(after[j], platform) === 'env') {
       j += 1;
       while (j < after.length && isAssignment(after[j])) j += 1;
       if (j < after.length && isOption(after[j])) { wrapUnread = true; break; }
       if (j >= after.length) break;
     }
-    effProg = wrapUnread || j >= after.length ? '' : base(after[j]);
+    effProg = wrapUnread || j >= after.length ? '' : base(after[j], platform);
     effArgs = wrapUnread || j >= after.length ? [] : after.slice(j + 1);
   }
   // (A privilege or namespace tool runs its words too, and keeps its own entry and reason: PRIV_TOOLS.)
@@ -206,10 +284,12 @@ export const ADMIN_REFUSED = [
   { id: 'login-or-shell-flag', why: 'it opens a login or a shell as administrator (sudo -i / -s)', match: (c) => c.esc === 'sudo' && c.loginShell },
   { id: 'option-not-read', why: 'it carries a sudo option the reader does not break down (such as running as another user, or a bundled flag), so which program would run is unknown', match: (c) => c.esc === 'sudo' && c.optUnread },
   { id: 'no-program', why: 'it names no program to run as administrator, so it is refused rather than run', match: (c) => c.esc === 'sudo' && !c.loginShell && !c.optUnread && !c.hasProg },
-  { id: 'escalator-as-admin', why: 'it runs another way to become administrator as the program (sudo su, sudo sudo, sudo doas, sudo pkexec, sudo runas, sudo sudoedit), which is never a command of hers', match: (c) => c.esc === 'sudo' && ESCALATORS.has(c.effProg) },
+  // `whyWin`: the words for Windows, where the entry also catches what only Windows has (gsudo, %NAME%); each system is
+  // told only what is refused there.
+  { id: 'escalator-as-admin', why: 'it runs another way to become administrator as the program (sudo su, sudo sudo, sudo doas, sudo pkexec, sudo runas, sudo sudoedit), which is never a command of hers', whyWin: 'it runs another way to become administrator as the program (sudo su, sudo sudo, sudo doas, sudo pkexec, sudo runas, sudo sudoedit, sudo gsudo), which is never a command of hers', match: (c, ctx) => c.esc === 'sudo' && (ESCALATORS.has(c.effProg) || (ctx.platform === 'win32' && WIN_ESCALATORS.has(c.effProg))) },
   { id: 'passer-as-admin', why: 'it runs the program through another program that hides which program would run as administrator (nice, timeout, chrt, flock, watch, find with -exec and the like, or env carrying an option), so it is refused rather than run', match: (c) => c.esc === 'sudo' && c.viaPasser },
   { id: 'privilege-tool-as-admin', why: 'it runs a privilege or namespace tool (setpriv, capsh, unshare, nsenter, chroot) as administrator, which can hand a shell or any program the full rights of root', match: (c) => c.esc === 'sudo' && PRIV_TOOLS.has(c.effProg) },
-  { id: 'shell-as-admin', why: 'it runs a shell as administrator, which could run anything', match: (c) => c.esc === 'sudo' && SHELLS.has(c.effProg) },
+  { id: 'shell-as-admin', why: 'it runs a shell as administrator, which could run anything', match: (c, ctx) => c.esc === 'sudo' && (SHELLS.has(c.effProg) || (ctx.platform === 'win32' && WIN_SHELLS.has(c.effProg))) },
   { id: 'editor-as-admin', why: 'it runs an editor as administrator, which the owner approves himself at the keyboard', match: (c) => c.esc === 'sudo' && EDITORS.has(c.effProg) },
   { id: 'account-or-auth', why: 'it changes who may be administrator or a password (sudoers, the administrator groups, PAM)', match: (c) => c.esc === 'sudo' && ACCOUNT_TOOLS.has(c.effProg) },
   { id: 'setuid', why: 'it sets a set-user-id bit, which makes a program run as its owner for anyone', match: (c) => c.esc === 'sudo' && ((c.effProg === 'chmod' && c.effArgs.some((a) => SETUID.test(a))) || (c.effProg === 'install' && setsSetuidMode(installMode(c.effArgs)))) },
@@ -222,7 +302,7 @@ export const ADMIN_REFUSED = [
   // What is the owner's own step without sudo is his with it (owner-tools.mjs check refuses the same without sudo).
   { id: 'push-or-merge-as-admin', why: "it pushes or merges with git as administrator, and a push or a merge is the owner's own step with or without sudo", match: (c, ctx) => c.esc === 'sudo' && ctx.argv === true && pushesOrMerges(c.effProg, c.effArgs) },
   { id: 'sends-out-as-admin', why: "it sends data to another computer as administrator (ssh, scp, rsync, or curl and wget with data), which is the owner's own step with or without sudo", match: (c, ctx) => c.esc === 'sudo' && ctx.argv === true && sendsOut(c.effProg, c.effArgs) },
-  { id: 'word-not-read', why: 'it holds a variable (a word with $), which only a shell fills in: run as it is written, it would name another path than the one meant, so it is refused rather than run; the path is written out in full instead', match: (c, ctx) => c.esc === 'sudo' && ctx.argv === true && (ctx.words || []).some((w) => w.vars) },
+  { id: 'word-not-read', why: 'it holds a variable (a word with $), which only a shell fills in: run as it is written, it would name another path than the one meant, so it is refused rather than run; the path is written out in full instead', whyWin: 'it holds a variable (a word with $, or %NAME%), which only a shell fills in: run as it is written, it would name another path than the one meant, so it is refused rather than run; the path is written out in full instead', match: (c, ctx) => c.esc === 'sudo' && ctx.argv === true && (ctx.words || []).some((w) => w.vars || (ctx.platform === 'win32' && typeof w.value === 'string' && /%[^%]+%/.test(w.value))) },
   { id: 'protected-path', why: "it names a file that decides who may be administrator, or one of Hoprig's own folders", match: (c, ctx) => c.esc === 'sudo' && touchesProtected(c, ctx) === 'protected' },
   { id: 'hoprig-own', why: "it writes Hoprig's own install, settings, state or service, or a folder that holds them", match: (c, ctx) => c.esc === 'sudo' && touchesProtected(c, ctx) === 'hoprig' },
 ];
@@ -235,23 +315,28 @@ export const ADMIN_REFUSED = [
  * concern (owner-tools.mjs decides those): they contribute nothing and the line returns null.
  *
  * @param {string} line  the shell line Tia's run_command was given
- * @param {{ hoprigDirs?: string[], home?: string, cwd?: string, argv?: boolean }} [ctx]  the owner's Hoprig folders to
- *   protect (so no real path is read here), the home and folder a `~` or relative word is read from, and `argv: true`
- *   where the command would run as its words with no shell between (her own tool)
+ * @param {{ hoprigDirs?: string[], home?: string, cwd?: string, argv?: boolean, platform?: string }} [ctx]  the owner's
+ *   Hoprig folders to protect (so no real path is read here), the home and folder a `~` or relative word is read from,
+ *   `argv: true` where the command would run as its words with no shell between (her own tool), and the system whose
+ *   places these are (default this computer's: on `win32` they are Windows places)
  * @returns {{ id: string, why: string } | null}
  */
 export function adminRefusal(line, ctx = {}) {
   const hoprigDirs = Array.isArray(ctx.hoprigDirs) ? ctx.hoprigDirs : [];
-  const where = { home: typeof ctx.home === 'string' ? ctx.home : null, cwd: typeof ctx.cwd === 'string' ? ctx.cwd : null };
+  const where = {
+    home: typeof ctx.home === 'string' ? ctx.home : null,
+    cwd: typeof ctx.cwd === 'string' ? ctx.cwd : null,
+    platform: typeof ctx.platform === 'string' && ctx.platform ? ctx.platform : process.platform,
+  };
   const cmds = readCommands(line);
   if (cmds === null) return { id: 'unreadable', why: 'this command cannot be read with certainty, so it is refused rather than run' };
   for (const [j, cmd] of cmds.entries()) {
-    const form = adminForm(cmd);
+    const form = adminForm(cmd, where.platform);
     if (!form) continue;
     // The command's own text, for the one reader of paths: readCommands keeps where each command stands in the line.
-    const words = shellWords(cmds.line.slice(...cmds.spans[j]), { home: where.home });
+    const words = commandWords(cmds.line.slice(...cmds.spans[j]), where.home, where.platform);
     const at = { hoprigDirs, ...where, argv: ctx.argv === true, words, texts: pathTexts(words) };
-    for (const entry of ADMIN_REFUSED) if (entry.match(form, at)) return { id: entry.id, why: entry.why };
+    for (const entry of ADMIN_REFUSED) if (entry.match(form, at)) return { id: entry.id, why: (where.platform === 'win32' && entry.whyWin) || entry.why };
   }
   return null;
 }
@@ -272,6 +357,7 @@ export function adminRefusal(line, ctx = {}) {
  * @returns {{ argv: string[] } | { refuse: { id: string, why: string } }}
  */
 export function sudoArgv(line, ctx = {}) {
+  const platform = typeof ctx.platform === 'string' && ctx.platform ? ctx.platform : process.platform;
   const refused = adminRefusal(line, { ...ctx, argv: true }); // what this builds runs with no shell between
   if (refused) return { refuse: refused };
   // adminRefusal already refused an unreadable line; a runnable administrator command is exactly ONE command, and that
@@ -279,9 +365,15 @@ export function sudoArgv(line, ctx = {}) {
   // program to run. A line that joins it with another command cannot be shown as one argv, so it is refused.
   const cmds = readCommands(line);
   if (!cmds || cmds.length !== 1) return { refuse: { id: 'not-single', why: 'it joins an administrator command with another command, and an administrator command of hers runs alone (sudo and one program), so the line is refused rather than run; each command is given by itself' } };
-  const form = adminForm(cmds[0]);
+  const form = adminForm(cmds[0], platform);
   if (!form || form.esc !== 'sudo' || form.wrapped || form.loginShell || form.editOpt || form.optUnread || !form.hasProg) {
     return { refuse: { id: 'not-runnable', why: 'it is not a plain `sudo <program> <arguments>` (the administrator command stands inside another command, or behind a program Hoprig cannot read with certainty), so it is refused rather than run' } };
+  }
+  // On Windows an unquoted backslash is taken away by the reading her own tool uses (`C:\opt\other` would run as
+  // `C:optother`, a different place than the one written and than the card shows), so a word with one is refused with
+  // what to do instead: quote the path. A backslash inside quotes is kept and reaches here as written.
+  if (platform === 'win32' && hasUnquotedBackslash(line)) {
+    return { refuse: { id: 'win-backslash', why: 'it holds an unquoted backslash, which the reading her own tool uses takes away, so the command would run at a different place than the one written; it is refused rather than run, and the path is quoted instead' } };
   }
   return { argv: ['sudo', form.progRaw, ...form.args] };
 }

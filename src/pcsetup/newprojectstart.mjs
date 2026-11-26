@@ -34,6 +34,7 @@ import { readIn } from '../workspace/inside.mjs';
 import { BRIEF_FILE, KINDS, SCOPES, SKILL_DIR, checkProjectBrief, defaultsFile, firstMessage, kindOf, scopeOf, utf8 } from './newproject.mjs';
 import { projectsDir } from './projects.mjs';
 import { runningDashboard } from '../server/dashboardfile.mjs';
+import { replaceFile } from '../replacefile.mjs';
 
 export const COMMAND_PATH = '/api/pcsetup/project/command/start';
 // The first line of the start message: the chat page shows a message that begins with it folded (Hoprig wrote it,
@@ -228,7 +229,7 @@ export function projectStarter(o) {
     // Left out: as the project was made (its first decision), so a later start never turns a set-up only into more.
     const kind = c.kind || p.kind || null;
     const scope = c.scope || p.scope || null;
-    const text = `${startMark(path.basename(p.root))}\n${firstMessage({ brief: p.brief, kind, scope, defaults: def ? path.relative(p.root, def) : null })}`;
+    const text = `${startMark(path.basename(p.root))}\n${firstMessage({ brief: p.brief, kind, scope, defaults: def ? defaultsWords(p.root, def) : null })}`;
     // The names a person reads (the command line's line says them): the coding tool's and the provider's own.
     const toolName = (chatToolList(cfg()).find((x) => x.id === tool) || { name: tool }).name;
     const providerLabel = (providersFor(tool).find((x) => x.name === provider) || { label: provider }).label;
@@ -252,7 +253,7 @@ export function writeCommandToken() {
   fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
   const tmp = `${file}.${process.pid}.tmp`;
   fs.writeFileSync(tmp, `${token}\n`, { mode: 0o600 });
-  fs.renameSync(tmp, file);
+  replaceFile(tmp, file);
   return token;
 }
 
@@ -279,6 +280,12 @@ const tokenOk = (given, mine) => {
 
 /** The answer of a refused route: its own sentence for a known refusal, never a system message. */
 const plainError = (e) => (Number.isInteger(e.status) ? e : fail(500, 'the session could not be started because of an error on this computer; the dashboard\'s log has the details'));
+
+/**
+ * The defaults file as the first message names it: relative to the project, with `/` between its parts on every system,
+ * as the message names the skill's file (Windows' path.relative gives a backslash). `p`: path, or path.win32 in a test.
+ */
+export const defaultsWords = (root, file, p = path) => p.relative(root, file).split(p.sep).join('/');
 
 /**
  * The server feature (server.mjs features list). opts: { chat (the chat feature; without it there is no start),

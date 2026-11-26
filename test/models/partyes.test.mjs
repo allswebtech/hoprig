@@ -9,6 +9,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { sandbox } from '../server/helpers.mjs';
+import { SHELL_STANDINS } from '../seal.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const FAKE_CLAUDE = path.join(HERE, '..', 'chat', 'fixtures', 'fake-claude.mjs');
@@ -88,7 +89,7 @@ async function world(t) {
   return { owner, part, ask, yes, onPaid, events, lead };
 }
 
-test('a Yes while no call of the lead waits is kept and starts nothing; the lead\'s result then starts the part once', { timeout: 60_000, skip: process.platform === 'win32' && 'the stand-ins are POSIX' }, async (t) => {
+test('a Yes while no call of the lead waits is kept and starts nothing; the lead\'s result then starts the part once', { timeout: 60_000, skip: SHELL_STANDINS.skip }, async (t) => {
   const w = await world(t);
   const id = await w.ask('list the TODOs');
   const pressed = await w.yes(id);
@@ -106,7 +107,7 @@ test('a Yes while no call of the lead waits is kept and starts nothing; the lead
   assert.equal(await w.onPaid(), 1, 'asking again starts nothing more');
 });
 
-test('the lead\'s turn ends with the card open: it closes for good, and a Yes after that starts nothing', { timeout: 60_000, skip: process.platform === 'win32' && 'the stand-ins are POSIX' }, async (t) => {
+test('the lead\'s turn ends with the card open: it closes for good, and a Yes after that starts nothing', { timeout: 60_000, skip: SHELL_STANDINS.skip }, async (t) => {
   const w = await world(t);
   const open = await w.ask('count the lines');
   const kept = await w.ask('list the files');
@@ -121,7 +122,7 @@ test('the lead\'s turn ends with the card open: it closes for good, and a Yes af
   assert.equal(await w.onPaid(), 0, 'neither the late Yes nor the kept one started anything');
 });
 
-test('two presses or two calls at the same moment start one part at most', { timeout: 60_000, skip: process.platform === 'win32' && 'the stand-ins are POSIX' }, async (t) => {
+test('two presses or two calls at the same moment start one part at most', { timeout: 60_000, skip: SHELL_STANDINS.skip }, async (t) => {
   const w = await world(t);
   // Two presses at once while the lead waits for the answer.
   const a = await w.ask('first part');

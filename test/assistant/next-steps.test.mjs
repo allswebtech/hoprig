@@ -13,8 +13,9 @@ import { Skills } from '../../src/assistant/skills.mjs';
 import { TOOLS } from '../../src/assistant/tools.mjs';
 import { FakeOps, baseState } from './fake-dashboard.mjs';
 import { withPlan } from './fake-work.mjs';
+import { fileURLToPath } from 'node:url';
 
-const BUILTIN = new URL('../../skills', import.meta.url).pathname;
+const BUILTIN = fileURLToPath(new URL('../../skills', import.meta.url));
 const CID = '55555555-5555-4555-8555-555555555501';
 const CHAT = `chat:${CID}`;
 

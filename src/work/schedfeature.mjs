@@ -57,7 +57,8 @@ function writeKnown(d) {
 
 /**
  * o: { sctx (the server's feature ctx), cfg(), places(), place(), store(), hub (src/machines hub: endpoint), run,
- * now, log, command (a stand-in coding tool), resolveEnv, minuteMs, timeoutMs }. → { routes, hooks, runner }.
+ * now, log, command (a stand-in coding tool), resolveEnv, minuteMs, timeoutMs }. → { routes, hooks, runner,
+ * setScheduleOff(fn) (fn(id, why) → its name or null: src/automation index.mjs switchOff) }.
  */
 export function schedPart(o) {
   const log = o.log || (() => {});
@@ -66,8 +67,11 @@ export function schedPart(o) {
     activity.add({ automation: 'schedules', ...e });
     log(`${e.did} (${e.outcome})`);
   };
+  // How a schedule is switched off as the owner's switch does it: the automations hand it in (setScheduleOff).
+  let scheduleOff = null;
   const runner = aloneRunner({
     config: o.cfg, places: o.places, ...(o.run ? { run: o.run } : {}), ...(o.now ? { now: o.now } : {}), log,
+    scheduleOff: (id, why) => (scheduleOff ? scheduleOff(id, why) : null),
     settings: () => {
       const a = readSettings((o.cfg() || {}).automation);
       return { ...a.schedules, paused: a.paused };
@@ -228,7 +232,9 @@ export function schedPart(o) {
     }],
   ];
 
-  return { routes, runner, hooks: { alone, itemRuns, startItem, drain: () => runner.drain(), running: () => {
+  const setScheduleOff = (fn) => (scheduleOff = fn);
+  // setScheduleOff is in `hooks` too: hooks is what workFeature hands the automations (src/work/feature.mjs `sched`).
+  return { routes, runner, hooks: { alone, itemRuns, startItem, setScheduleOff, drain: () => runner.drain(), running: () => {
     // How many of Work's runs that end by themselves run here now (the computer's one measure of slots). Without a
     // Work list (no place set up yet) there are none.
     try {
@@ -236,5 +242,5 @@ export function schedPart(o) {
     } catch {
       return 0;
     }
-  } }, computers, labelOf };
+  } }, computers, labelOf, setScheduleOff };
 }

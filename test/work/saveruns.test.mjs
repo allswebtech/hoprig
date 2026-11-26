@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
-import { tempWork, write } from './helpers.mjs';
+import { endSignal, tempWork, write } from './helpers.mjs';
 
 const t = tempWork('work-saveruns');
 test.after(() => t.cleanup());
@@ -210,7 +210,7 @@ for (const step of ['journal', 'commit', 'takeback']) {
       const r = await saveWork(${JSON.stringify(p)}, { subject: ${JSON.stringify(SUBJECT)} });
       process.stdout.write(JSON.stringify(r.message));`;
     const k = spawnSync(process.execPath, ['--input-type=module', '-e', code], { env: { ...process.env, [STOP_ENV]: step }, encoding: 'utf8', timeout: 60_000 });
-    assert.equal(k.signal, 'SIGKILL', `${k.stdout} ${k.stderr}`);
+    assert.equal(endSignal(k), 'SIGKILL', `${k.stdout} ${k.stderr}`);
     fs.rmSync(pre, { force: true });
     const plan = await savePlan(p);
     assert.match(plan.recovered || '', /^A save of the Work list was interrupted/, plan.problem);

@@ -135,6 +135,67 @@ export function showCommand(argv) {
   return argv.map((a) => (/^[A-Za-z0-9_@%+=:,./~-]+$/.test(a) ? a : `'${a.replace(/'/g, `'\\''`)}'`)).join(' ');
 }
 
+/**
+ * A command that moves or removes a file or folder, as a person types it on `platform`: a POSIX shell's `mv`, `rm` and
+ * `rm -rf` (showCommand), or on Windows PowerShell's Move-Item and Remove-Item (cmd knows neither mv nor rm -rf, and
+ * PowerShell's own rm takes no -rf). `op`: 'mv' (from, to), 'rm' (one file), 'rm -rf' (a folder with all in it).
+ * PowerShell's single quotes keep every character as it is; a quote inside is written twice (as psQuote does).
+ */
+export function showFileCommand(op, paths, platform = process.platform) {
+  if (platform !== 'win32') return showCommand([...op.split(' '), ...paths]);
+  if (op === 'mv') return `Move-Item -LiteralPath ${psLiteral(paths[0])} -Destination ${psLiteral(paths[1])}`;
+  if (op === 'rm -rf') return `${PS_REMOVE_TREE} ${psLiteral(paths[0])}`;
+  return `Remove-Item -LiteralPath ${psLiteral(paths[0])}`;
+}
+
+/**
+ * Windows: a folder removed with all in it, where a junction or a folder link inside it is removed AS A LINK and what it
+ * points to is never touched, in Windows PowerShell 5.1 as in PowerShell 7. Remove-Item -Recurse is not used: 5.1 has
+ * a history of going into a junction and deleting what it points to. The block walks the folder itself and relies only
+ * on what .NET and Windows document, the same in every PowerShell:
+ *   - DirectoryInfo.GetFileSystemInfos() lists a folder's own entries and never follows one;
+ *   - an entry marked ReparsePoint (a junction, a folder or file link) is removed by its own Delete(), which calls
+ *     RemoveDirectory or DeleteFile: Windows documents both as removing the link itself, whatever its target holds;
+ *   - a read-only mark (git's objects carry one) is taken off before a Delete(), the job chmod -R u+w does elsewhere;
+ *   - the folder named, when it is itself a link, is removed as a link and never walked;
+ *   - $ErrorActionPreference = 'Stop': the first refusal ends it, with a non-zero exit, and nothing after it runs.
+ * The folder is handed to the block as one PowerShell single-quoted word, so no character of its name is read as code.
+ */
+const PS_REMOVE_TREE = "& { param($p) $ErrorActionPreference = 'Stop'; function Remove-HoprigTree($d) { foreach ($e in $d.GetFileSystemInfos()) { if ($e.Attributes -band [IO.FileAttributes]::ReparsePoint) { $e.Delete() } elseif ($e -is [IO.DirectoryInfo]) { Remove-HoprigTree $e } else { $e.Attributes = $e.Attributes -band -bnot [IO.FileAttributes]::ReadOnly; $e.Delete() } }; $d.Attributes = $d.Attributes -band -bnot [IO.FileAttributes]::ReadOnly; $d.Delete() }; $t = Get-Item -LiteralPath $p -Force; if ($t.Attributes -band [IO.FileAttributes]::ReparsePoint) { $t.Delete() } else { Remove-HoprigTree $t } }";
+
+/** A PowerShell single-quoted word: every character as it is, a quote inside written twice (as psQuote does). */
+const psLiteral = (s) => `'${String(s).replace(/['\u2018-\u201b]/g, '$&$&')}'`;
+
+/**
+ * A command that removes a LINK only, never what it points to, as a person types it on `platform`: `rm <link>`
+ * (showCommand) on Linux and macOS. On Windows a folder link is a junction or a folder symlink: Remove-Item on one may
+ * ask first, and with -Recurse an older PowerShell may go into what it points to. So the item is taken as it is
+ * (Get-Item does not follow a link) and .NET's Delete() of it calls RemoveDirectory (a folder link) or DeleteFile (a
+ * file link), which Windows documents as removing the link itself whatever its target holds; the same in Windows
+ * PowerShell 5.1 and PowerShell 7.
+ */
+export function showLinkRemoveCommand(link, platform = process.platform) {
+  if (platform !== 'win32') return showCommand(['rm', link]);
+  return `(Get-Item -LiteralPath ${psLiteral(link)} -Force).Delete()`;
+}
+
+/**
+ * Move every entry of the folder `from` into the folder `into`, never over one of the same name there, then remove
+ * `from` once it is empty (one of the same name left in it keeps it). A POSIX shell: `mv -n from/* into/ && rmdir from`.
+ * Windows: Get-ChildItem (its own entries, never followed) into Move-Item, which refuses a name that is there already,
+ * then the folder's own Delete(), which removes only an empty folder (a link inside is moved as the link it is).
+ */
+export function showMergeCommand(from, into, platform = process.platform) {
+  if (platform !== 'win32') return `mv -n ${showCommand([from])}/* ${showCommand([into])}/ && rmdir ${showCommand([from])}`;
+  return `Get-ChildItem -LiteralPath ${psLiteral(from)} -Force | Move-Item -Destination ${psLiteral(into)}; (Get-Item -LiteralPath ${psLiteral(from)} -Force).Delete()`;
+}
+
+/**
+ * Two pasted commands, the second only when the first worked: `a && b` in a POSIX shell; on Windows `a; if ($?) { b }`,
+ * as Windows PowerShell 5.1 has no && ($? is false after a command that failed, a .NET error too, in 5.1 and in 7).
+ */
+export const showThen = (a, b, platform = process.platform) => (platform === 'win32' ? `${a}; if ($?) { ${b} }` : `${a} && ${b}`);
+
 /** Several argv arrays as one line joined with &&. */
 export const showCommands = (list) => list.map(showCommand).join(' && ');
 

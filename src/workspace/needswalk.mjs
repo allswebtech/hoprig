@@ -35,6 +35,25 @@ const within = (p, top) => {
 const overlap = (a, b) => within(a, b) || within(b, a);
 // What a path in a rule of the coding tool may hold: its rules read * ? [ ] { } ( ) \ themselves.
 export const RULE_SAFE = /^[A-Za-z0-9._/~+@ -]+$/;
+/**
+ * The absolute path `p` in the form a rule of the coding tool names it, before RULE_SAFE is asked. Elsewhere it is `p`
+ * itself. On Windows Claude Code reads a path in a rule in POSIX form ("On Windows, paths are normalized to POSIX form
+ * before matching. `C:\Users\alice` becomes `/c/Users/alice`", code.claude.com/docs/en/permissions), so `C:\a\b` is
+ * `/c/a/b` (and `Read(//c/a/b)` its rule). → that form | null (on Windows, a path with no drive letter: a share
+ * `\\server\share`, a `\\?\` path, one rooted without a drive; it cannot be named).
+ */
+export function ruleForm(p, platform = process.platform) {
+  const s = String(p);
+  if (platform !== 'win32') return s;
+  const m = /^([A-Za-z]):[\\/]/.exec(s);
+  if (!m) return null;
+  return `/${[m[1].toLowerCase(), ...s.slice(3).split(/[\\/]+/).filter(Boolean)].join('/')}`;
+}
+/** Whether the absolute path `p` can be named in a rule of the coding tool on `platform`. */
+export const nameable = (p, platform = process.platform) => {
+  const f = ruleForm(p, platform);
+  return f !== null && RULE_SAFE.test(f);
+};
 export const shown = (n) => String(n).slice(0, 100).replace(/[\u0000-\u001f\u007f-\u009f]/g, '?');
 export const isPrivate = (name) => PRIVATE_DIRS.includes(fold(name));
 const LINK_SEP = process.platform === 'win32' ? /[\\/]/ : /\//;
@@ -101,7 +120,7 @@ export function mineOf(entries) {
  * projects folder; `mine`: mineOf(). → { credLinks, privLinks: [{ link: path relative to d, to: real path }] } |
  * { why, mylink? }
  */
-export async function linkWalk(d, { creds, brain, bounds = [], mine = new Map(), limitMs = WALK_MS, now = () => performance.now() }) {
+export async function linkWalk(d, { creds, brain, bounds = [], mine = new Map(), limitMs = WALK_MS, now = () => performance.now(), platform = process.platform }) {
   const credLinks = [];
   const privLinks = [];
   // `d`, then each folder it does not hold that one of its links leads to (`via`: that link, from d).
@@ -150,7 +169,7 @@ export async function linkWalk(d, { creds, brain, bounds = [], mine = new Map(),
               const to = path.join(res.at, ...res.rest);
               if (!own && !inside(priv)) return { why: `its link ${name} leads out of the workspace (into ${shown(priv)})`, mylink: myLinkCommand(link) };
               for (const [x, what] of fence) if (overlap(priv, x)) return { why: `its link ${name} leads into ${what}` };
-              if (!RULE_SAFE.test(at) || !RULE_SAFE.test(to)) return { why: `its link ${name} leads into a private folder and has a character the coding tool's rules cannot name` };
+              if (!RULE_SAFE.test(at) || !nameable(to, platform)) return { why: `its link ${name} leads into a private folder and has a character the coding tool's rules cannot name` };
               privLinks.push({ link: at, to });
               continue;
             }

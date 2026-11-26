@@ -30,7 +30,8 @@ import { codex } from './codex.mjs';
 import { opencode, NO_SELF_UPDATE } from './opencode.mjs';
 import { takeLock } from './lock.mjs';
 import { KEY_VAR, endpointOf, providerModels, tomlString } from './providers.mjs';
-import { serverUsers } from './holds.mjs';
+import { askHolders, serverUsers } from './holds.mjs';
+import { replaceFile } from '../replacefile.mjs';
 
 export { holdServer, serverUsers } from './holds.mjs';
 
@@ -264,7 +265,7 @@ export function stopIfUnused(tool, { except = null, idleMs = 0, now = Date.now()
   return withLock(tool, async () => {
     const s = readServer(tool);
     if (!s) return false;
-    if (serverUsers(tool, { except }).length) return false;
+    if (serverUsers(tool, { except, after: await askHolders(tool) }).length) return false;
     if (idleMs && now - (s.usedAt || s.startedAt || 0) < idleMs) return false;
     await stopLocked(tool, { why: 'no session uses it' });
     return true;
@@ -285,7 +286,8 @@ export function ensureServer(tool, { need = null, except = null, base = process.
     const s = readServer(tool);
     const proc = !!s && (await isServerProcess(tool, s, { fetchImpl }));
     // The caller's own run (a launcher marks itself a user before it asks) does not keep the server.
-    const used = () => serverUsers(tool, { except }).length > 0;
+    const after = await askHolders(tool); // the holders' processes, asked and waited for (dashboard)
+    const used = () => serverUsers(tool, { except, after }).length > 0;
     if (proc) {
       // A server that works hard (a turn, a loaded computer) may answer late: ask again before anything is decided.
       let ok = await healthy(tool, s, { fetchImpl });
@@ -319,7 +321,7 @@ function writeState(tool, s) {
   const { secret, ...rest } = s;
   const tmp = `${stateFile(tool)}.${process.pid}.tmp`;
   fs.writeFileSync(tmp, JSON.stringify(rest) + '\n', { mode: 0o600 });
-  fs.renameSync(tmp, stateFile(tool));
+  replaceFile(tmp, stateFile(tool));
 }
 
 async function start(tool, provs, { bin, base, fetchImpl, spawnImpl }) {

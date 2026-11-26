@@ -15,6 +15,9 @@ process.env.HOPRIG_CONFIG_DIR = path.join(tmp, 'config');
 process.env.HOPRIG_STATE_DIR = path.join(tmp, 'state');
 process.env.CLAUDE_CONFIG_DIR = path.join(tmp, 'claude');
 test.after(() => fs.rmSync(tmp, { recursive: true, force: true }));
+// Hands-off is not offered on Windows (src/handsoff.mjs handsOffOffered: the wall's hold is a POSIX shell test), so a
+// test that switches it on and expects an answer or a hold has nothing to see there.
+const OFFERED = { skip: process.platform === 'win32' && 'Hands-off is not offered on Windows' };
 
 const { preToolHold } = await import('../src/hook.mjs');
 const { hoprigVersion } = await import('../src/handsoff.mjs');
@@ -52,7 +55,7 @@ const giveHold = (file) => {
 const writeCfg = (cfg) => { fs.mkdirSync(path.dirname(configFile()), { recursive: true }); fs.writeFileSync(configFile(), JSON.stringify(cfg)); };
 const hook = (file, event) => spawnSync(process.execPath, [hookFile()], { input: JSON.stringify(event), env: { ...process.env, HOPRIG_RUN_FILE: file, CLAUDE_PROJECT_DIR: SHOP }, encoding: 'utf8' });
 
-test('end to end: with the config file removed, the hook program still holds a held kind', () => {
+test('end to end: with the config file removed, the hook program still holds a held kind', OFFERED, () => {
   const { file } = R.createRun({ profile: 'api', cwd: SHOP });
   giveHold(file);
   writeCfg({ handsOff: { offered: true, projects: { [SHOP]: { on: true, version: V } } } });

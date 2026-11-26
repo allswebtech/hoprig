@@ -8,8 +8,10 @@ import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
+import { SHELL_STANDINS } from '../seal.mjs';
 import { fileURLToPath } from 'node:url';
 import { tempHome, writeTree } from '../workspace/helpers.mjs';
+import { nodeStandIn } from './dryrun-fixture.mjs';
 
 const t = tempHome('get');
 const remotes = path.join(t.root, 'remotes');
@@ -18,12 +20,20 @@ fs.mkdirSync(remotes);
 fs.mkdirSync(bin);
 fs.appendFileSync(process.env.GIT_CONFIG_GLOBAL, `[url "${String(remotes).replaceAll('\\', '/')}/"]\n\tinsteadOf = https://github.com/\n\tinsteadOf = git@github.com:\n[protocol "file"]\n\tallow = always\n`);
 const fakeGh = fileURLToPath(new URL('./fake-gh.mjs', import.meta.url));
-fs.writeFileSync(path.join(bin, 'gh'), `#!/bin/sh\nexec "${process.execPath}" "${fakeGh}" "$@"\n`, { mode: 0o755 });
+nodeStandIn(path.join(bin, 'gh'), fakeGh);
 Object.assign(process.env, { PATH: `${bin}${path.delimiter}${process.env.PATH}`, FAKE_GH_ROOT: remotes, FAKE_GH_USER: 'alex', FAKE_GH_ORGS: 'team', HOPRIG_WORKSPACE_DIR: t.ws });
 
 const { getProject, getMain, folderFromRepo } = await import('../../src/pcsetup/getproject.mjs');
 const { makeUi } = await import('../../src/setup/ui.mjs');
-const { showCommand } = await import('../../src/setup/system.mjs');
+const { showFileCommand } = await import('../../src/setup/system.mjs');
+// The identity of a run that is gone (pid and start, src/procid.mjs): its pid's start an hour before this test's own, so
+// no process that has that pid now (Windows hands a pid out again at once) can be that run. A bare pid could be alive
+// again by chance, and a lock without an identity counts as held while it is young.
+const { earlierIdentity } = await import('../server/helpers.mjs');
+// A pid no process has. The pid of a child that has exited is not one: Windows hands it out again at once, and while
+// the new holder cannot be told apart yet a young lock of it is waited for (seen once on a Windows runner: busy, busy).
+const NO_PID = 2147483000;
+const GONE_PROC = earlierIdentity((await import('../../src/procid.mjs')).system.self() || `T:${Date.now() - 1000}`);
 const { projectNew, projectStatus } = await import('../../src/pcsetup/project.mjs');
 
 const sh = (cwd, ...args) => execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8' }).trim();
@@ -76,7 +86,7 @@ test('the folder name rule: "-workspace" is taken off, nothing else', () => {
   for (const bad of ['.x', '...', '-rf', '', '.git', 'no-ai', 'credentials', 'node_modules', '-workspace']) assert.equal(folderFromRepo(bad), null, bad);
 });
 
-test('clone shop-workspace by address, by owner/name and by bare name: the folder is shop each time', async () => {
+test('clone shop-workspace by address, by owner/name and by bare name: the folder is shop each time', SHELL_STANDINS, async () => {
   for (const spec of ['https://github.com/alex/shop-workspace.git', 'alex/shop-workspace', 'shop']) {
     const dir = fresh();
     const r = await run(spec, dir);
@@ -121,7 +131,7 @@ test('rule 2: the name in project.json wins over the repository\'s name; rule 1:
   assert.ok(fs.existsSync(path.join(dir3, 'store', 'code', 'shop', '.git')));
 });
 
-test('a bare name that fits two repositories, neither a project parent: one question on a terminal, an error without one', async () => {
+test('a bare name that fits two repositories, neither a project parent: one question on a terminal, an error without one', SHELL_STANDINS, async () => {
   const dir = fresh();
   const r = await run('blog', dir);
   assert.equal(r.ok, false);
@@ -154,8 +164,9 @@ test('the final name taken by another folder: the clone stays under its temporar
   assert.ok(r.temp && fs.existsSync(path.join(r.temp, 'project.json')));
   assert.equal(path.dirname(r.temp), dir);
   assert.match(r.message, /is taken by another folder, so the clone was left in .*\.hoprig-clone-site-workspace-/);
-  assert.match(r.message, /mv \S*\.hoprig-clone-site-workspace-[0-9a-f]+ \S*website/);
-  assert.equal(r.fix, showCommand(['mv', r.temp, path.join(dir, 'website')])); // what the dashboard shows as needing you
+  assert.match(path.basename(r.temp), /^\.hoprig-clone-site-workspace-[0-9a-f]+$/);
+  assert.equal(r.fix, showFileCommand('mv', [r.temp, path.join(dir, 'website')])); // what the dashboard shows as needing you
+  assert.ok(r.message.includes(r.fix), r.message); // the command of this system: mv, or PowerShell's Move-Item on Windows
 });
 
 test('a project here under the wrong name is reported with the mv, never moved', async () => {
@@ -163,7 +174,7 @@ test('a project here under the wrong name is reported with the mv, never moved',
   execFileSync('git', ['clone', '-q', 'https://github.com/alex/shop-workspace.git', path.join(dir, 'shop-workspace')]);
   const r = await run('shop', dir);
   assert.equal(r.result, 'misnamed');
-  assert.equal(r.mv, showCommand(['mv', path.join(dir, 'shop-workspace'), path.join(dir, 'shop')]));
+  assert.equal(r.mv, showFileCommand('mv', [path.join(dir, 'shop-workspace'), path.join(dir, 'shop')]));
   assert.equal(r.ok, false); // not done: it needs you
   assert.equal(r.fix, r.mv);
   const out = [];
@@ -174,7 +185,7 @@ test('a project here under the wrong name is reported with the mv, never moved',
   // the same through the map
   const m = await run('store', dir, { map: { projects: [{ name: 'store', url: 'https://github.com/alex/shop-workspace.git', repos: [] }] } });
   assert.equal(m.result, 'misnamed');
-  assert.match(m.mv, /\/store$/);
+  assert.equal(m.mv, showFileCommand('mv', [path.join(dir, 'shop-workspace'), path.join(dir, 'store')]));
   // under its right name it is "here", and its missing code repository is cloned
   fs.renameSync(path.join(dir, 'shop-workspace'), path.join(dir, 'shop'));
   const h = await run('shop', dir);
@@ -195,7 +206,7 @@ test('a project.json with a key this Hoprig does not know: the clone works, the 
   assert.equal(JSON.parse(writes.join('')).projects[0].warnings.length, 2);
 });
 
-test('hoprig get a b --json: both cloned, one JSON object; --dry-run changes nothing', async () => {
+test('hoprig get a b --json: both cloned, one JSON object; --dry-run changes nothing', SHELL_STANDINS, async () => {
   const dir = fresh();
   const dry = [];
   assert.equal(await getMain(['shop', 'alex/site-workspace', '--json', '--dry-run'], { dir, write: (s) => dry.push(s) }), 0);
@@ -216,7 +227,7 @@ test('hoprig get a b --json: both cloned, one JSON object; --dry-run changes not
   assert.deepEqual(fs.readdirSync(dir).sort(), ['shop', 'website']);
 });
 
-test('project new x --github: the parent is x-workspace when the account has a repository x already; --repo-name overrides', async () => {
+test('project new x --github: the parent is x-workspace when the account has a repository x already; --repo-name overrides', SHELL_STANDINS, async () => {
   const { projectsDir } = await import('../../src/pcsetup/projects.mjs');
   remote('alex/cart'); // the product is there first
   assert.equal(await projectNew(['cart', '--github'], { ui: quietUi() }), 0);
@@ -257,13 +268,13 @@ test('restore uses the map\'s name; a project here under another name is reporte
   const r2 = await restoreWorkspace(brain, { withProjects: true, ui: quietUi(), dir: ws2, projects });
   const e = r2.plan.find((x) => x.kind === 'project');
   assert.equal(e.action, 'misnamed');
-  assert.equal(e.mv, showCommand(['mv', path.join(projects, 'shop-workspace'), path.join(projects, 'store')]));
+  assert.equal(e.mv, showFileCommand('mv', [path.join(projects, 'shop-workspace'), path.join(projects, 'store')]));
   assert.match(e.result, /^left alone: it is here as shop-workspace/);
   assert.deepEqual(fs.readdirSync(projects), ['shop-workspace']); // nothing moved, nothing cloned twice
   const ms = await mapStatus({ dir: ws2, projects });
   const missing = ms.entries.find((x) => x.label === 'store');
   assert.equal(missing.state, 'missing');
-  assert.equal(missing.fix, `it is here as shop-workspace: ${showCommand(['mv', path.join(projects, 'shop-workspace'), path.join(projects, 'store')])}`);
+  assert.equal(missing.fix, `it is here as shop-workspace: ${showFileCommand('mv', [path.join(projects, 'shop-workspace'), path.join(projects, 'store')])}`);
 });
 
 test('one rule for "the same address": ssh or https, owner and repository in any case, with or without .git', async () => {
@@ -330,7 +341,7 @@ test('an address whose repository name makes no plain folder name is refused bef
   assert.deepEqual(fs.readdirSync(dir), []);
 });
 
-test('project.json\'s name is used only when it is a folder the workspace looks into and the map does not hold it for another repository', async () => {
+test('project.json\'s name is used only when it is a folder the workspace looks into and the map does not hold it for another repository', SHELL_STANDINS, async () => {
   remote('alex/squat', parent('shop'));
   remote('alex/evil', parent('no-ai'));
   remote('bob/shop-workspace', parent('shop'));
@@ -383,7 +394,7 @@ test('a project here under its repository\'s name whose project.json names anoth
   const r = await run('alex/site-workspace', dir);
   assert.equal(r.result, 'misnamed');
   assert.equal(r.nameFrom, 'project.json');
-  assert.equal(r.mv, showCommand(['mv', path.join(dir, 'site'), path.join(dir, 'website')]));
+  assert.equal(r.mv, showFileCommand('mv', [path.join(dir, 'site'), path.join(dir, 'website')]));
   assert.deepEqual(fs.readdirSync(dir), ['site']); // never moved
   // unless that name is one the map holds for another repository: then site is its right name
   const m = await run('alex/site-workspace', dir, { map: { projects: [{ name: 'website', url: 'https://github.com/alex/other.git', repos: [] }] } });
@@ -397,7 +408,7 @@ test('the rename step: a link at the final name (to an empty folder, to nothing)
   const check = (r, dir) => {
     assert.equal(r.result, 'taken', r.message);
     assert.match(r.message, /is taken by another folder, so the clone was left in/);
-    assert.equal(r.fix, showCommand(['mv', r.temp, path.join(dir, 'website')]));
+    assert.equal(r.fix, showFileCommand('mv', [r.temp, path.join(dir, 'website')]));
     assert.ok(fs.existsSync(path.join(r.temp, 'project.json')));
   };
   // a link to an empty folder: the link and its folder stay; the callback gets the result
@@ -440,7 +451,7 @@ test('the rename step: a link at the final name (to an empty folder, to nothing)
   assert.deepEqual(fs.readdirSync(path.join(dir, 'website')), ['mine.txt']);
 });
 
-test('a bare name that fits a project parent in two accounts: without a terminal, --json or --yes an error names both', async (tc) => {
+test('a bare name that fits a project parent in two accounts: without a terminal, --json or --yes an error names both', SHELL_STANDINS, async (tc) => {
   remote('team/site-workspace', parent('website'));
   const dir = fresh();
   const was = process.env.HOPRIG_WORKSPACE_DIR;
@@ -465,7 +476,7 @@ test('a bare name that fits a project parent in two accounts: without a terminal
   assert.equal(r.folder, 'website');
 });
 
-test('a bare name in another letter case, or a repository renamed on GitHub (it answers under both names), is one repository', async () => {
+test('a bare name in another letter case, or a repository renamed on GitHub (it answers under both names), is one repository', SHELL_STANDINS, async () => {
   // Shop: GitHub answers with the real names, shop-workspace and shop; the parent wins as before
   let dir = fresh();
   const r = await run('Shop', dir);
@@ -537,7 +548,7 @@ test('leftovers: a complete clone an earlier run left is finished, not cloned ag
   const lo = JSON.parse(out.join('')).leftovers;
   assert.deepEqual(lo.map((l) => [path.basename(l.path), l.complete, l.aside]), [[tempName, true, false], ['.hoprig-clone-x-dddddd.aside-20261117-101010', false, true]]);
   assert.equal(lo[0].fix, `hoprig get ${site}`);
-  assert.match(lo[1].fix, /^look at it, then remove it: {2}rm -rf \S*aside-20261117-101010$/);
+  assert.equal(lo[1].fix, `look at it, then remove it:  ${showFileCommand('rm -rf', [lo[1].path])}`);
   const text = quietUi();
   await main(['status'], { ui: text, write: () => {} });
   assert.match(text.lines.join(''), /Left by hoprig get/);
@@ -553,7 +564,7 @@ test('two runs at once for one address: the second says the project is being fet
   assert.match(b.message, /^site is being fetched by another run of Hoprig right now \(process \d+\)/);
   assert.deepEqual(fs.readdirSync(dir), ['website']); // no second clone, no lock left
   // a lock whose run is gone is taken over
-  const gone = execFileSync(process.execPath, ['-e', 'process.stdout.write(String(process.pid))'], { encoding: 'utf8' });
+  const gone = String(NO_PID);
   const dir2 = fresh();
   const { createHash } = await import('node:crypto');
   const { urlKey } = await import('../../src/workspace/map.mjs');
@@ -587,7 +598,23 @@ test('the same address: the scheme\'s own port and the scp-like form with an abs
   for (const [a, b] of differ) assert.equal(sameUrl(a, b), false, `${a} ≠ ${b}`);
 });
 
-test('a command printed for the owner to paste runs as it reads: a quote, a dollar sign, a space and a backtick in the path', async () => {
+test('a move or a removal is shown as the person types it on each system: mv and rm -rf, or PowerShell\'s Move-Item and Remove-Item', () => {
+  // Windows: PowerShell's single quotes keep a $, a backtick and a space as they are; a quote is written twice.
+  const odd = 'C:\\Users\\ann\\my $(x) `y` it\'s';
+  assert.equal(showFileCommand('mv', [`${odd}\\a`, `${odd}\\b`], 'win32'), "Move-Item -LiteralPath 'C:\\Users\\ann\\my $(x) `y` it''s\\a' -Destination 'C:\\Users\\ann\\my $(x) `y` it''s\\b'");
+  // A folder: the walk that removes each link inside as a link (src/setup/system.mjs), never Remove-Item -Recurse.
+  assert.match(showFileCommand('rm -rf', ['C:\\p\\.hoprig-clone-x.aside-1'], 'win32'), /^& \{ param\(\$p\) .*\} 'C:\\p\\\.hoprig-clone-x\.aside-1'$/);
+  assert.equal(showFileCommand('rm', ['C:\\s\\a.lock'], 'win32'), "Remove-Item -LiteralPath 'C:\\s\\a.lock'");
+  // Linux and macOS: the POSIX shell's line, as before.
+  for (const platform of ['linux', 'darwin']) {
+    assert.equal(showFileCommand('mv', ['/p/a b', '/p/c'], platform), "mv '/p/a b' /p/c");
+    assert.equal(showFileCommand('rm -rf', ['/p/x'], platform), 'rm -rf /p/x');
+    assert.equal(showFileCommand('rm', ['/s/a.lock'], platform), 'rm /s/a.lock');
+  }
+});
+
+// A folder name with a double quote cannot exist on Windows, and the line there is PowerShell's (the test above).
+test('a command printed for the owner to paste runs as it reads: a quote, a dollar sign, a space and a backtick in the path', { skip: process.platform === 'win32' && 'a folder name holds no double quote on Windows, and its line is run by PowerShell, not sh' }, async () => {
   const mark = path.join(t.root, 'ran-it');
   const dir = path.join(t.root, `my "pro$(touch ${mark})jects \`touch ${mark}\` it's`);
   writeTree(dir, { 'website/notes.txt': 'mine' });
@@ -611,7 +638,7 @@ test('the map\'s folder holds a clone of another repository: "taken", needing th
   const r = await run('https://github.com/alex/shop-workspace.git', dir, { map: { projects: [{ name: 'shop', url: 'https://github.com/alex/shop-workspace.git', repos: [] }] } });
   assert.equal(r.result, 'taken');
   assert.equal(r.ok, false);
-  assert.ok(r.fix && r.fix.startsWith(`mv ${path.join(dir, 'shop')} ${path.join(dir, 'shop.aside-')}`), r.fix);
+  assert.ok(r.fix && r.fix.startsWith(showFileCommand('mv', [path.join(dir, 'shop'), path.join(dir, 'shop.aside-')]).replace(/'$/, '')), r.fix);
   assert.match(r.message, /shop is in the way: it is a clone of https:\/\/github\.com\/alex\/blog\.git, not of https:\/\/github\.com\/alex\/shop-workspace\.git/);
   assert.deepEqual(fs.readdirSync(dir), ['shop']); // nothing cloned, nothing moved
 });
@@ -658,7 +685,7 @@ test('a lock names the process of its run: a pid another process has now, or a b
     const b = await run('alex/site-workspace', dir);
     assert.equal(b.result, 'busy', b.message);
     assert.ok(b.message.includes(`(process ${child.pid})`), b.message);
-    assert.ok(b.message.endsWith(`If no hoprig get is running, removing its lock is safe:  rm ${f}`), b.message);
+    assert.ok(b.message.endsWith(`If no hoprig get is running, removing its lock is safe:  ${showFileCommand('rm', [f])}`), b.message);
     assert.deepEqual(findLocks(dir).map((l) => [l.path, l.pid, l.running]), [[f, child.pid, true]]);
     // its identity cannot be told (none in the lock): trusted while young, taken over once older than LOCK_MAX_AGE
     dir = fresh();
@@ -687,55 +714,193 @@ test('a lock names the process of its run: a pid another process has now, or a b
 test('a stale lock taken over by two runs at once: one of them holds it, never both', async () => {
   const { lockPathFor, takeLock } = await import('../../src/pcsetup/leftovers.mjs');
   const r = { url: 'https://github.com/alex/site-workspace.git', repo: 'site-workspace' };
-  const gone = execFileSync(process.execPath, ['-e', 'process.stdout.write(String(process.pid))'], { encoding: 'utf8' });
-  // Run B takes the lock over in the moment between run A reading the stale lock and A acting on what it read.
-  let dir = fresh();
-  const file = lockPathFor(dir, r);
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.writeFileSync(file, JSON.stringify({ pid: Number(gone), proc: null }));
-  const { openSync: open, readFileSync: read } = fs; // A has the stale lock open, or has read it, when B acts
-  let b = null;
-  const bActs = (p) => {
-    if (p === file && b === null) {
-      b = false; // once: B's own reads are plain
-      b = takeLock(dir, r);
+  const gone = String(NO_PID);
+  // Run B takes the lock over in the moment between run A reading the stale lock and A acting on what it read. Played
+  // with each system's way of taking a stale lock over (the platform handed in), so the Windows way runs here too:
+  // elsewhere the stale lock is replaced by a rename; on Windows, which refuses a rename over a file another run has
+  // open, it is removed under its claim and made again exclusively (a removal while A has it open goes through).
+  // Where nothing is refused, B takes it and A, reading B's lock under the same claim, finds it held. Where the real
+  // system refuses B's step (Windows: a rename over A's open file, every time; a removal, now and then), B's rounds end
+  // busy and A takes it. So what is asserted is the rule: exactly one of them holds it and the other is busy.
+  let dir;
+  for (const platform of ['linux', 'win32']) {
+    dir = fresh();
+    const file = lockPathFor(dir, r);
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, JSON.stringify({ pid: Number(gone), proc: GONE_PROC }));
+    const { openSync: open, readFileSync: read } = fs; // A has the stale lock open, or has read it, when B acts
+    let b = null;
+    const bActs = (p) => {
+      if (p === file && b === null) {
+        b = false; // once: B's own reads are plain
+        b = takeLock(dir, r, { platform });
+      }
+    };
+    fs.openSync = function (p, ...rest) {
+      const fd = open.call(this, p, ...rest);
+      bActs(p);
+      return fd;
+    };
+    fs.readFileSync = function (p, ...rest) {
+      const text = read.call(this, p, ...rest);
+      bActs(p);
+      return text;
+    };
+    let a;
+    try {
+      a = takeLock(dir, r, { platform });
+    } finally {
+      Object.assign(fs, { openSync: open, readFileSync: read });
     }
-  };
-  fs.openSync = function (p, ...rest) {
-    const fd = open.call(this, p, ...rest);
-    bActs(p);
-    return fd;
-  };
-  fs.readFileSync = function (p, ...rest) {
-    const text = read.call(this, p, ...rest);
-    bActs(p);
-    return text;
-  };
-  let a;
-  try {
-    a = takeLock(dir, r);
-  } finally {
-    Object.assign(fs, { openSync: open, readFileSync: read });
+    const holders = [a, b].filter((x) => x && x.release);
+    const second = [a, b].find((x) => x && x.busy);
+    assert.equal(holders.length, 1, `${platform}: exactly one holds it (A ${JSON.stringify(a)}, B ${JSON.stringify(b)})`);
+    assert.ok(second, `${platform}: the other is busy`);
+    assert.equal(second.busy.file, file);
+    // Which one depends on what the real file system refuses (on Windows a rename over A's open file, and now and then
+    // a removal): here B takes it on both ways; on Windows the rename way leaves it to A. The rule is the same.
+    if (process.platform !== 'win32') assert.ok(b && b.release, `${platform}: B holds it here`);
+    holders[0].release();
+    assert.deepEqual(fs.readdirSync(dir), []); // nothing in the projects folder
+    assert.ok(!fs.existsSync(path.dirname(file)), 'no claim or new file left beside the lock: its folder went with it');
   }
-  assert.ok(b && b.release, 'B holds it');
-  assert.ok(a.busy, 'A is the second one');
-  assert.equal(a.busy.file, file);
-  b.release();
-  assert.deepEqual(fs.readdirSync(dir), []); // nothing in the projects folder
-  assert.ok(!fs.existsSync(path.dirname(file)), 'no claim or new file left beside the lock: its folder went with it');
   // two real processes on a stale lock, many rounds: never two clones
   const child = path.join(t.root, 'get-child.mjs');
   fs.writeFileSync(child, `const { getMain } = await import(${JSON.stringify(new URL('../../src/pcsetup/getproject.mjs', import.meta.url).href)});\nconst out = [];\nawait getMain([process.argv[3], '--json', '--yes'], { dir: process.argv[2], write: (s) => out.push(s) });\nprocess.stdout.write(JSON.stringify(JSON.parse(out.join('')).projects[0].result));\n`);
   const { execFile } = await import('node:child_process');
-  const go = (d) => new Promise((res) => execFile(process.execPath, [child, d, r.url], { encoding: 'utf8', env: { ...process.env, HOPRIG_WORKSPACE_DIR: path.join(t.root, 'ws-no-map') } }, (e, out) => res(out)));
+  // Each run writes what its take-over met to a trace file of its own (leftovers.mjs HOPRIG_LOCK_TRACE): said on a failure.
+  const go = (d, trace) => new Promise((res) => execFile(process.execPath, [child, d, r.url], { encoding: 'utf8', env: { ...process.env, HOPRIG_WORKSPACE_DIR: path.join(t.root, 'ws-no-map'), HOPRIG_LOCK_TRACE: trace } }, (e, out) => res(out)));
+  const traced = (f) => (fs.existsSync(f) ? fs.readFileSync(f, 'utf8').trim().split('\n').slice(-40).join(' | ') : '(no trace)');
   for (let i = 0; i < 20; i++) {
     dir = fresh();
     fs.mkdirSync(path.dirname(lockPathFor(dir, r)), { recursive: true });
-    fs.writeFileSync(lockPathFor(dir, r), JSON.stringify({ pid: Number(gone), proc: null }));
-    const results = (await Promise.all([go(dir), go(dir)])).map((o) => JSON.parse(o));
-    assert.ok(results.filter((x) => x === 'cloned').length === 1 && results.every((x) => ['cloned', 'busy', 'here'].includes(x)), `round ${i}: ${results}`);
+    fs.writeFileSync(lockPathFor(dir, r), JSON.stringify({ pid: Number(gone), proc: GONE_PROC }));
+    const traces = [path.join(t.root, `lock-trace-${i}-a.txt`), path.join(t.root, `lock-trace-${i}-b.txt`)];
+    const results = (await Promise.all([go(dir, traces[0]), go(dir, traces[1])])).map((o) => JSON.parse(o));
+    assert.ok(results.filter((x) => x === 'cloned').length === 1 && results.every((x) => ['cloned', 'busy', 'here'].includes(x)), `round ${i}: ${results}; first run: ${traced(traces[0])}; second run: ${traced(traces[1])}`);
+    for (const f of traces) fs.rmSync(f, { force: true });
     assert.deepEqual(fs.readdirSync(dir), ['website'], `round ${i}`);
   }
+});
+
+test('Windows: a stale lock whose claim or name is held a moment by another program is taken over, not left busy', async () => {
+  const { lockPathFor, takeLock } = await import('../../src/pcsetup/leftovers.mjs');
+  const r = { url: 'https://github.com/alex/site-workspace.git', repo: 'site-workspace' };
+  const gone = String(NO_PID);
+  const dir = fresh();
+  const file = lockPathFor(dir, r);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, JSON.stringify({ pid: Number(gone), proc: GONE_PROC }));
+  // What Windows answers while another program (a virus scan) holds a file of the lock a moment: the take-over's claim
+  // and a new file at the lock's name are refused with EPERM, for longer than ten rounds of 20 ms.
+  const { writeFileSync, linkSync } = fs;
+  const heldUntil = Date.now() + 500;
+  const refuse = () => { throw Object.assign(new Error('EPERM: operation not permitted'), { code: 'EPERM' }); };
+  fs.writeFileSync = function (p, ...rest) {
+    if (Date.now() < heldUntil && (String(p).includes('.take-') || p === file)) refuse();
+    return writeFileSync.call(this, p, ...rest);
+  };
+  fs.linkSync = function (from, to, ...rest) {
+    if (Date.now() < heldUntil && to === file) refuse();
+    return linkSync.call(this, from, to, ...rest);
+  };
+  let got;
+  try {
+    got = takeLock(dir, r, { platform: 'win32' });
+  } finally {
+    Object.assign(fs, { writeFileSync, linkSync });
+  }
+  assert.ok(got.release, `taken over once the files were let go: ${JSON.stringify(got.busy)}`);
+  got.release();
+  assert.ok(!fs.existsSync(path.dirname(file)), 'nothing left beside the lock');
+});
+
+test('Windows: a folder that refuses hard links (EPERM at the link) is no lock held: the lock is made there at once', async () => {
+  const { lockPathFor, takeLock } = await import('../../src/pcsetup/leftovers.mjs');
+  const r = { url: 'https://github.com/alex/site-workspace.git', repo: 'site-workspace' };
+  const dir = fresh();
+  const file = lockPathFor(dir, r);
+  const { linkSync } = fs;
+  fs.linkSync = function (from, to, ...rest) {
+    if (to === file) throw Object.assign(new Error('EPERM: operation not permitted, link'), { code: 'EPERM' });
+    return linkSync.call(this, from, to, ...rest);
+  };
+  let got;
+  const t0 = Date.now();
+  try {
+    got = takeLock(dir, r, { platform: 'win32' });
+  } finally {
+    fs.linkSync = linkSync;
+  }
+  assert.ok(got.release, `held, not busy: ${JSON.stringify(got.busy)}`);
+  assert.ok(Date.now() - t0 < 1000, 'at once, not after the rounds of a name held a moment');
+  assert.equal(JSON.parse(fs.readFileSync(file, 'utf8')).pid, process.pid);
+  got.release();
+  assert.ok(!fs.existsSync(path.dirname(file)), 'nothing left beside the lock');
+});
+
+test('a lock made while the removal of its written copy is refused is held and released, never an error that leaves it', async () => {
+  const { lockPathFor, takeLock } = await import('../../src/pcsetup/leftovers.mjs');
+  const r = { url: 'https://github.com/alex/site-workspace.git', repo: 'site-workspace' };
+  const dir = fresh();
+  const file = lockPathFor(dir, r);
+  const { rmSync } = fs;
+  fs.rmSync = function (p, ...rest) {
+    if (String(p).startsWith(`${file}.new-`)) throw Object.assign(new Error('EPERM: operation not permitted, unlink'), { code: 'EPERM' });
+    return rmSync.call(this, p, ...rest);
+  };
+  let got;
+  try {
+    got = takeLock(dir, r, { platform: 'win32' });
+  } finally {
+    fs.rmSync = rmSync;
+  }
+  assert.equal(JSON.parse(fs.readFileSync(file, 'utf8')).pid, process.pid, 'made');
+  got.release();
+  assert.ok(!fs.existsSync(file), 'released by its holder, not left held by a live process');
+});
+
+test('Windows: two runs on a stale lock while a rename over a file the other reads is refused: exactly one holds it', async () => {
+  const { lockPathFor, takeLock } = await import('../../src/pcsetup/leftovers.mjs');
+  const r = { url: 'https://github.com/alex/site-workspace.git', repo: 'site-workspace' };
+  const gone = String(NO_PID);
+  const dir = fresh();
+  const file = lockPathFor(dir, r);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, JSON.stringify({ pid: Number(gone), proc: GONE_PROC }));
+  // What Windows answered (test/zz-windiag-locks.test.mjs): a rename over a file another handle reads is refused with
+  // EPERM every time, and a removal of a file the other touches now and then. Here run A reads the stale lock and,
+  // while it has it open, run B takes its turn; the rename over the lock is refused throughout, as A reads it.
+  const { openSync: open, renameSync: rename, rmSync: rm } = fs;
+  let removals = 0;
+  let b = null;
+  fs.openSync = function (p, ...rest) {
+    const fd = open.call(this, p, ...rest);
+    if (p === file && b === null) {
+      b = false;
+      b = takeLock(dir, r, { platform: 'win32' });
+    }
+    return fd;
+  };
+  fs.renameSync = function (from, to, ...rest) {
+    if (to === file) throw Object.assign(new Error('EPERM: operation not permitted'), { code: 'EPERM' });
+    return rename.call(this, from, to, ...rest);
+  };
+  fs.rmSync = function (p, ...rest) {
+    if (p === file && removals++ < 2) throw Object.assign(new Error('EPERM: operation not permitted'), { code: 'EPERM' });
+    return rm.call(this, p, ...rest);
+  };
+  let a;
+  try {
+    a = takeLock(dir, r, { platform: 'win32' });
+  } finally {
+    Object.assign(fs, { openSync: open, renameSync: rename, rmSync: rm });
+  }
+  const holders = [a, b].filter((x) => x && x.release);
+  assert.equal(holders.length, 1, `exactly one holds it: A ${JSON.stringify(a)}, B ${JSON.stringify(b)}`);
+  assert.ok([a, b].some((x) => x && x.busy), 'the other is busy');
+  holders[0].release();
+  assert.ok(!fs.existsSync(path.dirname(file)), 'nothing left beside the lock');
 });
 
 test('a folder or a link at the lock\'s name is moved aside under a dated name, never deleted or followed, and the get goes on', async () => {
@@ -845,6 +1010,6 @@ test('computer set-up from a recipe: a project here under another name is retrie
   await runPcSetup({ ui, recipe: { hoprigRecipe: 1, kits: [], projectsDir: dir, workspaces: ['alex/shop-workspace'] }, sys, rules: false, codingTools: { findTool: () => null } });
   const retry = out.join('').split('\n').filter((l) => /retry:/.test(l));
   assert.equal(retry.length, 1, out.join(''));
-  assert.ok(retry[0].endsWith(showCommand(['mv', path.join(dir, 'shop-workspace'), path.join(dir, 'shop')])), retry[0]);
+  assert.ok(retry[0].endsWith(showFileCommand('mv', [path.join(dir, 'shop-workspace'), path.join(dir, 'shop')])), retry[0]);
   assert.deepEqual(fs.readdirSync(dir), ['shop-workspace']);
 });

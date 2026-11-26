@@ -17,7 +17,7 @@ test.after(() => fs.rmSync(root, { recursive: true, force: true }));
 
 const { gate } = await import('../../src/mission/gate.mjs');
 const { box } = await import('../../src/mission/seam.mjs');
-const { DEPS, needDirs, recordedLinks } = await import('../../src/mission/boxed.mjs');
+const { DEPS, hidden, needDirs, recordedLinks } = await import('../../src/mission/boxed.mjs');
 const { boxCheck } = await import('../../src/box/box.mjs');
 // Before the first test: a test registered after an await that comes later is lost by the runner.
 const real = await boxCheck();
@@ -251,7 +251,12 @@ test('a need folder goes to the box only when it shows nothing the session is de
   const priv = make('deny-private', { 'a/ai-ignore-dir/note.txt': 'private\n' }); // a private folder deep inside
   const dirs = [plain, dangles, missing, pattern, priv];
   const extras = async () => ({ dirs, refs: ['plain', 'link', 'missing', 'pattern', 'private'] });
-  const settings = async ([d]) => ({ deny: [`Edit(/${d}/**)`, ...(d === pattern ? [`Read(/${d}/**/notes.txt)`] : [`Read(/${d}/.env)`, `Read(/${d}/.env/**)`])] });
+  // The rules name a folder as needs.mjs writes them: on Windows in its POSIX form (ruleForm: C:\\a as /c/a).
+  const { ruleForm } = await import('../../src/workspace/needswalk.mjs');
+  const settings = async ([dir]) => {
+    const d = ruleForm(dir);
+    return { deny: [`Edit(/${d}/**)`, ...(dir === pattern ? [`Read(/${d}/**/notes.txt)`] : [`Read(/${d}/.env)`, `Read(/${d}/.env/**)`])] };
+  };
   const r = await needDirs(root, tree, { extras, settings });
   assert.deepEqual(r.dirs, [dangles, missing], 'only the folders in which the box shows nothing denied');
   assert.deepEqual(r.left, ['plain: its session may not read some of its files', 'pattern: its session may not read some of its files', 'private: it holds a private folder']);
@@ -259,6 +264,17 @@ test('a need folder goes to the box only when it shows nothing the session is de
   const { extraSettings } = await import('../../src/workspace/needs.mjs');
   const real = await needDirs(root, tree, { extras: async () => ({ dirs: [missing], refs: ['missing'] }), settings: extraSettings });
   assert.deepEqual(real.dirs, [missing], 'a folder whose real rules name nothing there goes to the box');
+});
+
+test('on Windows the rules name a need folder in their POSIX form (C:\\w\\need as /c/w/need), and the box reads them so', async () => {
+  const { PRIVATE_DIRS } = await import('../../src/pcsetup/projects.mjs');
+  const d = 'C:\\w\\need';
+  const rd = '/c/w/need'; // as needs.mjs extraSettings writes it on Windows
+  const own = PRIVATE_DIRS.flatMap((p) => [`Read(/${rd}/${p})`, `Read(/${rd}/${p}/**)`, `Read(/${rd}/**/${p})`, `Read(/${rd}/**/${p}/**)`]);
+  assert.equal(hidden(d, ['Edit(/' + rd + '/**)', ...own], [d], 'win32'), '', 'its own private-folder rules alone hide nothing');
+  assert.equal(hidden(d, [...own, `Read(/${rd}/.env)`, `Read(/${rd}/.env/**)`], [d], 'win32'), '', 'a credential place that is not there hides nothing');
+  assert.equal(hidden(d, [...own, `Read(/${rd}/**/notes.txt)`], [d], 'win32'), 'its session may not read some of its files', 'a pattern still does');
+  assert.equal(hidden(d, ['Read(//server/share/x)'], [d], 'win32'), 'its session may not read some of its files', 'a rule with no drive cannot be placed: it hides');
 });
 
 test('in the real box: the words say "in the box, no network"; a test that needs the network fails and the words say why', { skip, timeout: 60_000 }, async () => {

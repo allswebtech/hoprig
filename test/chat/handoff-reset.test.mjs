@@ -7,6 +7,9 @@ import test from 'node:test';
 const { handoffRoutes } = await import('../../src/chat/handoff.mjs');
 
 class HttpError extends Error { constructor(status, msg) { super(msg); this.status = status; } }
+// Hands-off is not offered on Windows (src/handsoff.mjs handsOffOffered: the wall's hold is a POSIX shell test), so a
+// test that switches it on and expects an answer or a hold has nothing to see there.
+const OFFERED = { skip: process.platform === 'win32' && 'Hands-off is not offered on Windows' };
 
 function harness({ offered }) {
   const c = { conversationId: 'c0ffee00-0000-4000-8000-000000000000', engine: { id: 'claude' }, cwd: '/w/shop', handsOffStop: null, dropMark: () => false, refresh() {}, load() {}, emit() {} };
@@ -20,7 +23,7 @@ function harness({ offered }) {
   return { c, run: () => take[2]({}, take[1].exec(url)) };
 }
 
-test('terminal to chat: taking a conversation back sets the chat to a reset (Hands-off offered)', async () => {
+test('terminal to chat: taking a conversation back sets the chat to a reset (Hands-off offered)', OFFERED, async () => {
   const { c, run } = harness({ offered: true });
   const r = await run();
   assert.deepEqual(r, { ok: true });

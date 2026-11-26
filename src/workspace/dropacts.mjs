@@ -12,7 +12,7 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { capture, showCommand, showCommands } from '../setup/system.mjs';
+import { capture, showCommand, showCommands, showFileCommand, showLinkRemoveCommand } from '../setup/system.mjs';
 import { gitRead } from '../gitread.mjs';
 import { readManifest, stamp } from '../pcsetup/workspace.mjs';
 import { LEAVES, gitIn, leaves, readIn, removeIn, renameIn, writeIn } from './inside.mjs';
@@ -196,8 +196,15 @@ const confirmedOf = (renamed, at) => {
   }
 };
 
-/** The command that deletes `p` by hand (a read-only folder in it made writable first). */
-export const deleteCommand = (p) => (lst(p)?.isSymbolicLink() ? showCommand(['rm', p]) : showCommands([['chmod', '-R', 'u+w', p], ['rm', '-rf', p]]));
+/**
+ * The command that deletes `p` by hand (a read-only folder in it made writable first). A link: the link only. On
+ * Windows a folder is removed by showFileCommand's walk: read-only marks taken off (git's objects carry one there, the
+ * job chmod -R u+w does on Linux and macOS), and a junction or link inside removed as a link, never followed.
+ */
+export const deleteCommand = (p, platform = process.platform) => {
+  if (lst(p)?.isSymbolicLink()) return showLinkRemoveCommand(p, platform);
+  return platform === 'win32' ? showFileCommand('rm -rf', [p], platform) : showCommands([['chmod', '-R', 'u+w', p], ['rm', '-rf', p]]);
+};
 
 /** Step 4: delete what was renamed away (a link: the link only; a read-only folder in it is made writable first). → { ok, why? } */
 export function deleteAway(at, renamed) {

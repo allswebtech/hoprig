@@ -20,7 +20,7 @@ const G = await import('../../src/addons/gateways.mjs');
 const { findAddon } = await import('../../src/addons/index.mjs');
 const { createServer } = await import('../../src/server/server.mjs');
 
-test('a gateway program that changed since it was confirmed: gateway-not-confirmed, and it does not run', { skip: process.platform === 'win32' }, async () => {
+test('a gateway program that changed since it was confirmed: gateway-not-confirmed, and it does not run', async () => {
   saveConfig({ server: { port: 7433 } });
   const file = path.join(box.root, 'relay-gw');
   const standIn = (name) => fs.writeFileSync(file, `#!/usr/bin/env node\nrequire('node:fs').appendFileSync(${JSON.stringify(marker)}, ${JSON.stringify(name)} + '\\n');\n`, { mode: 0o755 });

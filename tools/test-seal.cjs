@@ -275,8 +275,134 @@ function windowsTrap(cmd, args, { env = {}, traps = process.env.HOPRIG_TEST_TRAP
   }
   const rest = (Array.isArray(args) ? args : []).map(String);
   if (name === 'npm') return { command: node, args: [npmTrap, p.join(traps, 'npm-trap.json'), ...rest], log: null };
+  // A stand-in, as df, ps and ss are elsewhere (tools/seal-standins.cjs): `winget --version` is how the product asks
+  // whether winget starts (src/setup/system.mjs wingetState), at every look at a Windows computer, also where a test
+  // hands no facts. The answer is the same on every test computer: winget does not start here (the exit the trap gives
+  // too, so no test's result changes). No trap line: nothing of the computer was asked. Any other winget call (an
+  // install) is stopped and named as before.
+  if (name === 'winget' && rest.length === 1 && rest[0] === '--version') {
+    const say = 'winget: not started by the test runner (a test computer has no winget of its own)\n';
+    return { command: node, args: ['-e', `process.stderr.write(${JSON.stringify(say)}); process.exit(${TRAP_EXIT})`], log: null };
+  }
   const say = `${name}: stopped by the test runner: a test reached the real ${name}\n`;
   return { command: node, args: ['-e', `process.stderr.write(${JSON.stringify(say)}); process.exit(${TRAP_EXIT})`], log: [name, rest.join(' ')] };
+}
+
+// The same quoting rules as src/winspawn.mjs (cmdArgument, windowsSpawnPlan): this file is CommonJS and runs where
+// require() of an ES module does not, so they are written out here; test/seal-windows.test.mjs checks both give the
+// same line.
+const CMD_META = /([()\][%!^"`<>&|;, *?])/g;
+function cmdLine(file, args) {
+  const arg = (x) => {
+    let a = String(x).replace(/\r\n|[\r\n]/g, ' ');
+    a = a.replace(/(\\*)"/g, '$1$1\\"').replace(/(\\*)$/, '$1$1');
+    return `"${a}"`.replace(CMD_META, '^$1').replace(CMD_META, '^$1');
+  };
+  return `"${[file.replace(CMD_META, '^$1'), ...args.map(arg)].join(' ')}"`;
+}
+
+/** The first line of `file` (its first 200 bytes), or '' when it cannot be read. */
+function firstLineOf(file) {
+  let fd;
+  try {
+    fd = fs.openSync(file, 'r');
+    const buf = Buffer.alloc(200);
+    return buf.subarray(0, fs.readSync(fd, buf, 0, 200, 0)).toString('utf8').split(/\r?\n/)[0];
+  } catch { return ''; } finally { if (fd !== undefined) try { fs.closeSync(fd); } catch { /* closed */ } }
+}
+
+const pathOf = (env) => { const f = Object.entries(env || {}).find(([k]) => k.toUpperCase() === 'PATH'); return String((f && f[1]) || ''); };
+
+/**
+ * Windows: the `sh.exe` (Git for Windows) on `PATH` (a Windows PATH string), in a folder that is neither the test's
+ * own area nor the trap folder, or null.
+ */
+function windowsSh(PATH, { traps = process.env.HOPRIG_TEST_TRAPS, exists = fs.existsSync, isOwn = inTmp } = {}) {
+  const p = path.win32;
+  for (const d of String(PATH || '').split(';').filter(Boolean)) {
+    if (isOwn(d) || (traps && p.resolve(d).toLowerCase() === p.resolve(traps).toLowerCase())) continue;
+    const f = p.join(d, 'sh.exe');
+    if (exists(f)) return f;
+  }
+  return null;
+}
+
+/**
+ * Windows: how to start a test's own stand-in that Node would not start, or null. Node starts a bare name there only
+ * as `.com` or `.exe`, a `.cmd`/`.bat` not at all without a shell, and an extensionless file by a full path not at
+ * all; so a stand-in a test writes as a `#!/bin/sh` script (fakeBin and the like) never ran. Only the test's own file
+ * counts: a bare name whose FIRST holder on the child's PATH is a folder of the test's area (not the trap folder)
+ * with no `.com`/`.exe` of it there, or a full path into that area. An extensionless file whose first line is `#!`
+ * starts through `sh <file> <args…>` (Git for Windows' sh, found on the child's PATH, else on the test process's own,
+ * outside the test's area and the traps), or through this Node when the line names node; a `.cmd`/`.bat` through
+ * `cmd.exe /d /s /c` with every argument escaped as src/winspawn.mjs does. A program of the computer, a file Node
+ * starts itself, a trapped name (windowsTrap answers it first) and every other system are left as they are. `exists`,
+ * `isOwn`, `firstLine` and `processPath` are the system's answers, so a test gives Windows' own on any system.
+ */
+function windowsStandIn(cmd, args, { env = {}, cwd, traps = process.env.HOPRIG_TEST_TRAPS, platform = process.platform, exists = fs.existsSync, isOwn = inTmp, firstLine = firstLineOf, node = process.execPath, processPath = pathOf(process.env), comspec } = {}) {
+  if (platform !== 'win32' || typeof cmd !== 'string' || !traps || !cmd) return null;
+  const p = path.win32;
+  const inTraps = (f) => p.resolve(p.dirname(f)).toLowerCase() === p.resolve(traps).toLowerCase();
+  const ext = (/\.[^.\\/]+$/.exec(cmd) || [''])[0].toLowerCase();
+  if (ext === '.com' || ext === '.exe') return null; // Node starts it itself
+  let file = null;
+  if (/[\\/]/.test(cmd)) {
+    const full = p.resolve(cwd || process.cwd(), cmd);
+    if (inTraps(full) || !isOwn(full) || !exists(full)) return null;
+    file = full;
+  } else {
+    for (const d of pathOf(env).split(';').filter(Boolean)) {
+      if (!ext && ['.com', '.exe'].some((e) => exists(p.join(d, cmd + e)))) return null; // Node's own pick
+      const held = (ext ? [cmd] : [cmd, `${cmd}.cmd`, `${cmd}.bat`]).map((n) => p.join(d, n)).find((f) => exists(f));
+      if (!held) continue;
+      if (inTraps(held) || !isOwn(held)) return null; // the first holder is the computer's or a trap: as before
+      file = held;
+      break;
+    }
+    if (!file) return null;
+  }
+  const rest = (Array.isArray(args) ? args : []).map(String);
+  if (/\.(cmd|bat)$/i.test(file)) {
+    return { command: comspec || env.ComSpec || env.COMSPEC || process.env.ComSpec || 'cmd.exe', args: ['/d', '/s', '/c', cmdLine(file, rest)], verbatim: true };
+  }
+  if (/\.[^.\\/]+$/.test(file)) return null; // another extension: not a stand-in this knows
+  const line = firstLine(file);
+  if (!line.startsWith('#!')) return null;
+  const words = line.slice(2).trim().split(/\s+/);
+  const prog = p.basename(words[0] || '') === 'env' ? words[1] : p.basename(words[0] || '');
+  if (prog === 'node') return { command: node, args: [file, ...rest], verbatim: false };
+  if (!['sh', 'bash', 'dash'].includes(prog)) return null;
+  const sh = windowsSh(pathOf(env), { traps, exists, isOwn }) || windowsSh(processPath, { traps, exists, isOwn });
+  if (!sh) return null;
+  return { command: sh, args: [file.replace(/\\/g, '/'), ...rest], verbatim: false }; // C:/… : read the same by sh and by Windows
+}
+
+/**
+ * Windows: what a start of `cmd` becomes, or null. A test's own stand-in that is the FIRST holder of the name on the
+ * child's PATH and that can be started (windowsStandIn) runs, as it does on Linux, also under a trapped name (`gh`,
+ * `docker` and `tailscale` are trapped, and most stand-ins are those). Every other start of a trapped name goes to its
+ * trap (windowsTrap): the trap folder before the stand-in, a `.com`/`.exe` of the name before it, a stand-in outside
+ * the test's area, or no sh to start it with (Node would then pass it by and start a real one later on PATH).
+ */
+function windowsStart(cmd, args, o = {}) {
+  const own = windowsStandIn(cmd, args, o);
+  if (own) return { command: own.command, args: own.args, log: null, verbatim: own.verbatim };
+  return windowsTrap(cmd, args, o);
+}
+
+/**
+ * The environment of a stand-in started through Git for Windows' sh: `noglob` added to MSYS (to the value that is
+ * there, space separated; a caller that asks for `glob` itself keeps it). The MSYS runtime expands wildcards in the
+ * arguments a native caller hands it, and an argument such as `.[].login` ends sh with an access violation before the
+ * script runs; a POSIX exec never expands arguments, so with noglob the stand-in gets them as it does on Linux.
+ */
+function msysNoglob(env) {
+  const out = { ...(env || {}) };
+  const key = Object.keys(out).find((k) => k.toUpperCase() === 'MSYS') || 'MSYS';
+  const words = String(out[key] || '').split(/\s+/).filter(Boolean);
+  if (!words.includes('noglob') && !words.includes('glob')) words.push('noglob');
+  out[key] = words.join(' ');
+  return out;
 }
 
 function wrap(orig, program) {
@@ -299,13 +425,15 @@ function wrap(orig, program) {
     }
     if (program && !shell && process.platform === 'win32' && typeof args[0] === 'string') {
       const opts = args.find((a, i) => i >= 1 && a && typeof a === 'object' && !Array.isArray(a));
-      const plan = windowsTrap(args[0], Array.isArray(args[1]) ? args[1] : [], { env: opts && opts.env });
+      const plan = windowsStart(args[0], Array.isArray(args[1]) ? args[1] : [], { env: opts && opts.env, cwd: opts && opts.cwd });
       if (plan) {
         if (plan.log) logForbidden(plan.log[0], plan.log[1]);
         args[0] = plan.command;
         if (Array.isArray(args[1])) args[1] = plan.args;
         else args.splice(1, 0, plan.args);
-        if (opts) delete opts.windowsVerbatimArguments;
+        if (opts && plan.verbatim) opts.windowsVerbatimArguments = true;
+        else if (opts) delete opts.windowsVerbatimArguments;
+        if (opts && path.win32.basename(plan.command).toLowerCase() === 'sh.exe') opts.env = msysNoglob(opts.env);
       }
     }
     return orig.apply(this, args);
@@ -365,4 +493,4 @@ if (process.env.HOPRIG_TEST_TRAPS && !isRunner) {
   refusePorts(ports, ({ port, what, host }) => logForbidden('knock', `${port} ${host} ${what}`));
 }
 
-module.exports = { trapAlong, systemAlong, logForbidden, allowFullPath, windowsTrap };
+module.exports = { trapAlong, systemAlong, logForbidden, allowFullPath, windowsTrap, windowsStandIn, windowsStart, windowsSh, msysNoglob };

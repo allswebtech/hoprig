@@ -11,6 +11,11 @@ import { Readable } from 'node:stream';
 import test from 'node:test';
 import { gitWorld, quietUi } from '../workspace/gitfix.mjs';
 
+/** A line printed for the owner to paste, run as the owner's shell runs it: sh, or PowerShell on Windows (showFileCommand). */
+const runPasted = (line) => (process.platform === 'win32'
+  ? execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', line])
+  : execFileSync('sh', ['-c', line]));
+
 const w = gitWorld('get-group-rules');
 test.after(() => w.cleanup());
 // Nothing in these tests may reach a real server: GitHub addresses go to a folder that is not there.
@@ -24,7 +29,7 @@ const L = await import('../../src/pcsetup/leftovers.mjs');
 const { system } = await import('../../src/procid.mjs');
 const { earlierIdentity } = await import('../server/helpers.mjs');
 const { saveConfig } = await import('../../src/config.mjs');
-const { showCommand } = await import('../../src/setup/system.mjs');
+const { showFileCommand } = await import('../../src/setup/system.mjs');
 const { main: wsMain } = await import('../../src/workspace/cli.mjs');
 
 /** A bare parent repository with a project.json naming it `name`. */
@@ -110,7 +115,7 @@ for (const [id, pdir] of Object.entries(PLACES)) {
       const r = await get(url, { into: id });
       assert.equal(r.result, 'busy', r.text);
       const file = L.lockPathFor(pdir, repoOf(url));
-      assert.ok(r.message.endsWith(`removing its lock is safe:  ${showCommand(['rm', file])}`), r.message);
+      assert.ok(r.message.endsWith(`removing its lock is safe:  ${showFileCommand('rm', [file])}`), r.message);
       assert.ok(r.message.includes(`'${file}'`), 'the path with a space is quoted');
     } finally {
       lock.release();
@@ -141,8 +146,8 @@ for (const [id, pdir] of Object.entries(PLACES)) {
     const left = (await status()).leftovers.filter((l) => l.path.startsWith(`${temp}.aside-`));
     assert.equal(left.length, 1, 'status lists the leftover moved aside in the place\'s folder');
     assert.equal(left[0].aside, true);
-    assert.equal(left[0].fix, `look at it, then remove it:  ${showCommand(['rm', '-rf', left[0].path])}`);
-    execFileSync('sh', ['-c', left[0].fix.split('remove it:  ')[1]]);
+    assert.equal(left[0].fix, `look at it, then remove it:  ${showFileCommand('rm -rf', [left[0].path])}`);
+    runPasted(left[0].fix.split('remove it:  ')[1]);
     assert.ok(!fs.existsSync(left[0].path), 'the printed line removed exactly that folder');
     assert.ok(fs.existsSync(r.dir), 'and nothing else');
   });
@@ -167,10 +172,10 @@ for (const [id, pdir] of Object.entries(PLACES)) {
     const r = await get(`${id}/shop`);
     assert.equal(r.result, 'taken', r.text);
     assert.equal(r.ok, false);
-    assert.ok(r.fix.startsWith(showCommand(['mv', target, `${target}.aside-`]).slice(0, -1)), r.fix);
+    assert.ok(r.fix.startsWith(showFileCommand('mv', [target, `${target}.aside-`]).slice(0, -1)), r.fix);
     assert.ok(r.message.includes(`${target} is in the way: it is a clone of ${other}, not of ${U[`taken@${id}`]}`), r.message);
     assert.ok(!fs.existsSync(path.join(pdir, L.tempNameFor(repoOf(U[`taken@${id}`])))), 'nothing was cloned');
-    execFileSync('sh', ['-c', r.fix]);
+    runPasted(r.fix);
     assert.ok(!fs.existsSync(target));
     const again = await get(`${id}/shop`);
     assert.equal(again.result, 'cloned', again.text);
@@ -188,7 +193,7 @@ for (const [id, pdir] of Object.entries(PLACES)) {
       const r = await get(spec, { into: id });
       assert.equal(r.result, 'misnamed', `${spec}: ${r.text}`);
       assert.equal(r.here, elsewhere);
-      assert.equal(r.fix, showCommand(['mv', elsewhere, path.join(pdir, path.basename(elsewhere))]));
+      assert.equal(r.fix, showFileCommand('mv', [elsewhere, path.join(pdir, path.basename(elsewhere))]));
       assert.ok(r.fix.includes(`'${elsewhere}'`), 'the paths with a space are quoted');
     }
     // and a map entry written with the scheme's own port is found by the address without it
@@ -261,14 +266,14 @@ test('the dashboard\'s Get and Tia: a group\'s folder that holds another reposit
   assert.equal(j.result.ok, false, j.result.error);
   assert.equal(j.result.data.made, false);
   assert.equal(j.result.data.placed, false);
-  assert.ok(j.result.data.fix.startsWith(showCommand(['mv', target, `${target}.aside-`]).slice(0, -1)), j.result.data.fix);
+  assert.ok(j.result.data.fix.startsWith(showFileCommand('mv', [target, `${target}.aside-`]).slice(0, -1)), j.result.data.fix);
   assert.match(j.result.error, /is in the way: it is a clone of/);
   assert.equal(jobOutcome(j.result), 'needs-you');
   const t = await tia({ ...j.result, lines: [] });
   assert.match(t.outcomes(), /\.aside-/);
   for (const p of ['site', 'client-work/site']) assert.equal(await t.shown(p), false, p);
   // moved aside as the fix says: the next Get puts it into the group, and Tia names it as the page's list does
-  execFileSync('sh', ['-c', j.result.data.fix]);
+  runPasted(j.result.data.fix);
   await call('POST', '/api/pcsetup/project/clone', { spec: 'client-work/site' });
   const ok = await job();
   assert.equal(ok.result.ok, true, ok.result.error);

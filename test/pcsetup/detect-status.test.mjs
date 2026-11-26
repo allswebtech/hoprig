@@ -1,7 +1,7 @@
 // Detection and system status from realistic command output per OS (no real command runs: `run` is a fake).
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { detectItem, detectKits, parseGhAuth, preselect, sysFacts, versionOf } from '../../src/pcsetup/detect.mjs';
+import { detectItem, detectKits, parseGhAuth, preselect, sshKeys, sysFacts, versionOf } from '../../src/pcsetup/detect.mjs';
 import { KITS } from '../../src/pcsetup/kits.mjs';
 import {
   clockOffset, countLines, diskChecks, githubChecks, kitChecks, parseAptCheck, parseAptList, parseMeminfo, parseSoftwareUpdate, parseSwapusage, updatesCheck,
@@ -74,6 +74,12 @@ test('GitHub sign-in: only the account name is kept, never the token', async () 
   assert.ok(!JSON.stringify(checks).includes('gho_'));
   assert.deepEqual(checks.map((c) => c.status), ['ok', 'ok', 'ok']);
   assert.match(checks[2].detail, /id_ed25519/);
+});
+
+test('SSH keys are looked for in the home as the system of the facts names it', () => {
+  const keys = (platform, home, file) => sshKeys({ platform, home, exists: (f) => f === file });
+  assert.deepEqual(keys('win32', 'C:\\Users\\dev', 'C:\\Users\\dev\\.ssh\\id_rsa.pub'), ['id_rsa']);
+  assert.deepEqual(keys('linux', '/home/dev', '/home/dev/.ssh/id_ed25519.pub'), ['id_ed25519']);
 });
 
 test('Ubuntu updates: apt-check "12;3", reboot-required → warn with both', async () => {
@@ -167,7 +173,7 @@ test('Windows detection: python (not python3), npm through cmd.exe, the C++ tool
   assert.deepEqual(f.basics.filter((i) => i.state === 'na').map((i) => i.id), ['curl', 'unzip']);
 });
 
-test('a PATH without Node and npm (an ssh login that skips nvm\'s lines): the ones Hoprig runs on, never "missing", with the fix', { skip: process.platform === 'win32' }, async () => {
+test('a PATH without Node and npm (an ssh login that skips nvm\'s lines): the ones Hoprig runs on, never "missing", with the fix', { skip: process.platform === 'win32' && 'a POSIX login: a PATH and home of Linux and macOS (/nowhere, /home/dev) on this system, and the fix names the shell\'s start file, which Windows has none of' }, async () => {
   const calls = [];
   // Only the npm beside Hoprig's Node answers (in tests HOPRIG_NODE_NPM points it at the runner's trap: never run here).
   const run = async (argv) => {

@@ -30,6 +30,8 @@ const changed = (fn) => (file, args, o) => runMeans(file, fn([...args]), o);
 const without = (...opts) => changed((args) => args.filter((a) => !opts.includes(a)));
 const trial = (opts) => selfTest({ kind: 'bwrap', file: means.file, run: runMeans, plan: planRun, homes: realHomes(), ...opts });
 
+const noBox = process.platform === 'win32' && 'the box is made for Linux and macOS: Windows has none (means.mjs)';
+
 test('in the real box: every trial passes, and the yes carries them', { skip, timeout: 60_000 }, async () => {
   assert.equal(real.ok, true);
   assert.deepEqual(Object.keys(real.trials).sort(), Object.keys(TRIALS).sort());
@@ -65,13 +67,13 @@ test('in the real box: a failing trial makes the check a no, and then nothing ru
   assert.match(r.why, /^no box on this computer: trial/);
 });
 
-test('a box that gives no answer is a no', async () => {
+test('a box that gives no answer is a no', { skip: noBox }, async () => {
   const r = await selfTest({ kind: 'bwrap', file: '/usr/bin/bwrap', plan: planRun, homes: [], run: async () => ({ started: true, code: 0, out: 'nothing here' }) });
   assert.equal(r.ok, false);
   assert.match(r.why, /a command runs/);
 });
 
-test('a failing self-test carries a step in words: there is no fix to apply, so a person looks again and reports it', async () => {
+test('a failing self-test carries a step in words: there is no fix to apply, so a person looks again and reports it', { skip: noBox }, async () => {
   const r = await selfTest({ kind: 'bwrap', file: '/usr/bin/bwrap', plan: planRun, homes: [], run: async () => ({ started: true, code: 0, out: 'nothing here' }) });
   assert.equal(r.ok, false);
   assert.ok(r.step && /hoprig box check/.test(r.step), `a step for a person: ${r.step}`);

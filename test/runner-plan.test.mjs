@@ -8,7 +8,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { WINDOWS_LINE, findTests, longTemp, partOfPlan, testArgs, unlisted } from '../tools/test-plan.mjs';
+import { WINDOWS_LINE, findTests, longTemp, partOfPlan, psCachePlan, psModuleCache, psWarmCall, testArgs, unlisted } from '../tools/test-plan.mjs';
+import { SEAL_VARS } from './seal.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const WIN_ROOT = 'D:\\a\\shop\\shop';
@@ -95,6 +96,43 @@ test('Windows: a temporary folder named in the short form is used by its long na
   assert.equal(longTemp({ TEMP: short }, { platform: 'win32', realpath: () => { throw new Error('gone'); } }), null, 'a folder that cannot be read stays');
   // Nothing changes on another system, whatever its TMPDIR looks like.
   assert.equal(longTemp({ TEMP: '/tmp/a~1', TMPDIR: '/tmp/a~1' }, { platform: 'linux', realpath: () => '/tmp/other' }), null);
+});
+
+test('Windows: one PowerShell module cache for the whole run, in its own temporary folder, carried to every child', () => {
+  const sandbox = 'C:\\t\\hoprig-tests-ab';
+  assert.deepEqual(psModuleCache(sandbox, { platform: 'win32' }), { PSModuleAnalysisCachePath: 'C:\\t\\hoprig-tests-ab\\powershell\\ModuleAnalysisCache' });
+  // Not inside a test's home, so a check that nothing changed in the home never sees it.
+  assert.ok(!psModuleCache(sandbox, { platform: 'win32' }).PSModuleAnalysisCachePath.includes('\\home\\'));
+  // The seal carries it to a child given an environment of its own.
+  assert.ok(SEAL_VARS.includes('PSModuleAnalysisCachePath'));
+  // Nothing on another system.
+  for (const platform of ['linux', 'darwin']) assert.equal(psModuleCache('/t/hoprig-tests-ab', { platform }), null);
+});
+
+test('Windows: the run writes its PowerShell module cache once before the tests; a nested run uses the outer one', () => {
+  const sandbox = 'C:\\t\\hoprig-tests-ab';
+  const own = 'C:\\t\\hoprig-tests-ab\\powershell\\ModuleAnalysisCache';
+  const outer = 'C:\\t\\hoprig-tests-outer\\powershell\\ModuleAnalysisCache';
+  const there = (f) => f === outer;
+  // The outermost run: its own cache, written first.
+  assert.deepEqual(psCachePlan(sandbox, { platform: 'win32', exists: there }), { vars: { PSModuleAnalysisCachePath: own }, warm: true });
+  // A runner started inside a test: the outer run's cache, already written, used as it is.
+  assert.deepEqual(psCachePlan(sandbox, { platform: 'win32', nested: true, inherited: outer, exists: there }), { vars: { PSModuleAnalysisCachePath: outer }, warm: false });
+  // An outer cache that is not there, or a cache path of the person's own outside a run of the suite: never used.
+  assert.equal(psCachePlan(sandbox, { platform: 'win32', nested: true, inherited: 'C:\\gone', exists: there }).warm, true);
+  assert.equal(psCachePlan(sandbox, { platform: 'win32', nested: false, inherited: outer, exists: there }).vars.PSModuleAnalysisCachePath, own);
+  // The one call: Windows PowerShell, no profile, the cmdlets the product asks, and it waits for the file.
+  const call = psWarmCall({ platform: 'win32', waitMs: 30_000 });
+  assert.equal(call.command, 'powershell.exe');
+  assert.deepEqual(call.args.slice(0, 5), ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-EncodedCommand']);
+  const script = Buffer.from(call.args[5], 'base64').toString('utf16le');
+  for (const part of ['Get-Command', 'Get-Process', 'Get-CimInstance -ClassName Win32_Process', 'Test-Path -LiteralPath $f', "'written'", "'missing'"]) assert.ok(script.includes(part), part);
+  assert.ok(call.timeout > 30_000, 'the call may wait for the file');
+  // Nothing on another system.
+  for (const platform of ['linux', 'darwin']) {
+    assert.equal(psCachePlan('/t/x', { platform }), null);
+    assert.equal(psWarmCall({ platform }), null);
+  }
 });
 
 test('a file Node ran that the runner did not mean to run is named', () => {

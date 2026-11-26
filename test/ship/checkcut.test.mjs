@@ -10,7 +10,6 @@ import { tempShip } from './helpers.mjs';
 
 const CHILD = path.join(path.dirname(fileURLToPath(import.meta.url)), 'fixtures', 'check-child.mjs');
 const t = tempShip('ship-checkcut');
-test.after(() => t.cleanup());
 const { runCheck, readChecks, verdict, treeIdOf } = await import('../../src/ship/check.mjs');
 const { allow } = await import('../../src/ship/allow.mjs');
 const { readCheck } = await import('../../src/ship/project.mjs');
@@ -23,6 +22,20 @@ const alive = (pid) => {
     return false;
   }
 };
+// A command the test left running (a failure part way, before it saw the command gone) is ended before its folder is
+// removed: Windows cannot remove a folder a process still runs in.
+const left = [];
+test.after(async () => {
+  for (const p of left) {
+    try {
+      process.kill(p, 'SIGKILL');
+    } catch {
+      /* ended, as it should be */
+    }
+  }
+  for (let i = 0; i < 50 && left.some(alive); i++) await sleep(100);
+  t.cleanup();
+});
 
 test('a check whose Hoprig was killed is closed as cut off, its command ended; the next check runs', async () => {
   const cafe = path.join(t.projects, 'cafe');
@@ -34,15 +47,19 @@ test('a check whose Hoprig was killed is closed as cut off, its command ended; t
   const child = spawn(process.execPath, [CHILD, cafe, cafe], { stdio: 'ignore' });
   for (let i = 0; i < 300 && !(fs.existsSync(pidFile) && readChecks(tree)?.runs.at(-1)?.running); i++) await sleep(25);
   const cmd = Number(fs.readFileSync(pidFile, 'utf8'));
+  left.push(cmd);
   assert.equal(verdict(readChecks(tree)).state, 'running');
   child.kill('SIGKILL');
   await new Promise((res) => child.on('exit', res));
-  assert.equal(alive(cmd), true, 'the check command runs on in its own process group');
+  // Started detached on every system (Windows too), it runs on after its Hoprig was killed.
+  assert.equal(alive(cmd), true, 'the check command runs on after its Hoprig was killed');
   const v = verdict(readChecks(tree));
   assert.deepEqual([v.state, v.passed, v.failed], ['none', 0, 0], 'not "running" for ever, and neither passed nor failed');
   assert.match(v.notCounted, /cut off/);
-  for (let i = 0; i < 40 && alive(cmd); i++) await sleep(25);
+  // Ended by its tree: on Windows after a look at the processes, which takes a moment there.
+  for (let i = 0; i < 600 && alive(cmd); i++) await sleep(25);
   assert.equal(alive(cmd), false, 'the command it left is ended');
+  left.splice(left.indexOf(cmd), 1); // seen gone: its pid may be another process's from now on
   process.env.FAST = '1';
   try {
     const rec = await runCheck(cafe, cafe, { busy: () => ({ over: false, why: null }) });

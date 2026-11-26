@@ -45,7 +45,7 @@ test('failed once, passed once: shown as both; the lines are masked', async () =
   assert.deepEqual([v.state, v.passed, v.failed], ['mixed', 1, 1]);
   const { tree } = await treeIdOf(shop);
   assert.equal(verdict(readChecks(tree)).state, 'mixed', 'kept per tree id');
-  assert.equal(fs.statSync(path.join(process.env.HOPRIG_STATE_DIR, 'ship', 'checks', `${tree}.json`)).mode & 0o777, 0o600);
+  if (process.platform !== 'win32') assert.equal(fs.statSync(path.join(process.env.HOPRIG_STATE_DIR, 'ship', 'checks', `${tree}.json`)).mode & 0o777, 0o600);
 });
 
 test('a branch that changed the check commands asks again', async () => {
@@ -58,8 +58,14 @@ test('a branch that changed the check commands asks again', async () => {
 });
 
 test('the confirmed limiter goes first; one changed by hand stops the check', async () => {
-  write(t.root, { 'limit.sh': `#!/bin/sh\necho limited >> '${path.join(t.root, 'limited.txt')}'\nexec "$@"\n` });
-  setLimiter([path.join(t.root, 'limit.sh')]);
+  if (process.platform === 'win32') {
+    // Windows starts no #!/bin/sh file as a program: the same limiter as a Node script, named after node.
+    write(t.root, { 'limit.cjs': `const { appendFileSync } = require('node:fs');\nconst { spawnSync } = require('node:child_process');\nappendFileSync(${JSON.stringify(path.join(t.root, 'limited.txt'))}, 'limited\\n');\nconst [cmd, ...args] = process.argv.slice(2);\nconst r = spawnSync(cmd, args, { stdio: 'inherit' });\nprocess.exit(r.status ?? 1);\n` });
+    setLimiter([process.execPath, path.join(t.root, 'limit.cjs')]);
+  } else {
+    write(t.root, { 'limit.sh': `#!/bin/sh\necho limited >> '${path.join(t.root, 'limited.txt')}'\nexec "$@"\n` });
+    setLimiter([path.join(t.root, 'limit.sh')]);
+  }
   await runCheck(shop, shop, { busy: idle });
   assert.equal(fs.readFileSync(path.join(t.root, 'limited.txt'), 'utf8'), 'limited\n');
   const { loadConfig, saveConfig } = await import('../../src/config.mjs');

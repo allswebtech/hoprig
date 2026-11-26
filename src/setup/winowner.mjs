@@ -4,6 +4,7 @@
 // hands the folders back; doctor (and so Health) looks at the owner of the workspace and of the coding tool's folder.
 // Every answer comes from `run(argv, opts)` → { ok, stdout } (capture's shape), so tests give Windows' answers.
 import fs from 'node:fs';
+import path from 'node:path';
 import { claudeDir, tilde } from '../paths.mjs';
 import { WHOAMI, parseWhoami, psQuote } from '../server/service/windows.mjs';
 import { workspaceDir } from '../workspace/layout.mjs';
@@ -14,6 +15,17 @@ export const HIGH_INTEGRITY = 'S-1-16-12288';
 /** BUILTIN\Administrators, whatever the display language calls it. */
 export const ADMINS_SID = 'S-1-5-32-544';
 export const WHOAMI_GROUPS = ['whoami', '/groups', '/fo', 'csv', '/nh'];
+
+/**
+ * Windows' own whoami by its full path under the system root, as the system's tar is (pcsetup/unpack.mjs tarCommand):
+ * a program of that name earlier on PATH would answer otherwise (Git for Windows puts a POSIX whoami there, which
+ * knows no /groups or /user). The bare name only when no system root is known, or the file is not there.
+ */
+export function whoamiBin({ env = process.env, exists = fs.existsSync } = {}) {
+  const root = Object.entries(env || {}).find(([k]) => /^(systemroot|windir)$/i.test(k))?.[1];
+  const own = root ? path.win32.join(root, 'System32', 'whoami.exe') : null;
+  return own && exists(own) ? own : 'whoami';
+}
 const SID = /^S-1-\d+(?:-\d+)+$/;
 
 const defaultRun = (argv, opts) => capture(argv, { timeout: 10_000, ...opts });
@@ -25,21 +37,27 @@ const defaultRun = (argv, opts) => capture(argv, { timeout: 10_000, ...opts });
 export const winRun = (sys = {}) => (typeof sys.run === 'function' ? sys.run : process.platform === 'win32' ? defaultRun : null);
 
 /** Does this process run elevated? One `whoami /groups`: true, false, or null when it cannot tell. */
-export async function runsElevated(run = defaultRun) {
-  const r = await run(WHOAMI_GROUPS);
+export async function runsElevated(run = defaultRun, bin = whoamiBin()) {
+  const r = await run([bin, ...WHOAMI_GROUPS.slice(1)]);
   if (!r.ok) return null;
   return String(r.stdout || '').includes(`"${HIGH_INTEGRITY}"`);
 }
 
 /** This account's SID (whoami /user, as the service's task is made for: windows.mjs whoAmI), or null. */
-export async function mySid(run = defaultRun) {
-  const r = await run([WHOAMI[0], ...WHOAMI[1]]);
+export async function mySid(run = defaultRun, bin = whoamiBin()) {
+  const r = await run([bin, ...WHOAMI[1]]);
   return r.ok ? parseWhoami(r.stdout)?.sid || null : null;
 }
 
-/** The PowerShell call that prints the owner SID of `dir` (the SID: the group's name depends on the language). */
-export const ownerArgv = (dir) => ['powershell.exe', '-NoProfile', '-NonInteractive', '-Command',
-  `(Get-Acl -LiteralPath ${psQuote(dir)}).GetOwner([System.Security.Principal.SecurityIdentifier]).Value`];
+/**
+ * The PowerShell call that prints the owner SID of `dir` (the SID: the group's name depends on the language). No
+ * cmdlet, so no module is loaded (Get-Acl made doctor, and so Health, wait 17 to 19 s for Windows PowerShell 5.1's
+ * first module load; server/platform/win32.mjs NO_MODULE_PRELUDE says the same of the other scripts): .NET reads the
+ * owner section alone, the answer is written by [Console]. The folder is one single-quoted word ($p). powershell.exe
+ * is Windows PowerShell 5.1 on .NET Framework, where Directory and File have GetAccessControl.
+ */
+export const ownerScript = (dir) => `$ErrorActionPreference = 'SilentlyContinue'; $p = ${psQuote(dir)}; $s = [System.Security.AccessControl.AccessControlSections]::Owner; $a = if ([System.IO.Directory]::Exists($p)) { [System.IO.Directory]::GetAccessControl($p, $s) } else { [System.IO.File]::GetAccessControl($p, $s) }; [Console]::Out.WriteLine($a.GetOwner([System.Security.Principal.SecurityIdentifier]).Value)`;
+export const ownerArgv = (dir) => ['powershell.exe', '-NoProfile', '-NonInteractive', '-Command', ownerScript(dir)];
 
 /**
  * The walk the hand-back line runs: $o is the new owner ("*<SID>"), $ds the folders. Each item gets its own

@@ -11,7 +11,6 @@ import { sandbox } from '../server/helpers.mjs';
 
 const box = sandbox('gatewaycli');
 test.after(() => box.cleanup());
-const POSIX = { skip: process.platform === 'win32' };
 const freePort = () => new Promise((r) => { const s = net.createServer().listen(0, '127.0.0.1', () => { const p = s.address().port; s.close(() => r(p)); }); });
 const PORT = await freePort();
 const relay = path.join(box.root, 'relay');
@@ -92,7 +91,7 @@ test('remove asks (and names the providers that start it); a shipped gateway is 
   fs.rmSync(path.join(box.profiles, 'relay.env'));
 });
 
-test('a command run without a terminal (as Tia\'s run_command or a session\'s tool runs one) adds nothing', POSIX, () => {
+test('a command run without a terminal (as Tia\'s run_command or a session\'s tool runs one) adds nothing', () => {
   const env = { ...process.env };
   delete env.CLAUDECODE;
   const r = spawnSync(process.execPath, [binFile(), 'gateways', ...ADD], { env, input: 'y\n', encoding: 'utf8' });
@@ -103,7 +102,7 @@ test('a command run without a terminal (as Tia\'s run_command or a session\'s to
   assert.deepEqual(defined(), []);
 });
 
-test('in the owner\'s own terminal: hoprig gateways add, answered y', { skip: process.platform === 'win32' || !nodePty }, async () => {
+test('in the owner\'s own terminal: hoprig gateways add, answered y', { skip: !nodePty && 'node-pty is not installed' }, async () => {
   const env = { ...process.env };
   for (const k of ['CLAUDECODE', 'OPENCODE']) delete env[k];
   // The product's own spawn, as a dashboard's terminal starts it (on macOS it first makes node-pty's helper executable).
@@ -175,7 +174,7 @@ test('a definition of config.json that was not loaded: not added twice under its
   }
 });
 
-test('confirm, after the owner changed his program: shows the file and its fingerprint, asks as add does, keeps sharing and keys', POSIX, async () => {
+test('confirm, after the owner changed his program: shows the file and its fingerprint, asks as add does, keeps sharing and keys', async () => {
   const { saveConfig } = await import('../../src/config.mjs');
   const { hashPassword } = await import('../../src/server/auth.mjs');
   const K = await import('../../src/gateway/keys.mjs');

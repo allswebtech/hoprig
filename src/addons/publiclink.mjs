@@ -39,6 +39,7 @@ import { addonsDir, alive, binDir, dashboardPort, findBin, patchFor, readJsonFil
 import { tunnelFact } from './linkmigrate.mjs';
 import { checkPort, exposureQuestion, serviceLogin } from './localservice.mjs';
 import { forInstalls, withoutSecrets } from '../secretenv.mjs';
+import { replaceFile } from '../replacefile.mjs';
 
 export { findBin, patchFor, restoreFor };
 
@@ -145,7 +146,7 @@ const beside = (file) => `${file}.part-${crypto.randomBytes(4).toString('hex')}`
 /** Move `tmp` into place as `file`, a program that can run. */
 function putInPlace(tmp, file) {
   fs.chmodSync(tmp, 0o755);
-  fs.renameSync(tmp, file);
+  replaceFile(tmp, file);
 }
 
 /**

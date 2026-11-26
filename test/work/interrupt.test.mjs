@@ -8,7 +8,7 @@ import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
-import { tempWork, write } from './helpers.mjs';
+import { endSignal, tempWork, write } from './helpers.mjs';
 
 const t = tempWork('work-interrupt');
 test.after(() => t.cleanup());
@@ -53,7 +53,7 @@ function killedSave(place, step) {
     const r = await saveWork(${JSON.stringify(place)}, { subject: ${JSON.stringify(SUBJECT)} });
     process.stdout.write(JSON.stringify(r.message));`;
   const r = spawnSync(process.execPath, ['--input-type=module', '-e', code], { env: { ...process.env, [STOP_ENV]: step }, encoding: 'utf8', timeout: 60_000 });
-  return { signal: r.signal, out: r.stdout, err: r.stderr };
+  return { signal: endSignal(r), out: r.stdout, err: r.stderr };
 }
 
 const CASES = [

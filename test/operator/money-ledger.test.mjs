@@ -3,6 +3,7 @@
 // the writes after it do not wait. Made-up amounts in a temporary state folder: nothing here spends anything.
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import path from 'node:path';
 import test from 'node:test';
 import { sandbox } from '../server/helpers.mjs';
 
@@ -17,7 +18,7 @@ test('one ledger for one state folder', () => {
 });
 
 test('a lock left behind: the first write waits until it is stale and takes it over, the writes after it do not wait', () => {
-  fs.mkdirSync(new URL('.', `file://${spendFile()}`).pathname, { recursive: true });
+  fs.mkdirSync(path.dirname(spendFile()), { recursive: true });
   // A lock from a process that ended inside it, three seconds old: about two seconds younger than the age at which
   // it is taken over.
   fs.writeFileSync(`${spendFile()}.lock`, '');

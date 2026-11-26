@@ -41,8 +41,14 @@ test.after(() => {
 });
 /** A dashboard in a process of its own, signed in. → { child, settings(patch), end() } */
 async function dashboard() {
-  const child = spawn(process.execPath, [DASH], { env: process.env, stdio: ['ignore', 'pipe', 'inherit'] });
+  const child = spawn(process.execPath, [DASH], { env: process.env, stdio: ['ignore', 'pipe', 'pipe'] });
   started.push(child);
+  // What the dashboard logs (an error behind a 500) goes into the answer a failing assertion shows.
+  let log = '';
+  child.stderr.on('data', (d) => {
+    process.stderr.write(d);
+    log = (log + d).slice(-3000);
+  });
   const first = await new Promise((resolve, reject) => {
     readline.createInterface({ input: child.stdout }).once('line', resolve);
     child.once('exit', (c) => reject(new Error(`the dashboard ended with ${c}`)));
@@ -54,7 +60,7 @@ async function dashboard() {
   assert.ok(cookie, 'signed in');
   const settings = async (patch) => {
     const r = await fetch(`${origin}/api/work/missions/settings`, { method: 'POST', headers: { 'Content-Type': 'application/json', Origin: origin, Cookie: cookie }, body: JSON.stringify(patch) });
-    return { status: r.status, body: await r.json() };
+    return { status: r.status, body: { ...(await r.json()), ...(r.status >= 500 ? { log: log.trim() } : {}) } };
   };
   const end = () => new Promise((r) => {
     if (child.exitCode !== null || child.signalCode !== null) return r();

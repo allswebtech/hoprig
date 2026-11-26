@@ -191,7 +191,7 @@ test('the hub settings for its address', () => {
   assert.deepEqual(H.hubSettings('https://hub.example.com', ['https://hub.example.com']).allowedOrigins, ['https://hub.example.com']);
 });
 
-test('firewall: ufw or firewalld when active, with the command for 80 and 443', async () => {
+test('firewall: ufw or firewalld when active, with the command for 80 and 443', { skip: process.platform === 'win32' && 'Linux firewalls and web servers are handed in, and Linux PATH rules cannot read a Windows PATH' }, async () => {
   const ufw = fakeBin(path.join(s.tmp, 'fw-ufw'), { ufw: 'exit 0', systemctl: '[ "$2" = ufw ] && echo active || echo inactive' });
   assert.deepEqual(await H.firewallPlan({ env: { PATH: pathWith(s.tmp, ufw) }, platform: 'linux' }), { name: 'ufw', steps: [['sudo', 'ufw', 'allow', '80,443/tcp']] }); // seal: only the test's own folders, in an environment that keeps the runner's variables
   const fwd = fakeBin(path.join(s.tmp, 'fw-firewalld'), { 'firewall-cmd': 'exit 0', systemctl: '[ "$2" = firewalld ] && echo active || echo inactive' });
@@ -201,7 +201,7 @@ test('firewall: ufw or firewalld when active, with the command for 80 and 443', 
   assert.equal(await H.firewallPlan({ env: { PATH: pathWith(s.tmp, off) }, platform: 'linux' }), null); // seal: only the test's own folders, in an environment that keeps the runner's variables
 });
 
-test('detection with fake programs: nginx running, Caddy installed, nothing', async () => {
+test('detection with fake programs: nginx running, Caddy installed, nothing', { skip: process.platform === 'win32' && 'Linux firewalls and web servers are handed in, and Linux PATH rules cannot read a Windows PATH' }, async () => {
   const run = async (programs, exists = () => false) => H.detectWebServer({ env: { PATH: pathWith(s.tmp, fakeBin(path.join(s.tmp, `web-${Object.keys(programs).join('-')}`), programs)) }, platform: 'linux', exists }); // seal: only the test's own folders, in an environment that keeps the runner's variables
   const nginx = await run({ nginx: 'exit 0', ss: 'echo "LISTEN 0 511 0.0.0.0:80 0.0.0.0:*"', systemctl: '[ "$2" = nginx ] && echo active || echo inactive' });
   assert.equal(nginx.kind, 'nginx');

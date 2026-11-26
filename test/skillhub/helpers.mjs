@@ -3,6 +3,7 @@
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { sandbox } from '../server/helpers.mjs';
 
 export { sandbox };
@@ -36,7 +37,8 @@ export function gitRepo(dir, files) {
     return git(dir, 'rev-parse', 'HEAD');
   };
   const first = commit(files);
-  return { dir, url: `file://${dir}`, first, commit, head: () => git(dir, 'rev-parse', 'HEAD'), git: (...a) => git(dir, ...a) };
+  // A file:// address Git reads on every system: file:///C:/… on Windows, file:///tmp/… elsewhere.
+  return { dir, url: pathToFileURL(dir).href, first, commit, head: () => git(dir, 'rev-parse', 'HEAD'), git: (...a) => git(dir, ...a) };
 }
 
 /** A UI for runSkillsStep / the CLI that records what it said and answers questions from a list. */

@@ -25,9 +25,11 @@ const { earlierIdentity } = await import('../server/helpers.mjs');
 test.after(() => fs.rmSync(root, { recursive: true, force: true }));
 
 const lockOf = (tree) => path.join(stateDir(), 'mission-runs', `${crypto.createHash('sha256').update(tree).digest('hex').slice(0, 24)}.lock`);
+// The box runs on Linux and macOS only, and Windows has no process groups: a box a dead dashboard left cannot be there.
+const skip = process.platform === 'win32' && 'Windows has no box and no process groups: no box can outlive its dashboard there';
 const groupAlive = (pid) => { try { process.kill(-pid, 0); return true; } catch (e) { return e.code === 'EPERM'; } };
 
-test('a box left by a dead dashboard is ended by its group id before the worktree is free; no overlap (20 tries)', { timeout: 60_000 }, async () => {
+test('a box left by a dead dashboard is ended by its group id before the worktree is free; no overlap (20 tries)', { skip, timeout: 60_000 }, async () => {
   assert.ok(stateDir().startsWith(root), 'the state folder is isolated to this test');
   const groups = [];
   let overlaps = 0;
@@ -58,7 +60,7 @@ test('a box left by a dead dashboard is ended by its group id before the worktre
 // id now leads another process (here: a process of this test's own whose start is not the recorded one) is not the box:
 // it is never signalled, and the lock is taken as free. One whose leader cannot be told (no identity recorded) is not
 // signalled either: the worktree waits.
-test('a group id that now belongs to another process is never signalled; one that cannot be told waits', { timeout: 60_000 }, async () => {
+test('a group id that now belongs to another process is never signalled; one that cannot be told waits', { skip, timeout: 60_000 }, async () => {
   const other = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { detached: true, stdio: 'ignore' });
   try {
     await new Promise((r) => setTimeout(r, 60));

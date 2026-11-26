@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import test from 'node:test';
 import { POWERSHELL, psArgs } from '../src/server/platform/win32.mjs';
-import { makeIdentity, parseCreations, parseLstarts, sameProcess, statStart } from '../src/procid.mjs';
+import { creationScript, makeIdentity, parseCreations, parseLstarts, sameProcess, statStart } from '../src/procid.mjs';
 import { lstart } from './server/helpers.mjs';
 
 // /proc/<pid>/stat: 52 fields; the name (field 2) in parentheses may hold spaces and ")".
@@ -38,6 +38,25 @@ test('macOS: the start date ps prints (lstart, C locale, UTC), and nothing else'
 test('Windows: PowerShell lines, with the carriage return at the end', () => {
   const m = parseCreations('101 1799999990000\r\n202 1799999999123\r\n\r\n');
   assert.deepEqual([...m], [[101, 1799999990000], [202, 1799999999123]]);
+});
+
+test('Windows: the identity script calls no cmdlet (Windows PowerShell loads a module for its first one, about 17 s each time in a fresh home)', () => {
+  const script = creationScript([101, 202]);
+  // The verbs of cmdlets, and the pipeline cmdlets that look like words of the language.
+  for (const word of [/\bGet-/i, /\bSet-/i, /\bNew-/i, /\bWrite-/i, /\bSelect-/i, /\bSort-/i, /\bOut-/i, /\bForEach-Object\b/i, /\bWhere-Object\b/i, /\bInvoke-/i, /\bImport-Module\b/i, /\|/]) {
+    assert.doesNotMatch(script, word, `${word} in the script`);
+  }
+  assert.match(script, /@\(101, 202\)/, 'each pid asked about, as a number');
+  assert.match(script, /\[System\.Diagnostics\.Process\]::GetProcessById\(\$id\)/);
+  assert.match(script, /\(\[DateTimeOffset\]\[System\.Diagnostics\.Process\]::GetProcessById\(\$id\)\.StartTime\)\.ToUnixTimeMilliseconds\(\)/, 'the same number as before: Unix milliseconds');
+  // A process whose StartTime may not be read (another account's, a protected one): its CreationDate through the
+  // searcher, cut to the same Unix millisecond; a pid with no process gives no line.
+  assert.match(script, /if \(\$ms -eq \$null\) \{ try \{ foreach \(\$w in \[System\.Management\.ManagementObjectSearcher\]::new\("SELECT CreationDate FROM Win32_Process WHERE ProcessId=\$id"\)\.Get\(\)\)/);
+  assert.match(script, /\(\[DateTimeOffset\]\[System\.Management\.ManagementDateTimeConverter\]::ToDateTime\(\$w\['CreationDate'\]\)\)\.ToUnixTimeMilliseconds\(\)/);
+  assert.match(script, /if \(\$ms -ne \$null\) \{ \[Console\]::Out\.WriteLine\("\$id \$ms"\) \}/);
+  assert.match(script, /try \{[^]*\} catch \{\}/, 'a pid that is gone or may not be read gives no line');
+  // What it prints is read as before: one "<pid> <ms>" line per process that is there.
+  assert.deepEqual([...parseCreations('101 1795615533147\r\n')], [[101, 1795615533147]]);
 });
 
 test('the same process: Linux exactly, the others within 3 seconds or a late start, and never a guess', () => {
@@ -182,8 +201,8 @@ test('Windows reader: one PowerShell call for all pids, kept 5 minutes', () => {
     assert.equal(cmd, POWERSHELL);
     assert.deepEqual(args.slice(0, -1), psArgs('').slice(0, -1), 'as the other PowerShell calls');
     const script = Buffer.from(args.at(-1), 'base64').toString('utf16le');
-    assert.match(script, /Win32_Process -Filter 'ProcessId=101 OR ProcessId=202 OR ProcessId=7'/);
-    assert.match(script, /\[DateTimeOffset\]\$_\.CreationDate\)\.ToUnixTimeMilliseconds\(\)/);
+    assert.match(script, /foreach \(\$id in @\(101, 202, 7\)\)/);
+    assert.match(script, /GetProcessById\(\$id\)\.StartTime\)\.ToUnixTimeMilliseconds\(\)/);
     return `7 ${s.now() - 4_000}\r\n101 ${s.now() - 60_000}\r\n`;
   });
   const m = s.id.of([101, 202]);
@@ -198,7 +217,7 @@ test('Windows reader: one PowerShell call for all pids, kept 5 minutes', () => {
 
 test('this process\'s own start is the one of when it was loaded, also after the clock was set', () => {
   // Days later the time service moves the clock an hour; then the first chat writes the dashboard's identity. It is the
-  // start the system stored at creation (Windows' CreationDate does not move with the clock), not one an hour off.
+  // start the system stored at creation (Windows' process start time does not move with the clock), not one an hour off.
   const start = Date.now() - process.uptime() * 1000;
   const real = Date.now;
   Date.now = () => real() + 3_600_000;
@@ -229,6 +248,7 @@ test('in the background (the dashboard): what is not known yet is not known, and
   answer();
   await new Promise((r) => setImmediate(r));
   assert.equal(id.of([101]).get(101), `T:${t - 60_000}`, 'known once the system answered');
+  assert.equal(asked.length, 2, 'the pid wanted while the first question was on its way (202) is asked right after it');
   assert.equal(waited.length, 0, 'never waited for the system');
   // Before a signal: asked now, and of() uses only that answer.
   t += 1_000;
@@ -236,7 +256,7 @@ test('in the background (the dashboard): what is not known yet is not known, and
   answer();
   assert.equal(await at, t);
   assert.equal(id.of([101], { after: t }).get(101), `T:${t - 60_000}`);
-  assert.equal(asked.length, 2);
+  assert.equal(asked.length, 3);
 });
 
 test('filedProcess: one judgement of the identities, never a second read that may say otherwise', async () => {
@@ -267,4 +287,40 @@ test('filedProcess: one judgement of the identities, never a second read that ma
   } finally {
     c.kill('SIGKILL');
   }
+});
+
+test('Windows: a live pid whose StartTime may not be read is told by its CreationDate: another start is gone, no answer at all is held', async () => {
+  const L = await import('../src/pcsetup/leftovers.mjs');
+  const LIVE = process.ppid;
+  const THEN = 1795000000000;
+  const NOW = 1795000900000;
+  // The reader as the identity script answers: the second way gave the start of the process that has the pid now.
+  const told = makeIdentity({ platform: 'win32', run: (cmd, args) => `${LIVE} ${NOW}\r\n${process.pid} ${Math.round(Date.now() - process.uptime() * 1000)}\r\n` });
+  assert.equal(L.lockOwner(JSON.stringify({ pid: LIVE, proc: `T:${THEN}` }), Date.now(), { ident: told }).running, false, 'another start: the lock is taken over');
+  // Neither way could tell (no line for that pid): held, as before.
+  const silent = makeIdentity({ platform: 'win32', run: () => `${process.pid} ${Math.round(Date.now() - process.uptime() * 1000)}\r\n` });
+  assert.equal(L.lockOwner(JSON.stringify({ pid: LIVE, proc: `T:${THEN}` }), Date.now(), { ident: silent }).running, true, 'not told: held');
+});
+
+test('Windows: a protected process is told by its CreationDate, and both ways give this process the same start', { skip: process.platform !== 'win32' && 'it reads Windows processes with Windows PowerShell: Windows only', timeout: 60_000 }, async () => {
+  const { spawnSync } = await import('node:child_process');
+  const ps = (script) => {
+    const t = Date.now();
+    const r = spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', Buffer.from(script, 'utf16le').toString('base64')], { encoding: 'utf8', windowsHide: true, timeout: 30_000 });
+    return { out: String(r.stdout || '').trim(), ms: Date.now() - t };
+  };
+  // A process of the system this test may not open: csrss, found by its name through the same searcher.
+  const found = ps("foreach ($w in [System.Management.ManagementObjectSearcher]::new(\"SELECT ProcessId FROM Win32_Process WHERE Name='csrss.exe'\").Get()) { [Console]::Out.WriteLine($w['ProcessId']) }");
+  const csrss = Number(found.out.split(/\r?\n/)[0]);
+  assert.ok(csrss > 0, `csrss found: ${found.out}`);
+  const id = makeIdentity();
+  const t0 = Date.now();
+  const told = id.of([csrss], { after: Date.now() - 2000 }).get(csrss);
+  const readMs = Date.now() - t0;
+  assert.match(String(told), /^T:\d+$/, 'answered, not unknown');
+  // This process, both ways: the same Unix millisecond.
+  const both = ps(`$p = [System.Diagnostics.Process]::GetProcessById(${process.pid}); $a = ([DateTimeOffset]$p.StartTime).ToUnixTimeMilliseconds(); foreach ($w in [System.Management.ManagementObjectSearcher]::new("SELECT CreationDate FROM Win32_Process WHERE ProcessId=${process.pid}").Get()) { $b = ([DateTimeOffset][System.Management.ManagementDateTimeConverter]::ToDateTime($w['CreationDate'])).ToUnixTimeMilliseconds() }; [Console]::Out.WriteLine("$a $b")`);
+  const [a, b] = both.out.split(/\s+/).map(Number);
+  console.log(`WINDIAG procid: csrss ${csrss} ${told} in ${readMs}ms; this process StartTime ${a} CreationDate ${b} (both read in ${both.ms}ms)`);
+  assert.equal(a, b, 'both ways give the same start');
 });

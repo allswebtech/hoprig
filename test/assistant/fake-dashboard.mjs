@@ -12,6 +12,7 @@ import { createAssistantCore } from '../../src/assistant/core.mjs';
 import { JobStore } from '../../src/assistant/jobs.mjs';
 import { Skills } from '../../src/assistant/skills.mjs';
 import { WORK_OPS, workState } from './fake-work.mjs';
+import { fileURLToPath } from 'node:url';
 
 const clone = (v) => JSON.parse(JSON.stringify(v));
 
@@ -655,7 +656,7 @@ export async function startFakeDashboard({ ops = new FakeOps(), token = 'test-to
     jobs: new JobStore({ dir: null, ...(now ? { now } : {}) }),
     audit: new AuditLog({ file: null }),
     cards: new CardStore(now ? { now } : {}),
-    skills: skills || new Skills({ dirs: [{ dir: '/nonexistent-owner-skills', source: 'owner' }, { dir: new URL('../../skills', import.meta.url).pathname, source: 'built-in' }] }),
+    skills: skills || new Skills({ dirs: [{ dir: '/nonexistent-owner-skills', source: 'owner' }, { dir: fileURLToPath(new URL('../../skills', import.meta.url)), source: 'built-in' }] }),
     ...(now ? { now } : {}),
   });
   const server = http.createServer(async (req, res) => {

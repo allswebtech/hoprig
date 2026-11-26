@@ -38,7 +38,8 @@ const notBuilt = () => flat(section('Not built, or not proven yet'));
 /** docs/HANDS-OFF.md on one line. */
 const handsOff = () => flat(read('docs/HANDS-OFF.md'));
 // Made-up places for the wall, as test/hands-off-examples.test.mjs has them: nothing here exists on disk.
-const places = { cwd: '/w/shop', home: '/w', workspace: '/w', projects: ['/w'], hoprig: ['/w/.config/hoprig', '/w/.local/state/hoprig'], own: '/w/shop', relative: true };
+// They are POSIX places, read as on Linux everywhere: on Windows `/w` is the drive-relative `W:`, which no home is.
+const places = { platform: 'linux', cwd: '/w/shop', home: '/w', workspace: '/w', projects: ['/w'], hoprig: ['/w/.config/hoprig', '/w/.local/state/hoprig'], own: '/w/shop', relative: true };
 /** A made-up git for the wall: the default branch is main, the session stands on the work branch feature. */
 const git = (cwd, args) => {
   const a = args.join(' ');

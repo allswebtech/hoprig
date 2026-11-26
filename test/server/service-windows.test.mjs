@@ -30,6 +30,8 @@ function fakeWindows(answers = {}) {
   const calls = [];
   let xml = null;
   const runner = async (cmd, args) => {
+    // Windows' own whoami comes by its full path there (setup/winowner.mjs whoamiBin): recorded by its name.
+    if (/[\\/]whoami\.exe$/i.test(cmd)) cmd = 'whoami';
     calls.push([cmd, ...args]);
     if (cmd === 'schtasks' && args[0] === '/Create') xml = fs.readFileSync(args[args.indexOf('/XML') + 1]).subarray(2).toString('utf16le');
     // The task starts the new dashboard: it writes its record and answers its key on its port (deps below).
@@ -70,6 +72,19 @@ test('whoami /user output: name and SID; anything else is no answer', () => {
   assert.equal(winsvc.parseWhoami('ERROR: Unable to get user name'), null);
   assert.equal(winsvc.parseWhoami(''), null);
   assert.deepEqual(winsvc.WHOAMI, ['whoami', ['/user', '/fo', 'csv', '/nh']]);
+});
+
+test('who I am is asked of Windows\' own whoami by its full path, never one found first on PATH', async () => {
+  const { whoamiBin } = await import('../../src/setup/winowner.mjs');
+  const asked = [];
+  const runner = async (cmd, args) => (asked.push([cmd, ...args]), { ok: true, out: WHOAMI_OUT, err: '' });
+  // Windows' answers: a system root whose System32 holds whoami.exe (Git for Windows puts a POSIX whoami on PATH).
+  const own = whoamiBin({ env: { SystemRoot: 'C:\\Windows' }, exists: (f) => f === 'C:\\Windows\\System32\\whoami.exe' });
+  assert.deepEqual(await winsvc.whoAmI(runner, own), { name: 'box2\\alex', sid: SID });
+  assert.deepEqual(asked, [['C:\\Windows\\System32\\whoami.exe', '/user', '/fo', 'csv', '/nh']]);
+  // By default: whoamiBin() of this system (the bare name where no system root is known).
+  await winsvc.whoAmI(runner);
+  assert.equal(asked[1][0], whoamiBin());
 });
 
 test('service install: the task runs as the account the system names (its SID), never one built from USERDOMAIN', async () => {

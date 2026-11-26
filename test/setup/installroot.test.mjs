@@ -171,8 +171,8 @@ test('as root with --yes: the steps said first, the user made with its comment a
   // The keys: .ssh 0700 and the file 0600, owned by the user; root's lines as written (options kept), root's file unchanged.
   assert.match(rec, new RegExp(`^install -d -m 0700 -o 1500 -g 1500 ${home}/.ssh$`, 'm'));
   assert.match(rec, new RegExp(`^install -m 0600 -o 1500 -g 1500 \\S+ ${home}/.ssh/authorized_keys$`, 'm'));
-  assert.equal(fs.statSync(path.join(home, '.ssh')).mode & 0o777, 0o700);
-  assert.equal(fs.statSync(path.join(home, '.ssh', 'authorized_keys')).mode & 0o777, 0o600);
+  if (process.platform !== 'win32') assert.equal(fs.statSync(path.join(home, '.ssh')).mode & 0o777, 0o700);
+  if (process.platform !== 'win32') assert.equal(fs.statSync(path.join(home, '.ssh', 'authorized_keys')).mode & 0o777, 0o600);
   // The line with a forced command is left out (it would not log in as the user), and said so.
   assert.equal(fs.readFileSync(path.join(home, '.ssh', 'authorized_keys'), 'utf8'), `${KEY}\r\n`);
   assert.match(r.out, /! 1 of root's key lines were not given to hoprig: they hold a forced command/);
@@ -185,7 +185,7 @@ test('as root with --yes: the steps said first, the user made with its comment a
   const whole = order.indexOf('visudo -c -q');
   assert.ok(tmpCheck >= 0 && tmpCheck < put && put < whole, order.join('\n'));
   assert.equal(fs.readFileSync(path.join(pc.etc, 'sudoers.d', '90-hoprig-hoprig'), 'utf8'), 'hoprig ALL=(ALL) NOPASSWD:ALL\n');
-  assert.equal(fs.statSync(path.join(pc.etc, 'sudoers.d', '90-hoprig-hoprig')).mode & 0o777, 0o440);
+  if (process.platform !== 'win32') assert.equal(fs.statSync(path.join(pc.etc, 'sudoers.d', '90-hoprig-hoprig')).mode & 0o777, 0o440);
   // Lingering, then the same installer as the user through runuser with its service manager's address.
   assert.ok(order.indexOf('loginctl enable-linger hoprig') > whole);
   const ru = rec.split('\n').find((l) => l.startsWith('runuser '));

@@ -12,6 +12,7 @@
 //   server      dashboard settings (see src/server)
 import fs from 'node:fs';
 import { configDir, configFile } from './paths.mjs';
+import { patiently, replaceFile } from './replacefile.mjs';
 
 export const DEFAULTS = { claudeBin: 'claude', claudeArgs: [], sessionDefaults: {}, launcher: null, server: {} };
 
@@ -65,10 +66,15 @@ export function sessionArgs(cfg = loadConfig()) {
   ];
 }
 
+// On Windows a file another process is replacing this moment (two dashboards saving their settings at once), or one a
+// virus scan holds open for a moment, refuses a read or a replace with EPERM, EACCES or EBUSY until it lets go: such a
+// step is tried again for up to a second there (src/replacefile.mjs). On other systems it runs once.
+export { patiently };
+
 export function loadConfig() {
   let raw = {};
   try {
-    raw = JSON.parse(fs.readFileSync(configFile(), 'utf8'));
+    raw = JSON.parse(patiently(() => fs.readFileSync(configFile(), 'utf8')));
   } catch (e) {
     if (e.code !== 'ENOENT') throw new Error(`${configFile()}: ${e.message}`);
   }
@@ -86,7 +92,7 @@ export function loadConfig() {
 export function saveConfig(patch) {
   let raw = {};
   try {
-    raw = JSON.parse(fs.readFileSync(configFile(), 'utf8'));
+    raw = JSON.parse(patiently(() => fs.readFileSync(configFile(), 'utf8')));
   } catch (e) {
     if (e.code !== 'ENOENT') throw new Error(`${configFile()}: ${e.message}`);
   }
@@ -95,6 +101,6 @@ export function saveConfig(patch) {
   fs.mkdirSync(configDir(), { recursive: true, mode: 0o700 });
   const tmp = `${configFile()}.${process.pid}.tmp`;
   fs.writeFileSync(tmp, JSON.stringify(next, null, 2) + '\n', { mode: 0o600 });
-  fs.renameSync(tmp, configFile());
+  replaceFile(tmp, configFile());
   return next;
 }

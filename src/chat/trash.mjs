@@ -16,6 +16,7 @@ import path from 'node:path';
 import { claudeDir, stateDir, tilde } from '../paths.mjs';
 import { isSessionId, projectDir } from '../sessions.mjs';
 import { dropOwnName } from '../titles.mjs';
+import { replaceFile } from '../replacefile.mjs';
 
 export const KEEP_DAYS = 30;
 export const WRITTEN_WHY = 'It is still being written: is it open in a terminal? End it there first, or try again in a moment.';
@@ -40,7 +41,7 @@ function writeEntry(e) {
   const f = path.join(entryDir(e.id), 'entry.json');
   const tmp = `${f}.tmp`;
   fs.writeFileSync(tmp, `${JSON.stringify(e)}\n`, { mode: 0o600 });
-  fs.renameSync(tmp, f);
+  replaceFile(tmp, f);
 }
 function readEntry(eid) {
   if (!ENTRY_RE.test(String(eid))) return null;

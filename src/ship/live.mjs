@@ -27,12 +27,12 @@ import { fileURLToPath } from 'node:url';
 import { createActivityLog } from '../automation/store.mjs';
 import { gitRead } from '../gitread.mjs';
 import { stateDir } from '../paths.mjs';
-import { filedProcess, system } from '../procid.mjs';
+import { alive, askedAfter, filedProcess, freshAfter, system } from '../procid.mjs';
 import { capture } from '../setup/system.mjs';
 import { writeSynced } from '../work/journal.mjs';
 import { isAllowed, switchesOf } from './allow.mjs';
 import { maskLines, readChecks, treeIdOf, verdict } from './check.mjs';
-import { gitFolder, lockHolder, takeLock } from './lock.mjs';
+import { gitFolder, lockHolder, lockPid, takeLock } from './lock.mjs';
 import { comparePictures, shownPicture, takePicture } from './picture.mjs';
 import { blocksDir, readLive, resolveWords, showWords } from './project.mjs';
 import { restartsDashboard } from './restart.mjs';
@@ -107,8 +107,11 @@ export function readLast(real) {
 const claimFile = (gitDir, id) => path.join(gitDir, `hoprig-ship-${id}.claim`);
 
 /** Whether the claim `c` in `file` belongs to a process that is gone (a half-written one: after a minute). */
-function claimGone(file, c, ident) {
-  if (c && Number.isInteger(c.pid)) return filedProcess(file, c, { ident }) === false;
+function claimGone(file, c, ident, after = freshAfter()) {
+  // Alive is asked at this moment (filedProcess: a pid that does not live holds nothing), and the identity is one the
+  // system gave since `after` (FRESH_MS ago, or when a look that waited asked): a kept answer may be from before the
+  // claimant ended and its pid was handed on.
+  if (c && Number.isInteger(c.pid)) return filedProcess(file, c, { ident, after }) === false;
   try {
     return Date.now() - fs.statSync(file).mtimeMs > 60_000;
   } catch {
@@ -116,38 +119,97 @@ function claimGone(file, c, ident) {
   }
 }
 
+// How long the rounds of a claim go on while another taker is in the middle of its own, or a file of the claim is
+// touched by another program at that moment (Windows: a removal answers EPERM now and then). Then it is not taken.
+const WINDOWS_CLAIM_MS = 3000;
+const CLAIM_MS = 500;
+// A break file older than this was left by a taker that ended in the middle: it is removed.
+const BREAK_STALE_MS = 10_000;
+const PAUSE = new Int32Array(new SharedArrayBuffer(4));
+
 /**
  * The claim of finishing step `id` (after its update): made exclusively, with the pid and start of its process.
- * → true for the one who holds it. A claim of a process that is gone (the dashboard the update restarted, killed after it
- * claimed) holds nothing: it is moved away by a rename, which only one taker wins, and claimed again exclusively.
+ * → true for the one who holds it, false when a living process holds it (or nothing could be decided in time).
+ * A claim of a process that is gone (the dashboard the update restarted, killed after it claimed) holds nothing. It is
+ * removed only by a taker that holds the claim's break file (made exclusively) and has read the claim again under it
+ * as the same gone claim; then each taker makes its own claim exclusively. Never by a rename: Windows refuses to move a
+ * file while any other handle reads it (the helper, the other taker, a virus scan), every time, not for a moment.
+ * Exactly one taker ends with the claim: a claim is only ever made by an exclusive create, so of the takers that find
+ * the name free one makes it and the others meet it, read it and see a living process. A living claim is never removed:
+ * only a break holder removes, only what it read under the break as gone, and while it holds the break nobody else
+ * removes, and nobody can make a claim while the old one is still there.
  */
-export function claimStep(gitDir, id, who, { ident = system } = {}) {
+export function claimStep(gitDir, id, who, { ident = system, platform = process.platform, remove = fs.unlinkSync, now = Date.now, after = freshAfter() } = {}) {
   const file = claimFile(gitDir, id);
-  for (let i = 0; i < 3; i++) {
+  const brk = `${file}.break`;
+  // Windows: another program touches the file at this moment (a removal or a create answers EPERM now and then).
+  const touched = (e) => platform === 'win32' && ['EPERM', 'EBUSY', 'EACCES'].includes(e && e.code);
+  const until = now() + (platform === 'win32' ? WINDOWS_CLAIM_MS : CLAIM_MS);
+  const gone = (f) => {
+    try {
+      remove(f);
+      return true;
+    } catch (e) {
+      if (e.code === 'ENOENT') return true;
+      if (touched(e)) return false;
+      throw e;
+    }
+  };
+  for (let i = 0; ; i++) {
     try {
       fs.writeFileSync(file, `${JSON.stringify({ who, pid: process.pid, proc: ident.self(), at: new Date().toISOString() })}\n`, { flag: 'wx', mode: 0o600 });
       return true;
     } catch (e) {
-      if (e.code !== 'EEXIST') throw e;
+      if (e.code !== 'EEXIST' && !touched(e)) throw e;
     }
     const c = claimOf(gitDir, id);
     if (c && c.pid === process.pid && (!c.proc || c.proc === ident.self())) return true;
-    if (!claimGone(file, c, ident)) return false;
-    const away = `${file}.${process.pid}.gone`;
+    if (!claimGone(file, c, ident, after)) return false;
+    let broke = false;
     try {
-      fs.renameSync(file, away);
-      fs.rmSync(away, { force: true });
-    } catch {
-      /* another taker moved it first: the exclusive write above decides */
+      fs.writeFileSync(brk, `${process.pid}\n`, { flag: 'wx', mode: 0o600 });
+      broke = true;
+    } catch (e) {
+      if (e.code !== 'EEXIST' && !touched(e)) throw e;
+      try {
+        if (now() - fs.statSync(brk).mtimeMs > BREAK_STALE_MS) gone(brk);
+      } catch {
+        /* removed meanwhile: looked at again */
+      }
     }
+    if (broke) {
+      try {
+        const again = claimOf(gitDir, id);
+        if (JSON.stringify(again) === JSON.stringify(c) && claimGone(file, again, ident, after)) gone(file);
+      } finally {
+        for (let k = 0; k < 50 && !gone(brk); k++) Atomics.wait(PAUSE, 0, 0, 20);
+      }
+    }
+    if (now() >= until) return false;
+    Atomics.wait(PAUSE, 0, 0, i < 3 ? 1 : 20);
   }
-  return false;
 }
 
-/** Whether a living process holds the claim of step `id` (the helper then leaves the step to it). */
-export function claimHeld(gitDir, id, { ident = system } = {}) {
+/** Whether a living process holds the claim of step `id` (or it cannot be told: the step is left to it). */
+export function claimHeld(gitDir, id, { ident = system, after = freshAfter() } = {}) {
   const c = claimOf(gitDir, id);
-  return !!c && !claimGone(claimFile(gitDir, id), c, ident);
+  return !!c && !claimGone(claimFile(gitDir, id), c, ident, after);
+}
+
+/**
+ * What a look at the claim of step `id` finds, for the helper and its log: { state: 'none' | 'held' (its process is
+ * shown to run) | 'gone' | 'unknown' (alive, and nothing tells it from another process: a pid handed to a process that
+ * ends just then, or whose start cannot be read), pid, alive, proc (the claim's), now (what the system says of its pid) }.
+ */
+export function claimLook(gitDir, id, { ident = system, after = freshAfter() } = {}) {
+  const c = claimOf(gitDir, id);
+  if (!c) return { state: 'none' };
+  const pid = Number.isInteger(c.pid) ? c.pid : null;
+  const file = claimFile(gitDir, id);
+  const judged = pid === null ? (claimGone(file, c, ident, after) ? false : null) : filedProcess(file, c, { ident, after });
+  const lives = pid !== null && alive(pid);
+  const now = lives ? ident.of([pid], { after: 0 }).get(pid) ?? null : null; // the answer the judgement just used
+  return { state: judged === true ? 'held' : judged === false ? 'gone' : 'unknown', pid, alive: lives, proc: c.proc ?? null, now };
 }
 export function claimOf(gitDir, id) {
   try {
@@ -202,7 +264,13 @@ async function runList(list, j, { env, gitDir = null, part = null }) {
     }
     const words = resolveWords(c.run, j.values);
     const started = gitDir ? (child) => {
-      j.running = { part, index: i, ...commandRecord(child, c.minutes) };
+      // The dashboard learns the command's identity a moment later: it is written then, while this command still runs.
+      const later = (proc) => {
+        if (!j.running || j.running.pid !== child.pid || j.running.proc) return;
+        j.running.proc = proc;
+        writeJournal(gitDir, j);
+      };
+      j.running = { part, index: i, ...commandRecord(child, c.minutes, system, { later }) };
       writeJournal(gitDir, j);
     } : () => {};
     // GitHub's token only when the confirmed block names that it needs it; a provider's key never (runcmd.mjs).
@@ -487,16 +555,24 @@ export async function finishCut(real, { run = capture, env = process.env, who = 
   if (j.unreadable) return { unreadable: true, outcome: null, why: 'the journal of a go-live cannot be read: look at it before anything goes live again' };
   if (running.has(j.id)) return { ...j, runningHere: true };
   if (j.real !== real) return { ...j, unreadable: true, outcome: null, why: 'the journal of a go-live in this repository names another project: look at it before anything goes live again' };
-  const h = lockHolder(gitDir);
+  // This look waits for the system's answer about the processes it judges (in the dashboard of() never does), and hands
+  // on the moment it asked: the lock's, the claim's and the command's.
+  const after = await askedAfter([lockPid(gitDir), (claimOf(gitDir, j.id) || {}).pid, j.running && j.running.pid]);
+  const h = lockHolder(gitDir, { after });
   if (h && !h.gone && !h.mine) return { ...j, runningElsewhere: true };
-  if (claimHeld(gitDir, j.id)) return { ...j, claimedBy: (claimOf(gitDir, j.id) || {}).who || 'another' };
+  if (claimHeld(gitDir, j.id, { after })) return { ...j, claimedBy: (claimOf(gitDir, j.id) || {}).who || 'another' };
   let release;
   try {
-    release = takeLock(gitDir, 'finish a go-live');
+    release = takeLock(gitDir, 'finish a go-live', { after });
   } catch {
     return { ...j, runningElsewhere: true };
   }
   try {
+    // Read again under the lock: another look (the page's, a tick's, the command line's) may have finished or moved
+    // the step while this one waited for the system. Only the very step it read goes on.
+    const again = readJournal(gitDir);
+    const step = (x) => (x && !x.unreadable ? JSON.stringify([x.id, x.part, x.updateDone, x.backDone, x.running]) : null);
+    if (!step(again) || step(again) !== step(j)) return again || readLast(real);
     if (j.part === 'picture') {
       activity().add({ automation: 'go-live', did: `${j.name}: did not start (it was cut off before the update)`, outcome: 'failed' });
       return end(gitDir, j, 'did-not-start', { why: 'it was cut off before the update began; nothing was run' });
@@ -514,15 +590,15 @@ export async function finishCut(real, { run = capture, env = process.env, who = 
       throw fail(409, 'the journal of this step holds values git did not give: nothing runs', 'not-confirmed');
     }
     if (!stillConfirmed(j)) {
-      if (cmd) endCommand(cmd);
+      if (cmd) endCommand(cmd, system, { after });
       const why = `its go-live commands are no longer the ones confirmed on this computer (they were changed or the yes was taken back after it began): nothing more ran${j.part === 'picture' ? '' : '. The project may be part-way updated: look at it, then go live again'}`;
       activity().add({ automation: 'go-live', did: `${j.name}: not confirmed: nothing more ran (it was cut off, and its commands changed since)`, outcome: 'failed' });
       return end(gitDir, j, 'not-confirmed', { why });
     }
     // A command that ran when the step was cut off runs on in its own process group: each look waits for it, and at its
     // time limit it is ended with everything it started. Only then is the step finished.
-    if (cmd && commandRuns(cmd) !== false && !pastLimit(cmd)) return { ...j, commandRunning: true };
-    if (cmd) endCommand(cmd);
+    if (cmd && commandRuns(cmd, system, { after }) !== false && !pastLimit(cmd)) return { ...j, commandRunning: true };
+    if (cmd) endCommand(cmd, system, { after });
     if (j.part === 'back') {
       // A project whose back restarts the dashboard (Hoprig's own back checks out {before} and restarts): a cut while
       // its last back command ran, after all before it were done, is that restart. The dashboard that came back
@@ -532,7 +608,7 @@ export async function finishCut(real, { run = capture, env = process.env, who = 
       if (restarted) return closeBack(gitDir, j, true, { why: 'its last command restarted the dashboard, and the dashboard that came back finished it', note: ' (the dashboard restarted)' });
       return end(gitDir, j, 'back-cut', { why: 'taking back was cut off: take it back again' });
     }
-    if (!claimStep(gitDir, j.id, who)) return { ...j, claimedBy: (claimOf(gitDir, j.id) || {}).who || 'another' };
+    if (!claimStep(gitDir, j.id, who, { after })) return { ...j, claimedBy: (claimOf(gitDir, j.id) || {}).who || 'another' };
     const live = confirmedLive(j);
     await ownJournal(gitDir, j, run);
     const done = Number.isInteger(j.updateDone) ? j.updateDone : 0;

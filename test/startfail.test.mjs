@@ -23,7 +23,8 @@ const REFUSAL = '--dangerously-skip-permissions cannot be used with root/sudo pr
 const TERM = 'pty-aaaaaaaaaaaa';
 
 function launchWith(body, { termId = TERM, args = [] } = {}) {
-  const fake = path.join(tmp, `fake-${Math.random().toString(36).slice(2)}.mjs`);
+  // No extension: a #!/usr/bin/env node file the test seal starts with Node on Windows too, as the system does here.
+  const fake = path.join(tmp, `fake-${Math.random().toString(36).slice(2)}`);
   fs.writeFileSync(fake, `#!/usr/bin/env node\n${body}\n`, { mode: 0o755 });
   fs.mkdirSync(process.env.HOPRIG_CONFIG_DIR, { recursive: true });
   fs.writeFileSync(path.join(process.env.HOPRIG_CONFIG_DIR, 'config.json'), JSON.stringify({ claudeBin: fake }));
@@ -43,7 +44,7 @@ test('a stand-in that prints a line and exits 1 at once: noted for its terminal,
   const [n, ...more] = notes();
   assert.equal(more.length, 0);
   assert.deepEqual([n.code, n.tool, n.termId, n.profile], [1, 'claude', TERM, 'api']);
-  assert.equal((fs.statSync(n.file).mode & 0o777).toString(8), '600');
+  if (process.platform !== 'win32') assert.equal((fs.statSync(n.file).mode & 0o777).toString(8), '600');
   assert.deepEqual(fs.readdirSync(runsDir()).filter((f) => f.endsWith('.json')), [], 'the run record went as before');
 });
 

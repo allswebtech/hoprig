@@ -275,7 +275,7 @@ test('the reason set-up saw is kept for the dashboard service and its terminals,
   assert.equal(fs.existsSync(path.join(process.env.HOPRIG_STATE_DIR, 'server.json')), false);
 });
 
-test('a dashboard open to the network that also keeps a Tailscale origin is open: closed on a server, with or without --access network', async () => {
+test('a dashboard open to the network that also keeps a Tailscale origin is open: closed on a server, with or without --access network', { skip: process.platform === 'win32' && 'a Linux server is handed in, and Linux PATH rules cannot read a Windows PATH' }, async () => {
   // Tailscale set up first, then an older version's --access network wrote 0.0.0.0 and kept the origin.
   const tsBin = fakeBin(path.join(s.tmp, 'bin-ts'), {
     tailscale: 'case "$1" in status) echo \'{"BackendState":"Running","Self":{"DNSName":"box.tail1234.ts.net."}}\' ;; serve) echo "serving $3" ;; esac',
@@ -486,7 +486,7 @@ test('doctor at the desktop after an earlier set-up over ssh: its access line na
   assert.doesNotMatch(K.accessCheck(cfg, { running: false }, { kind: 'ssh' }, sys({ localDisplay: false, savedServer: { kind: 'ssh' } }), null).detail, /An earlier set-up saved/);
 });
 
-test('closing a dashboard open to the network that keeps a Tailscale origin: the run and the next one say the same (your Tailscale devices)', async () => {
+test('closing a dashboard open to the network that keeps a Tailscale origin: the run and the next one say the same (your Tailscale devices)', { skip: process.platform === 'win32' && 'a Linux server is handed in, and Linux PATH rules cannot read a Windows PATH' }, async () => {
   const tsBin = fakeBin(path.join(s.tmp, 'bin-ts5'), {
     tailscale: `case "$1" in status) echo '{"BackendState":"Running","Self":{"DNSName":"box.tail1234.ts.net."}}' ;; serve) echo "serve $*" >> '${path.join(s.tmp, 'ts5.log')}' ;; esac`,
   });
@@ -521,7 +521,7 @@ test('closing a dashboard open to the network that keeps a Tailscale origin: the
   fresh();
 });
 
-test('a refused --access network that leaves Tailscale says so at the end; --access tailscale by name sets Tailscale up again', async () => {
+test('a refused --access network that leaves Tailscale says so at the end; --access tailscale by name sets Tailscale up again', { skip: process.platform === 'win32' && 'a Linux server is handed in, and Linux PATH rules cannot read a Windows PATH' }, async () => {
   const log = path.join(s.tmp, 'ts6.log');
   const tsBin = fakeBin(path.join(s.tmp, 'bin-ts6'), {
     tailscale: `case "$1" in status) echo '{"BackendState":"Running","Self":{"DNSName":"box.tail1234.ts.net."}}' ;; serve) echo "serve $*" >> '${log}' ;; esac`,

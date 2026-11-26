@@ -9,7 +9,11 @@ import { test } from 'node:test';
 import { sandbox } from '../server/helpers.mjs';
 
 const box = sandbox('gatewaypin');
-const POSIX = { skip: process.platform === 'win32' };
+// What cannot be shown on Windows: a symbolic link needs a right there (an administrator or developer mode); a file has
+// no mode bits saying who may change it or run it; and a gateway defined by its npm package is refused there.
+const LINKS = { skip: process.platform === 'win32' && 'a symbolic link: Windows makes one only with the right to (an administrator or developer mode)' };
+const MODES = { skip: process.platform === 'win32' && 'who may change or run a file is told by mode bits, which Windows files do not have' };
+const NPM = { skip: process.platform === 'win32' && 'a gateway defined by its npm package is refused on Windows (gateways.mjs)' };
 const freePort = () => new Promise((r) => { const s = net.createServer().listen(0, '127.0.0.1', () => { const p = s.address().port; s.close(() => r(p)); }); });
 const marker = path.join(box.root, 'ran.txt');
 // A stand-in gateway that says which file it is, then answers on its port.
@@ -39,7 +43,7 @@ async function startAndStop(a) {
   return r;
 }
 
-test('a plain name is the file PATH named when it was added: a program of that name found first later is not run', POSIX, async () => {
+test('a plain name is the file PATH named when it was added: a program of that name found first later is not run', async () => {
   const confirmed = path.join(box.root, 'confirmed-bin');
   const project = path.join(box.root, 'project', 'node_modules', '.bin');
   fs.mkdirSync(confirmed);
@@ -63,7 +67,7 @@ test('a plain name is the file PATH named when it was added: a program of that n
   }
 });
 
-test('a file rewritten after the yes, or a link pointed elsewhere, does not run', POSIX, async () => {
+test('a file rewritten after the yes, or a link pointed elsewhere, does not run', LINKS, async () => {
   const file = path.join(box.root, 'relay.js');
   const other = path.join(box.root, 'other.js');
   const link = path.join(box.root, 'relay-link');
@@ -89,9 +93,9 @@ test('a file rewritten after the yes, or a link pointed elsewhere, does not run'
   }
 });
 
-test('after an update of the program the owner confirms it again: its definition, sharing and keys stay', POSIX, async () => {
+test('after an update of the program the owner confirms it again: its definition, sharing and keys stay', async () => {
   const K = await import('../../src/gateway/keys.mjs');
-  const file = path.join(box.root, 'relay-update.js');
+  const file = path.join(box.root, 'relay-update'); // no extension: a #! stand-in Windows starts through Node, as the system does here
   standIn(file, 'V1');
   const port = await freePort();
   try {
@@ -124,8 +128,8 @@ test('after an update of the program the owner confirms it again: its definition
   }
 });
 
-test('a definition written by hand without a fingerprint says so, and is confirmed the same way', POSIX, async () => {
-  const file = path.join(box.root, 'relay-hand.js');
+test('a definition written by hand without a fingerprint says so, and is confirmed the same way', async () => {
+  const file = path.join(box.root, 'relay-hand'); // no extension: a #! stand-in Windows starts through Node, as the system does here
   standIn(file, 'BY-HAND');
   saveConfig({ gateways: { defined: [{ id: 'relay', title: 'Relay', port: await freePort(), bin: file }] } });
   try {
@@ -149,7 +153,8 @@ test('a definition written by hand without a fingerprint says so, and is confirm
 test('confirm is only for a program of the owner\'s own: not an npm package, not a gateway that is not there', () => {
   saveConfig({ gateways: { defined: [{ id: 'relay', title: 'Relay', port: 20100, npm: 'relay-gateway' }] } });
   try {
-    assert.match(G.repinned('relay').error, /Relay is an npm package: Hoprig runs the program npm installed for it, so there is nothing to confirm/);
+    // Windows loads no npm gateway of the owner's own (gateways.mjs checkDefinition): it says that instead.
+    assert.match(G.repinned('relay').error, process.platform === 'win32' ? /in config\.json was not loaded \(on Windows a gateway of your own is its program, not an npm package/ : /Relay is an npm package: Hoprig runs the program npm installed for it, so there is nothing to confirm/);
     assert.match(G.repinned('nope').error, /there is no gateway "nope" of yours/);
     assert.equal(G.confirmProgram('relay', { expect: { bin: 'x', sha256: 'y' } }).ok, false);
   } finally {
@@ -157,7 +162,7 @@ test('confirm is only for a program of the owner\'s own: not an npm package, not
   }
 });
 
-test('a program others can change, or one inside the workspace, is refused; so are Windows paths without a drive', POSIX, () => {
+test('a program others can change, or one inside the workspace, is refused; so are Windows paths without a drive', MODES, () => {
   const loose = path.join(box.root, 'loose');
   standIn(loose, 'LOOSE');
   fs.chmodSync(loose, 0o777);
@@ -187,7 +192,7 @@ test('a program others can change, or one inside the workspace, is refused; so a
   assert.match(G.checkDefinition({ ...base, bin: 'relay' }).error || '', /the absolute path of a file/);
 });
 
-test('the page\'s yes counts only for the file it was shown', POSIX, async () => {
+test('the page\'s yes counts only for the file it was shown', async () => {
   const file = path.join(box.root, 'relay-yes.js');
   standIn(file, 'SHOWN');
   const raw = { id: 'relay', title: 'Relay', bin: file, port: await freePort() };
@@ -199,7 +204,7 @@ test('the page\'s yes counts only for the file it was shown', POSIX, async () =>
   assert.deepEqual(loadConfig().gateways?.defined || [], []);
 });
 
-test('a program that is not executable is refused at add with what to do, and a start says so instead of "not found"', POSIX, async () => {
+test('a program that is not executable is refused at add with what to do, and a start says so instead of "not found"', MODES, async () => {
   const file = path.join(box.root, 'relay-noexec');
   standIn(file, 'NOEXEC');
   fs.chmodSync(file, 0o644);
@@ -220,8 +225,8 @@ test('a program that is not executable is refused at add with what to do, and a 
   }
 });
 
-test('a gateway of the owner\'s own starts with no secret of the process that starts it', POSIX, async () => {
-  const file = path.join(box.root, 'relay-env.js');
+test('a gateway of the owner\'s own starts with no secret of the process that starts it', async () => {
+  const file = path.join(box.root, 'relay-env'); // no extension: a #! stand-in Windows starts through Node, as the system does here
   const names = path.join(box.root, 'env-names.txt');
   fs.writeFileSync(file, `#!/usr/bin/env node
 require('node:fs').writeFileSync(${JSON.stringify(names)}, Object.keys(process.env).join('\\n'));
@@ -238,8 +243,10 @@ require('node:http').createServer((q, s) => s.end('ok')).listen(Number(process.a
     assert.equal(r.ok, true, r.error);
     assert.equal((await startAndStop(findAddon('relay'))).ok, true);
     const got = fs.readFileSync(names, 'utf8').split('\n');
-    assert.deepEqual(['PATH', 'HOME', ...Object.keys(NEEDED)].filter((k) => !got.includes(k)), [], 'what a server needs is there');
-    assert.deepEqual(Object.keys(SECRETS).filter((k) => got.includes(k)), []);
+    // Windows' names are case-blind, and its PATH is often spelled Path: a name counts in any case there.
+    const has = (k) => got.some((g) => (process.platform === 'win32' ? g.toUpperCase() === k.toUpperCase() : g === k));
+    assert.deepEqual(['PATH', 'HOME', ...Object.keys(NEEDED)].filter((k) => !has(k)), [], `what a server needs is there (it got ${got.join(', ')})`);
+    assert.deepEqual(Object.keys(SECRETS).filter((k) => has(k)), []);
   } finally {
     for (const k of [...Object.keys(SECRETS), ...Object.keys(NEEDED)]) if (k in keep) process.env[k] = keep[k]; else delete process.env[k];
     G.removeDefinition('relay');
@@ -252,7 +259,7 @@ test('on Windows a gateway of the owner\'s own defined by its npm package is ref
   assert.equal(G.checkDefinition(raw, { platform: 'linux' }).error, undefined, 'elsewhere it is fine');
 });
 
-test('a gateway of an npm package runs the program npm installed globally, not a project\'s copy found first on PATH', POSIX, async () => {
+test('a gateway of an npm package runs the program npm installed globally, not a project\'s copy found first on PATH', NPM, async () => {
   const global = path.join(box.root, 'npm-global');
   const pkg = path.join(global, 'lib', 'node_modules', 'relay-gateway');
   const project = path.join(box.root, 'shop', 'node_modules');
@@ -291,7 +298,7 @@ test('a gateway of an npm package runs the program npm installed globally, not a
   }
 });
 
-test('a gateway of an npm package never runs a program from a folder others can change, laid out like npm\'s global one', POSIX, async () => {
+test('a gateway of an npm package never runs a program from a folder others can change, laid out like npm\'s global one', NPM, async () => {
   const { packageProgram } = await import('../../src/addons/localgateway.mjs');
   const global = path.join(box.root, 'npm-global-2');
   const pkg = path.join(global, 'lib', 'node_modules', 'relay-gateway');

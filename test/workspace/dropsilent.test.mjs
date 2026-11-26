@@ -5,13 +5,12 @@
 // folder under a tracked apps/ or vendor/ that .gitignore ignores), the system files in each shape, apps/, a grep for a
 // second place that decides, and a property test on random trees: every path a drop removes is on the server, on the
 // list the owner confirmed, inside such a folder, a provable credential link, or a system file.
-import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { dropOn, dropWorld, owner, reset } from './dropfix.mjs';
+import { assert, dropOn, dropWorld, owner, reset } from './dropfix.mjs';
 import { quietUi } from './gitfix.mjs';
 
 const w = await dropWorld('silent');
@@ -319,7 +318,7 @@ test('property: on random trees, every path a drop removes is on the git server,
     }
     dropped++;
     const server = onServerNow();
-    const listed = confirmed.map((i) => path.posix.join(i.repo, i.path));
+    const listed = confirmed.map((i) => path.posix.join(i.repo.split(path.sep).join('/'), i.path));
     for (const f of files) {
       const full = `${API}/${f.rel}`;
       if (server.has(`${f.rel}\0${blob(f.text)}`)) continue;

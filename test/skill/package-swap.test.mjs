@@ -219,3 +219,23 @@ test('a file where a folder should be is said in plain words, for an install, a 
   const r = run('--project', path.join(home, 'proj'));
   assert.equal(r.all, `${path.join(home, 'proj', '.claude')} is a file where a folder should be. Nothing was changed.`);
 });
+
+test('Windows: a path through a file, which it answers as not there, is said as a file where a folder should be', (t) => {
+  fs.writeFileSync(path.join(home, '.claude'), 'not a folder');
+  const { lstatSync } = fs;
+  t.after(() => (fs.lstatSync = lstatSync));
+  // What Windows answers for a path through a file: ENOENT, where Linux and macOS answer ENOTDIR.
+  fs.lstatSync = function (p, ...rest) {
+    try {
+      return lstatSync.call(fs, p, ...rest);
+    } catch (e) {
+      if (e.code === 'ENOTDIR') throw Object.assign(new Error(`ENOENT: no such file or directory, lstat '${p}'`), { code: 'ENOENT', path: p });
+      throw e;
+    }
+  };
+  for (const args of [['--claude', '--dry-run'], ['--claude', '--remove']]) {
+    const r = run(...args);
+    assert.equal(r.code, 1, args.join(' '));
+    assert.equal(r.all, `${path.join(home, '.claude')} is a file where a folder should be. Nothing was changed.`);
+  }
+});

@@ -36,7 +36,7 @@ test('hoprig get --dry-run: a project already here and one that is not change no
   assert.match(here.text, /\.env\.example/); // what a fresh clone would have set up is said, not done
   const missing = await w.unchanged('get blog --dry-run', () => get(['blog', '--dry-run']));
   assert.equal(missing.code, 0, missing.text);
-  assert.match(missing.text, /\(dry run\) would clone https:\/\/github\.com\/alex\/blog-workspace\.git into .*\/projects\/blog/);
+  assert.match(missing.text, /\(dry run\) would clone https:\/\/github\.com\/alex\/blog-workspace\.git into .*[\\/]projects[\\/]blog/);
   assert.match(missing.text, /unfinished clone .* would be moved aside/);
   const both = await w.unchanged('get shop blog --dry-run --json', () => get(['shop', 'blog', '--dry-run', '--json']));
   assert.deepEqual(JSON.parse(both.text.slice(both.text.indexOf('{'))).projects.map((p) => p.result), ['here', 'would clone']);
@@ -64,7 +64,7 @@ test('hoprig project new --dry-run: no folder, no template clone, no settings; w
   for (const args of [['new', 'fresh', '--dry-run'], ['new', 'fresh', '--github', '--dry-run'], ['new', 'fresh', '--template', gh('notes'), '--dry-run']]) {
     const r = await w.unchanged(`project ${args.join(' ')}`, () => project(args));
     assert.equal(r.code, 0, r.text);
-    assert.match(r.text, /\(dry run\) would create .*\/projects\/fresh/);
+    assert.match(r.text, /\(dry run\) would create .*[\\/]projects[\\/]fresh/);
   }
   const real = await w.changed('project new fresh', () => project(['new', 'fresh']));
   assert.equal(real.r.code, 0, real.r.text);
@@ -94,7 +94,7 @@ test('hoprig project add --dry-run: no code repository made; without it there is
   for (const args of [['add', 'shop', 'admin', '--dry-run'], ['add', 'shop', 'admin', '--github', '--dry-run']]) {
     const r = await w.unchanged(`project ${args.join(' ')}`, () => project(args));
     assert.equal(r.code, 0, r.text);
-    assert.match(r.text, /\(dry run\) would create .*\/shop\/code\/shop-admin/);
+    assert.match(r.text, /\(dry run\) would create .*[\\/]shop[\\/]code[\\/]shop-admin/);
   }
   const real = await w.changed('project add shop admin', () => project(['add', 'shop', 'admin']));
   assert.equal(real.r.code, 0, real.r.text);
@@ -202,6 +202,15 @@ test('hoprig workspace sync --dry-run: no fetch, pull, push or commit, from the 
     const r = await w.unchanged(`workspace ${args.join(' ')}`, () => workspace(args));
     assert.match(r.text, /server's new commits on main/, r.text);
   }
+  const real = await w.changed('workspace sync', () => workspace(['sync']));
+  assert.match(real.diff, /FETCH_HEAD/);
+});
+
+// Another computer is one Hoprig reaches by SSH, at a POSIX path (peer.mjs: ssh://<computer>/<path>).
+const PEER = { skip: process.platform === 'win32' && 'another computer is reached by SSH at a POSIX path; on Windows the stand-in for it would be this computer, whose folders are no such path' };
+
+test('hoprig workspace sync --with another computer --dry-run: nothing from it changes here; without it its commits come', PEER, async (tc) => {
+  const w = await world(tc, 'wsyncpeer');
   // Another computer over SSH (a stand-in ssh that runs the command here): its shop-api has the newer commit.
   const { syncWith } = await import('../../src/workspace/peer.mjs');
   const peer = path.join(w.root, 'peer');
@@ -219,8 +228,6 @@ test('hoprig workspace sync --dry-run: no fetch, pull, push or commit, from the 
   assert.match(dry.repos.find((x) => x.label === 'shop/code/shop-api').did[0], /would get main's new commits from box2/);
   const fromPeer = await w.changed('workspace sync --with box2', () => syncWith('box2', { info }));
   assert.deepEqual(fromPeer.r.repos.find((x) => x.label === 'shop/code/shop-api').did, ['got 1 from box2']);
-  const real = await w.changed('workspace sync', () => workspace(['sync']));
-  assert.match(real.diff, /FETCH_HEAD/);
 });
 
 test('hoprig workspace forget|set|auto|git do not take --dry-run: refused, nothing changed; forget without it changes the map', async (tc) => {

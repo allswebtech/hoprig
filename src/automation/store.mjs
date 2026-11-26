@@ -7,6 +7,7 @@
 // Reads are cached in memory, so a tick that reads the same file several times costs one disk read.
 import fs from 'node:fs';
 import path from 'node:path';
+import { replaceFile } from '../replacefile.mjs';
 
 const NAME_RE = /^[a-z][a-z0-9-]{0,31}$/;
 
@@ -16,7 +17,7 @@ export function writeAtomic(file, data) {
   const tmp = `${file}.${process.pid}.${Math.random().toString(36).slice(2, 8)}.tmp`;
   try {
     fs.writeFileSync(tmp, JSON.stringify(data) + '\n', { mode: 0o600 });
-    fs.renameSync(tmp, file);
+    replaceFile(tmp, file);
   } catch (e) {
     fs.rmSync(tmp, { force: true });
     throw e;
@@ -115,5 +116,5 @@ export function createActivityLog(file, { now = Date.now, max = LOG_MAX } = {}) 
 function writeLines(file, lines) {
   const tmp = `${file}.${process.pid}.tmp`;
   fs.writeFileSync(tmp, lines.join('\n') + '\n', { mode: 0o600 });
-  fs.renameSync(tmp, file);
+  replaceFile(tmp, file);
 }

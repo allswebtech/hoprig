@@ -16,6 +16,8 @@ A.use();
 const M = await import('../../src/workspace/map.mjs');
 const { LEAVES, addMyLink, leaves, removeMyLink } = await import('../../src/workspace/inside.mjs');
 const { projectSlug } = await import('../../src/sessions.mjs');
+// The command for a path as Hoprig prints it: a path with a \ in it (every Windows path) is written in quotes.
+const asTyped = (p) => (process.platform === 'win32' ? `'${p}'` : p);
 
 const outside = path.join(w.root, 'OUTSIDE');
 fs.mkdirSync(outside);
@@ -78,11 +80,11 @@ test('the scan lists nothing behind such a link, no memory link points into it, 
   assert.equal(st.entries.find((e) => e.label === 'kits/packs/blog/code/blog-web').state, 'notFollowed');
   assert.equal(st.entries.find((e) => e.label === 'shop/code/shop-web').state, 'notFollowed');
   assert.ok(!r.map.others.length, 'nothing behind the links became another repository');
-  const met = st.links.map((l) => path.relative(B.ws, l.path)).sort();
+  const met = st.links.map((l) => path.relative(B.ws, l.path).split(path.sep).join('/')).sort();
   assert.deepEqual(met, ['kits/builds', 'kits/packs/blog/code', 'projects/shop/code']);
   for (const l of st.links) {
     assert.equal(l.what, LEAVES);
-    assert.equal(l.fix, `hoprig workspace mylink add ${l.path}`);
+    assert.equal(l.fix, `hoprig workspace mylink add ${asTyped(l.path)}`);
   }
   const slugs = fs.readdirSync(path.join(B.claude, 'projects'));
   assert.ok(!slugs.some((x) => x.endsWith(projectSlug('/tool1')) || /builds-tool1|code-blog-web|code-tool1/.test(x)), slugs.join(' '));
@@ -102,7 +104,7 @@ test('a link made by hand is the same as one that came with a repository, until 
   const { main } = await import('../../src/workspace/cli.mjs');
   let q = await quietUi();
   await main(['status'], { ui: q.ui, write: () => {} });
-  assert.ok(q.text().includes(`${path.join(kits, 'builds')}: leaves its folder through a link: not followed  →  if it is yours:  hoprig workspace mylink add ${path.join(kits, 'builds')}`), q.text());
+  assert.ok(q.text().includes(`${path.join(kits, 'builds')}: leaves its folder through a link: not followed  →  if it is yours:  hoprig workspace mylink add ${asTyped(path.join(kits, 'builds'))}`), q.text());
   // The owner names it: followed from now on (and only it: the tracked code/ link of blog stays out).
   q = await quietUi();
   assert.equal(await main(['mylink', 'add', path.join(kits, 'builds')], { ui: q.ui, write: () => {} }), 0, q.text());
@@ -111,7 +113,7 @@ test('a link made by hand is the same as one that came with a repository, until 
   assert.equal(st.entries.find((e) => e.label === 'kits/packs/blog/code/blog-web').state, 'notFollowed');
   q = await quietUi();
   await main(['status'], { ui: q.ui, write: () => {} });
-  assert.match(q.text(), /kits\/builds: your own link \(hoprig workspace mylink\): followed/);
+  assert.match(q.text(), /kits[\\/]builds: your own link \(hoprig workspace mylink\): followed/);
   let out = '';
   await main(['mylink', 'list', '--json'], { ui: q.ui, write: (x) => (out += x) });
   assert.deepEqual(JSON.parse(out).links.map((l) => l.path), [path.join(kits, 'builds')]);

@@ -8,6 +8,7 @@ import path from 'node:path';
 import { loadConfig } from './config.mjs';
 import { ownFolder } from './profiles.mjs';
 import { stateDir } from './paths.mjs';
+import { replaceFile } from './replacefile.mjs';
 
 export const DEFAULT_ROUTER_PORT = 7434;
 
@@ -26,7 +27,7 @@ function writeJson(name, data) {
   fs.mkdirSync(stateDir(), { recursive: true, mode: 0o700 });
   const tmp = `${file(name)}.${process.pid}.tmp`;
   fs.writeFileSync(tmp, JSON.stringify(data) + '\n', { mode: 0o600 });
-  fs.renameSync(tmp, file(name));
+  replaceFile(tmp, file(name));
 }
 
 /**

@@ -3,6 +3,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { promisify } from 'node:util';
+import { replaceFile } from '../replacefile.mjs';
 
 const scrypt = promisify(crypto.scrypt);
 
@@ -52,9 +53,11 @@ export const sha256 = (s) => crypto.createHash('sha256').update(s).digest('hex')
  * state file cannot be used as a cookie. Persisted so that restarting the server does not log anyone out.
  */
 export class SessionStore {
-  constructor(file, { now = Date.now, days = SESSION_DAYS } = {}) {
+  // `platform` and `rename`: for the tests (src/replacefile.mjs).
+  constructor(file, { now = Date.now, days = SESSION_DAYS, platform, rename } = {}) {
     this.file = file;
     this.now = now;
+    this.replace = { platform, rename };
     this.ttl = days * 24 * 3600 * 1000;
     this.map = new Map();
     this.#load();
@@ -73,7 +76,7 @@ export class SessionStore {
     fs.mkdirSync(path.dirname(this.file), { recursive: true, mode: 0o700 });
     const tmp = `${this.file}.${process.pid}.tmp`;
     fs.writeFileSync(tmp, JSON.stringify(Object.fromEntries(this.map)) + '\n', { mode: 0o600 });
-    fs.renameSync(tmp, this.file);
+    replaceFile(tmp, this.file, this.replace);
   }
 
   /**

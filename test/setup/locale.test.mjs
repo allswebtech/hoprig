@@ -42,7 +42,7 @@ test('the service carries no LANG, LC_ALL or LC_CTYPE that names a missing local
   assert.match(unitText({ node: '/n', bin: '/b', env, locales: L.parseLocales('C\nen_GB.utf8\n') }), /^Environment="LANG=en_GB\.UTF-8"$/m);
 });
 
-test('set-up says it once with the fix, and its programs run with C.UTF-8', async () => {
+test('set-up says it once with the fix, and its programs run with C.UTF-8', { skip: process.platform === 'win32' && 'a missing locale is a Linux matter (locale-gen): a Linux computer is handed in' }, async () => {
   const seen = path.join(s.tmp, 'claude-lang.txt');
   const bin = fakeBin(path.join(s.tmp, 'bin'), { claude: `printf '%s|%s\\n' "\${LANG:-}" "\${LC_ALL:-}" >> '${seen}'\n${fakeClaude({ loggedIn: true })}` });
   const env = { ...process.env, PATH: pathWith(s.tmp, bin), LANG: 'en_GB.UTF-8', LC_ALL: 'en_GB.UTF-8' };
@@ -59,7 +59,7 @@ test('set-up says it once with the fix, and its programs run with C.UTF-8', asyn
   for (const l of ran) assert.equal(l, 'C.UTF-8|', 'every run of the program: LANG=C.UTF-8, no LC_ALL');
 });
 
-test('the parts after the dashboard\'s steps start their programs with C.UTF-8 too (they use this process\'s environment)', async () => {
+test('the parts after the dashboard\'s steps start their programs with C.UTF-8 too (they use this process\'s environment)', { skip: process.platform === 'win32' && 'a missing locale is a Linux matter (locale-gen): a Linux computer is handed in' }, async () => {
   const seen = path.join(s.tmp, 'part-lang.txt');
   const bin = fakeBin(path.join(s.tmp, 'bin-parts'), { claude: fakeClaude({ loggedIn: true }), probe: `printf '%s|%s\\n' "\${LANG:-}" "\${LC_ALL:-}" >> '${seen}'` });
   const was = { LANG: process.env.LANG, LC_ALL: process.env.LC_ALL, LC_CTYPE: process.env.LC_CTYPE };

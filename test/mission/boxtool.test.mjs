@@ -9,7 +9,6 @@ import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
 import test from 'node:test';
-import { fileURLToPath } from 'node:url';
 import { FAKE, missionHome } from './helpers.mjs';
 
 const t = missionHome('mission-boxtool');
@@ -176,7 +175,7 @@ test('a shown copy of the session\'s start (the process list) has the token mask
 });
 
 test('two dashboards on one state folder both keep their audit lines (no read-modify-write loss)', async () => {
-  const boxtool = fileURLToPath(new URL('../../src/mission/boxtool.mjs', import.meta.url));
+  const boxtool = new URL('../../src/mission/boxtool.mjs', import.meta.url).href;
   const child = path.join(t.root, 'audit-child.mjs');
   fs.writeFileSync(child, `import { audit } from ${JSON.stringify(boxtool)};\n`
     + 'const [idx, count] = [process.argv[2], Number(process.argv[3])];\n'
@@ -198,7 +197,7 @@ test('two dashboards on one state folder both keep their audit lines (no read-mo
 });
 
 test('the audit is moved aside past its cap, so no line another dashboard appends meanwhile is lost', { timeout: 120_000 }, async () => {
-  const boxtool = fileURLToPath(new URL('../../src/mission/boxtool.mjs', import.meta.url));
+  const boxtool = new URL('../../src/mission/boxtool.mjs', import.meta.url).href;
   const { AUDIT_MAX } = await import(boxtool);
   const child = path.join(t.root, 'audit-turn-child.mjs');
   // Each writer loads the module, says it is ready, and writes once it is told to go. The audit promises the last

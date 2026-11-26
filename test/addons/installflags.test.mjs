@@ -15,6 +15,8 @@ const bin = path.join(tmp, 'bin');
 const calls = path.join(tmp, 'npm-calls.txt');
 fs.mkdirSync(bin);
 fs.writeFileSync(path.join(bin, 'npm'), `#!/bin/sh\nprintf '%s\\n' "$*" >> '${calls}'\n`, { mode: 0o755 });
+// Windows starts npm through cmd.exe (setup/system.mjs npmArgv), which finds an npm.cmd, never a file without an extension.
+if (process.platform === 'win32') fs.writeFileSync(path.join(bin, 'npm.cmd'), `@echo %*>>"${calls}"\r\n`);
 // Its own gateway program too, so no real one of this computer is ever asked (status asks its version).
 fs.writeFileSync(path.join(bin, 'trouteai'), '#!/bin/sh\necho "TRouteAI 1.0.0"\n', { mode: 0o755 });
 process.env.PATH = `${bin}${path.delimiter}${process.env.PATH}`;
@@ -29,12 +31,12 @@ const { runsLines } = await import('../../src/addons/gatewaycli.mjs');
 const { listAddons } = await import('../../src/addons/index.mjs');
 const def = SHIPPED.find((d) => d.npm);
 
-test('install and update pass the README\'s options, from the definition', { skip: process.platform === 'win32' }, async () => {
+test('install and update pass the README\'s options, from the definition', async () => {
   assert.deepEqual(def.allowScripts, ['tls-client-node', 'koffi']);
   const g = localGateway(def, { shipped: true });
   await g.install();
   await g.update();
-  assert.deepEqual(fs.readFileSync(calls, 'utf8').trim().split('\n'), [
+  assert.deepEqual(fs.readFileSync(calls, 'utf8').trim().split(/\r?\n/), [
     `install -g --allow-scripts=tls-client-node,koffi --loglevel=error ${def.npm}`,
     `install -g --allow-scripts=tls-client-node,koffi --loglevel=error ${def.npm}@latest`,
   ]);

@@ -15,6 +15,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import { replaceFile } from '../replacefile.mjs';
 
 export const LOCK_STALE_MS = 2 * 60_000;
 export const DAY_MS = 24 * 3600_000;
@@ -56,7 +57,7 @@ export function record({ dir, now = Date.now }) {
     fs.mkdirSync(dir(), { recursive: true });
     const tmp = `${file()}.${process.pid}.tmp`;
     fs.writeFileSync(tmp, JSON.stringify(d));
-    fs.renameSync(tmp, file());
+    replaceFile(tmp, file());
   }
 
   /** { data, broken }: the record as it applies now. A broken one is set aside and replaced by a frozen one. */

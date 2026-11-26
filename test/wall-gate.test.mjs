@@ -17,6 +17,9 @@ process.env.HOPRIG_CONFIG_DIR = path.join(tmp, 'config');
 process.env.HOPRIG_STATE_DIR = path.join(tmp, 'state');
 process.env.CLAUDE_CONFIG_DIR = path.join(tmp, 'claude');
 test.after(() => fs.rmSync(tmp, { recursive: true, force: true }));
+// Hands-off is not offered on Windows (src/handsoff.mjs handsOffOffered: the wall's hold is a POSIX shell test), so a
+// test that switches it on and expects an answer or a hold has nothing to see there.
+const OFFERED = { skip: process.platform === 'win32' && 'Hands-off is not offered on Windows' };
 
 const { hookSettings } = await import('../src/launch.mjs');
 const { handsOffFeature } = await import('../src/server/handsoff.mjs');
@@ -32,7 +35,7 @@ fs.mkdirSync(stateDir(), { recursive: true });
 
 const preCmd = () => hookSettings({ offered: true, version: '2.1.328' }).hooks.PreToolUse[0].hooks[0].command;
 
-test('the PreToolUse hook is gated by a cheap shell test on the state-folder marker', () => {
+test('the PreToolUse hook is gated by a cheap shell test on the state-folder marker', OFFERED, () => {
   const cmd = preCmd();
   assert.ok(cmd.startsWith('if [ -e "${HOPRIG_RUN_FILE%/runs/*}/handsoff-active" ]; then '), cmd);
   assert.ok(cmd.trimEnd().endsWith('; fi'), cmd);
@@ -51,7 +54,7 @@ const runGate = (file, command) => {
   return o ? JSON.parse(o).hookSpecificOutput.permissionDecision : '';
 };
 
-test('marker present: a held command runs the hook and is held; marker absent: the hook never starts', () => {
+test('marker present: a held command runs the hook and is held; marker absent: the hook never starts', OFFERED, () => {
   const { file } = R.createRun({ profile: 'api', cwd: SHOP });
   giveHold(file);
   writeCfg({ handsOff: { offered: true, projects: { [SHOP]: { on: true, version: V } } } });
@@ -63,7 +66,7 @@ test('marker present: a held command runs the hook and is held; marker absent: t
   R.removeRun(file);
 });
 
-test('the project switch route writes the marker when on and clears it when off', async () => {
+test('the project switch route writes the marker when on and clears it when off', OFFERED, async () => {
   let cfg = { server: { roots: [tmp] }, handsOff: { offered: true } };
   const ctx = {
     config: () => cfg,

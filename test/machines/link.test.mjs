@@ -12,6 +12,34 @@ import { sandbox } from '../server/helpers.mjs';
 import { COOKIE, asBrowser, miniDashboard } from './harness.mjs';
 
 const box = sandbox('machines-link');
+// On Windows the link's flow is written down (mux.mjs HOPRIG_MUX_DEBUG, read when the file is loaded, so before the
+// imports below): the hub and the computer run in this process, and their lines are kept here, not printed. An upload
+// that does not end says in its message every stream's opening, purpose and end, each stream's totals, the state of
+// every stream still open on both sides, and the last 80 lines.
+const muxLines = [];
+const muxKey = []; // every line of a stream's life: opened, what it is for, ended, reset, dropped, closed, an error
+const muxTotals = new Map(); // "<role> <stream>" -> { sent, got }
+if (process.platform === 'win32') {
+  process.env.HOPRIG_MUX_DEBUG = '1';
+  const write = process.stderr.write.bind(process.stderr);
+  process.stderr.write = (chunk, ...rest) => {
+    const text = String(chunk);
+    if (!text.startsWith('mux ')) return write(chunk, ...rest);
+    for (const l of text.split('\n').filter(Boolean)) {
+      muxLines.push(l);
+      const [, role, , id, words] = /^mux (\S+) (\d+) (\d+) (.*)$/.exec(l) || [];
+      if (/^(open|for |answer |first bytes|end|reset|drop|socket (closed|ended|error))/.test(words || '')) muxKey.push(l);
+      const n = /^(send|recv) \d+ \(total (\d+)\)/.exec(words || '');
+      if (n) {
+        const t = muxTotals.get(`${role} ${id}`) || { sent: 0, got: 0 };
+        t[n[1] === 'send' ? 'sent' : 'got'] = Number(n[2]);
+        muxTotals.set(`${role} ${id}`, t);
+      }
+    }
+    if (muxLines.length > 2000) muxLines.splice(0, muxLines.length - 2000);
+    return true;
+  };
+}
 const { createMachines } = await import('../../src/machines/index.mjs');
 const join = await import('../../src/machines/join.mjs');
 const link = await import('../../src/machines/link.mjs');
@@ -45,6 +73,11 @@ const until = async (what, fn, ms = 15_000) => {
   }
   throw new Error(`timed out: ${what}`);
 };
+/** `p`, or a failure that names the step when it has not ended within `ms`: a hang says where it hangs. */
+const step = (what, p, ms = 30_000) => {
+  let timer;
+  return Promise.race([p, new Promise((_, j) => (timer = setTimeout(() => j(new Error(`no end within ${ms / 1000} s: ${what}`)), ms)))]).finally(() => clearTimeout(timer));
+};
 const linked = () => loadMachines().find((m) => m.via === 'link');
 const stateOnHub = async () => ((await browser('/api/machines?fresh=1')).json.machines.find((m) => m.via === 'link') || {}).state;
 const code = async () => (await browser('/api/links/code', { body: {} })).json;
@@ -57,27 +90,27 @@ test.after(async () => {
 });
 
 test('join by address + code: the hub reaches the computer\'s API, terminal and uploads through the link', async () => {
-  const c = await code();
-  const h = await join.joinByAddress(hub.base, c.code, { keeper });
+  const c = await step('the code', code());
+  const h = await step('the join by address', join.joinByAddress(hub.base, c.code, { keeper }));
   assert.equal(h.via, 'link');
   const m = linked();
   assert.equal(m.label, 'Home PC');
   assert.equal(m.linkId, h.id);
   assert.deepEqual((await browser(`/api/links/code?id=${c.id}`)).json, { status: 'claimed', by: 'Home PC' });
   assert.equal(await stateOnHub(), 'online');
-  assert.deepEqual((await browser(`/m/${m.name}/api/state`)).json.sessions, [{ name: 'home-session' }]);
+  assert.deepEqual((await step('the computer\'s API through the link', browser(`/m/${m.name}/api/state`))).json.sessions, [{ name: 'home-session' }]);
   // The terminal: a WebSocket inside the link's WebSocket.
   const ws = new WebSocket(`ws://127.0.0.1:${hub.port}/m/${m.name}/ws/term?name=home-session`, { headers: { Origin: hub.base, Cookie: COOKIE } });
   const got = [];
   ws.on('message', (d) => got.push(d.toString()));
-  await new Promise((r, j) => (ws.on('open', r), ws.on('error', j)));
+  await step('the terminal socket through the link opens', new Promise((r, j) => (ws.on('open', r), ws.on('error', j))));
   await until('hello', async () => got.includes('hello home-session cookie=no origin=no'));
   ws.send('ls');
   await until('echo', async () => got.includes('echo ls'));
   ws.close();
   // 5 MB upload, streamed, intact.
   const data = crypto.randomBytes(5 * 1024 * 1024);
-  const res = await new Promise((resolve, reject) => {
+  const res = await step('the 5 MB upload through the link', new Promise((resolve, reject) => {
     const rq = http.request(`${hub.base}/m/${m.name}/api/sessions/home-session/upload`, { method: 'POST', headers: { Origin: hub.base, Cookie: COOKIE, 'Content-Type': 'application/octet-stream' } }, (r) => {
       let d = '';
       r.on('data', (x) => (d += x));
@@ -85,6 +118,16 @@ test('join by address + code: the hub reaches the computer\'s API, terminal and 
     });
     rq.on('error', reject);
     rq.end(data);
+  }), 60_000).catch((e) => {
+    if (process.platform === 'win32') {
+      const muxes = [...hub.machines.links.sessions.values()].map((x) => x.mux).concat([...keeper.map.values()].map((x) => x.tunnel.mux)).filter(Boolean);
+      const last = muxLines.slice(-80);
+      e.message += `\nthe link's streams, opened to closed (mux.mjs HOPRIG_MUX_DEBUG):\n${muxKey.join('\n')}`
+        + `\ntheir totals: ${[...muxTotals].map(([k, v]) => `${k} sent ${v.sent}, got ${v.got}`).join('; ')}`
+        + `\nstill open now:\n${muxes.flatMap((x) => x.describe()).join('\n') || '(none)'}`
+        + `\nthe last ${last.length} flow lines:\n${last.join('\n')}`;
+    }
+    throw e;
   });
   assert.equal(res.bytes, data.length, 'all 5 MB arrived (the byte-exact hash check is in integration.test.mjs)');
 });

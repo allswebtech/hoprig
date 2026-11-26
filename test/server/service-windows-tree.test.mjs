@@ -42,11 +42,17 @@ const oldTree = () => [
 ];
 
 /** A made-up Windows: its process table, who holds the dashboard's port, taskkill, schtasks and the new dashboard. */
-function fakeWin({ procs = oldTree(), holder = 5120, answer = true } = {}) {
+// This command's own pid and parent, made up like the rest: never this process's real ones, which can be any number
+// on a Windows runner (once its real parent was 5120, the made-up dashboard below, and every case was refused).
+const SELF = { pid: 9900, ppid: 9800 };
+
+function fakeWin({ procs = oldTree(), holder = 5120, answer = true, self = SELF } = {}) {
   const table = new Map(procs.map((p) => [p.pid, { ...p }]));
   const calls = [];
   let clock = 0;
   const run = async (c, args) => {
+    // Windows' own whoami comes by its full path there (setup/winowner.mjs whoamiBin): recorded by its name.
+    if (/[\\/]whoami\.exe$/i.test(c)) c = 'whoami';
     calls.push([c, ...args]);
     if (c === 'whoami') return { ok: true, out: `"box2\\alex","${MY_SID}"`, err: '' };
     if (c === 'powershell.exe') {
@@ -83,7 +89,7 @@ function fakeWin({ procs = oldTree(), holder = 5120, answer = true } = {}) {
     return { ok: true, json: async () => ({ pid: NEW_PID, state: stateKey() }) };
   };
   return {
-    run, calls, table,
+    run, calls, table, self,
     platform: 'win32', alive: (pid) => table.has(pid), waitMs: 200, step: 10,
     askHolder: async () => null, fetchImpl,
     sleep: async (ms) => { clock += ms; }, now: () => clock,
@@ -191,9 +197,9 @@ for (const sub of ['install', 'restart']) {
       { pid: 5450, ppid: 5120, name: 'powershell.exe', cmd: 'powershell.exe -NoLogo', start: S + 500, sid: MY_SID }, // a dashboard terminal
       { pid: 5460, ppid: 5450, name: 'node.exe', cmd: 'node server.js', start: S + 600, sid: MY_SID },
       { pid: 5470, ppid: 5120, name: 'node.exe', cmd: '"C:\\Program Files\\nodejs\\node.exe" helper.mjs x', start: S + 700, sid: MY_SID },
-      { pid: process.pid, ppid: 5450, name: 'node.exe', cmd: SERVE.replace(/serve$/, `service ${sub}`), start: S + 800, sid: MY_SID }, // this command
+      { pid: 5480, ppid: 5450, name: 'node.exe', cmd: SERVE.replace(/serve$/, `service ${sub}`), start: S + 800, sid: MY_SID }, // this command
     ];
-    const fw = fakeWin({ procs });
+    const fw = fakeWin({ procs, self: { pid: 5480, ppid: 5450 } });
     const { code, said } = await quiet(() => winsvc.service(sub, fw));
     assert.equal(code, 1, said);
     assert.deepEqual(ended(fw), [], `nothing is ended\n${said}`);
@@ -215,6 +221,33 @@ for (const sub of ['install', 'restart']) {
     assert.ok(fw.calls.some((c) => c[0] === 'schtasks' && c[1] === '/Run'), 'it was started');
   });
 }
+
+test('this command\'s own parent decides only through the pid it is given: a parent that is the made-up dashboard refuses, another does not', async () => {
+  fresh();
+  const inside = fakeWin({ self: { pid: 9900, ppid: 5120 } });
+  const r = await quiet(() => winsvc.service('install', inside));
+  assert.equal(r.code, 1, r.said);
+  assert.match(r.said, /This runs in a terminal of the dashboard it would end \(process 5120\)/);
+  assert.deepEqual(ended(inside), []);
+  fresh();
+  const outside = fakeWin({ self: { pid: 9900, ppid: 9800 } });
+  const o = await quiet(() => winsvc.service('install', outside));
+  assert.equal(o.code, 0, o.said);
+  assert.deepEqual(ended(outside), [5120]);
+});
+
+test('an empty, partial or wrong-typed self is not taken: this process and its parents in the table still guard', async () => {
+  // This process sits below the made-up dashboard in the table; only the system's own pid finds it there.
+  const procs = [...oldTree(), { pid: process.pid, ppid: 5120, name: 'node.exe', cmd: SERVE.replace(/serve$/, 'service install'), start: S + 800, sid: MY_SID }];
+  for (const self of [{}, null, { pid: 9900 }, { ppid: 9800 }, { pid: '9900', ppid: 9800 }]) {
+    fresh();
+    const fw = fakeWin({ procs, self });
+    const { code, said } = await quiet(() => winsvc.service('install', fw));
+    assert.equal(code, 1, `${JSON.stringify(self)}: ${said}`);
+    assert.match(said, /This runs in a terminal of the dashboard it would end \(process 5120\)/);
+    assert.deepEqual(ended(fw), [], `${JSON.stringify(self)}: nothing is ended`);
+  }
+});
 
 test('no real system program was started', () => {
   assert.equal(fs.existsSync(sprung) ? fs.readFileSync(sprung, 'utf8') : '', '');

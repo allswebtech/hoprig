@@ -1,0 +1,21 @@
+# Everyday lines on Windows that touch none of Hoprig's folders: each goes through (test/wall-windows.test.mjs).
+git diff HEAD~1
+git log HEAD~3..HEAD
+git reset --soft HEAD~1
+git rebase -i HEAD~3
+git show HEAD~1:src/app.js
+git checkout HEAD~1 -- src/app.js
+npm install lodash@~4.17.21
+git commit -m "a: tidy the list"
+echo "A: done" >> notes.md
+node -e "console.log(1)" // done
+cmd /c npm test
+cmd /c dir
+xcopy src dist /e /i
+robocopy src dist /e
+start /b npm test
+where /r . app.js
+cp out.log C:\Users\RUNNER~1\AppData\Local\Temp\out.log
+cd ~ && ls
+git status
+npm test

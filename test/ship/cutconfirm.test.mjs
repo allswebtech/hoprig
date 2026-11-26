@@ -11,7 +11,6 @@ import { tempShip } from './helpers.mjs';
 
 const CHILD = path.join(path.dirname(fileURLToPath(import.meta.url)), 'fixtures', 'golive-child.mjs');
 const t = tempShip('ship-cutconfirm');
-test.after(() => t.cleanup());
 const { putTogether } = await import('../../src/ship/together.mjs');
 const { runCheck } = await import('../../src/ship/check.mjs');
 const { allow, forget } = await import('../../src/ship/allow.mjs');
@@ -29,6 +28,20 @@ const alive = (pid) => {
     return false;
   }
 };
+// A command the test left running (a failure part way, before it saw the command gone) is ended before its folder is
+// removed: Windows cannot remove a folder a process still runs in.
+const left = [];
+test.after(async () => {
+  for (const p of left) {
+    try {
+      process.kill(p, 'SIGKILL');
+    } catch {
+      /* ended, as it should be */
+    }
+  }
+  for (let i = 0; i < 50 && left.some(alive); i++) await sleep(100);
+  t.cleanup();
+});
 const activityText = () => {
   try {
     return fs.readFileSync(path.join(process.env.HOPRIG_STATE_DIR, 'automation.log'), 'utf8');
@@ -57,16 +70,26 @@ for (const how of ['confirmed again with other commands', 'forgotten']) {
     const child = spawn(process.execPath, [CHILD, dir, r.id], { stdio: 'ignore' });
     for (let i = 0; i < 300 && !(fs.existsSync(pidFile) && readJournal(gitDir)?.running); i++) await sleep(25);
     const cmd = Number(fs.readFileSync(pidFile, 'utf8'));
+    left.push(cmd);
     child.kill('SIGKILL');
     await new Promise((res) => child.on('exit', res));
-    assert.equal(alive(cmd), true, 'the update command runs on in its own group');
+    // Started detached on every system (Windows too), it runs on after its Hoprig was killed.
+    assert.equal(alive(cmd), true, 'the update command runs on after its Hoprig was killed');
+    const rec = readJournal(gitDir).running; // what the look gets to judge: the command's pid and identity
     if (how.startsWith('forgotten')) forget(dir, 'live');
     else allow(dir, 'live', { ...live, verify: [['node', '-e', '1']] });
     const done = await finishCut(dir);
     assert.equal(done.outcome, 'not-confirmed', JSON.stringify(done));
     assert.match(done.why, /nothing more ran/);
-    for (let i = 0; i < 40 && alive(cmd); i++) await sleep(25);
-    assert.equal(alive(cmd), false, 'the command it left is ended');
+    // Ended by its tree: on Windows after a look at the processes, which takes a moment there.
+    for (let i = 0; i < 600 && alive(cmd); i++) await sleep(25);
+    if (alive(cmd)) {
+      // What the look had to judge it by: the journal's record, and what this computer says of that pid now.
+      const { commandRuns } = await import('../../src/ship/runcmd.mjs');
+      const { system } = await import('../../src/procid.mjs');
+      assert.fail(`the command it left is ended: it still runs (pid ${cmd}); the journal named pid ${rec && rec.pid} with identity ${rec && rec.proc}; its identity now ${system.of([cmd]).get(cmd)}; judged as running ${commandRuns(rec)}`);
+    }
+    left.splice(left.indexOf(cmd), 1); // seen gone: its pid may be another process's from now on
     assert.deepEqual(order(), ['update1'], 'neither update2, verify nor back of the old block ran');
     assert.equal(readJournal(gitDir), null, 'the step is closed');
     assert.equal(readLast(dir).outcome, 'not-confirmed');

@@ -60,7 +60,7 @@ test('his kept words: a home folder of any system, this computer\'s own folders 
   assert.match(w, /~\/secret\/plan\.txt/);
   assert.match(w, /mail \*\*\*/);
   // This computer's own home, whatever its name (read at the test's run, never written here).
-  assert.equal(c.keptWords(`in ${path.join(os.homedir(), 'notes', 'a.txt')} please`), 'in ~/notes/a.txt please');
+  assert.equal(c.keptWords(`in ${path.join(os.homedir(), 'notes', 'a.txt')} please`), `in ${path.join('~', 'notes', 'a.txt')} please`);
   assert.equal(c.keptWords('in /srv/data/home/notes.txt'), 'in /srv/data/home/notes.txt', 'a folder named home inside a path is no home folder');
   assert.equal(c.keptWords('Wait for the reset first.'), 'Wait for the reset first.', 'plain words stay as he wrote them');
 });

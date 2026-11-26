@@ -27,7 +27,7 @@ test('one use, until it expires; kinds never mix; only hashes on disk, mode 600'
   assert.equal(a.status(late.id, { now: t0 + 1000 }), 'expired');
   const raw = fs.readFileSync(a.file, 'utf8');
   assert.equal(raw.includes('s3cret') || raw.includes('later'), false);
-  assert.equal(fs.statSync(a.file).mode & 0o777, 0o600);
+  if (process.platform !== 'win32') assert.equal(fs.statSync(a.file).mode & 0o777, 0o600);
   assert.equal(path.dirname(a.file), box.state);
 });
 

@@ -1,9 +1,24 @@
 // Temporary homes for the `hoprig drop` tests: a "git server" of local bare repositories (gitfix.mjs), a brain with a
 // workspace map, and a project "shop" (a parent with project.json and a memory folder, two code repositories) got onto
 // a computer with `hoprig get`, so its memory link is made as it is in real use. Every computer has a label.
+import strict from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { gitWorld, quietUi } from './gitfix.mjs';
+
+/**
+ * A regexp of drop's words whose `/` also matches `\` on Windows, where a repository is named by its path there
+ * (projects\shop\code\shop-api). Elsewhere the regexp is returned as it is.
+ */
+export const anySep = (re) => (process.platform === 'win32' ? new RegExp(re.source.replaceAll('\\/', '[\\\\/]'), re.flags) : re);
+
+/** assert/strict; on Windows its match and doesNotMatch read a regexp's `/` as either separator (anySep). */
+export const assert = process.platform === 'win32'
+  ? Object.assign((...a) => strict(...a), strict, { match: (s, re, m) => strict.match(s, anySep(re), m), doesNotMatch: (s, re, m) => strict.doesNotMatch(s, anySep(re), m) })
+  : strict;
+
+/** Before a command drop shows: a path with `\` or `:` (Windows) is quoted by showCommand, a plain one is not. */
+export const Q = process.platform === 'win32' ? "'" : '';
 
 export async function dropWorld(name, { labels = ['alpha'], group = false } = {}) {
   const w = gitWorld(`drop-${name}`);
@@ -80,7 +95,7 @@ export async function dropOn(c, args, { answers = null, onStep } = {}) {
   return { code, text: text + out, asked, ...(args.includes('--json') ? { json: JSON.parse(out) } : {}) };
 }
 
-/** Every file (path → content hash or link text) under `dir`, .git folders left out, and every ref of every repository in it. */
+/** Every file (path, with / on every system, → content hash or link text) under `dir`, .git folders left out, and every ref of every repository in it. */
 export function treeOf(dir, sh) {
   const crypto = globalThis.__dropCrypto;
   const out = {};
@@ -88,7 +103,7 @@ export function treeOf(dir, sh) {
     for (const n of fs.readdirSync(d).sort()) {
       const p = path.join(d, n);
       const st = fs.lstatSync(p);
-      const rel = path.relative(dir, p);
+      const rel = path.relative(dir, p).split(path.sep).join('/');
       if (n === '.git') {
         out[`${rel}:refs`] = sh(d, 'for-each-ref', '--format=%(refname) %(objectname)', 'refs/heads', 'refs/tags');
         continue;

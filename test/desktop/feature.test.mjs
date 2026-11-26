@@ -9,6 +9,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { sandbox } from '../server/helpers.mjs';
+import { taskkillStandIn } from '../server/taskkill-standin.mjs';
 import { killProcess } from '../../src/server/platform.mjs';
 import { TmuxBackend } from '../../src/server/backends/tmux.mjs';
 import { runSync } from '../../src/server/platform/common.mjs';
@@ -16,6 +17,8 @@ import { runSync } from '../../src/server/platform/common.mjs';
 const hasTmux = runSync('tmux', ['-V']) !== null;
 
 const box = sandbox('desktop-feature');
+// Windows: taskkill is the runner's trap; a stand-in of the test's own ends its child as `taskkill /F` does.
+const taskkill = taskkillStandIn(box.root);
 const { desktopFeature } = await import('../../src/desktop/feature.mjs');
 test.after(() => box.cleanup());
 
@@ -175,7 +178,8 @@ test('processes: the dashboard, the processes above it and the sessions\' tmux s
     const tmux = list.processes.find((p) => p.pid === host.pid);
     assert.deepEqual([tmux.guarded, tmux.holdsSessions], [true, true], 'the server that holds every session');
     const kid = list.processes.find((p) => p.pid === child.pid);
-    assert.deepEqual([kid.guarded, kid.mine, kid.holdsSessions], [false, true, false]);
+    // Windows: the desktop's process list asks no owner (one slow call per process), so "mine" is not known there.
+    assert.deepEqual([kid.guarded, kid.mine, kid.holdsSessions], [false, process.platform === 'win32' ? null : true, false]);
     assert.ok(list.processes.every((p) => !('cpuTime' in p) && !('uid' in p)));
     for (const pid of [process.pid, process.ppid, host.pid, 1, 0, -5, 'x', 2 ** 31]) {
       await assert.rejects(call('POST', '/api/system/processes/end', { pid }), (e) => e.status === 409 && !/stand-in/.test(e.message), String(pid));
@@ -184,9 +188,20 @@ test('processes: the dashboard, the processes above it and the sessions\' tmux s
     // A pid the page showed under another name now (used again): refused before any signal.
     await assert.rejects(call('POST', '/api/system/processes/end', { pid: child.pid, name: 'not-this-one' }), (e) => e.status === 409 && /ended already/.test(e.message));
     assert.equal(child.exitCode, null, 'still running');
-    assert.deepEqual(await call('POST', '/api/system/processes/end', { pid: child.pid, name: kid.name }), { ok: true });
-    assert.equal(await gone, 'SIGTERM');
-    assert.deepEqual(signalled, [child.pid]);
+    if (process.platform === 'win32') {
+      // Windows: the child is a console program with no window to be asked to close; the page says to use Force, and
+      // Force ends it (src/server/platform/win32.mjs NO_WINDOW).
+      await assert.rejects(call('POST', '/api/system/processes/end', { pid: child.pid, name: kid.name }), (e) => e.status === 409 && /no window to be asked to close.*use Force/.test(e.message));
+      assert.equal(child.exitCode, null, 'not ended by the plain end');
+      assert.deepEqual(await call('POST', '/api/system/processes/end', { pid: child.pid, name: kid.name, force: true }), { ok: true });
+      await gone;
+      assert.deepEqual(signalled, [child.pid, child.pid]);
+      assert.deepEqual(taskkill.calls(), [['/PID', String(child.pid), '/F']], 'only the forced end reached taskkill');
+    } else {
+      assert.deepEqual(await call('POST', '/api/system/processes/end', { pid: child.pid, name: kid.name }), { ok: true });
+      assert.equal(await gone, 'SIGTERM');
+      assert.deepEqual(signalled, [child.pid]);
+    }
   } finally {
     delete process.env.HOPRIG_SEAL_REAL; // seal: the stand-in again for the rest of the file
     host.kill('SIGKILL');

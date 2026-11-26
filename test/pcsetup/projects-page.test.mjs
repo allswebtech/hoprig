@@ -135,7 +135,7 @@ test('New project: a preview first (nothing made), then a background job that ne
   assert.equal(j.result.ok, false);
   assert.equal(j.result.error, 'git does not know your name and e-mail yet');
   assert.equal(j.result.data.made, false);
-  assert.ok(j.lines.some((l) => l.includes('created ~/projects/shop')) && !j.lines.join('\n').includes(os.homedir()), 'the output shows ~');
+  assert.ok(j.lines.some((l) => l.includes(`created ${path.join('~', 'projects', 'shop')}`)) && !j.lines.join('\n').includes(os.homedir()), 'the output shows ~');
   await call('POST', '/api/pcsetup/project/new', { name: 'shop2', github: true });
   await job();
   assert.deepEqual(seen[1].args, ['shop2', '--github']);

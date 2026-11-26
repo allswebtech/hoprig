@@ -45,7 +45,7 @@ function stateWith(name, pidRec, tmp = path.join(box.root, name, 'tmp')) {
   return { state, tmp, data };
 }
 
-test('POSIX: our leftover server is stopped, its folders and the settings key removed, and it runs once', { skip: process.platform === 'win32' }, async (t) => {
+test('POSIX: our leftover server is stopped, its folders and the settings key removed, and it runs once', { skip: process.platform === 'win32' && 'our leftover server is stopped as its process group, which Windows does not have (cleanup.mjs)' }, async (t) => {
   let proc;
   // A Unix socket's path has room for 103 bytes on macOS (107 on Linux), and macOS's own temp folder takes about 50 of
   // them: under the test's folder there, the live socket's path was longer, Node cut it short to the folder itself,
@@ -88,7 +88,7 @@ test('POSIX: our leftover server is stopped, its folders and the settings key re
   assert.equal(fs.existsSync(data), true);
 });
 
-test('POSIX: a process with the recorded number but without our folder on its command line is never stopped', { skip: process.platform === 'win32' }, async (t) => {
+test('POSIX: a process with the recorded number but without our folder on its command line is never stopped', { skip: process.platform === 'win32' && 'our leftover server is stopped as its process group, which Windows does not have (cleanup.mjs)' }, async (t) => {
   let proc;
   const { state, tmp, data } = stateWith('stranger', (d, tm) => {
     proc = fake(['some-other-program', '--cli-data-dir', '/elsewhere/cli']); // the number was reused by another program
@@ -149,7 +149,7 @@ test('only what the feature made goes: another program\'s files in a "vscode" fo
   assert.ok(fs.existsSync(path.join(state, MARKER)));
 });
 
-test('the run-once marker is written only when the files went: a failed removal is tried again at the next start', { skip: process.platform === 'win32' || process.getuid?.() === 0 }, async () => {
+test('the run-once marker is written only when the files went: a failed removal is tried again at the next start', { skip: (process.platform === 'win32' && 'a file kept from removal by its folder\'s mode bits, which Windows does not have') || (process.getuid?.() === 0 && 'root removes it all the same') }, async () => {
   const { state, data } = stateWith('stuck');
   fs.chmodSync(path.join(data, 'cli'), 0o500); // its file cannot be removed
   try {
@@ -165,7 +165,7 @@ test('the run-once marker is written only when the files went: a failed removal 
   assert.ok(fs.existsSync(path.join(state, MARKER)));
 });
 
-test('temp folders: another user\'s, and a young one without a socket yet (a server still starting), stay', { skip: process.platform === 'win32' }, async () => {
+test('temp folders: another user\'s, and a young one without a socket yet (a server still starting), stay', { skip: process.platform === 'win32' && 'another user\'s folder is told by its numeric owner (uid) and a server by its Unix socket, which Windows does not have' }, async () => {
   const { state, tmp } = stateWith('tmpdirs');
   for (const n of ['hoprig-vscode-old', 'hoprig-vscode-young']) fs.mkdirSync(path.join(tmp, n));
   const later = Date.now() + 60 * 60_000;

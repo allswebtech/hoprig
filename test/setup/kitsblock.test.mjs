@@ -17,7 +17,7 @@ const FLUTTER = { key: 'flutter', var: 'PATH', prepend: true, value: '$HOME/Work
 const NVM = { key: 'nvm', var: 'NVM_DIR', value: '$HOME/Workspace/development/nodejs/nvm' };
 const count = (text, s) => text.split(s).length - 1;
 
-test('written once between two marker lines; a second run changes nothing; a new line joins the same block', (tc) => {
+test('written once between two marker lines; a second run changes nothing; a new line joins the same block', { skip: process.platform === 'win32' && 'the kits block is written into the start files of Linux and macOS shells only (Windows gets none)' }, (tc) => {
   const home = homeOf(tc);
   fs.writeFileSync(path.join(home, '.bashrc'), '# the owner\'s own\nalias ll="ls -l"\n');
   const o = { home, shell: '/bin/bash', platform: 'linux' };
@@ -45,7 +45,7 @@ test('a line of the same key is replaced in place; the rest of the file stays as
   assert.equal(fs.readFileSync(path.join(home, '.profile'), 'utf8'), `export EDITOR=vi\n${BLOCK_BEGIN}\nexport NVM_DIR="$HOME/Workspace/development/nodejs/nvm"  # nvm\n${BLOCK_END}\nexport LAST=1\n`);
 });
 
-test('a start file that is a link, and the owner\'s own line, are left as they are and said', (tc) => {
+test('a start file that is a link, and the owner\'s own line, are left as they are and said', { skip: process.platform === 'win32' && 'the kits block is written into the start files of Linux and macOS shells only (Windows gets none)' }, (tc) => {
   const home = homeOf(tc);
   const real = path.join(home, 'dotfiles-profile');
   fs.writeFileSync(real, 'export A=1\n');
@@ -58,7 +58,7 @@ test('a start file that is a link, and the owner\'s own line, are left as they a
   assert.equal(fs.readFileSync(path.join(home, '.bashrc'), 'utf8'), 'export NVM_DIR="$HOME/.nvm"\n');
 });
 
-test('a block whose end line is gone, or a second begin line, leaves the file as it is and says so; later runs too', (tc) => {
+test('a block whose end line is gone, or a second begin line, leaves the file as it is and says so; later runs too', { skip: process.platform === 'win32' && 'the kits block is written into the start files of Linux and macOS shells only (Windows gets none)' }, (tc) => {
   const home = homeOf(tc);
   const o = { home, shell: '/bin/sh', platform: 'linux' };
   const cases = {
@@ -104,7 +104,7 @@ test('fish gets its own form; a dry run writes nothing; the PATH line of hoprig 
   assert.equal(count(fs.readFileSync(path.join(home, '.profile'), 'utf8'), MARK), 1);
 });
 
-test('a variable the owner sets in one start file is his in all of them: no other file gets a line that would set it over his', (tc) => {
+test('a variable the owner sets in one start file is his in all of them: no other file gets a line that would set it over his', { skip: process.platform === 'win32' && 'the kits block is written into the start files of Linux and macOS shells only (Windows gets none)' }, (tc) => {
   const home = homeOf(tc);
   fs.writeFileSync(path.join(home, '.bashrc'), 'export ANDROID_HOME="$HOME/mysdk"\n');
   fs.writeFileSync(path.join(home, '.profile'), '. "$HOME/.bashrc"\n');

@@ -121,9 +121,10 @@ export async function ghAuth(sys) {
   return parseGhAuth(await sys.run(['gh', 'auth', 'status', '--hostname', 'github.com']));
 }
 
-/** Public SSH keys in ~/.ssh (names only; a private key is never opened). */
+/** Public SSH keys in ~/.ssh (names only; a private key is never opened), joined as the system of `sys` joins paths. */
 export function sshKeys(sys) {
-  return ['id_ed25519', 'id_ecdsa', 'id_rsa'].filter((n) => sys.exists(path.join(sys.home, '.ssh', `${n}.pub`)));
+  const p = sys.platform === 'win32' ? path.win32 : path.posix;
+  return ['id_ed25519', 'id_ecdsa', 'id_rsa'].filter((n) => sys.exists(p.join(sys.home, '.ssh', `${n}.pub`)));
 }
 
 /** Detect one item: { id, name, state: ok | missing | old | na, version, detail }. */
@@ -331,9 +332,12 @@ export async function detectDbServer(sys) {
   return { state: 'ok', version: null, detail: `a database server is here (${named[0]}), but it did not say its version` };
 }
 
-/** fvm on PATH, or in ~/.pub-cache/bin where `dart pub global activate` puts it (not on PATH until the person adds it). */
+/**
+ * fvm on PATH, or in ~/.pub-cache/bin where `dart pub global activate` puts it (not on PATH until the person adds it).
+ * The fvm kit is for Linux and macOS only (not covered on Windows): its place is joined with `/` on any system.
+ */
 export async function detectFvm(sys) {
-  const own = path.join(sys.home, '.pub-cache', 'bin', 'fvm');
+  const own = path.posix.join(sys.home, '.pub-cache', 'bin', 'fvm');
   const argv = sys.has('fvm') ? ['fvm', '--version'] : sys.exists(own) ? [own, '--version'] : null;
   if (!argv) return { state: 'missing', version: null, detail: sys.has('dart') ? '' : 'needs Flutter first (its dart command installs fvm)' };
   const r = await sys.run(argv);

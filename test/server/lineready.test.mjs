@@ -145,5 +145,5 @@ test('the mark is kept in the state folder, so a dashboard started again still r
   const ids = JSON.parse(fs.readFileSync(file, 'utf8'));
   const t = [...terms.values()][0];
   assert.ok(ids.includes(`${t.id}@${t.created}`), JSON.stringify(ids));
-  assert.equal(fs.statSync(file).mode & 0o077, 0);
+  if (process.platform !== 'win32') assert.equal(fs.statSync(file).mode & 0o077, 0);
 });

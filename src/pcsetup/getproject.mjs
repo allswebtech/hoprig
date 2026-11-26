@@ -17,7 +17,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { gitRead } from '../gitread.mjs';
-import { capture, showCommand, stream } from '../setup/system.mjs';
+import { capture, showCommand, showFileCommand, stream } from '../setup/system.mjs';
 import { bold, dim, makeUi } from '../setup/ui.mjs';
 import { neverLook, readMap, sameUrl } from '../workspace/map.mjs';
 import { PROJECTS_PLACE, pickProject } from '../workspace/mapcheck.mjs';
@@ -67,7 +67,7 @@ export async function findByAddress(dir, url, run = capture) {
 }
 
 // Printed for the owner to paste: each path quoted for a POSIX shell (showCommand), so nothing in a folder's name runs.
-export const mvCommand = (dir, from, to) => showCommand(['mv', path.join(dir, from), path.join(dir, to)]);
+export const mvCommand = (dir, from, to, platform = process.platform) => showFileCommand('mv', [path.join(dir, from), path.join(dir, to)], platform);
 
 /**
  * Before a get runs (the dashboard's job): the folder it will most likely get, and its place. A project of the map in
@@ -356,7 +356,7 @@ export async function getProject(spec, { ui, dir: given = projectsDir(), into = 
   // One project, one place: here already in another place (a group, or the projects folder) is reported with the mv.
   const elsewhere = await inOtherPlace(r, { given: r.projects || given, map, run });
   if (elsewhere) {
-    const mv = showCommand(['mv', elsewhere.dir, path.join(dir, guess)]); // quoted for a POSIX shell, as every printed line
+    const mv = showFileCommand('mv', [elsewhere.dir, path.join(dir, guess)]); // as this system's shell reads it
     const message = `it is here already, as ${elsewhere.ref}; the map puts it in ${r.place || 'the projects folder'} as ${guess}. Hoprig moves nothing by itself: ${mv}`;
     ui.line('warn', message);
     return { ...out, ok: false, result: 'misnamed', here: elsewhere.dir, mv, fix: mv, message };
@@ -494,7 +494,7 @@ export const gitReason = (lines) => {
 
 /** Another run holds the lock: said with how to remove a lock its run left. */
 function busyResult(out, name, { pid, file }, ui) {
-  const message = `${name} is being fetched by another run of Hoprig right now${pid ? ` (process ${pid})` : ''}: wait for it to finish, then run this again. If no hoprig get is running, removing its lock is safe:  ${showCommand(['rm', file])}`;
+  const message = `${name} is being fetched by another run of Hoprig right now${pid ? ` (process ${pid})` : ''}: wait for it to finish, then run this again. If no hoprig get is running, removing its lock is safe:  ${showFileCommand('rm', [file])}`;
   ui.line('fail', message);
   return { ...out, ok: false, result: 'busy', message };
 }

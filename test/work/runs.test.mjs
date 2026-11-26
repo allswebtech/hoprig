@@ -13,7 +13,7 @@ import { tempWork, write } from './helpers.mjs';
 const t = tempWork('work-runs');
 test.after(() => t.cleanup());
 const runsMod = await import('../../src/work/runs.mjs');
-const { HOST_WORD, RUN_ID_RE, checkRun, cleanText, listRuns, newRunId, pathsOf, readRun, writeRun, writerId } = runsMod;
+const { HOST_WORD, RUN_ID_RE, checkRun, cleanText, listRuns, newRunId, pathsOf, readRun, treePaths, writeRun, writerId } = runsMod;
 const folders = await import('../../src/work/folders.mjs');
 
 const place = { folder: path.join(t.root, 'workdata'), label: 'ai_brain/work' };
@@ -69,6 +69,14 @@ test('a session\'s words: a secret masked, the computer\'s paths taken out, esca
   assert.match(out, /red/);
   assert.ok(!out.includes('\x1b'));
   assert.equal(cleanText('x'.repeat(5000), 4000).length, 4000);
+  // Windows: the folder below a projects folder or a home comes after a backslash.
+  const win = pathsOf({ projectsDir: 'C:\\Users\\alex\\Workspace\\projects', workspace: 'C:\\Users\\alex\\Workspace', home: 'C:\\Users\\alex', platform: 'win32' });
+  assert.equal(cleanText('added it in C:\\Users\\alex\\Workspace\\projects\\shop and C:\\Users\\alex\\notes', 4000, win), 'added it in shop and ~\\notes');
+  // A run's own worktree: what lies below it is a plain relative path, on Windows after a backslash too.
+  const tree = 'C:\\Users\\alex\\AppData\\Local\\hoprig\\trees\\shop-a';
+  assert.equal(cleanText(`changed ${tree}\\src\\app.js and ran in ${tree}`, 4000, [...treePaths(tree, 'win32'), ...win]), 'changed src\\app.js and ran in .');
+  assert.deepEqual(treePaths('/t/shop-a', 'linux'), [['/t/shop-a/', ''], ['/t/shop-a', '.']], 'Linux: as before');
+  assert.deepEqual(treePaths(null), []);
   // A longer name that starts like a path is not taken for it.
   assert.equal(cleanText(`${t.home}2/y`, 100, paths), `${t.home}2/y`);
   // A key broken by an escape sequence (coloured output) is masked whole, not stored as one piece once the escape goes.
@@ -301,7 +309,7 @@ test('a file larger than a megabyte is told by its size and time, never read (th
   assert.deepEqual((await folders.leftIn(repos, await folders.headsOf(repos), { before })).changed, [], 'both as they were');
 });
 
-test('a file name a run does not hold (a control character, a folder named ~) is counted, never listed, never an error', async () => {
+test('a file name a run does not hold (a control character, a folder named ~) is counted, never listed, never an error', { skip: process.platform === 'win32' && 'Windows does not allow this file name (a control character, \':\', \'*\' or \'"\')' }, async () => {
   const dir = path.join(t.root, 'odd');
   t.repo(dir);
   const repos = [{ repo: '.', dir: fs.realpathSync(dir) }];

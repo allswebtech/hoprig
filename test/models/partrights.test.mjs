@@ -10,6 +10,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { sandbox } from '../server/helpers.mjs';
+import { SHELL_STANDINS } from '../seal.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const FAKE_CLAUDE = path.join(HERE, '..', 'chat', 'fixtures', 'fake-claude.mjs');
@@ -64,7 +65,7 @@ const settingsOf = (args) => {
   return s;
 };
 
-test('a part opens in the lead chat\'s own mode and settings, and never in bypass while the switch is off', { timeout: 120_000, skip: process.platform === 'win32' && 'the stand-ins are POSIX' }, async (t) => {
+test('a part opens in the lead chat\'s own mode and settings, and never in bypass while the switch is off', { timeout: 120_000, skip: SHELL_STANDINS.skip }, async (t) => {
   const box = sandbox('partrights');
   const work = path.join(box.root, 'work');
   const shop = path.join(work, 'shop');

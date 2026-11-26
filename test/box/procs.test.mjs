@@ -57,7 +57,9 @@ async function until(fn, ms) {
 }
 const last = (r) => JSON.parse(r.out.trim().split('\n').pop());
 
-test('the arguments: a pid space, no user space inside, no capability, a session of its own, it dies with the caller', () => {
+const noBox = process.platform === 'win32' && 'the box is made for Linux and macOS: Windows has none (means.mjs)';
+
+test('the arguments: a pid space, no user space inside, no capability, a session of its own, it dies with the caller', { skip: noBox }, () => {
   const { args } = bwrapArgs(planRun(['/bin/true'], OPTS));
   for (const o of ['--unshare-pid', '--unshare-cgroup-try', '--disable-userns', '--new-session', '--die-with-parent']) assert.ok(args.includes(o), o);
   assert.equal(args[args.indexOf('--cap-drop') + 1], 'ALL');

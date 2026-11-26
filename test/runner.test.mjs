@@ -7,7 +7,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const fixture = (name) => path.join('test', 'fixtures', 'runner', name);
@@ -78,12 +78,45 @@ test('a file whose results never all arrive (a test ended its process) fails the
   assert.doesNotMatch(r.out, /holds\.mjs: /, 'the whole file is not named');
 });
 
+test('a file whose summary never came is run once more by itself: LOST FILE says its exit code or signal and its last error lines', { timeout: 300_000 }, async () => {
+  // process.kill of itself ends a process by a signal where the system has signals (not on Windows).
+  const signals = process.platform !== 'win32';
+  const files = [fixture('lost-exit3.mjs'), fixture('lost-timer.mjs'), ...(signals ? [fixture('lost-signal.mjs')] : []), fixture('cut.mjs')];
+  const r = await runner(files);
+  assert.equal(r.code, 1, r.out);
+  assert.match(r.out, new RegExp(`RESULTS LOST: ${files.length} test file\\(s\\)`), 'the totals and the lines that name them are as before');
+  const block = (name) => {
+    const at = r.out.indexOf(`LOST FILE: ${fixture(name)}: `);
+    assert.ok(at >= 0, `${name} has its block:\n${r.out.slice(-4000)}`);
+    const rest = r.out.slice(at);
+    const next = rest.indexOf('\nLOST FILE: ', 1);
+    return next < 0 ? rest : rest.slice(0, next);
+  };
+  const three = block('lost-exit3.mjs');
+  assert.match(three, /ended with exit code 3 \(0x3\), signal none/);
+  assert.match(three, /its error output, the last \d+ of \d+ line\(s\):\n[\s\S]*made-up last words before exit 3/);
+  const timer = block('lost-timer.mjs');
+  assert.match(timer, /ended with exit code 1 \(0x1\), signal none/);
+  assert.match(timer, /Error: made-up error in a timer/);
+  if (signals) assert.match(block('lost-signal.mjs'), /ended with no exit code, signal SIGTERM/);
+  // Three at most are run again; the rest are counted.
+  if (files.length > 3) assert.match(r.out, new RegExp(`LOST FILE: ${files.length - 3} more file\\(s\\) whose own summary never came were not run again \\(three at most\\)`));
+  for (const b of r.out.split('\nLOST FILE: ').slice(1)) assert.ok(b.split('\n').length <= 60, `one block, at most 60 lines:\n${b}`);
+});
+
+test('the second run of a lost file is checked by the traps as the first run is: a reach of it is named', { timeout: 120_000 }, async () => {
+  const r = await runner([fixture('lost-reaches.mjs')]);
+  assert.equal(r.code, 1, r.out);
+  assert.match(r.out, /LOST FILE: \S*lost-reaches\.mjs: /);
+  assert.match(r.out, /A TEST REACHED THE REAL sudo: .*\(it asked: sudo made-up-second-run; stopped by the runner's trap\)/);
+});
+
 test('below the lowest Node.js Hoprig supports the runner says so in one line and starts no test; at it, it runs', { timeout: 120_000 }, async () => {
   // A made-up version, played by test/fixtures/runner/node-version.mjs loaded into the runner itself.
   const play = (v) => new Promise((resolve, reject) => {
     const env = { ...process.env, SEAL_FAKE_NODE: v };
     delete env.NODE_TEST_CONTEXT;
-    const c = spawn(process.execPath, ['--import', path.join(root, fixture('node-version.mjs')), path.join(root, 'tools', 'test.mjs'), fixture('holds.mjs')], { cwd: root, env, stdio: ['ignore', 'pipe', 'pipe'] });
+    const c = spawn(process.execPath, ['--import', pathToFileURL(path.join(root, fixture('node-version.mjs'))).href, path.join(root, 'tools', 'test.mjs'), fixture('holds.mjs')], { cwd: root, env, stdio: ['ignore', 'pipe', 'pipe'] });
     let out = '';
     c.stdout.on('data', (d) => (out += d));
     c.stderr.on('data', (d) => (out += d));
@@ -115,4 +148,12 @@ test('a run whose own temporary folder is removed under it says so, with the fol
   assert.equal(r.code, 1, r.out);
   assert.match(r.out, /RESULTS LOST/);
   assert.match(r.out, /this run's own temporary folder \S*hoprig-tests-\S+ was removed while its tests ran, by something other than this run/);
+  assert.doesNotMatch(r.out, /every result arrived/, 'the closing line never says the opposite of RESULTS LOST');
+});
+
+test('with reporters of your own the count is left out, and the closing line does not say every result arrived', { timeout: 120_000 }, async () => {
+  const r = await runner(['--test-reporter=dot', fixture('holds.mjs')]);
+  assert.equal(r.code, 0, r.out);
+  assert.match(r.out, /Reporters of your own: the count of every file's results is left out/);
+  assert.doesNotMatch(r.out, /every result arrived/, 'nothing was counted');
 });

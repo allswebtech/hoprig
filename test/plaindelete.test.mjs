@@ -151,7 +151,8 @@ test('from inside a repository\'s history no delete is plain: a folder with a pa
     // Text alone counts too, where the folder does not exist on this computer.
     assert.equal(at('/home/alex/Workspace/p/.git/objects'), false);
     // A folder with an objects folder but no HEAD is any folder; a project's own folders as before.
-    for (const cwd of [path.join(proj, 'other'), path.join(proj, 'sub'), proj]) assert.equal(at(cwd), true, cwd);
+    // On Windows no delete is plain (src/asking.mjs plainDelete reads POSIX folders only): it waits for the owner.
+    if (process.platform !== 'win32') for (const cwd of [path.join(proj, 'other'), path.join(proj, 'sub'), proj]) assert.equal(at(cwd), true, cwd);
   } finally {
     fs.rmSync(base, { recursive: true, force: true });
   }
@@ -247,7 +248,8 @@ test('a bare repository is seen: from a folder inside one, and as a target or he
     for (const cwd of [path.join(mirror, 'objects'), path.join(mirror, 'objects', 'pack'), path.join(mirror, 'refs')]) assert.equal(plainDelete('rm -rf pack/*', { ...IN, cwd }), false, cwd);
     // As a target, or in a folder of mirrors.
     for (const command of ['rm -rf mirrors/*', 'rm -rf mirrors', 'rm -rf mirrors/shop.git']) assert.equal(plainDelete(command, { ...IN, cwd: base }), false, command);
-    assert.equal(plainDelete('rm -rf mirrors/plain/*', { ...IN, cwd: base }), true);
+    // On Windows no delete is plain (src/asking.mjs plainDelete reads POSIX folders only): it waits for the owner.
+    if (process.platform !== 'win32') assert.equal(plainDelete('rm -rf mirrors/plain/*', { ...IN, cwd: base }), true);
   } finally {
     fs.rmSync(base, { recursive: true, force: true });
   }
@@ -313,7 +315,7 @@ test('the folders that hold projects: the chosen one, the default, the earlier d
   try {
     const ws = path.join(base, 'ws');
     const home = path.join(base, 'home');
-    assert.deepEqual(projectFolders({ workspace: ws, home, chosen: '/srv/code' }), ['/srv/code', path.join(ws, 'projects'), path.join(home, 'projects')]);
+    assert.deepEqual(projectFolders({ workspace: ws, home, chosen: '/srv/code' }), [path.normalize('/srv/code'), path.join(ws, 'projects'), path.join(home, 'projects')]);
     fs.mkdirSync(path.join(ws, 'ai_brain'), { recursive: true });
     fs.writeFileSync(path.join(ws, 'ai_brain', 'workspace.json'), JSON.stringify({ version: 1, config: { projectsDir: 'work/repos' }, projects: [] }));
     assert.deepEqual(projectFolders({ workspace: ws, home }), [path.join(ws, 'projects'), path.join(ws, 'work', 'repos'), path.join(home, 'projects')]);
@@ -336,6 +338,20 @@ test('the folders that hold projects: the chosen one, the default, the earlier d
       fs.readFileSync = byPath;
     }
     fs.rmSync(path.join(ws, 'ai_brain', 'workspace.json'));
+    // Where the system cannot open without following a link (Windows has no O_NOFOLLOW): the path is looked at first,
+    // so a link is still refused, and a plain map is still read. The open here follows links, as it does there.
+    const openSync = fs.openSync;
+    fs.openSync = (p, flags, ...rest) => openSync(p, typeof flags === 'number' ? flags & ~(fs.constants.O_NOFOLLOW || 0) : flags, ...rest);
+    try {
+      fs.symlinkSync(path.join(base, 'elsewhere.json'), path.join(ws, 'ai_brain', 'workspace.json'));
+      assert.deepEqual(projectFolders({ workspace: ws, home, noFollow: false }), [path.join(ws, 'projects'), path.join(home, 'projects')], 'a link, with no O_NOFOLLOW');
+      fs.rmSync(path.join(ws, 'ai_brain', 'workspace.json'));
+      fs.writeFileSync(path.join(ws, 'ai_brain', 'workspace.json'), JSON.stringify({ config: { projectsDir: 'plain' } }));
+      assert.deepEqual(projectFolders({ workspace: ws, home, noFollow: false }), [path.join(ws, 'projects'), path.join(ws, 'plain'), path.join(home, 'projects')], 'a plain map, with no O_NOFOLLOW');
+      fs.rmSync(path.join(ws, 'ai_brain', 'workspace.json'));
+    } finally {
+      fs.openSync = openSync;
+    }
     // A FIFO in its place: not waited on (it would block the dashboard).
     if (process.platform !== 'win32') {
       spawnSync('mkfifo', [path.join(ws, 'ai_brain', 'workspace.json')]);

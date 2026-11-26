@@ -26,8 +26,10 @@ test('a taker that saw the old lock stale does not remove the fresh lock that to
   fs.writeFileSync(lock, '');
   ago(lock, 60_000); // left by a dashboard that was killed inside it
   const seenStale = fs.statSync(lock);
-  const a = new SpendLedger({ file });
-  const b = new SpendLedger({ file });
+  // What each taker met at each step, said on a failure (spend.mjs trace).
+  const met = [];
+  const a = new SpendLedger({ file, trace: (step, what) => met.push(`A ${step} ${what}`) });
+  const b = new SpendLedger({ file, trace: (step, what) => met.push(`B ${step} ${what}`) });
   const { readFileSync, statSync } = fs;
   t.after(() => {
     Object.assign(fs, { readFileSync, statSync });
@@ -57,7 +59,9 @@ test('a taker that saw the old lock stale does not remove the fresh lock that to
   };
   const aTook = a.take(0.5);
   Object.assign(fs, { readFileSync, statSync });
-  assert.equal(bLooked, true, 'B never looked at the lock: the order was not played');
+  // A that answers busy never had the lock in its short wait (on Windows a removed lock may stay in the way while
+  // another program, a virus scan, still has it open): then B was never asked, and the answer says so.
+  assert.equal(bLooked, true, `B never looked at the lock: the order was not played (A answered ${JSON.stringify(aTook)}, B ${JSON.stringify(bTook)}, the lock is ${fs.existsSync(lock) ? 'there' : 'gone'}; met: ${met.slice(-40).join(' | ')})`);
   assert.equal(aTook, null, 'A took over the stale lock and held');
   assert.equal(bTook, BUSY, `B ${bTook === null ? 'held too, after it removed A\'s fresh lock' : `answered ${bTook}`}`);
   assert.equal(holds(file), 1, 'a cap with room for one hold held more');

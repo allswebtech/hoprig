@@ -24,7 +24,7 @@ test('the running dashboard tells this computer, with the key, its version, its 
   const running = { ...runningDashboard(), key: runningKey() };
   assert.equal(running.port, port);
   assert.equal(typeof running.key, 'string');
-  assert.equal((fs.statSync(path.join(process.env.HOPRIG_STATE_DIR, 'dashboard.json')).mode & 0o777).toString(8), '600', 'only this user reads the key');
+  if (process.platform !== 'win32') assert.equal((fs.statSync(path.join(process.env.HOPRIG_STATE_DIR, 'dashboard.json')).mode & 0o777).toString(8), '600', 'only this user reads the key');
   const ok = await fetch(base, { headers: { 'x-hoprig-local-key': running.key } });
   assert.equal(ok.status, 200);
   const version = JSON.parse(fs.readFileSync(new URL('../../package.json', import.meta.url), 'utf8')).version;

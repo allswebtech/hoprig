@@ -1,10 +1,9 @@
 // `hoprig drop`: what the owner reads. --check says everything it found, as --json does; the dry run goes in the order
 // of the drop; every command given resolves what it names; no terminal is a refusal in --json too.
-import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
-import { dropOn, dropWorld, reset } from './dropfix.mjs';
+import { anySep, assert, dropOn, dropWorld, reset } from './dropfix.mjs';
 
 const w = await dropWorld('words');
 test.after(() => w.cleanup());
@@ -59,7 +58,7 @@ test('the dry run asks first, then acts in the order the drop does, and ends wit
     return i;
   };
   const order = [/would ask: commit the work/, /would ask: push main of projects\/shop\/code\/shop-web/, /would commit the memory folder of projects\/shop/, /on your yes, would commit the work/, /would push idea of/, /as you answer, would push main of projects\/shop\/code\/shop-web/, /would check everything again/, /\(dry run\) would (not )?commit this computer's file/];
-  const places = order.map(at);
+  const places = order.map((re) => at(anySep(re)));
   assert.deepEqual(places, [...places].sort((a, b) => a - b), t);
 });
 
@@ -153,7 +152,7 @@ test('a detached HEAD with one commit: "1 commit that is"', async () => {
   w.sh(api(), 'switch', '-q', 'main');
 });
 
-test('a real memory folder of a code repository: the command moves its files into the project\'s memory folder; the next drop commits and pushes them', async () => {
+test('a real memory folder of a code repository: the command moves its files into the project\'s memory folder; the next drop commits and pushes them', { skip: process.platform === 'win32' && 'the line is run here by sh; the PowerShell line Windows gets (showMergeCommand) is run in test/setup/pastelines-windows.test.mjs' }, async () => {
   await reset(A);
   const d = path.join(A.claude, 'projects', web().replace(/[^A-Za-z0-9]/g, '-'), 'memory');
   fs.mkdirSync(d, { recursive: true });

@@ -16,6 +16,7 @@ import { stateDir } from '../paths.mjs';
 import { capture } from '../setup/system.mjs';
 import { gitWrite, lastLine } from '../work/git.mjs';
 import { gitFolder, takeLock } from './lock.mjs';
+import { replaceFile } from '../replacefile.mjs';
 
 // One put-together or Go on at a time per repository (a second press of Go on waits its turn and finds it done).
 async function locked(top, run, fn) {
@@ -50,7 +51,7 @@ function writeTogether(r) {
   fs.mkdirSync(folder(), { recursive: true, mode: 0o700 });
   const tmp = `${fileOf(r.id)}.${process.pid}.tmp`;
   fs.writeFileSync(tmp, `${JSON.stringify(r, null, 2)}\n`, { mode: 0o600 });
-  fs.renameSync(tmp, fileOf(r.id));
+  replaceFile(tmp, fileOf(r.id));
   return r;
 }
 /** Every put-together of the repository at `top`, newest first. */

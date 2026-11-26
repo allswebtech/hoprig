@@ -8,7 +8,7 @@ import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
-import { tempWork, write } from './helpers.mjs';
+import { endSignal, tempWork, write } from './helpers.mjs';
 
 const t = tempWork('work-race');
 test.after(() => t.cleanup());
@@ -218,7 +218,7 @@ const kill = (place, step) => {
   try {
     killedSave(place, step);
   } catch (e) {
-    assert.equal(e.signal, 'SIGKILL');
+    assert.equal(endSignal(e), 'SIGKILL');
     return;
   }
   assert.fail(`the save ended after ${step}`);

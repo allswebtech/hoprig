@@ -6,6 +6,7 @@ import fs from 'node:fs';
 import net from 'node:net';
 import path from 'node:path';
 import test from 'node:test';
+import { oneCall } from '../onecall.mjs';
 import { tempShip, write } from './helpers.mjs';
 import { DEPLOY, SERVER, manifest } from './fixtures/shop.mjs';
 
@@ -43,13 +44,15 @@ test('routes: owner only, a yes for what was shown, put together, check, live, t
   try {
     const login = await fetch(`${origin}/api/login`, { method: 'POST', headers: { 'Content-Type': 'application/json', Origin: origin }, body: JSON.stringify({ password: 'pw' }) });
     const cookie = login.headers.get('set-cookie').split(';')[0];
+    // Each call on a connection of its own (test/onecall.mjs): a check and a go-live run between calls here, and no
+    // request is sent on a kept-alive connection the server may be closing meanwhile.
     const get = async (p, extra = {}) => {
-      const r = await fetch(origin + p, { headers: { Cookie: cookie, ...extra } });
-      return { status: r.status, body: await r.json() };
+      const r = await oneCall(origin, 'GET', p, { headers: { Cookie: cookie, ...extra } });
+      return { status: r.status, body: r.json };
     };
     const post = async (p, body, o = origin, extra = {}) => {
-      const r = await fetch(origin + p, { method: 'POST', headers: { 'Content-Type': 'application/json', Origin: o, Cookie: cookie, ...extra }, body: JSON.stringify(body) });
-      return { status: r.status, body: await r.json() };
+      const r = await oneCall(origin, 'POST', p, { headers: { Origin: o, Cookie: cookie, ...extra }, body });
+      return { status: r.status, body: r.json };
     };
     const noPath = (body, what) => assert.ok(!JSON.stringify(body).includes(t.root), `${what}: no full path`);
 

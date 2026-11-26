@@ -13,6 +13,10 @@ const { detectKits, sysFacts } = await import('../../src/pcsetup/detect.mjs');
 const { pcSetup, runPcSetup } = await import('../../src/pcsetup/setup.mjs');
 const { showCommand, which } = await import('../../src/setup/system.mjs');
 
+// A Linux pc setup on the real folders of this computer: its home is read and written as a Linux home (its shell start
+// files, ~/android-studio, programs started by their place there). A Windows computer's folders are not a Linux home,
+// and Windows has a pc setup of its own (winget-start.test.mjs and the kit tests with platform win32).
+const LINUX_HOME = { skip: process.platform === 'win32' && 'a Linux pc setup reads and writes a real Linux home; a Windows computer has none' };
 // What this computer may have for real is hidden, so the world decides: no Java, database or Composer of the system.
 const HIDE = new Set(['java', 'mariadbd', 'mysqld', 'mariadb', 'mysql', 'composer', 'fvm', 'brew', 'docker']);
 const inWorld = (w, p) => p === w.root || p.startsWith(`${w.root}/`);
@@ -55,7 +59,7 @@ const willRun = (text) => {
   return out;
 };
 
-test('pc setup --dry-run with the optional kits: nothing changed, nothing installed; the suggestions, the PHP note and the Java line are said', async (tc) => {
+test('pc setup --dry-run with the optional kits: nothing changed, nothing installed; the suggestions, the PHP note and the Java line are said', LINUX_HOME, async (tc) => {
   const w = await dryWorld(tc, 'kits', { kits: true });
   const sys = await sysFor(w);
   const setup = (args) => runCli((a, o) => pcSetup(a, { ...o, sys }), args);
@@ -90,7 +94,7 @@ test('pc setup --dry-run with the optional kits: nothing changed, nothing instal
   assert.ok(w.kitCalls().includes('php -v') && w.kitCalls().includes('java -version'));
 });
 
-test('pc setup --yes takes no optional kit; with --kits it runs exactly what it printed, in that order and no more', async (tc) => {
+test('pc setup --yes takes no optional kit; with --kits it runs exactly what it printed, in that order and no more', LINUX_HOME, async (tc) => {
   const w = await dryWorld(tc, 'kitsrun', { kits: true });
   const sys = await sysFor(w);
   const a = recorder();
@@ -109,7 +113,7 @@ test('pc setup --yes takes no optional kit; with --kits it runs exactly what it 
   assert.match(ui2.text(), /MariaDB is a service: it starts now and with the computer/);
 });
 
-test('a jbr that does not run: named with its place and what to do, never "no Java found"; nothing offered to install', async (tc) => {
+test('a jbr that does not run: named with its place and what to do, never "no Java found"; nothing offered to install', LINUX_HOME, async (tc) => {
   const w = await dryWorld(tc, 'kitsjava', { kits: true });
   w.brokenJava();
   const sys = await sysFor(w);
@@ -120,7 +124,7 @@ test('a jbr that does not run: named with its place and what to do, never "no Ja
   assert.doesNotMatch(willRun(r.text).join('\n'), /java|jdk/i);
 });
 
-test('pc setup --kits flutter --dry-run on a home with a workspace: nothing changes, nothing is fetched; the plan names address, size, place and shell line', async (tc) => {
+test('pc setup --kits flutter --dry-run on a home with a workspace: nothing changes, nothing is fetched; the plan names address, size, place and shell line', LINUX_HOME, async (tc) => {
   const w = await dryWorld(tc, 'kitsflutter', { kits: true });
   const sys = await sysFor(w);
   const asked = [];
@@ -143,7 +147,7 @@ test('pc setup --kits flutter --dry-run on a home with a workspace: nothing chan
   for (const c of w.kitCalls()) assert.match(c, /^(php -v|apt-cache (policy|pkgnames|depends) \S+|java -version)$/, c);
 });
 
-test('pc setup --kits android --dry-run on a home with a workspace: nothing changes, nothing is fetched, no licence is answered', async (tc) => {
+test('pc setup --kits android --dry-run on a home with a workspace: nothing changes, nothing is fetched, no licence is answered', LINUX_HOME, async (tc) => {
   const w = await dryWorld(tc, 'kitsandroid', { kits: true });
   const sys = await sysFor(w);
   const asked = [];

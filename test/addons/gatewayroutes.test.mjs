@@ -83,7 +83,7 @@ test('remove: the question first, then it is gone; a shipped gateway is never re
   assert.equal((await call('/api/gateways/defined/remove', { id: 'relay', confirmed: true })).status, 404);
 });
 
-test('the page\'s Remove never ends a program Hoprig did not start on the gateway\'s port', { skip: process.platform === 'win32' }, async () => {
+test('the page\'s Remove never ends a program Hoprig did not start on the gateway\'s port', async () => {
   const { spawn } = await import('node:child_process');
   const port = await freePort();
   const other = spawn(process.execPath, ['-e', `require('node:http').createServer((q, s) => s.end('mine')).listen(${port}, '127.0.0.1')`], { stdio: 'ignore' });
@@ -154,7 +154,7 @@ test('a provider whose gateway was removed is marked: its sessions would not sta
   }
 });
 
-test('the page\'s yes counts only for the file it was shown: a program changed after the question adds nothing', { skip: process.platform === 'win32' }, async () => {
+test('the page\'s yes counts only for the file it was shown: a program changed after the question adds nothing', async () => {
   const file = path.join(box.root, 'relay-shown');
   fs.writeFileSync(file, '#!/bin/sh\nexit 0\n', { mode: 0o755 });
   const def = { id: 'relay-shown', title: 'Relay Shown', bin: file, port: await freePort() };
@@ -191,7 +191,7 @@ test('a gateway in config.json that was not loaded: its provider says so and why
   }
 });
 
-test('Confirm the new program: the question shows the file as it is now, a yes for another file changes nothing, sharing and keys stay', { skip: process.platform === 'win32' }, async () => {
+test('Confirm the new program: the question shows the file as it is now, a yes for another file changes nothing, sharing and keys stay', async () => {
   const K = await import('../../src/gateway/keys.mjs');
   const { fileSha256 } = await import('../../src/addons/localgateway.mjs');
   const file = path.join(box.root, 'relay-update');
@@ -229,7 +229,7 @@ test('Confirm the new program: the question shows the file as it is now, a yes f
   }
 });
 
-test('Confirm after an update moved the link to a new folder: the page\'s question names the file it leads to now and the one confirmed', { skip: process.platform === 'win32' }, async () => {
+test('Confirm after an update moved the link to a new folder: the page\'s question names the file it leads to now and the one confirmed', { skip: process.platform === 'win32' && 'a symbolic link to a versioned folder: Windows makes one only with the right to (an administrator or developer mode)' }, async () => {
   const { fileSha256 } = await import('../../src/addons/localgateway.mjs');
   const v1 = path.join(box.root, 'opt', 'relay-1', 'relay');
   const v2 = path.join(box.root, 'opt', 'relay-2', 'relay');

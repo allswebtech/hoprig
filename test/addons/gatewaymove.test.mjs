@@ -10,7 +10,7 @@ import { test } from 'node:test';
 import { sandbox } from '../server/helpers.mjs';
 
 const box = sandbox('gatewaymove');
-const POSIX = { skip: process.platform === 'win32' };
+const LINKS = { skip: process.platform === 'win32' && 'a symbolic link to a versioned folder: Windows makes one only with the right to (an administrator or developer mode)' };
 const freePort = () => new Promise((r) => { const s = net.createServer().listen(0, '127.0.0.1', () => { const p = s.address().port; s.close(() => r(p)); }); });
 const marker = path.join(box.root, 'ran.txt');
 // A stand-in gateway that says which version it is, then answers on its port.
@@ -55,7 +55,7 @@ const opt = path.join(box.root, 'opt');
 const link = path.join(box.root, 'bin', 'relay');
 fs.mkdirSync(path.dirname(link), { recursive: true });
 
-test('a link moved to a new versioned folder: confirm shows the new file and what changed; No leaves all as it was, Yes runs it with sharing and keys', POSIX, async () => {
+test('a link moved to a new versioned folder: confirm shows the new file and what changed; No leaves all as it was, Yes runs it with sharing and keys', LINKS, async () => {
   const v1 = version(path.join(opt, 'relay-1.0', 'relay'), 'V1');
   fs.symlinkSync(v1, link);
   const port = await freePort();
@@ -104,7 +104,7 @@ test('a link moved to a new versioned folder: confirm shows the new file and wha
   }
 });
 
-test('a name typed at add time and found on PATH at another place later: confirm shows that place and pins it on a yes', POSIX, async () => {
+test('a name typed at add time and found on PATH at another place later: confirm shows that place and pins it on a yes', async () => {
   const first = path.join(box.root, 'first-bin');
   const second = path.join(box.root, 'second-bin');
   version(path.join(first, 'relay'), 'FIRST');
@@ -131,7 +131,7 @@ test('a name typed at add time and found on PATH at another place later: confirm
   }
 });
 
-test('a definition from before the typed program was kept: its moved program is named with --program; sharing and keys stay', POSIX, async () => {
+test('a definition from before the typed program was kept: its moved program is named with --program; sharing and keys stay', async () => {
   const v1 = version(path.join(opt, 'old-1.0', 'relay'), 'OLD-V1');
   const port = await freePort();
   // As an older version wrote it: the file and its fingerprint, nothing typed.
@@ -150,7 +150,8 @@ test('a definition from before the typed program was kept: its moved program is 
     assert.equal(await main(['confirm', 'relay', '--program'], io('y')), 2, 'the option needs its value');
     t = io('n');
     assert.equal(await main(['confirm', 'relay', '--program', v2], t), 1);
-    assert.match(t.said.join('\n'), new RegExp(`you confirmed ${v1}, and ${v2} leads to ${v2} now`));
+    const re = (p) => p.replace(/[\\/.]/g, '\\$&'); // a path as plain text in the expression (C:\… on Windows)
+    assert.match(t.said.join('\n'), new RegExp(`you confirmed ${re(v1)}, and ${re(v2)} leads to ${re(v2)} now`));
     assert.equal(stored().bin, v1, 'No changes nothing');
     t = io('y');
     assert.equal(await main(['confirm', 'relay', '--program', v2], t), 0, t.said.join('\n'));
@@ -167,8 +168,9 @@ test('a definition from before the typed program was kept: its moved program is 
 
 test('what was typed is checked when it is read: a hand-written one that is no program, or one on an npm package, is refused', () => {
   const ok = { id: 'relay', title: 'Relay', port: 20100, bin: '/opt/relay/bin/relay' };
-  assert.equal(G.checkDefinition({ ...ok, typed: 'relay' }).def.typed, 'relay');
-  assert.equal(G.checkDefinition(ok).def.typed, null);
-  for (const typed of ['../relay', 'relay;id', 7, '']) assert.match(G.checkDefinition({ ...ok, typed }).error, /typed: the program is an absolute path or a plain name/);
-  assert.match(G.checkDefinition({ id: 'relay', title: 'Relay', port: 20100, npm: 'relay-gw', typed: 'relay-gw' }).error, /typed belongs to a program/);
+  const LINUX = { platform: 'linux' }; // a POSIX path and an npm package: the rules of Linux (Windows refuses an npm gateway)
+  assert.equal(G.checkDefinition({ ...ok, typed: 'relay' }, LINUX).def.typed, 'relay');
+  assert.equal(G.checkDefinition(ok, LINUX).def.typed, null);
+  for (const typed of ['../relay', 'relay;id', 7, '']) assert.match(G.checkDefinition({ ...ok, typed }, LINUX).error, /typed: the program is an absolute path or a plain name/);
+  assert.match(G.checkDefinition({ id: 'relay', title: 'Relay', port: 20100, npm: 'relay-gw', typed: 'relay-gw' }, LINUX).error, /typed belongs to a program/);
 });

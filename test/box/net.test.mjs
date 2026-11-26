@@ -51,7 +51,9 @@ function reach(target) {
 /** This computer's own address that is not the loopback, where it has one. */
 const ownAddress = Object.values(os.networkInterfaces()).flat().find((i) => i && i.family === 'IPv4' && !i.internal)?.address;
 
-test('the arguments give the box a network space of its own', () => {
+const noBox = process.platform === 'win32' && 'the box is made for Linux and macOS: Windows has none (means.mjs)';
+
+test('the arguments give the box a network space of its own', { skip: noBox }, () => {
   const p = planRun(['/bin/true'], { cwd: work, write: [work], timeoutMs: 1000 });
   const { args } = bwrapArgs(p);
   for (const o of ['--unshare-net', '--unshare-ipc', '--unshare-uts']) assert.ok(args.includes(o), o);

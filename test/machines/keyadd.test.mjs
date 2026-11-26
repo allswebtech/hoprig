@@ -100,8 +100,8 @@ test('step 2: the print confirmed by the computer\'s name pairs it with the kept
   assert.equal(r.json.machine.state, 'online', JSON.stringify(r.json.machine));
   assert.equal(r.json.machine.key, true);
   assert.equal((await browser('/m/box2/api/state')).json.sessions[0].name, 'on-the-server');
-  assert.equal(fs.statSync(keyFile('box2')).mode & 0o777, 0o600);
-  assert.equal(fs.statSync(knownHostsFile('box2')).mode & 0o777, 0o600);
+  if (process.platform !== 'win32') assert.equal(fs.statSync(keyFile('box2')).mode & 0o777, 0o600);
+  if (process.platform !== 'win32') assert.equal(fs.statSync(knownHostsFile('box2')).mode & 0o777, 0o600);
   for (const c of remote.calls().slice(before)) {
     const a = c.join(' ');
     assert.ok(a.includes(`-i ${keyFile('box2')}`) && a.includes('IdentitiesOnly=yes') && a.includes(`UserKnownHostsFile=${knownHostsFile('box2')}`) && a.includes('StrictHostKeyChecking=yes'), a);
@@ -243,7 +243,7 @@ test('a changed host key: both prints are shown, and only his press with the pri
     assert.equal(yes.status, 200, yes.text);
     assert.equal(yes.json.kept, seen.json.now);
     assert.equal(yes.json.machine.state, 'online', JSON.stringify(yes.json.machine));
-    assert.equal(fs.statSync(knownHostsFile('box5')).mode & 0o777, 0o600);
+    if (process.platform !== 'win32') assert.equal(fs.statSync(knownHostsFile('box5')).mode & 0o777, 0o600);
   } finally {
     env.FAKE_HOSTKEY = was;
     hub.machines.hub.tunnels.close('box5');

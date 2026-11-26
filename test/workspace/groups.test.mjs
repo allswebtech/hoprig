@@ -20,6 +20,7 @@ const W = await import('../../src/workspace/where.mjs');
 const { syncAll } = await import('../../src/workspace/sync.mjs');
 const { saveConfig } = await import('../../src/config.mjs');
 const { projectSlug } = await import('../../src/sessions.mjs');
+const { showLinkRemoveCommand, showThen } = await import('../../src/setup/system.mjs');
 
 const U = (n) => w.url(n);
 ['brain', 'shop-workspace', 'shop', 'acme-shop', 'acme-blog', 'blog-theme', 'blog-build', 'site-build'].forEach((n) => w.bare(n));
@@ -135,7 +136,8 @@ test('memory: the group\'s own folder and members without memory use the group\'
     const plan = await G.planGroupMemories(M.readMap(C.ws).map, ctx, { only: 'kits' });
     const mine = plan.find((p) => p.group === 'kits');
     assert.equal(mine.action, 'conflict');
-    assert.match(mine.fix, /&& hoprig project link kits$/);
+    // The link alone, then linked again: as this system's shell reads it (PowerShell on Windows).
+    assert.equal(mine.fix, showThen(showLinkRemoveCommand(own), 'hoprig project link kits'));
   } finally {
     fs.rmSync(own);
     fs.symlinkSync(was, own);

@@ -13,6 +13,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { configDir } from '../paths.mjs';
 import { dashboardUrl, label as cleanLabel, machineName, sshTarget } from './names.mjs';
+import { replaceFile } from '../replacefile.mjs';
 
 export const machinesFile = () => path.join(configDir(), 'machines.json');
 
@@ -41,7 +42,7 @@ export function saveMachines(list) {
   const tmp = `${machinesFile()}.${process.pid}.tmp`;
   fs.writeFileSync(tmp, JSON.stringify({ machines: list }, null, 2) + '\n', { mode: 0o600 });
   fs.chmodSync(tmp, 0o600);
-  fs.renameSync(tmp, machinesFile());
+  replaceFile(tmp, machinesFile());
 }
 
 export const getMachine = (name) => loadMachines().find((m) => m.name === name) || null;

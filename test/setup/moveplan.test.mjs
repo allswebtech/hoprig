@@ -9,6 +9,9 @@ import path from 'node:path';
 import { test } from 'node:test';
 import { scratch } from './helpers.mjs';
 
+// The move to a user of its own is Linux only: root, user ids, runuser and systemd, with POSIX paths.
+const LINUX_ONLY = { skip: process.platform === 'win32' && 'the move to a user of its own is Linux only (root, chown by uid, POSIX paths)' };
+
 const s = scratch();
 test.after(s.cleanup);
 const P = await import('../../src/setup/moveplan.mjs');
@@ -89,7 +92,7 @@ function snapshot(dir) {
   return out;
 }
 
-test('the look names the user, what runs, what would be copied with counts and sizes, and the administrator steps', async () => {
+test('the look names the user, what runs, what would be copied with counts and sizes, and the administrator steps', LINUX_ONLY, async () => {
   const plan = await P.movePlan({ io: io() });
   assert.equal(plan.ok, true, plan.stops.join('\n'));
   assert.equal(plan.user.name, 'hoprig');
@@ -111,7 +114,7 @@ test('the look names the user, what runs, what would be copied with counts and s
   assert.doesNotMatch(lines, /made-up private|ANTHROPIC_API_KEY/, 'no content of a file is said');
 });
 
-test('--dry-run: a whole-home snapshot of root and the user is the same afterwards, and only readers were asked', async () => {
+test('--dry-run: a whole-home snapshot of root and the user is the same afterwards, and only readers were asked', LINUX_ONLY, async () => {
   const before = snapshot(s.tmp);
   const calls = [];
   const out = [];
@@ -142,7 +145,7 @@ test('no user Hoprig made: the look says the user hoprig is made by the move, wi
   for (const c of calls) assert.match(c, /^(getent passwd |tmux -S \S+ list-panes -a |loginctl show-user |ss -ltnpH$)/, `only looked: ${c}`);
 });
 
-test('a user made by the move gets bash where /bin/bash is there, shown as its exact command; a user that exists is not changed', async () => {
+test('a user made by the move gets bash where /bin/bash is there, shown as its exact command; a user that exists is not changed', LINUX_ONLY, async () => {
   const none = io({ run: async () => ({ ok: false, code: 2, stdout: '', stderr: '' }), hasBash: () => true });
   const text = P.planLines(await P.movePlan({ io: none })).join('\n');
   assert.match(text, /make the user hoprig with no password, bash as its shell \(the usual command line, with history and arrow keys\) .*: useradd --create-home --comment 'Hoprig work user' --shell \/bin\/bash hoprig$/m);
@@ -152,7 +155,7 @@ test('a user made by the move gets bash where /bin/bash is there, shown as its e
   assert.doesNotMatch(P.planLines(kept).join('\n'), /--shell|usermod|chsh|bash as its shell/);
 });
 
-test('a user named hoprig without a mark is not taken; --user takes an ordinary user that exists, and refuses the rest', async () => {
+test('a user named hoprig without a mark is not taken; --user takes an ordinary user that exists, and refuses the rest', LINUX_ONLY, async () => {
   const unmarked = { ...passwd, hoprig: `hoprig:x:1001:1001::${userHome}:/bin/bash` };
   const base = io();
   const run = async (argv) => (argv[0] === 'getent' ? (unmarked[argv[2]] ? { ok: true, stdout: `${unmarked[argv[2]]}\n` } : { ok: false, stdout: '' }) : base.run(argv));
@@ -172,7 +175,7 @@ test('a user named hoprig without a mark is not taken; --user takes an ordinary 
   assert.match((await P.movePlan({ userName: 'Bad Name', io: io() })).stops[0], /is not a user name/);
 });
 
-test('--new (the hub confirmed a new user): a user of that name that Hoprig did not make is refused; one it made, or none, goes on', async () => {
+test('--new (the hub confirmed a new user): a user of that name that Hoprig did not make is refused; one it made, or none, goes on', LINUX_ONLY, async () => {
   const unmarked = { ...passwd, hoprig: `hoprig:x:1001:1001::${userHome}:/bin/bash` };
   const base = io();
   const run = async (argv) => (argv[0] === 'getent' ? (unmarked[argv[2]] ? { ok: true, stdout: `${unmarked[argv[2]]}\n` } : { ok: false, stdout: '' }) : base.run(argv));
@@ -196,7 +199,7 @@ test('--new (the hub confirmed a new user): a user of that name that Hoprig did 
   assert.equal(M.parseMoveArgs(['--yes']).fresh, undefined);
 });
 
-test("root's own tmux sessions are not ended: only the sessions of Hoprig's runs, never the one the move runs in", async () => {
+test("root's own tmux sessions are not ended: only the sessions of Hoprig's runs, never the one the move runs in", LINUX_ONLY, async () => {
   const sock = path.join(s.tmp, 'tmux/tmux-0/default');
   // On his normal tmux server: shop (Hoprig's, a run names its pane) is listed; notes (his own) is not.
   assert.deepEqual((await P.movePlan({ io: io() })).running.terminals, [{ socket: sock, session: 'shop' }]);
@@ -224,7 +227,7 @@ test('every step that runs as administrator shows its exact command, in plain wo
   assert.doesNotMatch(lines, /1 entries/);
 });
 
-test('a session that works stops the move before anything is copied; idle terminals do not', async () => {
+test('a session that works stops the move before anything is copied; idle terminals do not', LINUX_ONLY, async () => {
   write(path.join(dirs.state, 'runs/live.json'), JSON.stringify({ pid: process.pid, cwd: '/x/shop', status: 'working' }));
   try {
     const plan = await P.movePlan({ io: io() });
@@ -239,7 +242,7 @@ test('a session that works stops the move before anything is copied; idle termin
   assert.equal((await P.movePlan({ io: io({ workRunning: async () => 1 }) })).stops[0], 'Work is running 1 task: end it first');
 });
 
-test('a disk that is too small (the size and a tenth more) stops the move with one line', async () => {
+test('a disk that is too small (the size and a tenth more) stops the move with one line', LINUX_ONLY, async () => {
   const plan = await P.movePlan({ io: io({ statfs: () => ({ bavail: 1, bsize: 1 }) }) });
   assert.equal(plan.ok, false);
   assert.equal(plan.stops.length, 1);
@@ -251,7 +254,7 @@ test('not root: nothing to move', async () => {
   assert.deepEqual((await P.movePlan({ io: io({ uid: 1000 }) })).stops, [P.NOT_ROOT]);
 });
 
-test("root's own move job and the lock's files stay in root's state: the copy never carries a move that runs", () => {
+test("root's own move job and the lock's files stay in root's state: the copy never carries a move that runs", LINUX_ONLY, () => {
   const state = P.moveParts(root, userHome, dirs).parts.find((p) => p.id === 'state');
   // The page's job file (root's move, running, with root's pid), its half-written file, the lock and a temporary lock
   // file a crash left: none of them is copied.

@@ -95,6 +95,81 @@ test('a move while another runs starts nothing and says which process holds it; 
   const code = await M.main(['--yes'], { io: { ...io, workRunning: async () => ((held = fs.readFileSync(lockFile, 'utf8')), 1) }, cfg: {}, steps, out: (l) => out.push(l), err: (l) => out.push(l) });
   assert.equal(code, 1, out.join('\n'));
   assert.match(out.join('\n'), /STOP: Work is running 1 task/);
-  assert.equal(held, `${process.pid}\n`, out.join('\n'));
+  assert.match(held, new RegExp(`^${process.pid} [LT]:\\S+\\n$`), `the pid with its identity (procid.mjs): ${held}`);
   assert.equal(fs.existsSync(lockFile), false, 'let go at the end');
+});
+
+test('Windows: a lock name still held a moment by another program is looked at again and taken, never an error or another move', (t) => {
+  const dir = path.join(s.tmp, 'held-name');
+  fs.mkdirSync(dir, { recursive: true });
+  const file = path.join(dir, L.LOCK_FILE);
+  const { linkSync } = fs;
+  t.after(() => (fs.linkSync = linkSync));
+  // What Windows answers while another program (a virus scan) still holds the last move's removed lock a moment.
+  const heldUntil = Date.now() + 400;
+  fs.linkSync = function (from, to, ...rest) {
+    if (to === file && Date.now() < heldUntil) throw Object.assign(new Error('EPERM: operation not permitted'), { code: 'EPERM' });
+    return linkSync.call(fs, from, to, ...rest);
+  };
+  const r = L.takeLock(dir, { platform: 'win32' });
+  assert.equal(r.ok, true, JSON.stringify(r));
+  r.release();
+  assert.deepEqual(fs.readdirSync(dir), [], 'nothing left');
+  // Elsewhere EPERM stays a refusal, as before.
+  fs.linkSync = function (from, to, ...rest) {
+    if (to === file) throw Object.assign(new Error('EPERM: operation not permitted'), { code: 'EPERM' });
+    return linkSync.call(fs, from, to, ...rest);
+  };
+  assert.throws(() => L.takeLock(dir, { platform: 'linux' }), { code: 'EPERM' });
+});
+
+test('Windows: a move lock whose removal at its release is refused a moment (another process looked at it) is removed then', (t) => {
+  const dir = path.join(s.tmp, 'release-refused');
+  fs.mkdirSync(dir, { recursive: true });
+  const file = path.join(dir, L.LOCK_FILE);
+  const r = L.takeLock(dir, { platform: 'win32' });
+  assert.equal(r.ok, true);
+  const { rmSync } = fs;
+  t.after(() => (fs.rmSync = rmSync));
+  let refusals = 0;
+  fs.rmSync = function (p, ...rest) {
+    if (p === file && refusals < 2) {
+      refusals++;
+      throw Object.assign(new Error('EPERM: operation not permitted'), { code: 'EPERM' });
+    }
+    return rmSync.call(fs, p, ...rest);
+  };
+  r.release();
+  assert.equal(refusals, 2);
+  assert.equal(fs.existsSync(file), false, 'no lock left for the next move');
+});
+
+test('a lock whose pid runs but whose identity is another process (a pid handed out again) is taken over; a matching one is held; an old one as before', () => {
+  for (const kind of [['T:1000', 'T:900000'], ['L:boot-a:500', 'L:boot-a:777']]) {
+    const [then, now] = kind;
+    const dir = path.join(s.tmp, `identity-${then.slice(0, 1)}`);
+    fs.mkdirSync(dir, { recursive: true });
+    const file = path.join(dir, L.LOCK_FILE);
+    const live = process.ppid; // a process that runs
+    const ident = { self: () => now, of: (pids) => new Map(pids.map((p) => [p, now])) };
+    // The live pid, written with the start of a move that ended: that move is gone.
+    fs.writeFileSync(file, `${live} ${then}\n`);
+    const r = L.takeLock(dir, { ident });
+    assert.equal(r.ok, true, `${then}: taken over, not "another move runs"`);
+    r.release();
+    // The same pid with the identity it has now: that move runs.
+    fs.writeFileSync(file, `${live} ${now}\n`);
+    assert.deepEqual(L.takeLock(dir, { ident }), { ok: false, pid: live });
+    // An identity that cannot be told: held, never taken.
+    assert.equal(L.takeLock(dir, { ident: { self: () => now, of: (pids) => new Map(pids.map((p) => [p, null])) } }).ok, false);
+    // A lock of an older version (the pid alone): its pid alive, held, as before.
+    fs.writeFileSync(file, `${live}\n`);
+    assert.deepEqual(L.takeLock(dir, { ident }), { ok: false, pid: live });
+    fs.rmSync(file);
+    // This move's own lock carries its identity.
+    const own = L.takeLock(dir, { ident });
+    assert.equal(fs.readFileSync(file, 'utf8'), `${process.pid} ${now}\n`);
+    own.release();
+    assert.equal(fs.existsSync(file), false);
+  }
 });

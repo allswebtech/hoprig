@@ -6,7 +6,8 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { binFile, stateDir } from '../paths.mjs';
-import { filedProcess, system } from '../procid.mjs';
+import { filedProcess, freshAfter, system } from '../procid.mjs';
+import { replaceFile } from '../replacefile.mjs';
 
 export const dashboardFile = () => path.join(stateDir(), 'dashboard.json');
 
@@ -45,7 +46,7 @@ export function writeDashboardFile({ host, port }) {
     fs.mkdirSync(stateDir(), { recursive: true, mode: 0o700 });
     const tmp = `${dashboardFile()}.${process.pid}.tmp`;
     fs.writeFileSync(tmp, JSON.stringify({ pid: process.pid, proc: system.self(), host, port, at: Date.now(), state: stateKey(), key: KEY, version: VERSION }) + '\n', { mode: 0o600 });
-    fs.renameSync(tmp, dashboardFile());
+    replaceFile(tmp, dashboardFile());
   } catch {
     /* only a hint for other commands; the dashboard runs without it */
   }
@@ -69,7 +70,8 @@ export function runningDashboard() {
   try {
     const d = JSON.parse(fs.readFileSync(dashboardFile(), 'utf8'));
     if (!Number.isInteger(d.pid) || !Number.isInteger(d.port) || typeof d.host !== 'string') return null;
-    return filedProcess(dashboardFile(), d) !== false ? { pid: d.pid, host: d.host, port: d.port } : null;
+    return filedProcess(dashboardFile(), d, { after: freshAfter() }) !== false ? // a fresh identity (procid.mjs freshAfter)
+      { pid: d.pid, host: d.host, port: d.port } : null;
   } catch {
     return null;
   }

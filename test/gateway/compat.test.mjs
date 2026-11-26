@@ -61,7 +61,7 @@ function CHANGED(old) {
   return old;
 }
 
-test('a home as 0.2.6 leaves it: every command, route and file is as it was', { skip: process.platform === 'win32', timeout: 120_000 }, async () => {
+test('a home as 0.2.6 leaves it: every command, route and file is as it was', { skip: process.platform === 'win32' && 'no home of Hoprig 0.2.6 exists on Windows: it did not run there, and the record this compares with was made on Linux', timeout: 120_000 }, async () => {
   const text = await new Promise((resolve, reject) => execFile(process.execPath, [path.join(here, 'compat-home.mjs'), root], { maxBuffer: 1 << 24, timeout: 110_000 }, (e, out, err) => (e ? reject(new Error(`${e.message}\n${err}`)) : resolve(out))));
   const now = JSON.parse(text);
   const want = CHANGED(structuredClone(before));

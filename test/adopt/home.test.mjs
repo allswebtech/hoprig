@@ -44,7 +44,9 @@ fs.symlinkSync('loop2', path.join(home, 'loop1'));
 fs.symlinkSync('loop1', path.join(home, 'loop2'));
 const canLock = process.platform !== 'win32' && process.getuid && process.getuid() !== 0;
 const before = snapshot(home);
-const NOT_ENTERED = ['shop/src', 'code/node_modules', '.hidden', 'no-ai', 'snap', 'Workspace/projects/alpha', 'up', 'loop1', 'loop2', 'locked/inside'];
+// Where a folder cannot be locked (Windows keeps no POSIX modes; root reads all), the locked folder's project is found.
+const LOCKED = canLock ? [] : [['locked/inside', 2, false]];
+const NOT_ENTERED = ['shop/src', 'code/node_modules', '.hidden', 'no-ai', 'snap', 'Workspace/projects/alpha', 'up', 'loop1', 'loop2', ...(canLock ? ['locked/inside'] : [])];
 
 /** Runs `fn` while every folder listing and every file open is written down. */
 async function watched(fn) {
@@ -65,7 +67,7 @@ async function watched(fn) {
   }
 }
 
-const rel = (p) => path.relative(home, p);
+const rel = (p) => path.relative(home, p).split(path.sep).join('/'); // with '/' on every system
 
 test('the projects of a home to four levels down, and what it never enters, names or opens', async () => {
   const mode = fs.statSync(path.join(home, 'locked')).mode & 0o777;
@@ -77,14 +79,14 @@ test('the projects of a home to four levels down, and what it never enters, name
     if (canLock) fs.chmodSync(path.join(home, 'locked'), mode);
   }
   const { r, listed, opened } = w;
-  assert.deepEqual(r.found.map((f) => [rel(f.dir), f.depth, f.repo]), [['shop', 1, false], ['code/blog', 2, true], ['work/client/api', 3, false], ['a/b/c/deep4', 4, false]]);
+  assert.deepEqual(r.found.map((f) => [rel(f.dir), f.depth, f.repo]), [['shop', 1, false], ['code/blog', 2, true], ...LOCKED, ['work/client/api', 3, false], ['a/b/c/deep4', 4, false]]);
   assert.equal(r.ended, 'depth', 'the project five levels down is past the budget, and the answer says depth ended it');
   assert.equal(r.inWorkspace, 2, 'the workspace\'s projects are counted as already there');
   assert.equal(r.privates, 1, 'the private folder is counted');
   assert.deepEqual(r.links.map(rel).sort(), ['loop1', 'loop2', 'up'], 'every link is named');
   if (canLock) assert.equal(r.unreadable, 1, 'the folder it cannot read is counted');
   const text = JSON.stringify(r);
-  for (const word of ['no-ai', 'with-project', 'deep5', 'inside', '.hidden', 'alpha']) assert.ok(!text.includes(word), `${word} is not named`);
+  for (const word of ['no-ai', 'with-project', 'deep5', ...(canLock ? ['inside'] : []), '.hidden', 'alpha']) assert.ok(!text.includes(word), `${word} is not named`);
   for (const n of NOT_ENTERED) assert.ok(!listed.some((p) => p === path.join(home, n) || p.startsWith(path.join(home, n) + path.sep)), `${n} was never listed`);
   assert.deepEqual(listed.filter((p) => p.startsWith(ws)), [path.join(ws, 'projects')], 'of the workspace only its projects folder is listed, to count them');
   assert.deepEqual(opened, [], 'no file was opened');

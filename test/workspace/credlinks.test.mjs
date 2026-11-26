@@ -291,7 +291,7 @@ test('a right link already there in a place git does not ignore is said with the
   assert.equal(shownLinks(p)[0].kind, 'refused');
   assert.match(linkLine(p[0], 'shop'), /shop\/open\.env → credentials\/shop\/shop\.env\.local: linked, but in a place git does not ignore.*;  add the line \/open\.env to the project's \.gitignore/);
   makeCredLinks(w.root, p, { at: w.at });
-  assert.equal(fs.readlinkSync(path.join(w.root, 'open.env')), '../../credentials/shop/shop.env.local', 'left as it is');
+  assert.equal(fs.readlinkSync(path.join(w.root, 'open.env')), path.join('..', '..', 'credentials', 'shop', 'shop.env.local'), 'left as it is'); // Windows keeps a link's target with \
   // Ignored: linked.
   fs.appendFileSync(path.join(w.root, '.gitignore'), '/open.env\n');
   assert.equal((await plan(w, { 'open.env': 'shop/shop.env.local' }))[0].state, 'ok');

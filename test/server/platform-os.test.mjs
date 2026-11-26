@@ -187,11 +187,57 @@ test('Windows: the PowerShell snapshot', () => {
   assert.throws(() => win.parseWinSnapshot('not json'));
 });
 
+// The commands that make Windows PowerShell 5.1 load a module at their first use (about 17 s in a fresh home).
+const MODULE_WORDS = [/\bGet-/i, /\bSet-/i, /\bNew-Object\b/i, /\bInvoke-/i, /\bConvertTo-Json\b/i, /\bSelect-Object\b/i, /\bSort-Object\b/i, /\bWhere-Object\b/i, /\bForEach-Object\b/i, /\bWrite-/i, /\bOut-/i, /\bImport-Module\b/i];
+
+test('Windows: the snapshot, the owner, the parents and the account are asked without a PowerShell module', () => {
+  for (const [what, script] of [['snapshot', win.SNAPSHOT_SCRIPT], ['owner', win.ownerScript(5120)], ['parents', win.PARENTS_SCRIPT], ['account', win.SID_SCRIPT]]) {
+    for (const word of MODULE_WORDS) assert.doesNotMatch(script, word, `${what}: ${word}`);
+  }
+  // The snapshot's JSON has the shape parseWinSnapshot reads: each key the script writes is one the parser takes.
+  for (const key of ['mem = ', 'totalKB = ', 'freeKB = ', 'pagefiles = ', 'sizeMB = ', 'usedMB = ', 'disks = ', 'id = ', 'size = ', 'free = ', 'procs = ', 'pid = ', 'ppid = ', 'name = ', 'args = ', 'rss = ', 'age = ', 'cpu = ', 'owners = ', 'ports = ', 'addr = ', 'port = ']) {
+    assert.ok(win.SNAPSHOT_SCRIPT.includes(key), key);
+  }
+  // Listening ports from the class Get-NetTCPConnection reads, Listen being its state 2.
+  assert.match(win.SNAPSHOT_SCRIPT, /'root\\StandardCimv2' 'SELECT LocalAddress,LocalPort,OwningProcess FROM MSFT_NetTCPConnection WHERE State=2'/);
+  assert.match(win.PARENTS_SCRIPT, /ProcessId = \[int\]\$p\['ProcessId'\]; ParentProcessId = \[int\]\$p\['ParentProcessId'\]/);
+  // Every script writes its JSON through Emit: plain ASCII, any other letter as \uXXXX (the console's code page would
+  // turn some into control bytes no JSON reader takes).
+  assert.match(win.NO_MODULE_PRELUDE, /function Emit\(\$v\) \{ \[Console\]::Out\.Write\(\[regex\]::Replace\(\$json\.Serialize\(\$v\), '\[\^\\x20-\\x7e\]', \{ param\(\$m\) '\\u\{0:x4\}' -f \[int\]\[char\]\$m\.Value \}\)\) \}/);
+  for (const script of [win.SNAPSHOT_SCRIPT, win.PARENTS_SCRIPT]) {
+    assert.match(script, /^Emit /m);
+    assert.doesNotMatch(script, /\[Console\]::Out\.Write\(\$json/, 'never the serializer\'s own text, which may hold letters the console changes');
+  }
+  // What .NET's JavaScriptSerializer writes for it: keys in a hashtable's own order, every number plain. Read the same.
+  const dotnet = '{"ports":[{"pid":4,"port":445,"addr":"0.0.0.0"},{"pid":5120,"port":7433,"addr":"127.0.0.1"},{"pid":1688,"port":135,"addr":"::"},{"pid":1688,"port":135,"addr":"0.0.0.0"}],'
+    + '"owners":{"0":"","4":"","5120":"S-1-5-21-1-2-3-1001","7344":"s-1-5-21-1-2-3-1001","1688":"S-1-5-18"},'
+    + '"procs":[{"cpu":0,"ppid":0,"rss":8192,"args":null,"age":90000,"name":"System Idle Process","pid":0},{"cpu":1.2,"ppid":0,"rss":4505600,"args":null,"age":90000,"name":"System","pid":4},'
+    + '{"cpu":2.5,"ppid":812,"rss":81264640,"args":"\\"C:\\\\Program Files\\\\nodejs\\\\node.exe\\" C:\\\\app\\\\bin\\\\hoprig.mjs serve --token=abc123","age":3600,"name":"node.exe","pid":5120},'
+    + '{"cpu":14,"ppid":5120,"rss":301264640,"args":"claude --resume x","age":600,"name":"claude.exe","pid":7344},{"cpu":0.1,"ppid":640,"rss":21264640,"args":null,"age":90000,"name":"svchost.exe","pid":1688}],'
+    + '"disks":[{"free":210770802688,"size":510770802688,"id":"C:"},{"free":0,"size":0,"id":"D:"}],"pagefiles":[{"usedMB":120,"sizeMB":2432}],"mem":{"freeKB":8123456,"totalKB":16641284}}';
+  assert.deepEqual(win.parseWinSnapshot(dotnet, 'S-1-5-21-1-2-3-1001'), win.parseWinSnapshot(WIN_JSON, 'S-1-5-21-1-2-3-1001'));
+  // An empty list stays a list ([] where ConvertTo-Json gave null), and a machine that said nothing of its memory.
+  const bare = win.parseWinSnapshot('{"ports":[],"owners":{},"procs":[],"disks":[],"pagefiles":[],"mem":{}}', 'S-1-5-21-1-2-3-1001');
+  assert.deepEqual([bare.topCpu, bare.disks, bare.ports, bare.mem.swapTotal], [[], [], [], 0]);
+  assert.ok(bare.mem.total > 0, 'the memory Node knows stands in');
+});
+
+test('a program that failed without a word says how it ended: its exit code, a signal or the time limit', async () => {
+  const { endedHow, run } = await import('../../src/server/platform/common.mjs');
+  assert.equal(endedHow(Object.assign(new Error('Command failed: tar -czf x'), { code: 1 })), ' (exit code 1)');
+  assert.equal(endedHow(Object.assign(new Error('x'), { code: null, signal: 'SIGTERM' })), ' (ended by SIGTERM)');
+  assert.equal(endedHow(Object.assign(new Error('x'), { killed: true, signal: 'SIGTERM' })), ' (killed: it took too long)');
+  assert.equal(endedHow(Object.assign(new Error('spawn x ENOENT'), { code: 'ENOENT' })), '', 'a start that failed says so itself');
+  const r = await run(process.execPath, ['-e', 'process.exit(3)'], { timeout: 20_000 });
+  assert.equal(r.ok, false);
+  assert.match(r.stderr, /^Command failed: .* \(exit code 3\)$/);
+});
+
 test('Windows: command arguments', () => {
   const args = win.psArgs("Get-Date; 'x'");
   assert.deepEqual(args.slice(0, 5), ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-EncodedCommand']);
   assert.equal(Buffer.from(args[5], 'base64').toString('utf16le'), "Get-Date; 'x'", 'UTF-16LE base64, as PowerShell expects');
-  assert.match(win.ownerScript(5120), /ProcessId=5120'/);
+  assert.match(win.ownerScript(5120), /WHERE ProcessId=5120'/);
   assert.throws(() => win.ownerScript('1; Remove-Item C:\\'), /bad pid/);
   assert.throws(() => win.ownerScript(1.5), /bad pid/);
   assert.deepEqual(win.taskkillArgs(42, 'SIGTERM'), ['/PID', '42']);

@@ -7,9 +7,16 @@ import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import http from 'node:http';
+import net from 'node:net';
 import path from 'node:path';
 import test from 'node:test';
+import zlib from 'node:zlib';
+import { tarOf } from '../pcsetup/archives.mjs';
 import { sandbox } from '../server/helpers.mjs';
+
+// Windows: Files packs and unpacks with the system's own tar by its full path (src/pcsetup/unpack.mjs tarCommand),
+// which the seal refuses unless it is named here; elsewhere tar is started by its name and nothing is added.
+if (process.platform === 'win32') process.env.HOPRIG_SEAL_REAL = [process.env.HOPRIG_SEAL_REAL, 'tar'].filter(Boolean).join(','); // seal: the system's own tar packs and unpacks the test's tiny archives, as Files does
 
 const box = sandbox('desk-files');
 const { saveConfig, loadConfig } = await import('../../src/config.mjs');
@@ -34,7 +41,8 @@ fs.writeFileSync(path.join(home, 'notes', 'dot.png'), Buffer.from('89504e470d0a1
 put('proj/.git/HEAD', 'ref: refs/heads/main\n');
 put('proj/src/app.js', 'console.log(1)\n');
 put('credentials/key.env', 'KEY=fake-key-123\n', ws);
-fs.symlinkSync('/etc', path.join(home, 'notes', 'out-link'));
+// A link to a folder outside the reach that is there: /etc, or on Windows (no /etc) the root of the home's drive.
+fs.symlinkSync(process.platform === 'win32' ? path.parse(home).root : '/etc', path.join(home, 'notes', 'out-link'));
 fs.symlinkSync(path.join(home, 'proj'), path.join(home, 'notes', 'in-link'));
 
 saveConfig({ server: { passwordHash: await hashPassword('right-password'), roots: [home, ws], uploadMaxMB: 1 } });
@@ -202,9 +210,25 @@ test('upload: raw bytes into a folder, never over a file unless asked, within th
   const back = await dl(path.join(dir, 'data.bin'), { download: '1' });
   assert.equal(back.body.toString(), 'two');
   assert.equal((await dl(dir)).res.status, 400, 'a folder is not a file');
+  if (process.platform === 'win32') return; // a '"' in a file name: Windows does not allow it
   const odd = put('up/naïve "q".txt', 'u\n');
   assert.match((await dl(odd)).res.headers.get('content-disposition'), /filename="na_ve _q_\.txt"; filename\*=UTF-8''na%C3%AFve%20%22q%22\.txt/);
 });
+
+/** The entry names of a plain tar archive (ustar: the name, with its prefix when there is one). */
+function tarNames(buf) {
+  const names = [];
+  const text = (at, len) => buf.subarray(at, at + len).toString('utf8').replace(/\0.*$/s, '');
+  for (let at = 0; at + 512 <= buf.length; ) {
+    const name = text(at, 100);
+    if (!name) break;
+    const prefix = text(at + 345, 155);
+    const size = parseInt(text(at + 124, 12).trim() || '0', 8);
+    names.push(prefix ? `${prefix}/${name}` : name);
+    at += 512 + Math.ceil(size / 512) * 512;
+  }
+  return names;
+}
 
 test('pack a selection into a .tar.gz next to it and unpack it into a new folder; archives that write outside or hold links are refused', { skip: !which('tar') && 'no tar here' }, async () => {
   put('pk/a.txt', 'A\n');
@@ -213,7 +237,7 @@ test('pack a selection into a .tar.gz next to it and unpack it into a new folder
   const dir = path.join(home, 'pk');
   let r = await call('/api/files/pack', { body: { paths: [path.join(dir, 'a.txt'), path.join(dir, 'd')], name: 'both' } });
   assert.equal(r.json.path, path.join(dir, 'both.tar.gz'), r.text);
-  const inside = execFileSync('tar', ['-tzf', r.json.path]).toString();
+  const inside = tarNames(zlib.gunzipSync(fs.readFileSync(r.json.path))).join('\n');
   assert.match(inside, /a\.txt/);
   assert.doesNotMatch(inside, /\.git/, 'git\'s folder stays out');
   assert.equal((await call('/api/files/pack', { body: { paths: [path.join(dir, 'a.txt'), path.join(home, 'notes', 'todo.txt')] } })).status, 400, 'one folder at a time');
@@ -227,14 +251,14 @@ test('pack a selection into a .tar.gz next to it and unpack it into a new folder
   const evil = path.join(box.root, 'evil');
   fs.mkdirSync(path.join(evil, 'x'), { recursive: true });
   fs.writeFileSync(path.join(evil, 'out.txt'), 'escaped\n');
-  // -P keeps the "../" (tar takes it away by default when it packs).
-  execFileSync('tar', ['-cPf', path.join(dir, 'up.tar'), '-C', path.join(evil, 'x'), '../out.txt']);
+  // Written byte by byte (test/pcsetup/archives.mjs), as `tar -cPf` writes it: no tar of this computer is started to
+  // make the test's archives (on Windows the first tar on PATH may be Git's GNU tar, which reads C:\… as a remote host).
+  fs.writeFileSync(path.join(dir, 'up.tar'), tarOf([{ name: '../out.txt', type: 'file', data: 'escaped\n' }]));
   r = await call('/api/files/unpack', { body: { path: path.join(dir, 'up.tar') } });
   assert.equal(r.status, 409, r.text);
   assert.match(r.json.error, /outside the folder/);
   // An archive with a link (written first, then written through): refused.
-  fs.symlinkSync('/tmp', path.join(evil, 'x', 'lnk'));
-  execFileSync('tar', ['-cf', path.join(dir, 'ln.tar'), '-C', path.join(evil, 'x'), 'lnk']);
+  fs.writeFileSync(path.join(dir, 'ln.tar'), tarOf([{ name: 'lnk', type: 'link', link: '/tmp' }]));
   r = await call('/api/files/unpack', { body: { path: path.join(dir, 'ln.tar') } });
   assert.equal(r.status, 409);
   assert.match(r.json.error, /links/);
@@ -248,7 +272,7 @@ test('find by name inside a folder: case does not matter; private, git and hidde
   put('fd/no-ai/report.txt', 'p\n');
   put('fd/.cache/report.txt', 'h\n');
   const r = await call(`/api/files/find?${q({ path: path.join(home, 'fd'), q: 'REPORT' })}`);
-  assert.deepEqual(r.json.matches.map((m) => path.relative(home, m.path)).sort(), ['fd/Report-2026.md', 'fd/deep/er/report.txt']);
+  assert.deepEqual(r.json.matches.map((m) => path.relative(home, m.path)).sort(), [path.join('fd', 'Report-2026.md'), path.join('fd', 'deep', 'er', 'report.txt')]);
   assert.equal((await call(`/api/files/find?${q({ path: path.join(home, 'fd'), q: '' })}`)).status, 400);
 });
 
@@ -261,7 +285,11 @@ test('how far Files reaches is one setting: the allowed folders, or the whole di
   assert.deepEqual(s.json.server.roots, [home, ws], 'the allowed folders stay as they were set');
   const top = await list('/');
   assert.equal(top.status, 200, top.text);
-  assert.deepEqual(top.json.reach.tops, ['/']);
+  // The whole disk: "/" , or on Windows each drive that is there (C:\, D:\ …), the home's own among them.
+  if (process.platform === 'win32') {
+    assert.ok(top.json.reach.tops.length && top.json.reach.tops.every((d) => /^[A-Z]:\\$/.test(d)), JSON.stringify(top.json.reach.tops));
+    assert.ok(top.json.reach.tops.includes(`${path.parse(home).root.toUpperCase()}`), 'the home\'s drive is a top');
+  } else assert.deepEqual(top.json.reach.tops, ['/']);
   if (process.platform === 'linux') {
     assert.ok(!names(top).includes('proc'), 'the system\'s views are not listed');
     assert.equal((await call(`/api/files/raw?${q({ path: '/proc/self/environ', download: '1' })}`)).status, 403);
@@ -357,7 +385,40 @@ test('upload past the limit with no declared length is answered 413, not a dropp
   assert.deepEqual(fs.readdirSync(dir), [], 'nothing half-written is left');
 });
 
-test('an upload into a folder it may not write in is answered at once', { skip: (process.getuid && process.getuid() === 0) && 'root writes anywhere' }, async () => {
+test('upload past the limit: after the 413 the rest of the body is still read, so a sender is not cut off mid-way (Windows drops an answer that a reset follows)', async () => {
+  const dir = path.join(home, 'lingering');
+  fs.mkdirSync(dir);
+  // A plain connection, as a browser sends: it goes on sending its body while the answer comes (Node's own client
+  // stops sending once it has a whole answer).
+  const { status, cut, sent } = await new Promise((resolve) => {
+    const sock = net.connect(Number(new URL(origin).port), '127.0.0.1');
+    let got = '';
+    let cutBy = null;
+    let n = 0;
+    const done = () => resolve({ status: Number((/^HTTP\/1\.1 (\d+)/.exec(got) || [])[1]) || null, cut: cutBy, sent: n });
+    sock.on('data', (d) => (got += d));
+    sock.on('error', (e) => (cutBy = e.code));
+    const u = new URL(`${origin}/api/files/upload?${q({ dir, name: 'big.bin' })}`);
+    sock.write(`POST ${u.pathname}${u.search} HTTP/1.1\r\nHost: ${u.host}\r\nCookie: ${cookie}\r\nOrigin: ${origin}\r\nContent-Type: application/octet-stream\r\nTransfer-Encoding: chunked\r\n\r\n`);
+    // 12.5 MB, far past the 1 MB limit and more than the system's socket buffers hold.
+    const chunk = Buffer.concat([Buffer.from('10000\r\n'), Buffer.alloc(64 * 1024, 7), Buffer.from('\r\n')]);
+    const more = () => {
+      while (n < 200 && !cutBy) {
+        n++;
+        if (!sock.write(chunk)) return sock.once('drain', more);
+      }
+      if (!cutBy) sock.write('0\r\n\r\n', () => setTimeout(() => (sock.destroy(), done()), 300));
+    };
+    more();
+    setTimeout(() => (sock.destroy(), done()), 5000);
+  });
+  assert.equal(status, 413);
+  assert.equal(cut, null, 'the connection was not cut while the body was still being sent');
+  assert.equal(sent, 200);
+  assert.deepEqual(fs.readdirSync(dir), [], 'nothing half-written is left');
+});
+
+test('an upload into a folder it may not write in is answered at once', { skip: ((process.getuid && process.getuid() === 0) && 'root writes anywhere') || (process.platform === 'win32' && 'a folder\'s mode bits keep no file out on Windows (chmod sets only its read-only flag, which folders ignore)') }, async () => {
   const dir = path.join(home, 'locked-up');
   fs.mkdirSync(dir);
   fs.chmodSync(dir, 0o555);
@@ -380,8 +441,15 @@ test('a long name in any script: the upload\'s temporary name and the archive\'s
   assert.equal(r.status, 200, r.text);
   if (which('tar')) {
     const pk = await call('/api/files/pack', { body: { paths: [path.join(dir, name)] } });
+    // On Windows the system's tar cannot be given such a name (it crashes on letters outside its code page, long or
+    // short): Files packs it with its own writer there, and the answer is the plain success of any other pack.
     assert.equal(pk.status, 200, pk.text);
     assert.ok(Buffer.byteLength(path.basename(pk.json.path)) <= 255);
+    const short = `${'क'.repeat(8)}.txt`;
+    fs.writeFileSync(path.join(dir, short), 'x\n');
+    const again = await call('/api/files/pack', { body: { paths: [path.join(dir, short)] } });
+    assert.equal(again.status, 200, again.text);
+    assert.deepEqual(fs.readdirSync(dir).filter((n) => n.startsWith('.')), [], 'nothing half-made is left');
   }
 });
 
@@ -411,16 +479,16 @@ test('a disk without hard links (FAT, many network disks): upload and pack still
 });
 
 test('unpack never writes git\'s folder or a private one: such an archive could run a program when git looks at it', { skip: !which('tar') && 'no tar here' }, async () => {
-  const src = path.join(box.root, 'crafted');
-  put('.git/config', '[core]\n\tfsmonitor = "touch PWNED; false"\n', src);
-  put('.git/HEAD', 'ref: refs/heads/main\n', src);
-  put('no-ai/mine.txt', 'private\n', src);
-  put('ok.txt', 'fine\n', src);
+  // The archives are written byte by byte (test/pcsetup/archives.mjs), as `tar -cf` of such a folder makes them: no tar
+  // of this computer is started to make them (on Windows the first tar on PATH may be Git's GNU tar, which reads C:\…
+  // as a remote host).
+  const config = { name: '.git/config', type: 'file', data: '[core]\n\tfsmonitor = "touch PWNED; false"\n' };
+  const ok = { name: 'ok.txt', type: 'file', data: 'fine\n' };
   const dir = path.join(home, 'unp');
   fs.mkdirSync(dir);
-  execFileSync('tar', ['-cf', path.join(dir, 'git.tar'), '-C', src, '.git', 'ok.txt']);
-  execFileSync('tar', ['-cf', path.join(dir, 'private.tar'), '-C', src, 'no-ai', 'ok.txt']);
-  execFileSync('tar', ['-cf', path.join(dir, 'deep.tar'), '-C', box.root, 'crafted/.git/config']);
+  fs.writeFileSync(path.join(dir, 'git.tar'), tarOf([{ name: '.git/', type: 'dir' }, config, { name: '.git/HEAD', type: 'file', data: 'ref: refs/heads/main\n' }, ok]));
+  fs.writeFileSync(path.join(dir, 'private.tar'), tarOf([{ name: 'no-ai/', type: 'dir' }, { name: 'no-ai/mine.txt', type: 'file', data: 'private\n' }, ok]));
+  fs.writeFileSync(path.join(dir, 'deep.tar'), tarOf([{ ...config, name: 'crafted/.git/config' }]));
   for (const [file, why] of [['git.tar', /git's own folder/], ['private.tar', /private folder/], ['deep.tar', /git's own folder/]]) {
     const r = await call('/api/files/unpack', { body: { path: path.join(dir, file) } });
     assert.equal(r.status, 409, `${file}: ${r.text}`);
@@ -567,7 +635,7 @@ test('delete for good: asked for, with the same refusals as the trash; the trash
   assert.equal(await sizeUpTo(path.join(home, 'sized'), 1e6), 5000);
   assert.equal(await sizeUpTo(path.join(home, 'sized'), 100), Infinity);
   const state = process.env.HOPRIG_STATE_DIR;
-  const disk = fs.mkdtempSync(path.join(path.dirname(new URL(import.meta.url).pathname), '.trash-'));
+  const disk = fs.mkdtempSync(path.join(import.meta.dirname, '.trash-'));
   try {
     if (fs.statSync(disk).dev === fs.statSync(f).dev) return;
     process.env.HOPRIG_STATE_DIR = disk;

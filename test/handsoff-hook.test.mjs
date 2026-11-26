@@ -15,6 +15,9 @@ process.env.HOPRIG_CONFIG_DIR = path.join(tmp, 'config');
 process.env.HOPRIG_STATE_DIR = path.join(tmp, 'state');
 process.env.CLAUDE_CONFIG_DIR = path.join(tmp, 'claude');
 test.after(() => fs.rmSync(tmp, { recursive: true, force: true }));
+// Hands-off is not offered on Windows (src/handsoff.mjs handsOffOffered: the wall's hold is a POSIX shell test), so a
+// test that switches it on and expects an answer or a hold has nothing to see there.
+const OFFERED = { skip: process.platform === 'win32' && 'Hands-off is not offered on Windows' };
 
 const { cardFor, handsOffFor, handsOffKeys, hookPatch, preToolHold } = await import('../src/hook.mjs');
 const { decide, hoprigVersion } = await import('../src/handsoff.mjs');
@@ -79,7 +82,7 @@ test('offered:false (the owner hid the feature): every switch on but no answer i
   R.removeRun(file);
 });
 
-test('on: the recommended option is given the way Claude Code takes it, shown on the session and one line in Activity', () => {
+test('on: the recommended option is given the way Claude Code takes it, shown on the session and one line in Activity', OFFERED, () => {
   writeCfg(on());
   const { file } = R.createRun({ profile: 'api', cwd: SHOP });
   giveHold(file);
@@ -101,7 +104,7 @@ test('on: the recommended option is given the way Claude Code takes it, shown on
   R.removeRun(file);
 });
 
-test('on: no mark waits; the note is the free-text answer; a sign waits even with the mark; a permission is untouched', () => {
+test('on: no mark waits; the note is the free-text answer; a sign waits even with the mark; a permission is untouched', OFFERED, () => {
   writeCfg(on({ note: 'Choose the option with the fewest dependencies.' }));
   const { file } = R.createRun({ profile: 'api', cwd: SHOP });
   giveHold(file);
@@ -122,7 +125,7 @@ test('on: no mark waits; the note is the free-text answer; a sign waits even wit
   R.removeRun(file);
 });
 
-test('a plan in a terminal waits: Claude Code 2.1.327 draws its plan dialog although the hook allowed it', () => {
+test('a plan in a terminal waits: Claude Code 2.1.327 draws its plan dialog although the hook allowed it', OFFERED, () => {
   writeCfg(on());
   const { file } = R.createRun({ profile: 'api', cwd: SHOP });
   giveHold(file);
@@ -132,7 +135,7 @@ test('a plan in a terminal waits: Claude Code 2.1.327 draws its plan dialog alth
   R.removeRun(file);
 });
 
-test('three answers with no work between them: a loop, the session becomes the owner\'s and says so', () => {
+test('three answers with no work between them: a loop, the session becomes the owner\'s and says so', OFFERED, () => {
   writeCfg(on());
   const { file } = R.createRun({ profile: 'api', cwd: SHOP });
   giveHold(file);
@@ -148,7 +151,7 @@ test('three answers with no work between them: a loop, the session becomes the o
   R.removeRun(file);
 });
 
-test('work between the answers (a tool call, a message of the owner) starts the count again', () => {
+test('work between the answers (a tool call, a message of the owner) starts the count again', OFFERED, () => {
   writeCfg(on());
   const { file } = R.createRun({ profile: 'api', cwd: SHOP });
   giveHold(file);
@@ -196,7 +199,7 @@ test('an API error after a question: the old question\'s card and its Hands-off 
   assert.deepEqual([end.askCard, end.handsWait], [null, null]);
 });
 
-test('a secret in a question\'s words never reaches the card, the record or Activity, and Hands-off leaves it to the owner', () => {
+test('a secret in a question\'s words never reaches the card, the record or Activity, and Hands-off leaves it to the owner', OFFERED, () => {
   writeCfg(on());
   const KEY = `ghp_${'a1B2c3D4e5'.repeat(3)}`; // made up, in the shape of a GitHub token
   const ev = ask([{ question: `Use ${KEY} for the CI job?`, header: 'Key', multiSelect: false, options: [{ label: 'Use it (Recommended)', description: `Writes ${KEY} into the settings.` }, { label: 'Make a new one', description: '' }] }]);
@@ -276,7 +279,7 @@ test('a relaunch on the same run record (a move to another provider) keeps the s
   R.removeRun(file);
 });
 
-test('a move to another provider after the hour\'s stop keeps the stop and the answers the hour is counted from', () => {
+test('a move to another provider after the hour\'s stop keeps the stop and the answers the hour is counted from', OFFERED, () => {
   writeCfg(on());
   const { file } = R.createRun({ profile: 'api', cwd: SHOP });
   giveHold(file);
@@ -296,7 +299,7 @@ test('a move to another provider after the hour\'s stop keeps the stop and the a
   R.removeRun(file);
 });
 
-test('a read or a search between asks is no work, and ten answers within an hour stop it whatever comes between', () => {
+test('a read or a search between asks is no work, and ten answers within an hour stop it whatever comes between', OFFERED, () => {
   writeCfg(on());
   const { file } = R.createRun({ profile: 'api', cwd: SHOP });
   giveHold(file);
@@ -338,7 +341,7 @@ test('handsOffKeys resolves CLAUDE_PROJECT_DIR through a symlink to the real pat
   assert.equal(handsOffKeys('r.json', { CLAUDE_PROJECT_DIR: '/no/such/dir/./here' }).project, path.normalize('/no/such/dir/./here'));
 });
 
-test('the wall holds even when the run record is gone: deleting its own record cannot switch the wall off', () => {
+test('the wall holds even when the run record is gone: deleting its own record cannot switch the wall off', OFFERED, () => {
   // A session that moves or deletes $HOPRIG_RUN_FILE leaves `run` null. The switch is read from the config, not the
   // record, so a held act is still held and only an ordinary command goes through.
   const cfg = on();

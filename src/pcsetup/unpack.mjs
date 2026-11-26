@@ -57,6 +57,22 @@ export function runTool(argv, { timeout = UNPACK_MS, env = process.env, signal }
   });
 }
 
+/**
+ * The tar to start (the first words of its argv). On Windows the system's own, %SystemRoot%\System32\tar.exe (bsdtar),
+ * by its full path: the first tar on PATH is often Git for Windows' GNU tar, which reads C:\… as a remote host ("Cannot
+ * connect to C: resolve failed"). Without the system's, a GNU tar is told the path is local (--force-local, which only
+ * GNU tar knows); another tar is started as it is. Every other system: `tar` as PATH has it, nothing asked.
+ * `run(argv)` answers `tar --version`; `exists` and `env` are the system's (a test gives Windows' own).
+ */
+export async function tarCommand(run = runTool, { platform = process.platform, env = process.env, exists = fs.existsSync } = {}) {
+  if (platform !== 'win32') return ['tar'];
+  const root = Object.entries(env || {}).find(([k]) => /^(systemroot|windir)$/i.test(k))?.[1] || 'C:\\Windows';
+  const own = path.win32.join(root, 'System32', 'tar.exe');
+  if (exists(own)) return [own];
+  const v = await run(['tar', '--version']);
+  return /GNU tar/i.test(String((v && v.stdout) || '')) ? ['tar', '--force-local'] : ['tar'];
+}
+
 /** The programs an archive of this kind needs here, missing ones named: [] when all are on PATH. */
 export function missingTools(kind, sys) {
   const want = kind === 'zip' ? ['unzip'] : sys.platform === 'darwin' ? ['tar'] : ['tar', 'xz'];
@@ -83,8 +99,11 @@ function checkLinkTarget(rel, target, top) {
   if (to.startsWith('../') || to === '..' || !underTop(to, top)) throw new FetchError('unpack', `the archive holds a link that points outside (${rel} → ${target.slice(0, 200)}): refused`);
 }
 
-/** The names a listing gives, one per line (tar's default quoting turns a newline in a name into \n). */
-const linesOf = (text) => text.split('\n').filter((l) => l !== '');
+/**
+ * The names a listing gives, one per line (tar's default quoting turns a newline in a name into \n). Windows' tar ends
+ * its lines with \r\n; a raw \r in a name is quoted by tar like the newline, so it never ends a line elsewhere.
+ */
+const linesOf = (text) => text.split(/\r?\n/).filter((l) => l !== '');
 
 /** An entry's size in a listing line: GNU tar's "mode owner/group size …", bsdtar's "mode links owner group size …", unzip -Z's "mode version system size …". */
 function sizeIn(line, kind) {
@@ -97,9 +116,9 @@ function sizeIn(line, kind) {
  * Read and check a tar archive's entries: `tar -tf` gives the names, `tar -tvf` (the same order) the type and a link's
  * target, found after the known name (" -> target" for a link, " link to target" for a hard link).
  */
-export async function checkTar(file, top, run = runTool) {
-  const names = await run(['tar', '-t', '-f', file]);
-  const long = await run(['tar', '-t', '-v', '-f', file]);
+export async function checkTar(file, top, run = runTool, tar = ['tar']) {
+  const names = await run([...tar, '-t', '-f', file]);
+  const long = await run([...tar, '-t', '-v', '-f', file]);
   if (!names.ok || !long.ok) throw new FetchError('unpack', `tar could not read the archive (${String(names.stderr || long.stderr).trim().split('\n').pop() || 'no reason given'})`);
   if (/Removing leading/i.test(`${names.stderr}\n${long.stderr}`)) throw new FetchError('unpack', 'the archive holds an absolute path or a .. in a name or a link: refused');
   const ns = linesOf(names.stdout);
@@ -192,12 +211,13 @@ export function walkInside(dir) {
  * top folder `top` inside `into`. `most`: the most it may unpack to (bytes, the sum of its entries' sizes); it must
  * also fit in the free space of the disk.
  */
-export async function unpackChecked(file, kind, into, top, { run = runTool, signal, most = Infinity, free = freeBytes } = {}) {
+export async function unpackChecked(file, kind, into, top, { run = runTool, signal, most = Infinity, free = freeBytes, tar = null } = {}) {
   const stopped = () => new FetchError('stopped', 'the install was stopped', 'Start it again when you want it.');
   const go = (argv) => run(argv, { signal });
+  const tarArgv = kind === 'zip' ? null : tar || (await tarCommand(go));
   let size;
   try {
-    size = (kind === 'zip' ? await checkZip(file, top, go) : await checkTar(file, top, go)).bytes;
+    size = (kind === 'zip' ? await checkZip(file, top, go) : await checkTar(file, top, go, tarArgv)).bytes;
   } catch (e) {
     throw signal && signal.aborted ? stopped() : e;
   }
@@ -206,7 +226,7 @@ export async function unpackChecked(file, kind, into, top, { run = runTool, sign
   if (room !== null && size > room) throw new FetchError('size', `the archive unpacks to ${sizeWords(size, false)}, and the disk has ${sizeWords(room, false)} free: nothing was unpacked`, 'Make room on the disk, then run this again.');
   const r = kind === 'zip'
     ? await go(['unzip', '-q', '-n', file, '-d', into])
-    : await go(['tar', '-x', '-f', file, '-C', into, '--no-same-owner']);
+    : await go([...tarArgv, '-x', '-f', file, '-C', into, '--no-same-owner']);
   if (signal && signal.aborted) throw stopped();
   if (!r.ok) throw new FetchError('unpack', `${kind === 'zip' ? 'unzip' : 'tar'} could not unpack it (${String(r.stderr).trim().split('\n').pop() || `exit ${r.code}`})`, 'Check that there is room on the disk, then run it again.');
   walkInside(into);

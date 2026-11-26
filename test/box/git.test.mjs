@@ -37,7 +37,9 @@ fs.symlinkSync(outside, path.join(plain, 'link-to-outside'));
 const real = await boxCheck();
 const skip = !real.ok && `no box here: ${real.why}`;
 
-test('the guards: a .git folder; a worktree\'s .git file with its git folder and common folder; nothing without .git', () => {
+const noBox = process.platform === 'win32' && 'the box is made for Linux and macOS: Windows has none (means.mjs)';
+
+test('the guards: a .git folder; a worktree\'s .git file with its git folder and common folder; nothing without .git', { skip: noBox }, () => {
   assert.deepEqual(gitGuards([shop], [shop]), [path.join(shop, '.git')]);
   const wt = gitGuards([tree], [repos]);
   assert.equal(wt[0], path.join(tree, '.git'));
@@ -50,7 +52,7 @@ test('the guards: a .git folder; a worktree\'s .git file with its git folder and
   assert.deepEqual(gitGuards([repos], [repos]), []);
 });
 
-test('the arguments bind each guard read-only after the write folders', () => {
+test('the arguments bind each guard read-only after the write folders', { skip: noBox }, () => {
   const { args } = bwrapArgs(planRun(['/bin/true'], { cwd: tree, write: [tree], read: [shop], timeoutMs: 1000 }));
   const lastWrite = args.lastIndexOf('--bind');
   const ro = args.flatMap((a, i) => (a === '--ro-bind' && i > lastWrite ? [args[i + 1]] : []));

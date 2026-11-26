@@ -9,6 +9,10 @@ import path from 'node:path';
 import { test } from 'node:test';
 import { sandbox } from './helpers.mjs';
 
+// Hands-off is not offered on Windows (src/handsoff.mjs handsOffOffered): a test that switches it on or reads its
+// answer gets 409 or nothing there.
+const OFFERED = { skip: process.platform === 'win32' && 'Hands-off is not offered on Windows' };
+
 const box = sandbox('movingmark-start');
 test.after(() => box.cleanup());
 const SHOP = path.join(box.home, 'shop');
@@ -27,7 +31,7 @@ const QUESTION = { hook_event_name: 'PermissionRequest', session_id: CONV, permi
   tool_input: { questions: [{ question: 'Which test runner should this project use?', header: 'Runner', multiSelect: false, options: [{ label: 'node:test (Recommended)', description: 'Built in.' }, { label: 'vitest', description: 'Fast.' }] }] } };
 const asks = (id) => spawnSync(process.execPath, [hookFile()], { input: JSON.stringify(QUESTION), env: { ...process.env, HOPRIG_RUN_FILE: path.join(runsDir(), `${id}.json`), CLAUDE_PROJECT_DIR: SHOP }, encoding: 'utf8' }).stdout;
 
-test('a Deck clears a stale moving mark at start, and the session it silenced is answered again', () => {
+test('a Deck clears a stale moving mark at start, and the session it silenced is answered again', OFFERED, () => {
   const { file, run } = R.createRun({ profile: 'work', cwd: SHOP, conversation: CONV });
   fs.writeFileSync(file, JSON.stringify({ ...readRun(file), sessionId: CONV, status: 'waiting' }));
   fs.mkdirSync(hookSettingsDir(), { recursive: true });

@@ -124,7 +124,7 @@ test('Engine: profile env + claude + args; turns in order; resumes after the pro
     const cfg = JSON.parse(fs.readFileSync(path.join(dir, 'mcp.json'), 'utf8'));
     assert.equal(cfg.mcpServers.hoprig.env.HOPRIG_ASSISTANT_TOKEN_FILE, '/s/token');
     assert.equal(cfg.mcpServers.hoprig.env.HOPRIG_ASSISTANT_TOKEN, undefined);
-    assert.equal((fs.statSync(path.join(dir, 'mcp.json')).mode & 0o777).toString(8), '600');
+    if (process.platform !== 'win32') assert.equal((fs.statSync(path.join(dir, 'mcp.json')).mode & 0o777).toString(8), '600');
     e.stop();
     const c = await e.send('three');
     assert.equal(c.done.text, 'echo: three');
@@ -167,7 +167,7 @@ test('audit log file: one masked JSON line per write, mode 600, read back after 
     const file = path.join(dir, 'a.jsonl');
     const log = new AuditLog({ file });
     log.append({ actor: 'assistant', conversation: 'c', tool: 'run_command', level: 'L2', input: { command: 'curl -H "Authorization: Bearer abcdefghijkl" x' }, outcome: 'staged', card: 'c_1' });
-    assert.equal((fs.statSync(file).mode & 0o777).toString(8), '600');
+    if (process.platform !== 'win32') assert.equal((fs.statSync(file).mode & 0o777).toString(8), '600');
     const back = new AuditLog({ file }).recent();
     assert.equal(back.length, 1);
     assert.equal(back[0].card, 'c_1');

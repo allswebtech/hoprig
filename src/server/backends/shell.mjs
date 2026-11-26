@@ -22,22 +22,35 @@ const TYPABLE = /^[\p{L}\p{M}\p{N}_./:@%+=, -]+$/u;
 // What the shell would split or read as an option, or the Windows command line would read as a quote: never in a word
 // of a Windows terminal's command (it is not typed there, but goes to ConPTY as one command line).
 const WINDOWS_BAD = /["\p{Cc}]/u;
+// A program that is a .cmd or .bat file: Windows starts it through cmd.exe, which reads the whole command line again.
+// There % (and ! where delayed expansion is on) reads a variable, & | < > start a second command or a redirection,
+// and ^ escapes the next character. None of them may be in any word of such a command. An .exe gets the line as it
+// is: no shell reads it, so a % or a $ in a path is only a character there.
+const CMD_FILE = /\.(cmd|bat)$/i;
+const CMD_BAD = /[%!^&|<>]/;
 
 /**
  * The plain error for a word that cannot go on a start line: 400, so the page shows the sentence and the assistant
- * gets it as a tool error.
+ * gets it as a tool error. `platform` win32: the sentence of a Windows terminal, where nothing is typed.
  */
-export function untypable(word) {
-  const e = new Error(`Hoprig cannot type this path into a shell: ${JSON.stringify(String(word))}. Only letters, digits, spaces and _ . / : @ % + = , - can be typed: put Node, Hoprig or the state folder (HOPRIG_STATE_DIR) where its path has nothing else`);
+export function untypable(word, platform = 'posix', viaCmd = false) {
+  const said = JSON.stringify(String(word));
+  const e = new Error(platform === 'win32'
+    ? `Hoprig cannot type this path into a shell: ${said}. On Windows a word of the start cannot hold a quote, a line break or another control character${viaCmd ? ', nor any of % ! ^ & | < > when the program is a .cmd or .bat file (Windows starts it through cmd.exe)' : ''}: put Node, Hoprig or the state folder (HOPRIG_STATE_DIR) where its path has none of these, or name node.exe and Hoprig's script as the launcher`
+    : `Hoprig cannot type this path into a shell: ${said}. Only letters, digits, spaces and _ . / : @ % + = , - can be typed: put Node, Hoprig or the state folder (HOPRIG_STATE_DIR) where its path has nothing else`);
   e.status = 400;
   return e;
 }
 
-/** Throws untypable() for the first word that cannot be typed (`platform` win32: the Windows command line's rule). */
+/**
+ * Throws untypable() for the first word that cannot be typed (`platform` win32: the Windows command line's rule; the
+ * first word is the program, and a .cmd or .bat program puts every word under cmd.exe's rule too).
+ */
 export function assertTypable(words, platform = process.platform) {
+  const viaCmd = platform === 'win32' && words.length > 0 && CMD_FILE.test(String(words[0]));
   for (const w of words) {
     const s = String(w);
-    if (platform === 'win32' ? !s || WINDOWS_BAD.test(s) : !TYPABLE.test(s)) throw untypable(s);
+    if (platform === 'win32' ? !s || WINDOWS_BAD.test(s) || (viaCmd && CMD_BAD.test(s)) : !TYPABLE.test(s)) throw untypable(s, platform === 'win32' ? 'win32' : 'posix', viaCmd);
   }
 }
 

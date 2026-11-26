@@ -9,6 +9,9 @@ import { test } from 'node:test';
 import { scratch } from './helpers.mjs';
 import { closedGateways } from '../seal.mjs';
 
+// The move to a user of its own is Linux only: root, user ids, runuser and systemd, with POSIX paths.
+const LINUX_ONLY = { skip: process.platform === 'win32' && 'the move to a user of its own is Linux only (root, chown by uid, POSIX paths)' };
+
 const s = scratch();
 test.after(s.cleanup);
 const W = await import('../../src/setup/moveswitch.mjs');
@@ -54,7 +57,7 @@ function standIn(over = {}) {
   return { sys, calls, st };
 }
 
-test("the switch: lingering, the install as the user, a trial, root's service stopped, the user's service checked by its listener's owner, the plain file", async () => {
+test("the switch: lingering, the install as the user, a trial, root's service stopped, the user's service checked by its listener's owner, the plain file", LINUX_ONLY, async () => {
   const { sys, calls, st } = standIn();
   const lines = [];
   const r = await W.switchToUser(plan(), { sys, say: (l) => lines.push(l) });
@@ -84,7 +87,7 @@ test('a failure before root is stopped (the install, the trial) leaves root as i
   }
 });
 
-test("a dashboard on the port that is not the user's process: the user's service is stopped and root's started again", async () => {
+test("a dashboard on the port that is not the user's process: the user's service is stopped and root's started again", LINUX_ONLY, async () => {
   const { sys, calls, st } = standIn({ listenerUid: async () => 4242 });
   const lines = [];
   const r = await W.switchToUser(plan(), { sys, say: (l) => lines.push(l) });
@@ -96,14 +99,14 @@ test("a dashboard on the port that is not the user's process: the user's service
   assert.equal(Object.keys(st.written).length, 0, 'no plain file');
 });
 
-test("the user's service fails: root's is started again", async () => {
+test("the user's service fails: root's is started again", LINUX_ONLY, async () => {
   const { sys, calls } = standIn({ installUserService: async () => ({ ok: false, stderr: 'no background service here' }) });
   const r = await W.switchToUser(plan(), { sys });
   assert.equal(r.ok, false);
   assert.deepEqual(calls.slice(-2), ['stop-user-service', 'start-root']);
 });
 
-test("root's service is stopped, never disabled, until the user's answered: a failure after the stop leaves it enabled", async () => {
+test("root's service is stopped, never disabled, until the user's answered: a failure after the stop leaves it enabled", LINUX_ONLY, async () => {
   for (const over of [{ installUserService: async () => ({ ok: false, stderr: 'no background service here' }) }, { listenerUid: async () => 4242 }]) {
     const { sys, calls } = standIn(over);
     assert.equal((await W.switchToUser(plan(), { sys })).ok, false);
@@ -117,7 +120,7 @@ test("root's service is stopped, never disabled, until the user's answered: a fa
   assert.deepEqual(run, ['systemctl --user stop hoprig.service', 'systemctl --user disable hoprig.service']);
 });
 
-test('a hang-up, Ctrl-C or SIGTERM in the switch window does not end the move: held back, said, and the switch goes through', async () => {
+test('a hang-up, Ctrl-C or SIGTERM in the switch window does not end the move: held back, said, and the switch goes through', LINUX_ONLY, async () => {
   const { EventEmitter } = await import('node:events');
   const proc = Object.assign(new EventEmitter(), { stdout: new EventEmitter(), stderr: new EventEmitter() });
   const lines = [];

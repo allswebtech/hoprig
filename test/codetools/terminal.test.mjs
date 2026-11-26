@@ -9,6 +9,11 @@ import path from 'node:path';
 import test from 'node:test';
 import { launched } from '../server/helpers.mjs';
 
+// The stand-in Codex and OpenCode (installFake) are Node scripts started by their #! line from npm's .bin folder:
+// on Windows the tool is looked for as a .cmd shim there and started through its package's entry, so a test that
+// starts such a stand-in is skipped there.
+const STANDIN = { skip: process.platform === 'win32' && 'the stand-in is started through its #! line' };
+
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'hoprig-terminal-'));
 process.env.HOPRIG_CONFIG_DIR = path.join(tmp, 'config');
 process.env.HOPRIG_STATE_DIR = path.join(tmp, 'state');
@@ -173,7 +178,7 @@ http.createServer((req, res) => {
 }).listen(port, '127.0.0.1');
 `;
 
-test('one server per tool: started by a helper (nobody\'s child), reused, refused for a provider added while in use, stopped when unused', async () => {
+test('one server per tool: started by a helper (nobody\'s child), reused, refused for a provider added while in use, stopped when unused', STANDIN, async () => {
   installFake('codex', FAKE_SERVER);
   process.env.HOPRIG_TEST_SEEN = path.join(tmp, 'seen.json');
   process.env.HOPRIG_TEST_WANT = KEY;
@@ -183,7 +188,7 @@ test('one server per tool: started by a helper (nobody\'s child), reused, refuse
   assert.equal(seen.keyOk, true, 'the server has the provider\'s key');
   assert.notEqual(seen.ppid, process.pid, 'the server is not a child of whoever asked for it');
   assert.equal(seen.args.join(' ').includes(KEY), false);
-  assert.equal(fs.statSync(path.join(S.serverDir(), 'codex-server.secret')).mode & 0o077, 0, 'the token file is private');
+  if (process.platform !== 'win32') assert.equal(fs.statSync(path.join(S.serverDir(), 'codex-server.secret')).mode & 0o077, 0, 'the token file is private');
   const again = await S.ensureServer('codex', { need: 'my-gw' });
   assert.equal(again.server.pid, r.server.pid, 'the running server is reused');
 
@@ -209,7 +214,7 @@ test('one server per tool: started by a helper (nobody\'s child), reused, refuse
   P.deleteProfile('late');
 });
 
-test('OpenCode\'s server always has a password, and a lock left by a holder that died does not block', async () => {
+test('OpenCode\'s server always has a password, and a lock left by a holder that died does not block', STANDIN, async () => {
   installFake('opencode', FAKE_SERVER);
   const lock = path.join(S.serverDir(), 'opencode-server.json.lock');
   fs.mkdirSync(lock, { recursive: true });
@@ -225,7 +230,7 @@ test('OpenCode\'s server always has a password, and a lock left by a holder that
   assert.equal(S.readServer('opencode'), null);
 });
 
-test('a server that does not start says what to look at next, in words a chat can show', async () => {
+test('a server that does not start says what to look at next, in words a chat can show', STANDIN, async () => {
   installFake('opencode', 'process.stderr.write("cannot open the database\\n"); process.exit(3);');
   const r = await S.ensureServer('opencode', {});
   assert.equal(r.ok, false);
@@ -239,7 +244,7 @@ test('a server that does not start says what to look at next, in words a chat ca
   await assert.rejects(onServer('opencode', { name: 'gw' }), (e) => e.status === 409 && e.message === r.why);
 });
 
-test('a server that answers late is never stopped under the chats that hold it; a slow one nobody uses starts again', async () => {
+test('a server that answers late is never stopped under the chats that hold it; a slow one nobody uses starts again', STANDIN, async () => {
   installFake('opencode', FAKE_SERVER);
   const models = (url, o) => (String(url).includes('/v1/models') ? new Response('{"data":[]}') : fetch(url, o));
   const first = await S.ensureServer('opencode', { fetchImpl: models });
@@ -424,7 +429,7 @@ http.createServer((req, res) => {
 }).listen(port, '127.0.0.1');
 `;
 
-test('a new session on a provider the running server lacks: when nobody else uses it, the server starts again with it', async () => {
+test('a new session on a provider the running server lacks: when nobody else uses it, the server starts again with it', STANDIN, async () => {
   installFake('opencode', FAKE_OC);
   process.env.HOPRIG_TEST_STARTS = path.join(tmp, 'oc-starts.txt');
   fs.writeFileSync(process.env.HOPRIG_TEST_STARTS, '');

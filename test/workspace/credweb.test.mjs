@@ -12,6 +12,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
 import { dryWorld, gh, runCli } from '../pcsetup/dryrun-fixture.mjs';
+import { SHELL_STANDINS } from '../seal.mjs';
+
+// The stand-in gh (and ssh) of these tests are shell scripts: on Windows the runner starts them through sh.
+const SH_GH = SHELL_STANDINS;
 
 const ws = await import('../../src/workspace/cli.mjs');
 const { readMap } = await import('../../src/workspace/map.mjs');
@@ -76,7 +80,7 @@ function allText(dir) {
   return out;
 }
 
-test('the dry run answers the cost, the steps, the name to type and a seen id; a wrong name is refused; nothing changes', async (tc) => {
+test('the dry run answers the cost, the steps, the name to type and a seen id; a wrong name is refused; nothing changes', SH_GH, async (tc) => {
   const w = await world(tc, 'cw-dry');
   const d = await w.unchanged('the dry run', () => w.post({ github: true, dryRun: true }));
   assert.equal(d.status, 200, d.message);
@@ -95,7 +99,7 @@ test('the dry run answers the cost, the steps, the name to type and a seen id; a
   w.clean();
 });
 
-test('his typed yes runs the command\'s step as the page\'s job: a private repository, the map, the folder 700', async (tc) => {
+test('his typed yes runs the command\'s step as the page\'s job: a private repository, the map, the folder 700', SH_GH, async (tc) => {
   const w = await world(tc, 'cw-real');
   const d = await w.post({ github: true, dryRun: true });
   const r = await w.post({ github: true, seen: d.json.seen, typed: ' credentials ' });
@@ -108,7 +112,7 @@ test('his typed yes runs the command\'s step as the page\'s job: a private repos
   assert.ok([409, 400].includes(again.status), 'a second start while one runs, or a plan that changed, is refused');
   assert.equal(fs.readFileSync(path.join(w.server, 'created.log'), 'utf8'), 'alex/credentials --private\n');
   assert.equal(readMap(w.ws).map.credentials.url, 'https://github.com/alex/credentials.git');
-  assert.equal(fs.statSync(w.creds).mode & 0o777, 0o700);
+  if (process.platform !== 'win32') assert.equal(fs.statSync(w.creds).mode & 0o777, 0o700);
   assert.equal(w.sh(path.join(w.server, 'alex', 'credentials.git'), 'log', '--format=%s', 'main'), 'Credentials');
   const st = (await w.call('GET', '/api/workspace/credentials')).json;
   assert.equal(st.folder, 'repository');
@@ -117,7 +121,7 @@ test('his typed yes runs the command\'s step as the page\'s job: a private repos
   w.clean();
 });
 
-test('refused with nothing changed: a stale plan, an unknown key, Tia, a relayed request with her mark, a public repository', async (tc) => {
+test('refused with nothing changed: a stale plan, an unknown key, Tia, a relayed request with her mark, a public repository', SH_GH, async (tc) => {
   const w = await world(tc, 'cw-refuse');
   w.bare('alex/credentials.git');
   const d = await w.post({ repo: gh('credentials'), dryRun: true });
@@ -175,7 +179,7 @@ test('another server: only with his word that it is private; then it is pushed',
   w.clean();
 });
 
-test('made public between his yes and the push: the job asks again, pushes nothing and undoes what it did', async (tc) => {
+test('made public between his yes and the push: the job asks again, pushes nothing and undoes what it did', SH_GH, async (tc) => {
   const w = await world(tc, 'cw-flip');
   w.bare('alex/credentials.git');
   const { capture } = await import('../../src/setup/system.mjs');
@@ -199,7 +203,7 @@ test('made public between his yes and the push: the job asks again, pushes nothi
 test('a map of version 1: the state says so, and the step is refused with the upgrade named', async (tc) => {
   const w = await world(tc, 'cw-v1', { v2: false });
   const st = await w.unchanged('the state', () => w.call('GET', '/api/workspace/credentials'));
-  assert.deepEqual(st.json, { folder: 'folder', ownerOnly: true, short: '~/Workspace/credentials', mapVersion: 1 });
+  assert.deepEqual(st.json, { folder: 'folder', ownerOnly: true, short: path.join('~', 'Workspace', 'credentials'), mapVersion: 1 });
   const r = await w.unchanged('version 1', () => w.post({ github: true, dryRun: true }));
   assert.equal(r.status, 409);
   assert.match(r.message, /the map is of version 1/);

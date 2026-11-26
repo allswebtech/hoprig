@@ -63,7 +63,7 @@ const parts = (dir = bin) => ({
   projectSkills: async () => ({ ok: true, added: [], skipped: [] }), userSkills: async () => ({ ok: true, added: [], skipped: [] }),
 });
 
-test('the step: sudo loginctl enable-linger <user>, only when lingering is off; as root without sudo', async () => {
+test('the step: sudo loginctl enable-linger <user>, only when lingering is off; as root without sudo', { skip: process.platform === 'win32' && 'lingering belongs to systemd (loginctl): Linux only' }, async () => {
   reset();
   assert.deepEqual((await L.lingerPlan(sys())).step.argv, ['sudo', 'loginctl', 'enable-linger', 'alex']);
   assert.deepEqual((await L.lingerPlan(sys(bin, { root: true }))).step.argv, ['loginctl', 'enable-linger', 'alex']);
@@ -74,7 +74,7 @@ test('the step: sudo loginctl enable-linger <user>, only when lingering is off; 
   assert.deepEqual(await L.lingerPlan(sys(fakeBin(path.join(s.tmp, 'bin-none'), {}))), {}, 'no loginctl: nothing to say');
 });
 
-test('set-up lists lingering among the sudo steps ("Will run") and runs it under the same yes; no "run this once yourself"', async () => {
+test('set-up lists lingering among the sudo steps ("Will run") and runs it under the same yes; no "run this once yourself"', { skip: process.platform === 'win32' && 'lingering belongs to systemd (loginctl): Linux only' }, async () => {
   reset();
   const { ui: u, rec } = ui({ yes: true });
   // The service step runs systemctl from sys.env: the stand-in, never the computer's own.
@@ -101,7 +101,7 @@ test('set-up lists lingering among the sudo steps ("Will run") and runs it under
   assert.doesNotMatch(t, /run this once yourself|To keep it running while you are logged out/);
 });
 
-test('not done: one plain line with the one command (refused, no sudo); a dry run only lists it', async () => {
+test('not done: one plain line with the one command (refused, no sudo); a dry run only lists it', { skip: process.platform === 'win32' && 'lingering belongs to systemd (loginctl): Linux only' }, async () => {
   reset();
   const refuse = fakeBin(path.join(s.tmp, 'bin-refuse'), { claude: fakeClaude(), loginctl: 'echo Linger=no', sudo: 'echo "sorry, try again" >&2; exit 1', systemctl });
   // Inside set-up: the mark where it happens, the command in the closing list ("Still yours to do"). With sudo here,
@@ -133,7 +133,7 @@ test('not done: one plain line with the one command (refused, no sudo); a dry ru
   assert.match(alone.rec.text, /✓ The dashboard keeps running after you log out/);
 });
 
-test('the service install runs the systemctl of set-up\'s own environment, never the one on the process PATH', async () => {
+test('the service install runs the systemctl of set-up\'s own environment, never the one on the process PATH', { skip: process.platform === 'win32' && 'lingering belongs to systemd (loginctl): Linux only' }, async () => {
   reset();
   const unit = path.join(process.env.HOME, '.config', 'systemd', 'user', 'hoprig.service');
   fs.rmSync(unit, { force: true });
@@ -150,7 +150,7 @@ test('the service install runs the systemctl of set-up\'s own environment, never
   assert.match(fs.readFileSync(unit, 'utf8'), new RegExp(`Environment="PATH=${S.env.PATH.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}"`), 'from set-up\'s environment');
 });
 
-test('lingering left off: "running in the background" claims no start with the computer', async () => {
+test('lingering left off: "running in the background" claims no start with the computer', { skip: process.platform === 'win32' && 'lingering belongs to systemd (loginctl): Linux only' }, async () => {
   reset();
   // No unit yet: the service is installed and started in this run (not the "already running" line).
   fs.rmSync(path.join(process.env.HOME, '.config', 'systemd', 'user', 'hoprig.service'), { force: true });

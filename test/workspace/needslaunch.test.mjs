@@ -8,7 +8,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { needsWorld } from './needsfix.mjs';
 
-test('a terminal session in shop: extra folders, deny rules, the start note, --with', { skip: process.platform === 'win32' }, async () => {
+test('a terminal session in shop: extra folders, deny rules, the start note, --with', { skip: process.platform === 'win32' && 'the stand-in Claude Code is a script started by its "#!" line, which Windows does not read' }, async () => {
   const w = needsWorld('needs-launch', { shopNeeds: ['kits/parts', 'docs'] });
   const cwd = process.cwd();
   const write = process.stderr.write;

@@ -28,7 +28,9 @@ const groups = (elevated) => [
 /** A stand-in for Windows: answers whoami and PowerShell's owner question, records every argv. */
 function windows({ elevated = false, owners = {} } = {}) {
   const calls = [];
-  const run = async (argv) => {
+  const run = async (given) => {
+    // Windows' own whoami comes by its full path there (winowner.mjs whoamiBin): recorded by its name.
+    const argv = /[\\/]whoami\.exe$/i.test(given[0]) ? ['whoami', ...given.slice(1)] : given;
     calls.push(argv);
     if (argv[0] === 'whoami' && argv[1] === '/groups') return { ok: true, stdout: groups(elevated), stderr: '' };
     if (argv[0] === 'whoami' && argv[1] === '/user') return { ok: true, stdout: WHOAMI_USER, stderr: '' };
@@ -80,7 +82,9 @@ test('doctor: both folders owned by the Administrators group: named, with the li
   const ps = w.calls.filter((a) => a[0] === 'powershell.exe');
   assert.equal(ps.length, 2);
   assert.deepEqual(ps[0], W.ownerArgv(WS));
-  assert.match(ps[0][4], /^\(Get-Acl -LiteralPath 'C:\\Users\\alex\\Workspace'\)\.GetOwner\(\[System\.Security\.Principal\.SecurityIdentifier\]\)\.Value$/);
+  assert.match(ps[0][4], /^\$ErrorActionPreference = 'SilentlyContinue'; \$p = 'C:\\Users\\alex\\Workspace'; \$s = \[System\.Security\.AccessControl\.AccessControlSections\]::Owner; .*\[System\.IO\.Directory\]::GetAccessControl\(\$p, \$s\).*\.GetOwner\(\[System\.Security\.Principal\.SecurityIdentifier\]\)\.Value\)$/);
+  // No cmdlet: no module of Windows PowerShell is loaded (Get-Acl made doctor wait 17 to 19 s for it).
+  assert.doesNotMatch(ps[0][4], /\b(Get|Set)-[A-Z]\w+/);
   assert.deepEqual(w.calls.find((a) => a[0] === 'whoami'), ['whoami', '/user', '/fo', 'csv', '/nh']);
   neverIcacls(w.calls);
 });
@@ -119,14 +123,14 @@ test('the hand-back line keeps a path with spaces, a quote, % or $ as one argume
     const line = W.handBackLine(dir, ME);
     assert.deepEqual(handBack(line), [`*${ME}`, dir], line);
     // The owner question holds the path as one single-quoted word of its command text.
-    assert.ok(W.ownerArgv(dir)[4].includes(`-LiteralPath '${dir.replace(/'/g, "''")}')`));
+    assert.ok(W.ownerArgv(dir)[4].includes(`$p = '${dir.replace(/'/g, "''")}';`));
   }
   // PowerShell ends a single-quoted string at a typographic quote too: each is doubled, so a folder named with one
   // stays one word, in the line that is pasted and in the owner question Hoprig runs itself.
   for (const dir of ['C:\\Users\\alex\\Bob\u2019s work', 'C:\\a\u2019;Remove-Item x;\u2019', 'D:\\\u2018x\u2019 \u201Ay\u201B']) {
     assert.deepEqual(handBack(W.handBackLine(dir, ME)), [`*${ME}`, dir], dir);
     const cmd = W.ownerArgv(dir)[4];
-    const words = psWords(cmd.replace(/^\(Get-Acl -LiteralPath /, '').replace(/\)\.GetOwner\(.*$/, ''));
+    const words = psWords(cmd.slice(cmd.indexOf('$p = ') + 5, cmd.indexOf('; $s = ')));
     assert.deepEqual(words, [dir], cmd);
   }
   assert.equal(handBack(W.handBackLine('C:\\a b\\', ME))[1], 'C:\\a b', 'no backslash before the closing quote');
@@ -204,4 +208,13 @@ test('set-up not run as administrator says nothing of it and asks no owner', asy
   assert.doesNotMatch(text, /administrator/i);
   assert.deepEqual(w.calls.map((a) => a.slice(0, 2).join(' ')), ['whoami /groups']);
   assert.ok(path.isAbsolute(process.env.HOPRIG_WORKSPACE_DIR));
+});
+
+test('Windows\' own whoami by its full path under the system root; the bare name only where none is known', () => {
+  const env = { SystemRoot: 'C:\\Windows' };
+  const own = 'C:\\Windows\\System32\\whoami.exe';
+  assert.equal(W.whoamiBin({ env, exists: (f) => f === own }), own, 'never a whoami found earlier on PATH (Git for Windows has one)');
+  assert.equal(W.whoamiBin({ env: { windir: 'D:\\Win' }, exists: (f) => f === 'D:\\Win\\System32\\whoami.exe' }), 'D:\\Win\\System32\\whoami.exe');
+  assert.equal(W.whoamiBin({ env, exists: () => false }), 'whoami', 'not there: the name');
+  assert.equal(W.whoamiBin({ env: {}, exists: () => true }), 'whoami', 'no system root: the name');
 });

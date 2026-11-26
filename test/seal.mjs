@@ -10,6 +10,15 @@
 export { SEAL_VARS, sealed, sealedPath } from '../tools/seal-core.mjs';
 
 import { shippedGateways } from '../tools/seal-net.mjs';
+import { windowsSh } from '../tools/test-seal.mjs';
+
+/**
+ * The skip of a test whose stand-ins are `#!/bin/sh` scripts. On Windows the wrap starts such a stand-in of the test's
+ * own through Git for Windows' sh (tools/test-seal.cjs windowsStandIn), found on the PATH of this test process outside
+ * the test's area and the traps; only where no sh is found is the test skipped. False on every other system.
+ */
+const processPath = () => String(Object.entries(process.env).find(([k]) => k.toUpperCase() === 'PATH')?.[1] || '');
+export const SHELL_STANDINS = { skip: process.platform === 'win32' && !windowsSh(processPath()) && 'the stand-ins are shell scripts and no sh is here' };
 /** A port no test's gateway answers on (port 1: nothing an ordinary user runs listens there, so it is refused at once). */
 export const CLOSED_PORT = 1;
 /**

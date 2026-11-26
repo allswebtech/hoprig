@@ -44,6 +44,10 @@ const e = (hook_event_name, more = {}) => ({ hook_event_name, ...more });
 const bash = { tool_name: 'Bash', tool_input: { command: 'curl -H "Authorization: Bearer s3cret" https://example.com' } };
 const NOTE = 'Claude needs your permission to use Bash: curl -H "Authorization: Bearer ***" https://example.com';
 
+// The one rule for a delete reads folders written as /a/b only (src/asking.mjs plainDelete): on Windows a folder is
+// C:\…, so no delete is plain there and each one waits for the owner, which is the safe side.
+const DELETE_RULE = { skip: process.platform === 'win32' && 'the delete rule reads POSIX folders only; on Windows every delete waits for the owner' };
+
 test('a permission that is allowed: needs your OK only until the answer, then working until the reply ends', () => {
   const { seen, run } = play([
     e('SessionStart', { source: 'startup' }),
@@ -144,7 +148,8 @@ test('bypass mode: a delete in Hoprig\'s own config or state folder is never all
   }
   // A folder beside them still holds a plain delete (the rule is about Hoprig's folders, not the one above).
   fs.mkdirSync(path.join(tmp, 'work', 'dist'), { recursive: true });
-  assert.notEqual(at(path.join(tmp, 'work'), 'rm -rf dist'), null);
+  // On Windows no delete is plain (src/asking.mjs plainDelete reads POSIX folders only): it waits for the owner.
+  if (process.platform !== 'win32') assert.notEqual(at(path.join(tmp, 'work'), 'rm -rf dist'), null);
 });
 
 test('bypass mode: every other command keeps Claude Code\'s question, and so does a delete that is not plainly inside the folder', () => {
@@ -231,19 +236,22 @@ test('the ask rules are read from every settings file Claude Code reads for the 
   const facts = sessionFacts({ cwd: '/elsewhere' }, { HOPRIG_RUN_FILE: path.join(root, 'state', 'runs', 'x.json'), CLAUDE_PROJECT_DIR: path.join(root, 'repo', 'app'), CLAUDE_CONFIG_DIR: path.join(root, 'claude'), HOPRIG_WORKSPACE_DIR: '/srv/ws' });
   const got = facts.rules();
   for (const r of ['Bash(user)', 'Bash(handed)', '*']) assert.ok(got.includes(r), r);
-  assert.equal(facts.places().workspace, '/srv/ws');
+  const N = (p) => path.normalize(p); // the product keeps a folder in its platform's form (\srv\ws on Windows)
+  assert.equal(facts.places().workspace, N('/srv/ws'));
   assert.equal(facts.places().home, os.homedir());
   assert.equal(facts.places().cwd, '/elsewhere', 'where the command runs: the event\'s cwd');
   assert.equal(facts.places().relative, true, 'the event\'s cwd is the shell\'s folder at that moment, so a relative target can be read');
   assert.equal(sessionFacts({}, {}).places().cwd, null);
   // The folders that hold projects: the one chosen in Hoprig's settings, the default and the earlier one.
-  assert.deepEqual(facts.places().projects, ['/srv/ws/projects', path.join(os.homedir(), 'projects')]);
+  assert.deepEqual(facts.places().projects, [N('/srv/ws/projects'), path.join(os.homedir(), 'projects')]);
   fs.mkdirSync(path.dirname(configFile()), { recursive: true });
   fs.writeFileSync(configFile(), JSON.stringify({ projectsDir: '/srv/code' }));
   try {
-    assert.deepEqual(facts.places().projects, ['/srv/code', '/srv/ws/projects', path.join(os.homedir(), 'projects')]);
+    assert.deepEqual(facts.places().projects, [N('/srv/code'), N('/srv/ws/projects'), path.join(os.homedir(), 'projects')]);
     // The hook answers nothing for a delete run in one, and as before inside a project.
-    for (const [cwd, yes] of [['/srv/code', false], ['/srv/ws/projects', false], ['/srv/code/shop', true]]) {
+    // On Windows no delete is plain (src/asking.mjs plainDelete reads POSIX folders only): it waits for the owner.
+    // The event's cwd is in the platform's form, as Claude Code gives it there (\srv\code on Windows).
+    for (const [cwd, yes] of [[N('/srv/code'), false], [N('/srv/ws/projects'), false], [N('/srv/code/shop'), process.platform !== 'win32']]) {
       const ev = e('PermissionRequest', { ...stopped, cwd, tool_input: { command: 'rm -rf shop/*/*' } });
       assert.equal(!!hookAnswer(ev, { rules: () => [], places: sessionFacts(ev, { HOPRIG_WORKSPACE_DIR: '/srv/ws', CLAUDE_PROJECT_DIR: cwd }).places }), yes, cwd);
     }
@@ -574,7 +582,7 @@ test('the small hook program: silent, never fails, does the same as `hoprig hook
   R.removeRun(file);
 });
 
-test('the small hook program in bypass mode: one line that allows, written down, and the record never says "needs your OK"', () => {
+test('the small hook program in bypass mode: one line that allows, written down, and the record never says "needs your OK"', DELETE_RULE, () => {
   const { file } = R.createRun({ profile: 'sub', cwd: '/w' });
   const project = fs.mkdtempSync(path.join(tmp, 'project-'));
   const base = { HOPRIG_RUN_FILE: file, CLAUDE_PROJECT_DIR: project };
@@ -648,7 +656,7 @@ test('hook settings: the exact events only for a Claude Code that surely knows t
   }
 });
 
-test('bypass mode: the hook allows a plain delete only while the shell stands in the folder the session was started in', () => {
+test('bypass mode: the hook allows a plain delete only while the shell stands in the folder the session was started in', DELETE_RULE, () => {
   const root = fs.mkdtempSync(path.join(tmp, 'ownfolder-'));
   const own = path.join(root, 'shop');
   const other = path.join(root, 'blog');
@@ -682,7 +690,7 @@ test('a coding chat\'s hook: only PermissionRequest, for the same versions, the 
   }
 });
 
-test('a coding chat\'s record keeps only what the hook allowed: the chat follows the rest, the cards included, through its own channel', () => {
+test('a coding chat\'s record keeps only what the hook allowed: the chat follows the rest, the cards included, through its own channel', DELETE_RULE, () => {
   // The chat is started in `project`: the hook answers a plain delete only while the shell stands in that folder.
   const project = fs.mkdtempSync(path.join(tmp, 'chatproject-'));
   const { file } = R.createChatRun({ chat: 'c1', conversation: ID, cwd: project, profile: 'sub' });
@@ -716,7 +724,7 @@ test('a coding chat\'s record keeps only what the hook allowed: the chat follows
   R.removeRun(file);
 });
 
-test('the hook after tool calls starts nothing unless the run asks for tool news', { skip: process.platform === 'win32' }, () => {
+test('the hook after tool calls starts nothing unless the run asks for tool news', { skip: process.platform === 'win32' && 'the hook line is a POSIX shell test, run here through sh -c' }, () => {
   const { file } = R.createRun({ profile: 'sub', cwd: '/w' });
   const cmd = L.hookSettings({ version: '2.1.325' }).hooks.PostToolBatch[0].hooks[0].command;
   assert.match(cmd, /^if \[ -e "\$HOPRIG_RUN_FILE\.watch" \]; then .* fi$/);

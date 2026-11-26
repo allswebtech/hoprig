@@ -57,5 +57,8 @@ export function needsWorld(name = 'needs', { shopNeeds = ['kits/parts'], partsNe
   fs.symlinkSync(path.join(ws, 'credentials', 'parts'), path.join(ws, 'kits', 'parts', 'deep', 'keys')); // a folder of its own credentials
   if (accept) acceptAll({ shop: shopNeeds, 'kits/parts': partsNeeds });
   const ctx = { dir: ws, projects };
-  return { ...h, ws, projects, ctx, map, shop: path.join(projects, 'shop'), parts: path.join(ws, 'kits', 'parts') };
+  // On Windows a folder a process just ended in (a dashboard's session, a chat's stand-in) stays held for a moment:
+  // the home is removed with retries there (models/partneeds failed with EPERM on rm right after the dashboard closed).
+  const cleanup = process.platform === 'win32' ? () => fs.rmSync(h.root, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }) : h.cleanup;
+  return { ...h, cleanup, ws, projects, ctx, map, shop: path.join(projects, 'shop'), parts: path.join(ws, 'kits', 'parts') };
 }

@@ -30,6 +30,8 @@ import { familyOf, PRICES } from '../operator/prices.mjs';
 import { frontMatterProblems, liveText, proposalsDir } from '../skillhub/proposals.mjs';
 import { foldLooks, PATTERNS, RISKY } from '../skillhub/learnscan.mjs';
 import { scanText } from '../skillhub/scan.mjs';
+import { replaceFile } from '../replacefile.mjs';
+import { system } from '../procid.mjs';
 
 export const RUNNER = fileURLToPath(new URL('../../test/assistant/eval/run.mjs', import.meta.url));
 const BASELINE = fileURLToPath(new URL('../../test/assistant/eval/baseline.json', import.meta.url));
@@ -412,7 +414,7 @@ export class Round {
     this.stopWhy = null;
     const now = (o.now || Date.now)();
     this.state = {
-      running: true, id: crypto.randomBytes(6).toString('hex'), pid: process.pid, by: o.by || 'you', provider: o.provider, paid: !!o.paid, cap: o.paid ? o.cap : null,
+      running: true, id: crypto.randomBytes(6).toString('hex'), pid: process.pid, proc: system.self(), by: o.by || 'you', provider: o.provider, paid: !!o.paid, cap: o.paid ? o.cap : null,
       startedAt: new Date(now).toISOString(), endedAt: null, phase: 'baseline', step: 0, steps: 1 + MAX_CANDIDATES * 3,
       spentUsd: 0, holds: [], tried: [], proposals: [], stopped: null, failed: null, measured: null,
     };
@@ -586,7 +588,7 @@ export class Round {
     const dest = path.join(proposalsDir(), `${id}.json`);
     const tmp = `${dest}.${process.pid}.tmp`;
     fs.writeFileSync(tmp, `${JSON.stringify(file, null, 2)}\n`, { mode: 0o600 });
-    fs.renameSync(tmp, dest);
+    replaceFile(tmp, dest);
     return id;
   }
 }

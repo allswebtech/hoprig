@@ -10,6 +10,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { sandbox } from '../server/helpers.mjs';
 import { allOf, madeUpComputer, traps } from './fixture.mjs';
+import { loopWatch, oneCall } from '../onecall.mjs';
 
 const box = sandbox('adopt-retireweb');
 test.after(() => box.cleanup());
@@ -47,11 +48,13 @@ const app = createServer({
 const { port } = await app.listen(0, '127.0.0.1');
 const base = `http://127.0.0.1:${port}`;
 test.after(() => app.close());
-const login = await fetch(`${base}/api/login`, { method: 'POST', headers: { 'Content-Type': 'application/json', Origin: base }, body: JSON.stringify({ password: 'right-password' }) });
-const cookie = login.headers.get('set-cookie').split(';')[0];
+// Each call on a connection of its own (test/onecall.mjs): a press that removes a whole folder takes a while, and a
+// request is never sent on a kept-alive connection the server may be closing meanwhile.
+const login = await oneCall(base, 'POST', '/api/login', { headers: { Origin: base }, body: { password: 'right-password' } });
+const cookie = [].concat(login.headers['set-cookie'])[0].split(';')[0];
 async function call(p, body, headers = { Cookie: cookie, Origin: base }) {
-  const r = await fetch(base + p, { method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-  return { status: r.status, json: await r.json() };
+  const r = await oneCall(base, 'POST', p, { headers, body });
+  return { status: r.status, json: r.json };
 }
 
 // What retire may touch: the scanned place, the copies, their server and Hoprig's adopt records.
@@ -176,34 +179,48 @@ test('the right press removes exactly what hoprig adopt retire removes on the sa
   const roots = [m.place, projects, m.server, adoptState];
   const save = () => roots.forEach((r, i) => fs.cpSync(r, path.join(keep, String(i)), { recursive: true, verbatimSymlinks: true, preserveTimestamps: true }));
   const restore = () => roots.forEach((r, i) => {
-    fs.rmSync(r, { recursive: true, force: true });
+    // With retries: on Windows a folder a git of the dashboard has just read may stay held a moment.
+    fs.rmSync(r, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
     fs.cpSync(path.join(keep, String(i)), r, { recursive: true, verbatimSymlinks: true, preserveTimestamps: true });
   });
-  save();
-  const start = shape(world());
+  // The longest stand-still of this process's loop, and in which step (one WINDIAG line on Windows).
+  const loop = loopWatch('retireweb:');
+  try {
+    loop.mark('the test copies the folders aside and reads them (its own synchronous work)');
+    save();
+    const start = shape(world());
 
-  assert.equal((await call('/api/adopt/scan', { places: [m.place] })).status, 200);
-  const listed = async () => (await (await fetch(`${base}/api/adopt`, { headers: { Cookie: cookie } })).json()).projects.map((p) => p.name);
-  assert.ok((await listed()).includes('notes'));
-  const c = (await call('/api/adopt/retire/check', { name: 'notes' })).json;
-  const r = await call('/api/adopt/retire', { ticket: c.ticket, typed: 'notes' });
-  assert.equal(r.json.ok, true, JSON.stringify(r.json));
-  assert.ok(!(await listed()).includes('notes'), 'the last look no longer lists a project whose old folder went');
-  assert.equal(r.json.result, 'removed');
-  const byPage = shape(world());
-  assert.ok(Object.keys(start).length > Object.keys(byPage).length, 'something went');
-  assert.equal(fs.readFileSync(path.join(m.dirs.notes, 'no-ai', 'private.txt'), 'utf8'), 'made-up private words\n', 'the private folder stays');
-  assert.ok(fs.existsSync(path.join(projects, 'notes', 'code', 'notes', '.git')), 'the copy stays');
-  const again = await call('/api/adopt/retire', { ticket: c.ticket, typed: 'notes' });
-  assert.equal(again.json.result, 'expired', 'used once');
+    loop.mark('the look in the place (scan)');
+    assert.equal((await call('/api/adopt/scan', { places: [m.place] })).status, 200);
+    const listed = async () => (await oneCall(base, 'GET', '/api/adopt', { headers: { Cookie: cookie } })).json.projects.map((p) => p.name);
+    assert.ok((await listed()).includes('notes'));
+    loop.mark('the sheet (retire check)');
+    const c = (await call('/api/adopt/retire/check', { name: 'notes' })).json;
+    loop.mark('the press (retire: proof and removal)');
+    const r = await call('/api/adopt/retire', { ticket: c.ticket, typed: 'notes' });
+    loop.mark('after the press: the list and the test reading the folders');
+    assert.equal(r.json.ok, true, JSON.stringify(r.json));
+    assert.ok(!(await listed()).includes('notes'), 'the last look no longer lists a project whose old folder went');
+    assert.equal(r.json.result, 'removed');
+    const byPage = shape(world());
+    assert.ok(Object.keys(start).length > Object.keys(byPage).length, 'something went');
+    assert.equal(fs.readFileSync(path.join(m.dirs.notes, 'no-ai', 'private.txt'), 'utf8'), 'made-up private words\n', 'the private folder stays');
+    assert.ok(fs.existsSync(path.join(projects, 'notes', 'code', 'notes', '.git')), 'the copy stays');
+    const again = await call('/api/adopt/retire', { ticket: c.ticket, typed: 'notes' });
+    assert.equal(again.json.result, 'expired', 'used once');
 
-  restore();
-  assert.deepEqual(shape(world()), start, 'the same home again');
-  const out = [];
-  const ui = makeUi({ interactive: true, write: (s) => out.push(s), askLine: async () => 'notes' });
-  assert.equal(await main(['retire', 'notes'], { ui, write: (s) => out.push(s) }), 0, out.join(''));
-  assert.deepEqual(shape(world()), byPage, 'the page removed exactly what the command removed');
-  assert.deepEqual(trap.trapped(), []);
+    loop.mark('the test puts the folders back (its own synchronous work)');
+    restore();
+    assert.deepEqual(shape(world()), start, 'the same home again');
+    loop.mark('the command line retire, in this process');
+    const out = [];
+    const ui = makeUi({ interactive: true, write: (s) => out.push(s), askLine: async () => 'notes' });
+    assert.equal(await main(['retire', 'notes'], { ui, write: (s) => out.push(s) }), 0, out.join(''));
+    assert.deepEqual(shape(world()), byPage, 'the page removed exactly what the command removed');
+    assert.deepEqual(trap.trapped(), []);
+  } finally {
+    loop.end();
+  }
 });
 
 test('the docs and the changelog say what the page does, in the sheet\'s words', async () => {
