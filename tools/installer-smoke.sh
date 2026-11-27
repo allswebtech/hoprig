@@ -79,6 +79,9 @@ if [ "$WIN" = 1 ]; then
   SAVED=$(powershell -NoProfile -Command "[Environment]::GetEnvironmentVariable('Path','Machine') + ';' + [Environment]::GetEnvironmentVariable('Path','User')" | tr -d '\r')
   NEWPATH=$(printf '%s' "$SAVED" | tr ';' '\n' | while IFS= read -r d; do [ -n "$d" ] && cygpath -u "$d"; done | tr '\n' ':')
   PATH="$NEWPATH$PATH"
+  # A person types hoprig into PowerShell or cmd, which runs hoprig.cmd (it starts the node.exe beside it). Git Bash would
+  # take the extensionless script npm also writes, which starts the first node on the PATH: not what that person gets.
+  hoprig() { cmd //c hoprig "$@"; }
   say "saved PATH starts with: $(printf '%s' "$NEWPATH" | tr ':' '\n' | head -3 | tr '\n' ' ')"
 else
   step install sh "$REPO/install.sh" $ARGS
