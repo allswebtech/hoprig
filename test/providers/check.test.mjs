@@ -324,3 +324,17 @@ test('with the switch off the check asks the names a session really sends, and a
   assert.equal(gapsOf(result, { on: true })[0].mend, mend.line);
   assert.equal(withSwitch({ combo: 'x', models: null, line: 'x' }, false), 'x', 'a combo alone needs no switch');
 });
+
+test('the combo mend is a press (Make the combo) only for the TRouteAI Hoprig manages; its sentence stays for others', async (t) => {
+  const served = new Set(toolNames().filter((n) => n !== 'claude-opus-5'));
+  const r = await relay(t, { served });
+  const mine = await runCheck(profile(r.url, { prerun: 'hoprig addons start trouteai' }), played);
+  const gap = mine.rows.find((x) => x.sends === 'claude-opus-5');
+  assert.deepEqual(gap.mend.make, { gateway: 'trouteai', name: 'claude-opus-5' }, 'the press names the gateway and the combo');
+  assert.equal(gap.mend.combo, 'Add a combo named "claude-opus-5" at the gateway', 'the sentence stays for a place that cannot press');
+  assert.equal(mine.picture.mend.make, undefined, 'no combo is made for the picture');
+  const other = await runCheck(profile(r.url, { prerun: 'hoprig addons start relay' }), played);
+  assert.equal(other.rows.find((x) => x.sends === 'claude-opus-5').mend.make, undefined);
+  const plain = await runCheck(profile(r.url), played);
+  assert.equal(plain.rows.find((x) => x.sends === 'claude-opus-5').mend.make, undefined);
+});

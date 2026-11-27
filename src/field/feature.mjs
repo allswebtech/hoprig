@@ -1,4 +1,4 @@
-// Field reports in the dashboard (docs/FIELD-REPORTS.md): Settings → Field reports and the Home lines.
+// Field reports in the dashboard (docs/FIELD-REPORTS.md): Settings → Version and updates → Field reports and the Home lines.
 //
 //   GET  /api/field                                  settings, this computer's reports (each whole), the Home lines
 //   POST /api/field/settings { sendTo?, choice?, ownNetwork?, copyDir? }

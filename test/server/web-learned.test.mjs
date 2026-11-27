@@ -1,4 +1,4 @@
-// Skills → Learned and Settings → Learn skills (web/skilllearned.js), and Work's "Learn from this" (web/workdo.js),
+// Skills → Learned and its learn panel (web/skilllearned.js), and Work's "Learn from this" (web/workdo.js),
 // in a small stand-in DOM with a stand-in for the dashboard's answers.
 import assert from 'node:assert/strict';
 import test from 'node:test';
@@ -207,15 +207,15 @@ test('a refresh keeps the folds he closed and his focus, and paints nothing when
   const discard = box.querySelector(`[data-key="${other.id}:discard"]`);
   discard.focus();
   // The same answer: nothing is painted again.
-  const first = box.children[0];
+  const first = box.children[1].children[0]; // box.children[0] is the learn panel, drawn once
   timers.shift()();
   await tick();
-  assert.equal(box.children[0], first, 'it painted the same answer again');
+  assert.equal(box.children[1].children[0], first, 'it painted the same answer again');
   // A changed answer: painted, with the fold still closed and the focus on the same button.
   tries = [{ prompt: 'Fix it', without: 'a', with: null }];
   timers.shift()();
   await tick();
-  assert.notEqual(box.children[0], first);
+  assert.notEqual(box.children[1].children[0], first);
   assert.equal(foldOf().open, false, 'the fold he closed opened again');
   assert.equal(document.activeElement && document.activeElement.getAttribute('data-key'), `${other.id}:discard`, 'the focus was lost');
 });
@@ -241,19 +241,21 @@ test('the last look says a discarded idea, a name there already, and a look a re
   }
 });
 
-test('Settings → Learn skills says the last look apart from its cost: one that did not reach the model is said so', async () => {
+test('Skills → Learned has the learn panel at its top: the last look is said apart from its cost, and the old Settings page is gone', async () => {
   const { registeredSettingsPages } = await import('../../web/registry.js');
-  const page = registeredSettingsPages().find((p) => p.id === 'learn');
+  assert.equal(registeredSettingsPages().find((p) => p.id === 'learn'), undefined, 'no Settings page of its own');
   const base = { settings: { on: true, provider: 'sub', model: 'haiku', perWeek: 5, last: null }, providers: [{ name: 'sub', label: 'Main' }], models: ['haiku'], looksThisWeek: 3, draftsThisWeek: 0, draftsPerWeek: 3 };
-  answers['/api/skills/learn'] = { ...base, lastLook: { at: Date.parse('2026-11-18T10:00:00Z'), result: 'failed' } };
-  const el = page.render()[0];
-  await tick();
-  assert.match(text(el), /The last look \(.+\) did not reach the model\./);
-  assert.doesNotMatch(text(el), /No look has been made yet/);
-  answers['/api/skills/learn'] = { ...base, lastLook: null };
-  const el2 = page.render()[0];
-  await tick();
-  assert.match(text(el2), /No look has been made yet/);
+  answers['/api/skills/learned'] = { on: true, looking: false, drafts: [draft('p1')], recent: [] };
+  for (const [lastLook, want] of [[{ at: Date.parse('2026-11-18T10:00:00Z'), result: 'failed' }, /The last look \(.+\) did not reach the model\./], [null, /No look has been made yet/]]) {
+    answers['/api/skills/learn'] = { ...base, lastLook };
+    const box = new FakeElement('div');
+    const part = L.paintLearned(box, kit);
+    await tick();
+    assert.match(text(box), want);
+    assert.ok(text(box).indexOf('Skills from your own work') < text(box).indexOf('Waiting for you'), 'the panel is above the drafts');
+    assert.doesNotMatch(text(box), /Turn it on in Settings/);
+    part.stop();
+  }
 });
 
 test('Learn from this says its answer in the run card, with a label that fits it, and the focus on that line', async () => {

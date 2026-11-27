@@ -29,7 +29,7 @@ export const NUDGE = 'Hoprig here: this session has made no progress for a while
 export const PREPARED_ACTS = Object.freeze({
   wait: { label: 'Wait for the reset', risk: 'none', effect: 'Leaves the session stopped until its limit ends; the item is hidden until it changes.', undo: null },
   nudge: { label: 'Nudge it once', risk: 'low', effect: 'Types one fixed sentence into the session, once while it makes no progress.', undo: null },
-  hold: { label: `Hold new starts for ${HOLD_MINUTES} min`, risk: 'low', effect: `No new session or chat starts for ${HOLD_MINUTES} minutes.`, undo: 'Lift the hold on the Operator page.', ways: ['operator-page'] },
+  hold: { label: `Hold new starts for ${HOLD_MINUTES} min`, risk: 'low', effect: `No new session or chat starts for ${HOLD_MINUTES} minutes.`, undo: 'Lift the hold in Settings → Tia.', ways: ['operator-page'] },
   note: { label: 'Answer with your note', risk: 'low', effect: 'Answers the question with your Hands-off note for the project.', undo: null },
   ...Object.fromEntries(ANSWERS.map((id, i) => [id, { label: `Answer with option ${i + 1}`, risk: 'low', effect: 'Answers the question with that option.', undo: null }])),
 });

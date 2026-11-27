@@ -95,11 +95,11 @@ test('the AI team page names exactly the roles of roles/, each with the name the
   const named = [...today.matchAll(/^- \*\*([A-Z][a-z]+)\*\*:/gm)].map((m) => m[1]);
   const folders = fs.readdirSync(path.join(ROOT, 'roles')).filter((f) => fs.existsSync(path.join(ROOT, 'roles', f, 'ROLE.md'))).sort();
   assert.deepEqual(named.map((n) => n.toLowerCase()).sort(), folders);
-  // The Team tab's own words for them (web/mission.js ROLE_WORDS), and Team is a tab of Work.
+  // The Team tab's own words for them (web/mission.js ROLE_WORDS), and Team is no longer a tab of Work: its address opens Plans.
   const mission = read('web/mission.js');
   const words = /const ROLE_WORDS = (\{[^}]*\})/.exec(mission)[1];
   for (const n of named) assert.ok(words.includes(`'${n}'`), `${n} is the Team tab's name`);
-  assert.match(read('web/work.js'), /\['team', 'Team', '[a-z]+'\]\];/, 'Team is a tab of Work');
+  assert.match(read('web/work.js'), /OLD_ADDRESSES = \{[^}]*team: 'plans'/, 'the old Team address goes on to Plans');
   // Each role's line says what its ROLE.md purpose says: the reviewer changes nothing, ops runs nothing.
   assert.match(read('roles/reviewer/ROLE.md'), /^readonly: yes$/m);
   assert.match(today, /- \*\*Reviewer\*\*: [^\n]*changing nothing/);
@@ -161,7 +161,7 @@ test('the growth section names what keeps a project in order, and says what it d
   const grow = flat(section(read(MESSY), 'When the project grows'));
   const layout = read('src/workspace/layout.mjs');
   for (const id of ['ai_brain', 'projects', 'credentials', 'development', 'database', 'backups']) assert.match(layout, new RegExp(`\\{ id: '${id}'`), id);
-  for (const t of ['What your coding tools are told everywhere', 'Memory', 'Learnings and current context', 'Daily logs']) {
+  for (const t of ['Rules for every tool', 'Memory', 'Learnings and current context', 'Daily logs']) {
     assert.ok(read('web/brain.js').includes(`title: '${t}'`), `the AI brain page has "${t}"`);
     assert.ok(grow.includes(`"${t}"`), `the page names "${t}"`);
   }
@@ -192,7 +192,7 @@ test('every press these sections name is a word of the dashboard, where the page
   for (const w of presses) assert.ok(new RegExp(`['"\`]${w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}['"\`]`).test(web), `"${w}" is a word of web/`);
   // The ways to them: the tabs and pages as the sections say.
   assert.match(read('web/skillhub.js'), /\['suggested', 'Suggested'\].*\['learned', 'Learned'\]/);
-  assert.match(read('web/skilllearned.js'), /id: 'learn', title: 'Learn skills'/);
+  assert.match(read('web/skilllearned.js'), /fill\(box, learnPanel\(\(\) => load\(\)\), list\)/); // the learn panel sits at the top of Skills → Learned
   assert.match(read('web/workspace.js'), /registerSettingsPage\(\{ id: 'workspace', title: 'Workspace'/);
   assert.match(read('web/pc.js'), /\{ id: 'setup', title: 'Setup'/);
   assert.match(read('web/work.js'), /\['plans', 'Plans', '[a-z]+'\]/);

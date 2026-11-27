@@ -4,10 +4,19 @@ import { plainText } from './markdown.mjs';
 import { REPO, SITE } from './sources.mjs';
 
 export const INSTALL = 'curl -fsSL https://raw.githubusercontent.com/allswebtech/hoprig/main/install.sh | sh';
+export const INSTALL_WINDOWS = 'irm https://raw.githubusercontent.com/allswebtech/hoprig/main/install.ps1 | iex';
+export const INSTALL_LINUX = 'wget -qO- https://raw.githubusercontent.com/allswebtech/hoprig/main/install.sh | sh';
+
+/** The install line of each system and how to open its terminal, Windows first (the README has the same three, in this order). */
+export const INSTALLS = [
+  { id: 'windows', name: 'Windows', open: 'press the Windows key, type PowerShell, press Enter, paste this line and press Enter', command: INSTALL_WINDOWS },
+  { id: 'mac', name: 'Mac', open: 'press Command and Space, type Terminal, press Enter, paste this line and press Enter', command: INSTALL },
+  { id: 'linux', name: 'Linux', open: 'press Ctrl+Alt+T, paste this line and press Enter', command: INSTALL_LINUX },
+];
 
 // Where it runs, in the words of the README's "Where it runs" and "Not built, or not proven yet": one sentence for
 // every place that names the platforms.
-export const PLATFORMS = 'Works on Linux. On a Mac the tests pass, but the install and the newer parts (the chat, the editor, Work) were not tried on a real Mac. Windows is not ready.';
+export const PLATFORMS = 'Works on Windows, macOS and Linux. Windows is new: a real home Windows PC has seen less of it than a Linux computer has.';
 
 /** "### Question" + paragraphs under a "## …questions…" heading → [{ q, a }]. */
 export function questions(md) {
@@ -111,8 +120,8 @@ export const NOT_DONE = [
   'OpenCode never runs on a Claude subscription: only on an API key or a gateway (README, "Two coding tools").',
   'Auto mode is Claude Code\'s only (README, "Two coding tools" and "Auto mode (Claude Code)").',
   'Codex is not offered in this version: its code is kept and tested, but no page, command or provider kind offers it (README, "Not built, or not proven yet").',
-  'macOS: the tests pass there on every change, but the install and the newer parts (the chat, OpenCode, the editor, the desktop, the public link switch, Updates, Work, a gateway of your own) were not tried on a real Mac; the background service is written, not yet installed for real (README, "Where it runs").',
-  'Windows is not ready: its code is written, and the tests do not pass on Windows yet (README, "Where it runs").',
+  'macOS: the install line and the tests run on GitHub\'s Mac machines on every change, but the newer parts (the chat, OpenCode, the editor, the desktop, the public link switch, Updates, Work, a gateway of your own) were not tried by hand on a real Mac; the background service is written, not yet installed for real (README, "Where it runs").',
+  'Windows is new: the install line and the tests run on GitHub\'s Windows machines, but a real home Windows PC has seen less of Hoprig than a Linux computer has, and the background service, winget and a restart of the service were not run on one (README, "Where it runs").',
   'The last checks of this version ran on stand-ins for the coding tools, not on real Claude Code or real OpenCode (README, "Not built, or not proven yet").',
   'One dashboard password and no user accounts or roles: whoever signs in can drive every computer it shows (README, "Security": one password, stored as a hash).',
   'Claude Code\'s own Remote Control does not work through Auto mode\'s router or with an API key; the Hoprig dashboard is the remote for those sessions (README, "Auto mode (Claude Code)").',
@@ -137,7 +146,7 @@ export function llmsTxt(pages, { version }) {
     '- Three things together: it sets up the computer; it keeps one workspace that comes back from git on any computer, with an AI memory per project; a session goes on with another provider or account when one reaches its usage limit.',
     '- Price: free. It runs on your own computers and has no server of its own. The code is on GitHub: https://github.com/allswebtech/hoprig',
     '- Licence: open source (Apache-2.0): https://github.com/allswebtech/hoprig/blob/main/LICENSE',
-    `- Install: \`${INSTALL}\``,
+    ...INSTALLS.map((s) => `- Install on ${s.name}: \`${s.command}\``),
     `- Platforms: ${PLATFORMS} Needs Node.js 24.13.1 or newer (the installer adds it).`,
     '- It runs the official, unmodified Claude Code and OpenCode. Not affiliated with Anthropic or with OpenCode\'s makers.',
     '- The dashboard works in any browser, also on a phone. There is no phone app.',

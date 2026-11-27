@@ -354,10 +354,12 @@ export const MODE = {
   plan: { chip: 'Plan', sub: 'Explores, then proposes a plan without editing your code' },
   auto: { chip: 'Auto', sub: 'Runs without routine prompts; a background check reviews risky actions' },
   dontAsk: { chip: 'Don\'t ask', sub: 'Anything not already allowed is refused' },
-  bypassPermissions: { chip: 'Bypass permissions', sub: 'Runs without permission prompts (riskiest)', danger: true },
+  bypassPermissions: { chip: 'Bypass permissions', sub: 'Runs without permission prompts; still stops before a risky delete or a command Hoprig cannot read', danger: true },
+  // Hoprig's own mode beyond Bypass (src/bypassgate.mjs ALL): drawn stronger than Bypass (`strong`).
+  allowEverything: { chip: 'Allow everything', sub: 'Nothing is held, also not what Hands-off holds, except a delete of your whole home, workspace or disk. It is for work you watch or trust.', danger: true, strong: true },
 };
 /** The mode menu in the desktop app's order; what it does not offer (don't ask) waits under "More modes". */
-export const MODE_MENU = ['manual', 'acceptEdits', 'plan', 'auto', 'bypassPermissions'];
+export const MODE_MENU = ['manual', 'acceptEdits', 'plan', 'auto', 'bypassPermissions', 'allowEverything'];
 export const MODE_RARE = ['dontAsk'];
 /**
  * The menu's two parts for the modes the chat offers (`modes`, the server's list in any order): { main, rare }. A mode
@@ -412,7 +414,8 @@ export function nextMode(now, modes = Object.keys(MODE)) {
  * The mode the chat runs in: what the running process says, else what is set (null: Claude Code's default, Manual).
  * A mode set that the process takes only at its next start (modeLater) is shown at once, so Shift+Tab goes on from it.
  */
-export const modeOf = (v) => (v.modeLater ? v.modeLater : v.liveMode ? (v.liveMode === 'default' ? 'manual' : v.liveMode) : v.permissionMode || 'manual');
+// Allow everything runs in Claude Code's bypassPermissions (the process says that): the chip keeps what the owner chose.
+export const modeOf = (v) => (v.modeLater ? v.modeLater : v.liveMode ? (v.liveMode === 'default' ? 'manual' : v.liveMode === 'bypassPermissions' && v.permissionMode === 'allowEverything' ? 'allowEverything' : v.liveMode) : v.permissionMode || 'manual');
 export const modeChip = (m) => (MODE[m] ? MODE[m].chip : m ? m : MODE.manual.chip);
 /**
  * A mode as the chip and menu say it: Claude Code's name (one word for one mode, in every coding tool's chat), and
@@ -428,11 +431,13 @@ export const modeInfo = (v, m) => {
  * The box's placeholder: what to do, with nothing a person in a browser does not have (no key of a terminal: the keys
  * are in the shortcut sheet). While Claude works a message is sent, as in the desktop app: read after the current step.
  */
-export function boxWords(v, { readOnly = false } = {}) {
+export function boxWords(v, { readOnly = false, touch = false } = {}) {
   const who = toolWord(v);
   if (v.toolOff) return `${who} is off on this computer`;
   if (readOnly) return 'Read only while the terminal runs this conversation';
-  if (turnRuns(v)) return `Send ${who} a message: read after its current step`;
+  // A touch screen has no Esc key and little width: one short line.
+  if (touch) return `Message ${who}`;
+  if (turnRuns(v)) return `Message ${who}: read after this step`;
   return `Message ${who} · / for commands · @ for files`;
 }
 /** How the page names the chat's coding tool in a sentence: "Claude" for Claude Code, else the tool's name. */
@@ -540,6 +545,44 @@ export const exitCode = (text) => {
  */
 export const goneWords = (was) => (was && was.deleted ? 'This session was deleted: it is in the trash. Put it back from there within 30 days.'
   : was && was.terminal ? 'This session moved to the Terminal: the conversation goes on there.' : 'This session is not open in the App any more: it was archived, or moved to the Terminal.');
+
+/**
+ * What the chat is doing, as one key and one phrase, the same words as Home's list (web/lib.js stateOf): the title bar,
+ * the session list and the conversation all say it with these. Keys: working, background, attention, finished, ready,
+ * error, limit, stopped (the owner's Stop: the words stay Finished), terminal, ended, starting.
+ */
+const ASK_STATE = { question: 'Needs your answer', plan: 'Needs your approval', mcp: 'Needs your answer' };
+export function chatState(v) {
+  if (!v) return { key: 'ready', text: 'Ready' };
+  if (v.terminal) return { key: 'terminal', text: 'Terminal' };
+  const working = v.status === 'working';
+  if (!working && (v.limit || v.lastEnd === 'limit')) return { key: 'limit', text: 'Limit reached' };
+  if (v.status === 'attention') return { key: 'attention', text: ASK_STATE[v.asking] || 'Needs your OK' };
+  if (working) return turnRuns(v) ? { key: 'working', text: 'Working' } : { key: 'background', text: 'Working in the background' };
+  if (v.status === 'ended') return { key: 'ended', text: 'Ended' };
+  if (v.status === 'starting') return { key: 'starting', text: 'Starting' };
+  if (v.lastError || v.endedInError || v.lastEnd === 'error') return { key: 'error', text: 'Stopped with an error' };
+  const said = v.hasMessage !== false;
+  if (v.toolOff || v.lastEnd === 'stopped') return { key: 'stopped', text: said ? 'Finished' : 'Ready' };
+  return said ? { key: 'finished', text: 'Finished' } : { key: 'ready', text: 'Ready' };
+}
+
+/**
+ * The living line: what Claude does now, while a turn runs; null when nothing runs, and while an OK, a question or a
+ * plan waits (the card is the status then). → { step (thinking | running | writing | compacting | retrying), word ("Running"),
+ * detail (the command, for Running), text (word and detail as one phrase) }. o.runs(toolId): false for a call that waits
+ * for an OK, was refused or went to the background: it does not run.
+ */
+export function liveWords(v, o = {}) {
+  if (!v || v.status !== 'working' || !turnRuns(v) || v.terminal || v.toolOff) return null;
+  const mine = (v.live || []).filter((b) => !b.agent);
+  const tool = mine.find((b) => b.kind === 'tool' && b.written && (b.command || b.title) && (!o.runs || o.runs(b.id) !== false));
+  if (tool) return { step: 'running', word: 'Running', detail: tool.command || tool.title, text: `Running: ${tool.command || tool.title}` };
+  if (v.activity === 'compacting') return { step: 'compacting', word: 'Compacting the conversation', detail: '', text: 'Compacting the conversation' };
+  if (v.activity === 'retrying') return { step: 'retrying', word: 'Retrying: the provider did not answer', detail: '', text: 'Retrying: the provider did not answer' };
+  if (mine.some((b) => b.kind === 'text')) return { step: 'writing', word: 'Writing', detail: '', text: 'Writing' };
+  return { step: 'thinking', word: 'Thinking', detail: '', text: 'Thinking' };
+}
 
 /** A turn runs (Stop and Esc end it; a message is queued). A chat of an older computer says only "working". */
 export const turnRuns = (v) => !!(v && (v.turn !== undefined ? v.turn : v.working));

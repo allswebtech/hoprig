@@ -9,7 +9,7 @@
 
 import { randomBytes } from 'node:crypto';
 import { resolveTia } from '../assistant/tia.mjs';
-import { BUDGET_DEFAULTS, RULES, RULE_IDS, readOperator, ruleById, ruleFor } from './rules.mjs';
+import { BUDGET_DEFAULTS, RULES, RULE_IDS, readOperator, ruleById, ruleFor, ruleOn } from './rules.mjs';
 import { TICK_LINE, mayEndFor, readDecide } from './decide-store.mjs';
 import { engineOwns } from '../mission/seam.mjs';
 import { record } from './record.mjs';
@@ -52,7 +52,9 @@ function cardWords(s) {
 
 /** "Tia decides" (decider.mjs) enters this same door under this id: its act is the step the decision picked. */
 export const DECIDE = 'decide';
-const decisionRule = (act, why = null) => ({ id: DECIDE, act, why, undo: act === 'switch' ? ruleById('limit').undo : null, noUndo: act === 'switch' ? null : act === 'hold' ? 'Lift the hold on the Operator page.' : 'It cannot be undone.', ...(act === 'hold' ? { noUndoWays: ['operator-page'] } : {}) });
+/** Who the owner reads as the doer of an act of this rule: Tia for a decision and for a rule that spends usage, Hoprig for a rule that needs no model. */
+const doerOf = (id) => (id === DECIDE || ruleById(id)?.cost !== 'none' ? 'Tia' : 'Hoprig');
+const decisionRule = (act, why = null) => ({ id: DECIDE, act, why, undo: act === 'switch' ? ruleById('limit').undo : null, noUndo: act === 'switch' ? null : act === 'hold' ? 'Lift the hold in Settings → Tia.' : 'It cannot be undone.', ...(act === 'hold' ? { noUndoWays: ['operator-page'] } : {}) });
 
 /**
  * A refusal of a rule's act: `code` names it (one line per item rev and code), `say: false` writes no line. `keep`: the
@@ -62,7 +64,8 @@ const decisionRule = (act, why = null) => ({ id: DECIDE, act, why, undo: act ===
 // carry them, and the Operator page draws a link from each one it knows.
 const refusal = (code, words, say = true, keep = [], ways = null) => Object.assign(new Error(words), { refusal: { code, words, say, keep, ...(ways ? { ways } : {}) } });
 
-export function reflexes({ ctx, perform, fresh, line, dir, now, accounts, projectOf, move }) {
+// `peek`: the list as it was built within the last seconds (a round with nothing to do reads that, not a new one).
+export function reflexes({ ctx, perform, fresh, peek = fresh, line, dir, now, accounts, projectOf, move }) {
   const rec = record({ dir, now });
   const settings = () => readOperator(ctx.config());
   const iso = (t) => new Date(t).toISOString();
@@ -91,7 +94,7 @@ export function reflexes({ ctx, perform, fresh, line, dir, now, accounts, projec
     return p === undefined ? UNKNOWN : p;
   };
   function projectOfItem(it, board) {
-    if (['limit', 'stuck', 'asks'].includes(it.kind)) return ofFolder((board.sessions || []).find((x) => x.name === it.target.session)?.folder);
+    if (['limit', 'stuck', 'asks', 'ended'].includes(it.kind)) return ofFolder((board.sessions || []).find((x) => x.name === it.target.session)?.folder);
     if (it.kind === 'leftover') return ofFolder((board.leftovers || []).find((x) => x.pid === it.target.pid)?.cwd);
     return null; // a gateway and the public link serve every project
   }
@@ -100,17 +103,20 @@ export function reflexes({ ctx, perform, fresh, line, dir, now, accounts, projec
   async function check(rule, it, board, data, id = null) {
     const s = settings();
     const decision = rule.id === DECIDE;
-    const on = (x) => x.active && (decision ? readDecide(ctx.config()).on : x.rules[rule.id]);
-    if (!on(s)) throw refusal('off', 'Tia does not act by herself now', false);
+    // Who acted, in his words: a decision or a rule that spends usage is Tia's; a rule that needs no model is Hoprig's.
+    const doer = doerOf(rule.id);
+    // A rule of cost 'none' needs only the mends switch; one that spends usage, and a decision, need Tia's switches too.
+    const on = (x) => (decision ? x.active && readDecide(ctx.config()).on : ruleOn(x, rule.id));
+    if (!on(s)) throw refusal('off', decision || ruleById(rule.id)?.cost === 'usage' ? 'Tia does not act by herself now' : 'Mend problems by itself is off', false);
     // Two loops never act on one thing: what the mission's engine owns (seam.mjs OWNER_OF) no rule and no decision does.
     if (engineOwns(it)) throw refusal('mission', 'a mission\'s engine looks after it', false);
     if (decision) {
       // A rule that is on for the item acts first; a decision picks only a step prepared for the item as it is now.
       const r = ruleFor(it, { now: now() });
-      if (r && s.rules[r.id]) throw refusal('rule', `the ${r.id} rule is on for it`, false);
+      if (r && ruleOn(s, r.id)) throw refusal('rule', `the ${r.id} rule is on for it`, false);
       if (rule.act && !(it.steps || []).includes(rule.act)) throw refusal('not-its', `${rule.act} is not a step prepared for it now: it is yours`);
     } else if (ruleFor(it, { now: now() })?.id !== rule.id) throw refusal('not-its', 'the rule is not for this item now', false);
-    if (data.stops[`${rule.id}|${it.id}`] != null) throw refusal('his', 'Tia tried twice: it is yours', false);
+    if (data.stops[`${rule.id}|${it.id}`] != null) throw refusal('his', `${doer} tried twice: it is yours`, false);
     if (s.projectsOut.length) {
       const p = projectOfItem(it, board);
       if (p === UNKNOWN) throw refusal('folder', 'its folder could not be read while a project is taken out: Tia leaves it to you');
@@ -136,17 +142,17 @@ export function reflexes({ ctx, perform, fresh, line, dir, now, accounts, projec
     for (const a of here) if (!a.back && t - a.at < HOUR) a.back = t;
     if (here.filter((a) => a.back).length >= TRIES) {
       data.stops[`${rule.id}|${it.id}`] = t;
-      throw refusal('twice', `Tia tried twice${rule.act ? ` (${rule.act})` : ''} and it came back: it is yours now. She leaves it for a day, or until you tap it.`);
+      throw refusal('twice', `${doer} tried twice${rule.act ? ` (${rule.act})` : ''} and it came back: it is yours now. ${doer === 'Tia' ? 'She leaves' : 'It leaves'} it for a day, or until you tap it.`);
     }
     const last = Math.max(-Infinity, ...here.map((a) => a.at));
-    if (t - last < b.waitMinutes * 60_000) throw refusal('wait', `Tia acted on it ${span(t - last)} ago; she waits ${b.waitMinutes} min before she tries again`);
+    if (t - last < b.waitMinutes * 60_000) throw refusal('wait', `${doer} acted on it ${span(t - last)} ago; ${doer === 'Tia' ? 'she waits' : 'it waits'} ${b.waitMinutes} min before ${doer === 'Tia' ? 'she tries' : 'it tries'} again`);
     // A decision's switch is checked as the limit rule's (its own act is the rule's act); its typing into a session on a
     // provider billed by use as her own send_to_session there.
     const pay = rule.act === 'switch' ? await limitCheck(it, data, t, board) : decision && TYPING.includes(rule.act) ? await typingCheck(it, board) : null;
     // "Tia OFF" may have been pressed while the checks above waited: read the switches again after the last await.
     // perform does the act right after this returns, with no await between, so no press comes in between.
     const again = settings();
-    if (!on(again)) throw refusal('off', 'Tia does not act by herself now', false);
+    if (!on(again)) throw refusal('off', decision || ruleById(rule.id)?.cost === 'usage' ? 'Tia does not act by herself now' : 'Mend problems by itself is off', false);
     // A decision's stop needs his tick on the item's project, read again here: he may have taken it off while the call
     // ran, or before an owed act is done (decider.mjs OWED_MS). Read in the same synchronous step as the act.
     if (decision && rule.act === 'stop') {
@@ -256,9 +262,13 @@ export function reflexes({ ctx, perform, fresh, line, dir, now, accounts, projec
   /** One round: every item a rule that is on may act on. Nothing at all while the master switch or every rule is off. */
   function round() {
     const s = settings();
-    if (!s.active || !RULE_IDS.some((id) => s.rules[id])) return Promise.resolve({ acted: 0 });
+    if (!RULE_IDS.some((id) => ruleOn(s, id))) return Promise.resolve({ acted: 0 });
     if (running) return running;
     running = (async () => {
+      // Nothing for a rule on the list now: no lock, no record, no new look at the board (the rules that cost nothing are
+      // on from the first run, so most rounds find nothing).
+      const l0 = await peek();
+      if (!l0.items.some((it) => { const r = ruleFor(it, { now: now() }); return r && ruleOn(s, r.id); })) return { acted: 0 };
       if (!rec.lock()) return { acted: 0, locked: true };
       let acted = 0;
       try {
@@ -269,10 +279,10 @@ export function reflexes({ ctx, perform, fresh, line, dir, now, accounts, projec
           rec.write(data);
           return { acted: 0, frozen: true };
         }
-        const l = await fresh();
-        const todo = l.items.map((it) => [it, ruleFor(it, { now: now() })]).filter(([, r]) => r && s.rules[r.id]);
+        const l = l0; // the act itself reads the list again (perform), so the item is checked as it is then
+        const todo = l.items.map((it) => [it, ruleFor(it, { now: now() })]).filter(([, r]) => r && ruleOn(s, r.id));
         for (const [it, rule] of todo) {
-          if (!settings().active) break; // "Tia OFF" was pressed: no new act starts
+          if (!ruleOn(settings(), rule.id)) continue; // "Tia OFF" or the mends switch was pressed: no new act of that kind starts
           rec.touch();
           acted += await one(data, rule, it, l.board);
         }
@@ -382,29 +392,31 @@ export function reflexes({ ctx, perform, fresh, line, dir, now, accounts, projec
     const rules = RULES.map((r) => {
       const mine = acts.filter((a) => a.rule === r.id);
       const b = s.budgets[r.id];
-      return { id: r.id, sentence: r.sentence, detail: r.detail, act: r.act, on: s.rules[r.id], undo: r.undo, noUndo: r.noUndo, ...(r.ways ? { ways: r.ways } : {}), budget: b, left: { hour: Math.max(0, b.perHour - mine.filter((a) => t - a.at < HOUR).length), day: Math.max(0, b.perDay - mine.length) } };
+      return { id: r.id, cost: r.cost, sentence: r.sentence, detail: r.detail, act: r.act, on: s.rules[r.id], undo: r.undo, noUndo: r.noUndo, ...(r.ways ? { ways: r.ways } : {}), budget: b, left: { hour: Math.max(0, b.perHour - mine.filter((a) => t - a.at < HOUR).length), day: Math.max(0, b.perDay - mine.length) } };
     });
     const frozen = d?.frozenUntil != null && t < d.frozenUntil;
     const anyOn = RULE_IDS.some((id) => s.rules[id]);
-    const said = !s.acts ? '"Tia acts by herself" is off: she follows none of the Operator\'s rules on her own and decides nothing by herself. Work you ask of her is not affected.'
+    const said = !s.acts ? '"Tia acts by herself" is off: she follows none of her rules on her own and decides nothing by herself. Work you ask of her is not affected.'
       : !s.tia ? 'Tia is turned off in Settings → Tia, so she does nothing by herself.'
         : frozen ? `The record of what Tia did could not be read, so she does nothing by herself until ${clock(d.frozenUntil, t)}.`
           : !anyOn ? 'Tia may act, but every rule is off, so she does nothing by herself.'
-            : 'Tia does by herself only what the rules that are on say, within their limits.';
+            : 'Tia does by herself only what the rules that are on say, within their limits, and small jobs on Hoprig itself, each with Undo.';
     // What the card of an item says when a rule left it to him: why (the rev says which picture of it).
     const his = {};
     for (const [item, h] of Object.entries(d?.his || {})) his[item] = { rev: h.rev, words: h.words, ...(h.cap === true ? { cap: true } : {}), ...(Array.isArray(h.ways) ? { ways: h.ways } : {}) };
     for (const k of Object.keys(d?.stops || {})) {
       const [rule, item] = k.split('|');
       if (d.his?.[item]?.undone) continue; // his own Undo: its words are kept above
-      his[item] = { rev: null, words: rule === DECIDE ? 'Tia tried twice by her decisions and it came back: it is yours now.' : `Tia tried twice (the ${rule} rule) and it came back: it is yours now.` };
+      his[item] = { rev: null, words: rule === DECIDE ? 'Tia tried twice by her decisions and it came back: it is yours now.' : `${doerOf(rule)} tried twice (the ${rule} rule) and it came back: it is yours now.` };
     }
     const undoable = acts.filter((a) => a.move && a.ok !== false && !a.undone).map((a) => a.id);
     // A move he moved back: when, so Tia's line says so.
     const undone = Object.fromEntries(acts.filter((a) => a.move && a.undone).map((a) => [a.id, iso(a.undone)]));
     // The places `said` names (Tia off: Settings → Tia), as codes of the page's table of places.
     const ways = s.acts && !s.tia ? ['tia-off'] : null;
-    return { acts: s.acts, tia: s.tia, active: s.active && !frozen, said, ...(ways ? { ways } : {}), rules, projectsOut: s.projectsOut, his, undoable, undone };
+    // What mends with no model and no usage: its own switch, not Tia's.
+    const mendsSaid = s.mends ? 'Hoprig mends by itself what costs nothing, within the limits of each rule.' : '"Mend problems by itself" is off: nothing is mended without your tap.';
+    return { mends: s.mends, mendsSaid, acts: s.acts, tia: s.tia, active: s.active && !frozen, said, ...(ways ? { ways } : {}), rules, projectsOut: s.projectsOut, his, undoable, undone };
   }
 
   /** At the start: an act that was cut off by a stop of the dashboard is written now (only when there is a record). */

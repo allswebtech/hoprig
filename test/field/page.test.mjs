@@ -1,6 +1,6 @@
 // The field reports' page parts (web/field.js) in the page tests' stand-in DOM (test/chat/fakedom.mjs), with a
 // stand-in for the dashboard's answers: what "ask each time" shows on Home, the names a screen reader hears, and the
-// keyboard's focus after a choice on Settings → Field reports. Made-up values only.
+// keyboard's focus after a choice in the field reports' fold of Settings → Version and updates. Made-up values only.
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { byClass, texts } from '../chat/fakedom.mjs';
@@ -15,7 +15,7 @@ globalThis.fetch = async (u, o = {}) => {
   return { status: 200, ok: true, json: async () => data };
 };
 const { fieldLines } = await import('../../web/field.js');
-const { registeredSettingsPages } = await import('../../web/registry.js');
+const { fieldReports } = await import('../../web/field.js');
 const all = (n, ok) => (n.children ? [...(ok(n) ? [n] : []), ...n.children.flatMap((c) => all(c, ok))] : []);
 const settle = async () => {
   for (let i = 0; i < 5; i++) await new Promise((r) => setImmediate(r));
@@ -59,10 +59,9 @@ test('"ask each time" on Home: one line for all that wait, each report folded, t
   assert.deepEqual(drafts, ['Make a skill draft of: a repository had commits that were not pushed', 'Make a skill draft of: a sign-in was needed'], 'no draft for "other"; each names its line');
 });
 
-test('Settings → Field reports: after a choice the focus stays on the chosen radio, and the radio group has a name', async () => {
+test('Field reports fold: after a choice the focus stays on the chosen radio, and the radio group has a name', async () => {
   answer = view();
-  const page = registeredSettingsPages().find((p) => p.id === 'field');
-  const [box] = page.render();
+  const [box] = fieldReports();
   document.body.append(box);
   await settle();
   const group = all(box, (n) => n.attrs && n.attrs.role === 'radiogroup')[0];

@@ -13,6 +13,10 @@ import path from 'node:path';
 import { PRIVATE_DIRS } from '../pcsetup/projects.mjs';
 import { PIECE } from './needswalk.mjs';
 import { isRebuiltName, isSystemFile } from './dropsilent.mjs';
+import { untouchedCredentials } from './credlinks.mjs';
+
+/** The starting credentials folder that restore set aside (credentials.unused-<time>) and nobody touched: Hoprig's own, not the owner's. */
+const ownAside = (p) => /^credentials\.unused-\d/.test(path.basename(p)) && untouchedCredentials(p);
 
 const SLICE_MS = 20; // as needswalk.mjs: the thread is given back at least this often
 /** The budget of a whole check when none is given: entries and milliseconds. */
@@ -122,7 +126,7 @@ export async function lookThrough(top, budget, { stop = () => false } = {}) {
           split = true;
           continue;
         }
-        if (isRebuiltName(e.name)) continue;
+        if (isRebuiltName(e.name) || ownAside(p)) continue;
         const k = await visit(p);
         if (k === null) split = true;
         else kids.push([p, k]);

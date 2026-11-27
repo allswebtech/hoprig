@@ -1,17 +1,20 @@
-// Settings → Updates (#/settings/updates): one mode for everything, and one card each for Hoprig, the coding tools
-// and the tunnel helper with the installed and the newest version, Check now, Update now (or Install) and what an
-// update does to what is running. The server side is src/automation/updater.mjs (routes /api/updates…).
+// Settings → Version and updates (#/settings/updates): one mode for everything, one Check now and one Update all, and
+// one card each for Hoprig, the coding tools and the tunnel helper with the installed and the newest version, Update
+// now (or Install) and what an update does to what is running. The field reports (Hoprig's developers) are a fold at
+// the foot, on this computer's own settings only. The server side is src/automation/updater.mjs (routes /api/updates…).
 //
 //   Manual (the default)  Hoprig looks when this page opens or Check now is pressed, and never installs by itself
-//   Automatic             it also looks every 6 hours and installs each update at a safe moment (said per card)
+//   Automatic             it also looks every 6 hours and installs the coding tools and the link helper at a safe
+//                         moment (said per card); a new Hoprig only gets told, the owner presses Update now
 import { api, ago, btn, fill, h, link, toast } from './lib.js';
 import { icon } from './icons.js';
 import { registerSettingsPage } from './registry.js';
-import { fold, panel, radioCards, savedMark, toggle } from './shell.js';
+import { fieldReports } from './field.js';
+import { fold, panel, radioCards, savedMark } from './shell.js';
 
 const MODES = [
   { value: 'manual', title: 'Manual', sub: 'Hoprig looks when you open this page or press Check now, and shows what is new. Nothing is installed until you press Update now.' },
-  { value: 'auto', title: 'Automatic', sub: 'Hoprig also looks every 6 hours and installs each update by itself, at a safe moment: the line under each item says when.' },
+  { value: 'auto', title: 'Automatic', sub: 'Hoprig looks every 6 hours and installs updates of the coding tools and the link helper at a safe moment. For a new Hoprig it only tells you: you press Update now, then Restart.' },
 ];
 
 /** The state word of one item, for its card's tag and the Settings list. */
@@ -44,7 +47,7 @@ export function summaryOf(v) {
   return `${v.mode === 'auto' ? 'Automatic' : 'Manual'} · ${n ? `${n} update${n === 1 ? '' : 's'} available` : 'nothing new'}`;
 }
 
-function itemCard(it, act, own) {
+function itemCard(it, act, own, platform) {
   const out = h('pre.output.hidden', { 'aria-live': 'polite', 'data-item': it.id });
   const mark = savedMark();
   // Nothing to look up (an install Hoprig does not update): no "Newest" and no "Looked" line, the hint says why.
@@ -53,14 +56,8 @@ function itemCard(it, act, own) {
     info('Installed', it.installed || 'not installed'),
     looks ? info('Newest', it.latest || (it.error ? 'could not look' : 'unknown (offline?)')) : null,
     it.method ? info('Installed by', it.method) : null,
+    it.id === 'hoprig' && platform ? info('Computer system', platform) : null,
   ];
-  const check = looks ? btn('secondary', { icon: 'refresh', label: 'Check now', onclick: async () => {
-    check.disabled = true;
-    check.classList.add('busy');
-    await act.check(it.id);
-    check.disabled = false;
-    check.classList.remove('busy');
-  } }) : null;
   const fresh = it.last && it.last.ok && it.last.version && it.last.version === it.latest;
   const doIt = it.action
     ? btn(it.updateAvailable || it.action === 'install' ? 'primary' : 'secondary', {
@@ -86,13 +83,13 @@ function itemCard(it, act, own) {
       it.last ? h(`p.banner.${it.last.ok ? 'ok-box' : 'error-box'}`, icon(it.last.ok ? 'check' : 'alert', { size: 18 }), h('span', lastLine(it.last)),
         it.last.ok && it.last.restart ? btn('small primary', { label: 'Restart now', onclick: () => act.restart() }) : null) : null,
       out,
-      h('div.savebar', looks && it.checkedAt ? h('span.hint', `Looked ${ago(it.checkedAt)}`) : null, mark, check, doIt)),
+      h('div.savebar', looks && it.checkedAt ? h('span.hint', `Looked ${ago(it.checkedAt)}`) : null, mark, doIt)),
   };
 }
 
 const info = (label, value) => h('div.inforow', h('div.inforow-top', h('span', label), h('strong', value)));
 
-function updatesPage({ isAlive }) {
+function updatesPage({ isAlive, here, settings }) {
   const top = h('div');
   const list = h('div', h('div.empty', h('div.spinner', { 'aria-hidden': 'true' }), h('p', 'Looking at what is installed and what is new…')));
   let view = null;
@@ -183,7 +180,7 @@ function updatesPage({ isAlive }) {
       }
     };
     const waiting = v.items.filter((i) => i.updateAvailable && i.action === 'update').length;
-    const checkAll = btn('secondary', { icon: 'refresh', label: 'Check all now', onclick: async () => {
+    const checkAll = btn('secondary', { icon: 'refresh', label: 'Check now', onclick: async () => {
       checkAll.disabled = true;
       checkAll.classList.add('busy');
       fill(list, h('div.empty', h('div.spinner', { 'aria-hidden': 'true' }), h('p', 'Looking for new versions…')));
@@ -193,9 +190,7 @@ function updatesPage({ isAlive }) {
       fill(top,
         panel({ icon: 'download', title: 'How updates happen', desc: 'One choice for everything below.' },
           radioCards('upd-mode', MODES, view.mode, (m) => set({ mode: m })),
-          toggle('Tell me about new versions', view.notify, (on) => set({ notify: on }),
-            { line: ['A notification once per new version (Settings → Notifications says where). ',
-              h('a', { href: link('#/settings/notifications') }, 'Open Notifications')], more: 'Hoprig then looks every 6 hours.' }),
+          h('p.hint', 'Notifications tells you about new versions: ', h('a', { href: link('#/settings/notifications') }, 'Open Notifications'), '.'),
           h('div.savebar', mark,
             checkAll,
             btn(waiting ? 'primary' : 'secondary', { icon: 'download', label: 'Update all', disabled: !waiting || act.busy(), title: waiting ? '' : 'Nothing to update', onclick: () => act.run('all') }))));
@@ -203,7 +198,7 @@ function updatesPage({ isAlive }) {
     drawTop();
     outs = new Map();
     fill(list, v.items.map((it) => {
-      const c = itemCard(it, act, (v.itemModes || {})[it.id] || null);
+      const c = itemCard(it, act, (v.itemModes || {})[it.id] || null, settings && settings.platform);
       outs.set(it.id, c.out);
       return c.el;
     }));
@@ -218,12 +213,14 @@ function updatesPage({ isAlive }) {
     }
   }
   load();
-  return [top, list, fold('settings-updates', 'Advanced', h('p.hint', 'The same from the command line: hoprig tools (the coding tools), hoprig claude update, hoprig update (Hoprig itself).'))];
+  return [top, list,
+    fold('settings-updates', 'Advanced', h('p.hint', 'The same from the command line: hoprig tools (the coding tools), hoprig claude update, hoprig update (Hoprig itself).')),
+    here ? fold('settings-field', 'Reports to Hoprig\'s developers', ...fieldReports()) : null];
 }
 
 registerSettingsPage({
-  id: 'updates', title: 'Updates', icon: 'download', order: 65,
-  desc: 'New versions of Hoprig, the coding tools and the helper for the public link (cloudflared): when they are installed, and what that does to running sessions.',
+  id: 'updates', title: 'Version and updates', icon: 'download', order: 65,
+  desc: 'Which version this is, and new versions of Hoprig, the coding tools and the helper for the public link (cloudflared): when they are installed, and what that does to running sessions.',
   summary: async () => summaryOf(await api('/api/updates')),
   render: updatesPage,
 });

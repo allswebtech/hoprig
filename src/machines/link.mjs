@@ -2,7 +2,7 @@
 // dashboard address over a WebSocket, like RustDesk's clients dial their server. No SSH, no extra software: the
 // only requirement is that the hub's address can be reached.
 //
-//   1. On the hub: a one-time code (10 minutes, one use), shown in Settings → Computers or by `machines invite`.
+//   1. On the hub: a one-time code (10 minutes, one use), shown in Computers or by `machines invite`.
 //   2. On the other computer: `hoprig join https://hub <code>`. It sends the code, with a fresh token for itself,
 //      in the body of POST /api/link/claim; the hub stores the machine (via "link", a free port on its own
 //      127.0.0.1) and answers with a link secret, kept only as a SHA-256 on the hub.

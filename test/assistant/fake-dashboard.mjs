@@ -88,7 +88,7 @@ export function baseState() {
     kits: [{ id: 'tools', title: 'Developer tools', items: [{ name: 'gh', state: 'missing' }], commands: ['apt install gh'], admin: true }, { id: 'node', title: 'Node.js', items: [], commands: [], admin: false }],
     addons: [{ id: 'trouteai', title: 'TRouteAI', installed: true, running: false, version: '1.2.0' }],
     publicLink: { on: false, kind: 'temporary', state: 'off', url: null, custom: { state: 'none' } },
-    // Settings → Coding tools and Settings → Updates (src/codetools/feature.mjs, src/automation/updater.mjs)
+    // Settings → New sessions → Coding tools and Settings → Updates (src/codetools/feature.mjs, src/automation/updater.mjs)
     codingTools: [
       { id: 'claude', name: 'Claude Code', on: true, managed: false, installed: '2.1.325', providers: ['sub', 'sub2', 'api'] },
       { id: 'opencode', name: 'OpenCode', on: false, managed: true, installed: null, providers: [] },
@@ -115,6 +115,17 @@ export class FakeOps {
     this.s = clone(state);
     this.calls = []; // every write: { op, args }
     this.reads = []; // every read: { op, args }
+    // The mends of src/operator/mends.mjs, as hoprig_act calls them: each one only records itself.
+    const mend = (op, out = {}) => async (a) => {
+      this.#write(`mends.${op}`, a);
+      return { ok: true, ...(typeof out === 'function' ? out(a) : out) };
+    };
+    this.mends = { restartGateway: mend('restartGateway'), startGateway: mend('startGateway'), stopGateway: mend('stopGateway'), reopenSession: mend('reopenSession'), hold: mend('hold'), release: mend('release'), cleanOwnTemp: mend('cleanOwnTemp', { bytes: 1_200_000_000 }), probeProvider: mend('probeProvider', { up: true }) };
+  }
+  /** One route of hers through the door (ops.route): recorded; a new plan answers with its id. */
+  async route(a) {
+    this.#write('route', a);
+    return a.path === '/api/work/plans' ? { plan: { id: 'new-plan' } } : { ok: true };
   }
 
   #session(computer, name) {
@@ -650,11 +661,11 @@ Object.assign(FakeOps.prototype, WORK_OPS);
  * and X-Hoprig-Conversation. Owner-only routes (confirm, reject) are NOT reachable with the token.
  * Returns { url, token, core, ops, close() }.
  */
-export async function startFakeDashboard({ ops = new FakeOps(), token = 'test-token-not-a-secret', skills, now } = {}) {
+export async function startFakeDashboard({ ops = new FakeOps(), token = 'test-token-not-a-secret', skills, now, audit = new AuditLog({ file: null }) } = {}) {
   const core = createAssistantCore({
     ops,
     jobs: new JobStore({ dir: null, ...(now ? { now } : {}) }),
-    audit: new AuditLog({ file: null }),
+    audit,
     cards: new CardStore(now ? { now } : {}),
     skills: skills || new Skills({ dirs: [{ dir: '/nonexistent-owner-skills', source: 'owner' }, { dir: fileURLToPath(new URL('../../skills', import.meta.url)), source: 'built-in' }] }),
     ...(now ? { now } : {}),

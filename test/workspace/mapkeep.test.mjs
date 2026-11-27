@@ -139,7 +139,7 @@ test('a staged change in another file while the server moved: the rule waits, th
   await round(B);
   A.use();
   w.clone(w.bare('later'), path.join(A.projects, 'later'));
-  assert.deepEqual((await round(A, { push: false })).commit, { done: true }, 'the map commit is made first');
+  assert.deepEqual((await round(A, { push: false, holdOwn: true })).commit, { done: true }, 'the map commit is made first');
   fs.writeFileSync(path.join(brainA, 'BRAIN.md'), '# staged edit\n');
   w.sh(brainA, 'add', 'BRAIN.md');
   const head = w.sh(brainA, 'rev-parse', 'HEAD');
@@ -179,7 +179,7 @@ for (const [step, at] of [
     B.use();
     w.clone(w.bare(`b-${step.length}`), path.join(B.projects, `b-${step.length}`));
     // B's map commit first (as its round makes it), so the rule has a local commit to carry.
-    const first = await round(B, { push: false });
+    const first = await round(B, { push: false, holdOwn: true });
     assert.deepEqual(first.commit, { done: true });
     const r = await round(B, { run: killAt(at) });
     assert.ok(r.skipped || r.pushed.done === false || r.pushed.done === true, JSON.stringify(r));

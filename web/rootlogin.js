@@ -56,7 +56,7 @@ export function rootLoginBox(message, retry, error = null, { server = 'this serv
     make ? h('label.field-row', h('span.field-label', 'Administrator rights'), admin) : null,
     make ? nameError : null,
     make ? h('div.savebar.start', make) : null,
-    field(`Only if this server must work as root: type "${STAY_ROOT_SENTENCE}"`, typed, 'Bypass permissions mode stays unavailable there, and its doctor and Health then show root as information only.'),
+    field(`Only if this server must work as root: type "${STAY_ROOT_SENTENCE}"`, typed, 'Bypass permissions mode stays unavailable there, and its doctor and Setup then show root as information only.'),
     error ? h('p.form-error', { role: 'alert' }, error) : null,
     h('div.savebar.start', go));
 }

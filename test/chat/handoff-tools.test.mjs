@@ -104,7 +104,7 @@ test('Open as chat, Open in terminal and Continue here for an OpenCode conversat
   assert.equal(started[0].tool, 'opencode');
   assert.deepEqual([started[0].mode, started[0].sessionId], ['resume', SESSION_ID]);
   assert.deepEqual(started[0].flags.slice(0, 2), ['--permission-mode', 'ask'], 'a chat that asked goes on asking');
-  assert.ok(!chats.has(c.id));
+  assert.ok(chats.has(c.id), 'its record stays: the process ended, the chat is not closed');
 
   // Continue here: the terminal stops, and the turn it left running on OpenCode's server stops too.
   const d = make({ id: '3d9c2a4e-1b3f-4c5d-8e6f-0a1b2c3d4e5f', conversationId: SESSION_ID, engine: 'opencode', cwd, profile: 'gw' });

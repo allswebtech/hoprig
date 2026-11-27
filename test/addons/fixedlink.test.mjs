@@ -218,7 +218,7 @@ test('starting again: 2 s, then twice as long each time up to 5 min; a run of a 
 });
 
 test('another service: its port, and whether it has a sign-in of its own', async () => {
-  assert.deepEqual(L.checkPort('20017', 7433), { port: 20017 });
+  assert.deepEqual(L.checkPort('20019', 7433), { port: 20019 });
   assert.match(L.checkPort(7433, 7433).error, /dashboard itself/);
   for (const bad of [0, 70000, 'x', 1.5]) assert.ok(L.checkPort(bad, 7433).error);
   const site = (pages) => async (url) => {

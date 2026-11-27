@@ -84,6 +84,8 @@ export function claudeCommand(args, env, { bin = loadConfig().claudeBin || 'clau
   return { command: bin, args, options: {} };
 }
 
+/** How long her process is kept after the last turn. */
+export const IDLE_MS = 10 * 60_000;
 export const SERVER_NAME = 'hoprig';
 export const TOOL_PREFIX = `mcp__${SERVER_NAME}__`;
 
@@ -183,6 +185,8 @@ export class Engine extends EventEmitter {
     this.started = !!o.sessionId; // a given id is an existing conversation: resume it
     this.child = null;
     this.queue = Promise.resolve();
+    this.busy = 0; // turns running or waiting
+    this.idleTimer = null;
     this.dir = o.dir || path.join(stateDir(), 'assistant', 'conversations', o.conversation);
   }
 
@@ -223,8 +227,27 @@ export class Engine extends EventEmitter {
     this.child = child;
   }
 
+  /**
+   * The process of a conversation that nobody has spoken to for `idleMs` (10 minutes) ends: it starts again on the next
+   * message with --resume, the conversation itself is kept. 33 idle processes were measured holding 6.4 GB. Nothing is
+   * ended while a turn runs or waits.
+   */
+  #rest() {
+    clearTimeout(this.idleTimer);
+    this.idleTimer = null;
+    if (this.busy > 0 || !this.child) return;
+    this.idleTimer = setTimeout(() => {
+      this.idleTimer = null;
+      if (this.busy === 0) this.stop();
+    }, this.o.idleMs ?? IDLE_MS);
+    if (this.idleTimer.unref) this.idleTimer.unref();
+  }
+
   /** Send one user turn; resolves when its "done" event arrives (or the process exits, or it fails to start). */
   send(text, { timeoutMs = 10 * 60_000 } = {}) {
+    clearTimeout(this.idleTimer);
+    this.idleTimer = null;
+    this.busy++;
     const run = async () => {
       if (!this.child) {
         try {
@@ -257,11 +280,16 @@ export class Engine extends EventEmitter {
         this.child.stdin.write(userLine(text));
       });
     };
-    this.queue = this.queue.then(run, run);
+    this.queue = this.queue.then(run, run).finally(() => {
+      this.busy--;
+      this.#rest();
+    });
     return this.queue;
   }
 
   stop() {
+    clearTimeout(this.idleTimer);
+    this.idleTimer = null;
     if (!this.child) return;
     try {
       this.child.stdin.end();

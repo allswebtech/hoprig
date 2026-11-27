@@ -39,7 +39,7 @@
 // Routes (behind the login, cookie only: /api/accounts/ is closed to another dashboard's token and to Tia):
 //   GET  /api/accounts/claude-login          { state: none|starting|link|checking|verifying|done|error,
 //                                              way?, url?, codeUrl?, error?, plan?, changed? }
-//   POST /api/accounts/claude-login/start    { email? } → { state: "link", way: "local"|"code", url, codeUrl }
+//   POST /api/accounts/claude-login/start    { email?, console? } (console: true signs in to Anthropic Console, pay per use, with `claude auth login --console`) → { state: "link", way: "local"|"code", url, codeUrl }
 //   POST /api/accounts/claude-login/code     { code } → { state: "done", plan, changed } or an error
 //   POST /api/accounts/claude-login/cancel
 //   GET  /api/accounts/claude-login/account  { loggedIn, plan, email, org }   (?fresh=1: ask Claude Code now)
@@ -153,14 +153,14 @@ export function removeHelper(dir, { rm = fs.rmSync, later = (fn) => setTimeout(f
 }
 
 class LoginFlow {
-  constructor({ bin, spawn = ptySpawn, times, status, email = null, onDone = () => {} }) {
+  constructor({ bin, spawn = ptySpawn, times, status, email = null, console: payPerUse = false, onDone = () => {} }) {
     Object.assign(this, { times, status, onDone, state: 'starting', out: '', codeUrl: null, localUrl: null, error: null, plan: null, changed: false, ended: false, exited: false });
     this.waiters = [];
     this.dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hoprig-login-'));
     try {
       const env = loginEnv(process.env, browserHelper(this.dir));
       // Wide, so the link is not wrapped.
-      this.term = spawn(bin, ['auth', 'login', ...(email ? ['--email', email] : [])], { name: 'xterm-256color', cols: 1000, rows: 50, cwd: os.homedir(), env });
+      this.term = spawn(bin, ['auth', 'login', ...(payPerUse ? ['--console'] : []), ...(email ? ['--email', email] : [])], { name: 'xterm-256color', cols: 1000, rows: 50, cwd: os.homedir(), env });
     } catch (e) {
       removeHelper(this.dir);
       throw e;
@@ -347,7 +347,7 @@ export function claudeLoginFeature(ctx, opts = {}) {
       if (flow && !flow.ended) throw fail(409, 'A sign-in is already in progress. Finish or cancel it first.');
       let f;
       try {
-        f = new LoginFlow({ bin: found.path, spawn: opts.spawn, times, status, email, onDone: changed });
+        f = new LoginFlow({ bin: found.path, spawn: opts.spawn, times, status, email, console: b.console === true, onDone: changed });
       } catch (e) {
         throw fail(500, `Claude Code could not be started (${scrub(e.message)}). Use the terminal instead.`);
       }

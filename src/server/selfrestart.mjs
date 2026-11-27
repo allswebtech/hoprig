@@ -11,6 +11,7 @@ import path from 'node:path';
 import { binFile, stateDir } from '../paths.mjs';
 import { createActivityLog } from '../automation/store.mjs';
 import { service } from './service/index.mjs';
+import { startCheck } from '../keeper/keep.mjs';
 
 /** Spawn the detached helper (`<app> __service-restart <pid>`); returns its pid. It outlives this process (unref). */
 export function spawnServiceRestart({ node = process.execPath, bin = binFile(), pid = process.pid, spawnImpl = spawn, env = process.env } = {}) {
@@ -35,7 +36,7 @@ const activityLog = () => createActivityLog(path.join(stateDir(), 'automation.lo
  * The helper's work: wait until `pid` (the dashboard that asked for the restart) is gone, up to `tries` × the sleep,
  * then `service('restart')`. Returns that command's exit code. `alive`, `sleep` and `runService` are injected in tests.
  */
-export async function restartAfterExit(pid, { alive = defaultAlive, sleep = defaultSleep, runService = service, tries = 300, log = activityLog() } = {}) {
+export async function restartAfterExit(pid, { alive = defaultAlive, sleep = defaultSleep, runService = service, tries = 300, log = activityLog(), check = startCheck } = {}) {
   const p = Number(pid);
   if (Number.isInteger(p) && p > 0) {
     for (let i = 0; i < tries && alive(p); i++) await sleep(100);
@@ -54,6 +55,15 @@ export async function restartAfterExit(pid, { alive = defaultAlive, sleep = defa
   } finally {
     Object.assign(console, { log: out, error });
   }
+  // After an update the new dashboard must answer within a minute, or the kept version is put back (keeper/keep.mjs).
+  let checked = { did: 'none' };
+  if (code === 0) {
+    try {
+      checked = await check({ restart: () => runService('restart') });
+    } catch {
+      /* the check never turns a restart into a failure */
+    }
+  }
   const words = said.join('\n').trim();
   if (words) (code === 0 ? out : error)(words);
   log.add({
@@ -61,5 +71,6 @@ export async function restartAfterExit(pid, { alive = defaultAlive, sleep = defa
     did: code === 0 ? 'started the dashboard again after the update' : 'could not start the dashboard again after the update',
     outcome: code === 0 ? 'ok' : `failed (exit ${code}): ${words.split('\n').slice(0, 3).join(' ') || 'no words'}`,
   });
+  if (checked.did === 'rolledback') log.add({ automation: 'updates', did: 'went back to the version before the update', outcome: checked.text });
   return code;
 }

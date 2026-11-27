@@ -20,9 +20,9 @@ test('OpenCode off: a 400 with the code tool-off; on but not installed: a 409 wi
   assert.throws(() => assertToolReady('opencode', { codingTools: ['claude'] }), (e) => e.status === 400 && /OpenCode is off on this computer/.test(e.message) && e.details && e.details.code === 'tool-off');
   assert.throws(() => assertToolReady('opencode', { codingTools: ['claude', 'opencode'] }), (e) => e.status === 409 && /OpenCode is not installed/.test(e.message) && e.details && e.details.code === 'tool-install');
   assert.ok(WAYS['tool-off'] && WAYS['tool-install'], 'both codes are in the table');
-  // Both sentences name Settings → Coding tools (its Install button installs a tool), and both buttons open it.
-  assert.equal(WAYS['tool-install'].href, '#/settings/codingtools', 'the sentence says Settings → Coding tools');
-  assert.equal(WAYS['tool-off'].href, '#/settings/codingtools');
-  assert.throws(() => assertToolReady('opencode', { codingTools: ['claude'] }), (e) => /Turn it on in Settings → Coding tools\.$/.test(e.message) && !/Updates/.test(e.message));
-  assert.throws(() => assertToolReady('opencode', { codingTools: ['claude', 'opencode'] }), (e) => /Install it in Settings → Coding tools\.$/.test(e.message));
+  // Both sentences name Settings → New sessions → Coding tools (its Install button installs a tool), and both buttons open it.
+  assert.equal(WAYS['tool-install'].href, '#/settings/new-sessions?show=coding-tools', 'the sentence says Settings → New sessions → Coding tools');
+  assert.equal(WAYS['tool-off'].href, '#/settings/new-sessions?show=coding-tools');
+  assert.throws(() => assertToolReady('opencode', { codingTools: ['claude'] }), (e) => /Turn it on in Settings → New sessions → Coding tools\.$/.test(e.message) && !/Updates/.test(e.message));
+  assert.throws(() => assertToolReady('opencode', { codingTools: ['claude', 'opencode'] }), (e) => /Install it in Settings → New sessions → Coding tools\.$/.test(e.message));
 });

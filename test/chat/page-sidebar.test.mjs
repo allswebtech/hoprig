@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import test from 'node:test';
-import './fakedom.mjs';
+import { byClass, texts } from './fakedom.mjs';
 
 globalThis.window = globalThis.window || { addEventListener() {} };
 const S = await import('../../web/chat/sidebar.js');
@@ -32,9 +32,26 @@ test('the list groups the sessions of every computer by folder, a folder per com
   assert.equal(S.sideGroups(machines, { multi: false })[0].sub, '', 'one computer: no computer name on the heading');
 });
 
+test('a chat on a branch of its own is listed under its project, with its branch said, not as a project of its own', async () => {
+  const wt = '/w/shop/.claude/worktrees/chat-a1b2c3';
+  const m = [{ machine: null, machineLabel: 'Workstation', status: 'online', sessions: [
+    { name: 'chat:a', kind: 'chat', chatId: 'a', display: 'Fix the cart', cwd: '/w/shop', short: '~/w/shop', status: 'waiting', statusAt: 100 },
+    { name: 'chat:w', kind: 'chat', chatId: 'w', display: 'Try a thing', cwd: wt, short: `~/w/shop/.claude/worktrees/chat-a1b2c3`, status: 'waiting', statusAt: 200 },
+  ] }];
+  const g = S.sideGroups(m);
+  assert.deepEqual(g.map((x) => [x.label, x.title, x.sessions.map((s) => s.name)]), [['shop', '~/w/shop', ['chat:w', 'chat:a']]]);
+  assert.equal(S.branchOf(m[0].sessions[1]), 'worktree-chat-a1b2c3');
+  assert.equal(S.branchOf(m[0].sessions[0]), null);
+  // Home's card names the project and the branch in its folder line.
+  const { folderLine, folderWorthShowing } = await import('../../web/sessionitem.js');
+  assert.equal(folderLine(m[0].sessions[1]), '~/w/shop · worktree-chat-a1b2c3');
+  assert.equal(folderWorthShowing(m[0].sessions[1]), true);
+  assert.equal(folderLine(m[0].sessions[0]), '~/w/shop');
+});
+
 test('Group by State and Computer, Sort by Name', () => {
   assert.deepEqual(S.sideGroups(machines, { group: 'state' }).map((x) => [x.label, x.sessions.map((s) => s.name)]), [
-    ['Needs you', ['chat:b', 'shop']], ['Working', ['api']], ['Waiting', ['chat:a']],
+    ['Needs you', ['chat:b', 'shop']], ['Working', ['api']], ['Ready', ['chat:a']],
   ], 'Home\'s order: what needs the owner first');
   assert.deepEqual(S.sideGroups(machines, { group: 'computer' }).map((x) => x.label), ['Workstation', 'Laptop']);
   const byName = S.sideGroups(machines, { sort: 'name', multi: true });
@@ -145,5 +162,139 @@ test('Archived and a row\'s own menu: the list\'s menu has Archived; a row has O
   assert.match(src, /await api\('\/api\/chats', \{ dir: x\.cwd, tool: x\.tool, profile: x\.profile, sessionId: x\.conversationId \}\)/, 'continued in a new session');
   assert.match(src, /oncontextmenu: \(e\) => rowMenu\(e, s\)/);
   assert.match(src, /label: 'Open in new window'/);
-  assert.match(src, /if \(s\.kind === 'chat' && \(s\.machine \?\? null\) === null\) \{\n\s*items\.push\(\{ label: 'Archive'/);
+  assert.match(src, /if \(s\.kind === 'chat' && \(s\.machine \?\? null\) === null\) \{\n\s*items\.push\(\{ label: 'Archive', icon: 'archive', run: \(\) => archiveSession\(/, 'one archive function for the row menu and the session menu');
+  assert.doesNotMatch(src.slice(src.indexOf("label: 'Archive', icon: 'archive', run: () => archiveSession")).split('\n')[0], /confirmSheet/, 'no question first');
+});
+
+test('Archive asks nothing, shows Archived with Undo, and asks only for a working session', async () => {
+  const st = globalThis.setTimeout;
+  globalThis.setTimeout = (f, ms) => st(f, ms).unref();
+  globalThis.location = { hash: '', href: 'http://x/' };
+  const calls = [];
+  const restore = { dir: '/w/shop', tool: 'claude', profile: 'sub', sessionId: 'conv-1' };
+  globalThis.fetch = async (u, init) => {
+    calls.push([String(u).replace(/^https?:\/\/[^/]+/, ''), init && init.body]);
+    return { ok: true, status: 200, json: async () => (String(u).endsWith('/close') ? { ok: true, restore } : { id: 'a' }) };
+  };
+  let refreshed = 0;
+  let gone = 0;
+  const before = document.body.children.length;
+  assert.equal(await S.archiveSession({ chatId: 'a', refresh: () => refreshed++, gone: () => gone++ }), true);
+  assert.deepEqual(calls.map((c) => c[0]), ['/api/chats/a/close'], 'closed at once, no sheet in between');
+  assert.deepEqual([refreshed, gone], [1, 1]);
+  const toastBox = document.body.children.slice(before).flatMap((n) => n.children || []);
+  const t = toastBox.at(-1);
+  assert.match(texts(t).join(''), /ArchivedUndo/);
+  const undo = byClass(t, 'toast-action')[0];
+  undo.listeners.click();
+  await new Promise((r) => setImmediate(r));
+  assert.deepEqual(calls.at(-1), ['/api/chats', JSON.stringify(restore)], 'Undo opens the same conversation again');
+  assert.equal(refreshed, 2);
+  globalThis.setTimeout = st;
+});
+
+test('the session menu\'s Archive is the list\'s archiveSession; a branch of its own with nothing uncommitted is archived at once', async () => {
+  const page = fs.readFileSync(new URL('../../web/chat/page.js', import.meta.url), 'utf8');
+  assert.match(page, /async close\(\) \{\n\s*await archiveSession\(\{/, 'one archive function for the menu and the list');
+  assert.doesNotMatch(page.slice(page.indexOf('async close()'), page.indexOf('async remove()')), /confirmSheet/);
+  const st = globalThis.setTimeout;
+  globalThis.setTimeout = (f, ms) => st(f, ms).unref();
+  globalThis.location = { hash: '', href: 'http://x/' };
+  const calls = [];
+  globalThis.fetch = async (u) => {
+    calls.push(String(u).replace(/^https?:\/\/[^/]+/, ''));
+    return { ok: true, status: 200, json: async () => (String(u).endsWith('/changes') ? { git: true, files: 0 } : { ok: true, restore: null }) };
+  };
+  assert.equal(await S.archiveSession({ chatId: 'w', cwd: '/w/shop/.claude/worktrees/chat-ab12cd', gone() {} }), true);
+  assert.deepEqual(calls, ['/api/chats/w/changes', '/api/chats/w/close'], 'its changes are looked at first, nothing to ask');
+  calls.length = 0;
+  await S.archiveSession({ chatId: 'p', cwd: '/w/shop' });
+  assert.deepEqual(calls, ['/api/chats/p/close'], 'a plain folder is not looked at');
+  globalThis.setTimeout = st;
+});
+
+test('a row is one line; only a session that needs the owner or failed has a second line, with its words', () => {
+  globalThis.localStorage = { getItem: () => null, setItem() {} };
+  const mk = (extra) => ({ all: [{ machine: null, machineLabel: 'W', status: 'online', sessions: [{ name: 'chat:a', kind: 'chat', chatId: 'a', display: 'A very long name of a session that goes on', cwd: '/w/shop', short: '~/w/shop', status: 'working', statusAt: Date.now(), ...extra }] }], multi: false, subscribe: (f) => (f(), () => {}) });
+  const rowOf = (extra) => S.createSidebar({ store: mk(extra), current: null, newSession() {} }).el.querySelector('.chat-side-row');
+  const row = rowOf({});
+  const text = row.querySelector('.chat-side-text');
+  assert.deepEqual(text.children.map((c) => c.className), ['chat-side-name'], 'a working row: the name only, the dot says the rest');
+  assert.equal(texts(text.children[0]).join(''), 'A very long name of a session that goes on', 'the name whole in the page (the style cuts it with ...)');
+  assert.match(row.attrs.title, /^A very long name of a session that goes on: Working · /, 'the state and the time are in the row title');
+  assert.equal(row.querySelector('.chat-side-mark'), null, 'no exclamation mark: the second line says it');
+  for (const [extra, words] of [[{ status: 'attention' }, 'Needs your OK'], [{ status: 'waiting', limit: { text: 'x' } }, 'Limit reached'], [{ status: 'waiting', endedInError: true, lastMessage: 'x' }, 'Stopped with an error']]) {
+    const r = rowOf(extra);
+    const t = r.querySelector('.chat-side-text');
+    assert.deepEqual(t.children.map((c) => c.className.split(' ')[0]), ['chat-side-name', 'chat-side-meta'], words);
+    assert.equal(texts(t.children[1]).join(''), words);
+  }
+  for (const extra of [{ status: 'waiting', lastMessage: 'x' }, { status: 'waiting' }]) assert.equal(rowOf(extra).querySelector('.chat-side-meta'), null, 'Finished and Ready have no second line');
+  const css = fs.readFileSync(new URL('../../web/chat/sidebar.css', import.meta.url), 'utf8');
+  assert.match(css, /\.chat-side-row \{[^}]*min-height: 34px/, 'one line is 34 px high on a mouse screen');
+  assert.match(css, /@media \(pointer: coarse\)[^]*\.chat-side-row \{[^}]*min-height: 44px/, 'and 44 on touch');
+});
+
+test('over the chat the list has a head: Home and a close button, then New; a pick or the close button shuts it', () => {
+  globalThis.localStorage = { getItem: () => null, setItem() {} };
+  const store = { all: [], multi: false, subscribe: (f) => (f(), () => {}) };
+  const events = [];
+  const side = S.createSidebar({ store, current: null, newSession() {}, onOverlay: (on) => events.push(on) });
+  const head = side.el.children[0];
+  assert.equal(head.className, 'chat-side-over-head', 'the first thing in the list');
+  const home = byClass(head, 'chat-side-home')[0];
+  assert.equal(home.attrs.href, '#/');
+  assert.deepEqual(texts(home).join(''), 'Home');
+  const close = byClass(head, 'chat-side-close')[0];
+  assert.equal(close.attrs['aria-label'], 'Close the list');
+  assert.ok(side.el.children.indexOf(head) < side.el.children.findIndex((c) => /chat-side-top/.test(c.className)), 'Home is above New');
+  const wrap = document.createElement('div');
+  wrap.append(side.el);
+  const classes = new Set();
+  wrap.classList = { add: (c) => classes.add(c), remove: (c) => classes.delete(c), contains: (c) => classes.has(c) };
+  const prev = [document.addEventListener, document.removeEventListener];
+  document.addEventListener = () => {};
+  document.removeEventListener = () => {};
+  side.overlay(true);
+  close.listeners.click();
+  assert.ok(!classes.has('chat-side-over'), 'the close button closes it');
+  side.overlay(true);
+  home.listeners.click();
+  assert.ok(!classes.has('chat-side-over'), 'Home closes it as it goes there');
+  [document.addEventListener, document.removeEventListener] = prev;
+  const css = fs.readFileSync(new URL('../../web/chat/sidebar.css', import.meta.url), 'utf8');
+  assert.match(css, /\.chat-side-over-head \{[^}]*display: none/, 'only drawn over the chat');
+  assert.match(css, /chat-side-over \.chat-side-over-head \{[^}]*display: flex/);
+  assert.match(css, /\.chat-side-close \{[^}]*width: 44px/);
+  assert.match(css, /chat-side-over \.chat-side \{[^}]*width: min\(86vw, 360px\)/, 'a phone: 86 percent of its width');
+});
+
+test('narrower than 900: the list opens over the chat, closes by a tap outside or Escape', () => {
+  globalThis.localStorage = { getItem: () => null, setItem() {} };
+  const events = [];
+  const keys = [];
+  const prev = document.addEventListener;
+  const prevOff = document.removeEventListener;
+  document.addEventListener = (k, f) => keys.push([k, f]);
+  document.removeEventListener = () => {};
+  const store = { all: [], multi: false, subscribe: (f) => (f(), () => {}) };
+  const side = S.createSidebar({ store, current: null, newSession() {}, onOverlay: (on) => events.push(on) });
+  const wrap = document.createElement('div');
+  wrap.append(side.el);
+  const classes = new Set();
+  wrap.classList = { add: (c) => classes.add(c), remove: (c) => classes.delete(c), contains: (c) => classes.has(c) };
+  assert.equal(side.overlay(), true);
+  assert.ok(classes.has('chat-side-over'));
+  const scrim = wrap.children.find((c) => c.className === 'chat-side-scrim');
+  assert.ok(scrim, 'a scrim behind it');
+  scrim.listeners.click();
+  assert.ok(!classes.has('chat-side-over'), 'a tap outside closes it');
+  side.overlay();
+  keys.at(-1)[1]({ key: 'Escape' });
+  assert.ok(!classes.has('chat-side-over'), 'Escape closes it');
+  assert.deepEqual(events, [true, false, true, false]);
+  document.addEventListener = prev;
+  document.removeEventListener = prevOff;
+  const css = fs.readFileSync(new URL('../../web/chat/sidebar.css', import.meta.url), 'utf8');
+  assert.match(css, /@media \(max-width: 899\.98px\)[^]*chat-side-over \.chat-side \{[^}]*position: fixed/);
 });

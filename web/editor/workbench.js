@@ -67,7 +67,7 @@ export function viewCode({ query }, onCurrent) {
   named(label);
   pageNotify.setTitleBase(label); // the tab's (and a desktop window's) name: the folder
   // In a window of the desktop with nowhere to go back to, no way back: the window has its own close.
-  const way = wayBack() || (BARE ? null : { hash: link('#/workspace'), label: 'Workspace' });
+  const way = wayBack() || (BARE ? null : { hash: link('#/workspace'), label: 'Projects' });
   const here = machine.current;
 
   let view = VIEWS.some((v) => v.id === query.get('view')) ? query.get('view') : 'explorer';
@@ -331,7 +331,7 @@ export function viewCode({ query }, onCurrent) {
     if (what === 'quick') quick.open();
     else if (what === 'find') findInFiles();
     else if (what === 'line') goToLine();
-    else if (what === 'settings') location.hash = link('#/settings/editor', null);
+    else if (what === 'settings') location.hash = link('#/settings/appearance?show=code-editor', null);
     else if (what === 'terminal' || what === 'shortcuts') run(what);
     else if (what === 'plain') {
       setEditorPref('plain', !plain);
@@ -409,7 +409,7 @@ export function viewCode({ query }, onCurrent) {
     copyRelativePath: () => copyPath(false),
     reveal: () => active() && wb.revealPath(active().path),
     wordWrap: () => tabs.toggleWrap(),
-    settings: () => (location.hash = link('#/settings/editor', null)),
+    settings: () => (location.hash = link('#/settings/appearance?show=code-editor', null)),
     shortcuts,
   };
   function run(id) {

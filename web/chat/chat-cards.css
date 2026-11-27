@@ -3,34 +3,40 @@
    lines and a "Show all": no scroll box inside the scrolling conversation (it would trap a finger on a phone). */
 
 /* ---------- a tool call ---------- */
-.chat-tool { border: 1px solid var(--border); border-radius: 10px; background: var(--surface); }
-.chat-tool > summary { display: flex; align-items: center; gap: 8px; min-height: 36px; padding: 4px 10px; cursor: pointer; list-style: none; font-size: var(--fs-sm); min-width: 0; }
+/* No box and no coloured circle: one muted line (the kind's picture, what was done in words, the target in mono, a chevron).
+   Opened, the call's own lines hang under it, a command and its output on the chat's well. */
+.chat-tool { border: 0; border-radius: 0; background: none; }
+.chat-tool > summary { display: flex; align-items: center; gap: 8px; min-height: 28px; padding: 2px 0; cursor: pointer; list-style: none; font-size: var(--fs-sm); min-width: 0; }
 .chat-tool > summary::-webkit-details-marker { display: none; }
-.chat-tool-state { display: grid; place-items: center; width: 18px; height: 18px; flex: none; border-radius: 50%; color: var(--on-solid); }
-.chat-tool.chat-is-running .chat-tool-state { border: 2px solid var(--accent-soft); border-top-color: var(--accent); animation: spin .9s linear infinite; }
-.chat-tool.chat-is-ok .chat-tool-state { background: var(--ok-solid); }
-.chat-tool.chat-is-err .chat-tool-state, .chat-tool.chat-is-taskfail .chat-tool-state { background: var(--danger-solid); }
-.chat-tool.chat-is-taskstop .chat-tool-state, .chat-tool.chat-is-stopped .chat-tool-state { background: var(--muted); }
-.chat-tool-verb { font-weight: 650; flex: none; }
-.chat-tool-detail { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-2); }
+.chat-tool-state { display: grid; place-items: center; width: 16px; height: 16px; flex: none; color: var(--muted); }
+.chat-tool.chat-is-running .chat-tool-state svg { display: none; }
+.chat-tool.chat-is-running .chat-tool-state { width: 12px; height: 12px; margin: 2px; box-sizing: border-box; border: 1.5px solid var(--border-strong); border-top-color: var(--muted); border-radius: 50%; animation: spin .9s linear infinite; }
+.chat-tool.chat-is-err .chat-tool-state, .chat-tool.chat-is-taskfail .chat-tool-state { color: var(--danger); }
+.chat-tool-verb { font-weight: 500; flex: none; color: var(--text-2); }
+.chat-tool > summary:hover .chat-tool-verb { color: var(--text); }
+.chat-tool.chat-is-err .chat-tool-verb, .chat-tool.chat-is-taskfail .chat-tool-verb { color: var(--danger); }
+.chat-tool-detail { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); }
 .chat-tool-detail.mono { font: 12.5px var(--mono); }
-.chat-tool-said { flex: none; color: var(--danger); font-weight: 650; font-size: var(--fs-xs); }
+.chat-tool-said { flex: none; color: var(--danger); font-weight: 600; font-size: var(--fs-xs); }
 .chat-tool-said:empty { display: none; }
 .chat-tool.chat-is-taskstop .chat-tool-said, .chat-tool.chat-is-stopped .chat-tool-said { color: var(--muted); }
 .chat-tool-okd { color: var(--muted); font-weight: 500; } /* its answered OK card, folded in: "allowed by you" */
 .chat-tool-end { margin-left: auto; flex: none; color: var(--muted); font-size: var(--fs-xs); font-variant-numeric: tabular-nums; }
+.chat-tool-chev, .chat-think .chat-tool-chev { flex: none; display: inline-flex; color: var(--muted); transition: transform var(--tick); }
+details[open] > summary > .chat-tool-chev { transform: rotate(90deg); }
+.chat-tool-end:empty + .chat-tool-chev { margin-left: auto; }
 .chat-plus { color: var(--ok); font-weight: 650; }
 .chat-minus { color: var(--danger); font-weight: 650; }
-.chat-tool-body { padding: 0 10px 10px; display: grid; gap: 6px; min-width: 0; }
+.chat-tool-body { margin: 2px 0 6px 7px; padding: 4px 0 4px 16px; border-left: 1px solid var(--border); display: grid; gap: 6px; min-width: 0; }
 .chat-tool-input:empty, .chat-tool-result:empty, .chat-tool-task:empty, .chat-steps:empty { display: none; }
-.chat-tool.chat-is-flash { box-shadow: 0 0 0 3px var(--accent-soft); border-color: var(--accent); }
+.chat-tool.chat-is-flash { box-shadow: 0 0 0 3px var(--accent-soft); border-radius: 6px; }
 .chat-path { margin: 0; font: 12px var(--mono); color: var(--muted); overflow-wrap: anywhere; }
 .chat-cmd, .chat-out, .chat-code, .chat-plain { margin: 0; padding: 8px 10px; border-radius: 8px; font: 12px/1.5 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; }
-.chat-cmd, .chat-out { background: var(--console-bg); color: var(--console-text); }
-.chat-cmd-prompt { color: color-mix(in srgb, var(--console-text) 55%, transparent); user-select: none; }
+.chat-cmd, .chat-out { background: var(--chat-well); color: var(--text-2); border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; }
+.chat-cmd-prompt { color: var(--muted); user-select: none; }
 .chat-out.chat-is-err { background: var(--danger-soft); color: var(--danger); }
-.chat-code { background: var(--surface-3); color: var(--text-2); }
-.chat-plain { background: var(--surface-3); color: var(--text-2); font-family: var(--font); font-size: var(--fs-sm); }
+.chat-code { background: var(--chat-well); color: var(--text-2); }
+.chat-plain { background: var(--chat-well); color: var(--text-2); font-family: var(--font); font-size: var(--fs-sm); }
 .chat-outwrap { display: grid; gap: 4px; justify-items: start; }
 .chat-outwrap > pre { justify-self: stretch; }
 .chat-showall { color: var(--accent); }
@@ -45,8 +51,7 @@
 .chat-agent-answer .md { font-size: var(--fs-sm); }
 
 /* an agent's own steps, inside the call that started it */
-.chat-steps { display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; padding-left: 10px; border-left: 2px solid var(--accent-soft); }
-.chat-steps .chat-tool { background: var(--surface-2); }
+.chat-steps { display: grid; grid-template-columns: minmax(0, 1fr); gap: 2px; padding-left: 12px; border-left: 1px solid var(--border); }
 .chat-tool-task { display: grid; gap: 6px; }
 .chat-task-line { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: var(--fs-xs); color: var(--text-2); }
 .chat-task-line > span { flex: 1; min-width: 0; }
@@ -58,7 +63,7 @@
 .chat-diffbox > .chat-showall { grid-column: 1 / -1; justify-self: start; margin: 4px; }
 .cd-row { display: contents; }
 .cd-row > span { padding: 0 6px; }
-.cd-n { min-width: 2.5em; text-align: right; color: var(--muted); background: var(--surface-3); user-select: none; font-variant-numeric: tabular-nums; }
+.cd-n { min-width: 2.5em; text-align: right; color: var(--muted); background: var(--chat-well); user-select: none; font-variant-numeric: tabular-nums; }
 .cd-m { color: var(--muted); user-select: none; padding: 0 2px 0 6px !important; }
 .cd-t { white-space: pre-wrap; overflow-wrap: anywhere; color: var(--text); }
 .cd-add > span { background: var(--ok-soft); }
@@ -70,38 +75,46 @@
 .cd-gap { grid-column: 1 / -1; padding: 2px 10px; background: var(--info-soft); color: var(--info); font-size: 11px; }
 
 /* ---------- a card that waits for you ---------- */
-.chat-ask { border: 1.5px solid var(--warn); border-radius: 12px; background: var(--warn-soft); padding: 12px; display: grid; gap: 8px; content-visibility: visible; }
-.chat-ask:focus { outline: none; box-shadow: 0 0 0 3px var(--accent-soft); }
-.chat-ask.chat-ask-question, .chat-ask.chat-ask-plan, .chat-ask.chat-ask-mcp { border-color: var(--accent); background: var(--accent-soft); }
+/* Neutral, as Claude Code's: the surface, a hairline edge, no warning fill; the warning picture is the only warm thing. */
+.chat-ask { border: 1px solid var(--border-strong); border-radius: var(--r-lg, 14px); background: var(--surface); box-shadow: var(--shadow-1); padding: 14px 16px; display: grid; gap: 10px; content-visibility: visible; }
+.chat-ask:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
 /* An MCP server's question: its own words in a box of their own, so they never read as the page's. */
-.chat-mcp-said { padding: 8px 12px; border-radius: 10px; background: var(--surface); border: 1px solid var(--border); white-space: pre-wrap; overflow-wrap: anywhere; }
+.chat-mcp-said { padding: 8px 12px; border-radius: 8px; background: var(--chat-well); border: 1px solid var(--border); white-space: pre-wrap; overflow-wrap: anywhere; }
 .chat-mcp-field { display: grid; gap: 4px; }
 .chat-mcp-label { font-weight: 600; }
 .chat-mcp-url { margin: 0; overflow-wrap: anywhere; }
 .chat-ask-head { display: flex; align-items: center; gap: 8px; color: var(--warn); }
-.chat-ask.chat-ask-question .chat-ask-head, .chat-ask.chat-ask-plan .chat-ask-head, .chat-ask.chat-ask-mcp .chat-ask-head { color: var(--accent); }
-.chat-ask-head strong { color: var(--text); }
+.chat-ask.chat-ask-question .chat-ask-head, .chat-ask.chat-ask-plan .chat-ask-head, .chat-ask.chat-ask-mcp .chat-ask-head { color: var(--text-2); }
+.chat-ask-head strong { color: var(--text); font-size: var(--fs-lg); font-weight: 600; }
 .chat-ask-body { display: grid; gap: 8px; min-width: 0; }
 .chat-ask-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+/* Do not allow at the left, Allow at the right as one split button (its arrow opens the wider allows). */
+.chat-ask-actions:has(> .chat-deny) { justify-content: space-between; }
+.btn.chat-deny { background: var(--surface-3); border-color: transparent; color: var(--text); }
+.btn.chat-deny:hover { background: var(--surface-2); }
+.chat-split { display: inline-flex; }
+.chat-split .chat-allow:not(:only-child) { border-top-right-radius: 0; border-bottom-right-radius: 0; }
+.btn.chat-allow-more { min-width: 32px; padding: 0 8px; border-top-left-radius: 0; border-bottom-left-radius: 0; border-left: 1px solid color-mix(in srgb, var(--accent-text) 30%, transparent); }
 .chat-ask-actions:empty, .chat-ask-extra:empty, .chat-ask-status:empty { display: none; }
 .chat-ask-why { margin: 0; display: flex; align-items: flex-start; gap: 6px; color: var(--text); }
-.chat-ask-why svg { flex: none; margin-top: 2px; color: var(--warn); }
+.chat-ask-why { color: var(--muted); font-size: var(--fs-sm); }
+.chat-ask-why svg { flex: none; margin-top: 2px; color: var(--muted); }
 .chat-ask-scope { margin: 0; overflow-wrap: anywhere; }
 .chat-ask.chat-is-decided .chat-ask-scope { display: none; }
 .chat-ask-status { margin: 0; display: flex; align-items: center; gap: 6px; font-size: var(--fs-sm); color: var(--muted); }
 /* A part's card: the line takes the focus after a press; room for its ring, the text where it was. */
 .chat-ask-part .chat-ask-status { padding: 2px 6px; margin: 0 -6px; border-radius: 6px; }
-.chat-ask.chat-is-decided { border-color: var(--border); background: var(--surface); }
+.chat-ask.chat-is-decided { border-color: var(--border); box-shadow: none; }
 .chat-ask.chat-is-decided .chat-ask-head { color: var(--muted); }
 .chat-ask-notebox { display: grid; gap: 6px; }
 .chat-ask-note { width: 100%; }
 .chat-key { display: inline-grid; place-items: center; min-width: 18px; height: 18px; padding: 0 4px; border-radius: 5px; border: 1px solid currentColor; font: 600 11px var(--mono); opacity: .7; }
-.chat-plan { padding: 10px 12px; border-radius: 10px; background: var(--surface); border: 1px solid var(--border); }
+.chat-plan { padding: 10px 12px; border-radius: 8px; background: var(--chat-well); border: 1px solid var(--border); }
 .chat-q { display: grid; gap: 6px; }
 .chat-q-text { margin: 0; font-weight: 600; }
 .chat-q-text .badge { margin-left: 0; }
 .chat-q-opts { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 220px), 1fr)); gap: 6px; }
-.chat-choice { position: relative; display: grid; gap: 2px; min-height: 44px; padding: 8px 32px 8px 12px; border: 1px solid var(--border-strong); border-radius: 10px; background: var(--surface); color: var(--text); text-align: left; font: inherit; cursor: pointer; }
+.chat-choice { position: relative; display: grid; gap: 2px; min-height: 44px; padding: 8px 32px 8px 12px; border: 1px solid var(--border-strong); border-radius: 10px; background: var(--chat-well); color: var(--text); text-align: left; font: inherit; cursor: pointer; }
 .chat-choice:hover { border-color: var(--accent); }
 .chat-choice[aria-checked='true'] { border-color: var(--accent); background: var(--accent); color: var(--accent-text); }
 .chat-choice-label { font-weight: 650; font-size: var(--fs-sm); }
@@ -132,6 +145,11 @@
 @media (max-width: 599px) {
   .chat-tool > summary { min-height: 44px; }
   .chat-ask-actions .btn, .btn.chat-taskstop, .btn.chat-showall { min-height: 44px; }
+  /* A permission on a phone: two equal columns, 48 px, no key marks. */
+  .chat-ask-actions:has(> .chat-deny) { display: grid; grid-template-columns: 1fr 1fr; }
+  .chat-ask-actions:has(> .chat-deny) .btn { min-height: 48px; }
+  .chat-ask-actions:has(> .chat-deny) .chat-split { display: flex; }
+  .chat-ask-actions:has(> .chat-deny) .chat-split .chat-allow { flex: 1; }
   .chat-ask-actions .btn { flex: 1 1 auto; }
   .chat-prompt > summary { min-height: 44px; }
   .chat-key { display: none; }
@@ -145,3 +163,34 @@
 .chat-timeline:not([data-billed]) .chat-money, .chat-timeline:not([data-billed]) .chat-turnend.chat-moneyonly { display: none; }
 /* A call opened with nothing inside (EnterPlanMode) shows no empty strip under its line. */
 .chat-tool-body:not(:has(> :not(:empty))) { display: none; }
+
+/* A reply's links, a code block's Copy, a reply's Copy and a path as a button (mdtext.js, timeline.js, pathmenu.js). */
+.md-link { color: var(--accent); text-decoration: underline; text-decoration-color: color-mix(in srgb, var(--accent) 40%, transparent); text-underline-offset: 2px; overflow-wrap: anywhere; }
+.md-link:hover { text-decoration-color: var(--accent); }
+/* A code block sits on the chat's well with a hairline edge; its Copy is quiet, on the block's hover (always on touch). */
+.chat-codewrap { position: relative; min-width: 0; }
+.chat-text .md-code { background: var(--chat-well); color: var(--text); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; font: 13px/1.55 var(--mono); overflow-x: auto; }
+.chat-codewrap .md-code { padding-right: 44px; max-width: 100%; }
+.chat-text .md code { background: var(--chat-well); padding: 1px 5px; border-radius: 5px; font-size: 0.9em; color: var(--text); }
+.chat-text .md pre code { background: none; padding: 0; font-size: inherit; }
+.chat-codewrap .chat-codecopy { position: absolute; top: 6px; right: 6px; width: 28px; height: 28px; min-height: 28px; background: transparent; color: var(--muted); opacity: 0; transition: opacity var(--tick); }
+.chat-codewrap:hover .chat-codecopy, .chat-codewrap:focus-within .chat-codecopy { opacity: 1; }
+.chat-codewrap .chat-codecopy:hover { background: var(--surface-3); color: var(--text); }
+.chat-text { position: relative; }
+/* A table wider than the screen scrolls inside itself; a soft fade shows the edge that has more. */
+.chat-text .md-tablewrap { background: linear-gradient(90deg, var(--chat-bg, var(--surface)) 30%, transparent) 0 0 / 28px 100% no-repeat local, linear-gradient(270deg, var(--chat-bg, var(--surface)) 30%, transparent) 100% 0 / 28px 100% no-repeat local, linear-gradient(90deg, rgba(0, 0, 0, .12), transparent) 0 0 / 10px 100% no-repeat scroll, linear-gradient(270deg, rgba(0, 0, 0, .12), transparent) 100% 0 / 10px 100% no-repeat scroll; }
+.chat-text .md h2 { font-size: 17px; font-weight: 650; }
+.chat-text .md h3 { font-size: 15px; font-weight: 650; }
+/* Path buttons keep the dotted underline, in the inline code's look. */
+.chat-pathbtn { display: inline; max-width: 100%; margin: 0; padding: 0; border: 0; background: none; color: var(--text-2); font: inherit; font-family: var(--mono); text-align: left; text-decoration: underline dotted var(--muted); text-underline-offset: 3px; cursor: pointer; overflow-wrap: anywhere; }
+.chat-pathbtn:hover { text-decoration-style: solid; }
+.chat-pathbtn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 3px; }
+@media (pointer: coarse) {
+  .chat-codewrap .chat-codecopy { opacity: 1; width: 44px; height: 44px; min-height: 44px; top: 0; right: 0; }
+  .chat-codewrap .md-code { padding-right: 48px; }
+}
+
+/* A task opened to its output (agents.js openTaskOutput): the last lines in a box that scrolls, never wider than the sheet. */
+.chat-task-links { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-width: 0; }
+.chat-task-links:empty { display: none; }
+.chat-task-out { margin: 0; padding: 10px 12px; min-width: 0; max-height: min(60vh, 520px); overflow: auto; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-2); color: var(--text); font: 12px/1.45 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; }

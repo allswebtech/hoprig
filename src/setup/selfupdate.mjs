@@ -9,6 +9,7 @@ import path from 'node:path';
 import { APP, appRoot, appVersion } from './checks.mjs';
 import { hoprigSource } from '../paths.mjs';
 import { forInstalls } from '../secretenv.mjs';
+import { beginUpdate, undoUpdate } from '../keeper/keep.mjs';
 import { compareVersions, npmArgv, npmMajor, npmSourceFlags, showCommand, stream } from './system.mjs';
 
 /** 'git' | 'npm' | 'other', from the folder hoprig runs from. */
@@ -87,7 +88,7 @@ export async function newestVersion({ fetchImpl = globalThis.fetch, source = hop
 /** Whether `hoprig update <args>` is a dry run: the one reading of its flags (the field report asks it too). */
 export const isUpdateDryRun = (args = []) => args.includes('--dry-run') || args.includes('-n');
 
-export async function selfUpdate(args = [], { write = (s) => process.stdout.write(s), run = stream, root = appRoot(), lookup = newestVersion } = {}) {
+export async function selfUpdate(args = [], { write = (s) => process.stdout.write(s), run = stream, root = appRoot(), lookup = newestVersion, state } = {}) {
   const dryRun = isUpdateDryRun(args);
   if (args.some((a) => !['--dry-run', '-n'].includes(a))) {
     write(`usage: ${APP} update [--dry-run]\n`);
@@ -100,8 +101,10 @@ export async function selfUpdate(args = [], { write = (s) => process.stdout.writ
     write(`It cannot update itself from here. Install again the way you did first (see docs/INSTALL.md), for example:\n  curl -fsSL <install.sh address> | sh\n`);
     return 1;
   }
+  let latest = null;
   if (kind === 'npm') {
-    const { version: latest, note } = await lookup();
+    let note;
+    ({ version: latest, note } = await lookup());
     if (!latest) {
       write(`${note} Nothing changed.\n`);
       return 1;
@@ -113,6 +116,17 @@ export async function selfUpdate(args = [], { write = (s) => process.stdout.writ
     write(`Version ${latest} is available.\n`);
   }
   const plan = updatePlan(kind, root, process.platform, kind === 'npm' ? await npmMajor({ env: forInstalls(process.env) }) : null);
+  // The running version is kept aside first (src/keeper/keep.mjs): when a step fails, or the new one does not start, it
+  // is put back.
+  let kept = false;
+  if (!dryRun) {
+    const begun = beginUpdate({ kind, root, version: current, to: latest, ...(state ? { state } : {}) });
+    if (begun.error) {
+      write(`The running version could not be kept aside (${begun.error}), so nothing was changed.\n`);
+      return 1;
+    }
+    kept = begun.kept;
+  }
   for (const step of plan) {
     write(`${dryRun ? 'would run' : 'running'}: ${showCommand(step.argv)}\n`);
     if (dryRun) continue;
@@ -124,6 +138,7 @@ export async function selfUpdate(args = [], { write = (s) => process.stdout.writ
     }
     if (!r.ok) {
       write(`That did not succeed (exit code ${r.code}). Nothing else was run.\n`);
+      if (kept) write(`${undoUpdate(state ? { state } : {})}\n`);
       return 1;
     }
   }

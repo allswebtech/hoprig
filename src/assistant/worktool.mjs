@@ -57,7 +57,7 @@ const project = str({ max: 100, pattern: PROJECT_RE, desc: 'add, edit: the proje
 async function workOf(ops, c) {
   const w = await ops.work({ computer: c });
   // The problem is the computer's own sentence: in the fenced detail, never in the message.
-  if (w.problem) throw toolError(`Work cannot be used on ${c} yet`, 'tell the owner: Settings → Work (open_screen "settings/work")', { problem: short(w.problem, 300) });
+  if (w.problem) throw toolError(`Work cannot be used on ${c} yet`, 'tell the owner: Work → Tasks → Work settings (at the foot) (open_screen "settings/work")', { problem: short(w.problem, 300) });
   return w;
 }
 

@@ -70,7 +70,9 @@ export const NO_RUNUSER = 'runuser is not on this computer (it comes with util-l
 export async function runAsUser(user, argv, { run = capture, has = (c) => !!which(c), readdir, env = process.env, timeout = 120_000 } = {}) {
   const full = asUserArgv(user, argv, { nodeBin: userNodeBin(user.home, readdir ? { readdir } : {}) });
   if (!has('runuser')) return { ok: false, code: null, stdout: '', stderr: NO_RUNUSER, error: 'ENOENT' };
-  return run(full, { env, timeout });
+  // Root's nvm marks (NVM_DIR of its interactive shell) are not the user's: the user's install would stop at them.
+  const { NVM_DIR, NVM_BIN, NVM_INC, NVM_CD_FLAGS, ...rest } = env; // eslint-disable-line no-unused-vars
+  return run(full, { env: rest, timeout });
 }
 
 /**

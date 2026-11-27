@@ -62,3 +62,18 @@ test('in the demo\'s order (the plan, then the history) the plan keeps its tasks
   const list = JSON.parse(fs.readFileSync(path.join(t.brain, 'work', 'tasks.json'), 'utf8')).items.map((x) => x.id);
   for (const id of ['cart-total-test', 'faster-images']) assert.ok(list.includes(id), id);
 });
+
+test('the history of the demo, as Work Activity reads it, holds lines of Tia, who the page names Tia', async () => {
+  await demoWork(t.projects);
+  const { demoHistory } = await import('../../src/demo/history.mjs');
+  await demoHistory({ projects: t.projects, brain: t.brain });
+  const { readHistory, WHO } = await import('../../src/work/history.mjs');
+  const page = fs.readFileSync(new URL('../../web/workhistory.js', import.meta.url), 'utf8');
+  const WHO_WORDS = Object.fromEntries([...(/WHO_WORDS = \{([^}]*)\}/.exec(page)[1]).matchAll(/(\w+): '([^']*)'/g)].map((m) => [m[1], m[2]]));
+  const cfg = { projectsDir: t.projects };
+  const all = await readHistory({ cfg, projects: t.projects, runs: () => [], place: () => null });
+  const hers = all.filter((l) => l.who === 'tia');
+  assert.ok(hers.length > 0, 'the demo shows something Tia did');
+  assert.equal(WHO_WORDS.tia, 'Tia');
+  for (const w of new Set(all.map((l) => l.who).filter(Boolean))) assert.ok(WHO.includes(w) && WHO_WORDS[w], `a name for ${w}`);
+});

@@ -14,7 +14,7 @@
 //   POST /api/ship/p/<name>/back {}                       take the last go-live back
 //   POST /api/ship/p/<name>/auto { on?, typed?, from?, to?, autoBack? }
 //   POST /api/ship/p/<name>/drop { id }                   drop a put-together (its branch and worktree stay)
-//   GET  /api/ship/limiter                  the limiter's words as they are set (Settings → Go live), and whether confirmed
+//   GET  /api/ship/limiter                  the limiter's words as they are set (Work → Go live), and whether confirmed
 //   POST /api/ship/limiter { run, seen }    set (run: a list of words) or clear (run: null) it; seen: the words as he
 //                                           was shown them, so his yes is for exactly those
 //

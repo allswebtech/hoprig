@@ -31,6 +31,10 @@ const PACKAGE = 'packages/hoprig-skill';
  */
 export const PROBES = [
   ['hoprig help', ['help']],
+  ['hoprig profiles', ['profiles', '--help']],
+  ['hoprig add', ['add', '--help']],
+  ['hoprig rm', ['rm', '--help']],
+  ['hoprig auto', ['auto', '--help']],
   ['hoprig chat', ['chat', '--help']],
   ['hoprig opencode', ['opencode', '--help']],
   ['hoprig setup', ['setup', '--help']],
@@ -48,6 +52,7 @@ export const PROBES = [
   ['hoprig project', ['project', 'help']],
   ['hoprig project new', ['project', 'new']],
   ['hoprig project add', ['project', 'add']],
+  ['hoprig project status', ['project', 'status', '--help']],
   ['hoprig project sync', ['project', 'sync', '--help']],
   ['hoprig project link', ['project', 'link', '--help']],
   ['hoprig project setup', ['project', 'setup', '--help']],
@@ -65,6 +70,7 @@ export const PROBES = [
   ['hoprig machines', ['machines', '--help']],
   ['hoprig join', ['join', '--help']],
   ['hoprig serve', ['serve', '--help']],
+  ['hoprig stop', ['stop', '--help']],
   ['hoprig passwd', ['passwd', '--help']],
   ['hoprig service', ['service', '--help']],
   ['hoprig mcp', ['mcp', '--help']],
@@ -75,14 +81,11 @@ export const PROBES = [
 ];
 
 /** Commands of bin/hoprig.mjs that people do not type (Hoprig starts them itself, or keeps them switched off). */
-export const NOT_TYPED = ['hook', 'router', 'router-url', 'run', 'codex', 'version'];
-
-/** The commands whose usage only `hoprig help` gives (they have no help of their own). */
-export const IN_TOP_HELP = ['profiles', 'add', 'rm', 'auto'];
+export const NOT_TYPED = ['hook', 'router', 'router-url', 'run', 'codex', 'version', 'keep'];
 
 /** The commands of bin/hoprig.mjs (its switch's case labels) that no probe or the top help covers. */
 export function uncovered(commands) {
-  const covered = new Set([...NOT_TYPED, ...IN_TOP_HELP, 'help']);
+  const covered = new Set([...NOT_TYPED, 'help']);
   for (const [title] of PROBES) for (const w of title.replace(/^hoprig /, '').split(/,\s*/)) covered.add(w.split(' ')[0]);
   return commands.filter((c) => !covered.has(c));
 }
@@ -212,7 +215,7 @@ export function renderSkill({ source, usages, version }) {
     '',
     '## Every command and option',
     '',
-    `This skill is Hoprig ${version}'s. The commands: ${[...IN_TOP_HELP, ...commands].map((c) => `\`hop ${c}\``).join(', ')}.`,
+    `This skill is Hoprig ${version}'s. The commands: ${commands.map((c) => `\`hop ${c}\``).join(', ')}.`,
     'Read [references/commands.md](references/commands.md) before you type a command you have not used here, when a',
     'command answers with "usage", or when the user asks what an option does: it is every command\'s own help as this',
     'version prints it. On this computer `hop help`, and `hop <command> --help` for each command above, print the same.',

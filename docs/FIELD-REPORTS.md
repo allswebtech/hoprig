@@ -84,7 +84,7 @@ own text on your computer: they are never part of a report and never sent. At mo
 
 ## Sending to Hoprig's developers: only if you choose
 
-**Settings → Field reports → Where reports go** is empty after an install, and while it is empty nothing is ever
+**Settings → Version and updates → Reports to Hoprig's developers** is empty after an install, and while it is empty nothing is ever
 sent and nothing is asked. When you set an https address (one Hoprig's developers give you), you are asked once:
 
 - **Never** (also what happens until you answer);

@@ -207,3 +207,30 @@ test('the brains route when GitHub cannot be asked: an error, and no empty list 
     await app.close();
   }
 });
+
+test('the in-step list: behind the login, Tia\'s token refused, empty when all is in step; the look is the owner\'s page only', async () => {
+  saveConfig({ server: { passwordHash: await hashPassword('pw'), roots: [t.home] } });
+  const app = createServer({ backend: { list: async () => [], capture: async () => '' }, watch: false, dashboardFile: false });
+  const { port } = await app.listen(0, '127.0.0.1');
+  const origin = `http://127.0.0.1:${port}`;
+  try {
+    assert.equal((await fetch(`${origin}/api/workspace/instep`)).status, 401);
+    const tia = { Authorization: 'Bearer tia_0123456789abcdef' };
+    assert.equal((await fetch(`${origin}/api/workspace/instep`, { headers: tia })).status, 401);
+    const login = await fetch(`${origin}/api/login`, { method: 'POST', headers: { 'Content-Type': 'application/json', Origin: origin }, body: JSON.stringify({ password: 'pw' }) });
+    const cookie = login.headers.get('set-cookie').split(';')[0];
+    const r = await fetch(`${origin}/api/workspace/instep`, { headers: { Cookie: cookie } });
+    assert.equal(r.status, 200);
+    assert.deepEqual(await r.json(), { at: 0, items: [] }, 'nothing looked at yet: nothing to show');
+    const post = (body, o = origin, h = {}) => fetch(`${origin}/api/workspace/instep/look`, { method: 'POST', headers: { 'Content-Type': 'application/json', Origin: o, ...h }, body: JSON.stringify(body) });
+    assert.equal((await post({}, origin, tia)).status, 401);
+    assert.equal((await post({}, 'http://evil.example', { Cookie: cookie })).status, 403);
+    assert.equal((await post({ project: 'a b' }, origin, { Cookie: cookie })).status, 400);
+    assert.equal((await post({ other: 1 }, origin, { Cookie: cookie })).status, 400);
+    const ok = await post({}, origin, { Cookie: cookie });
+    assert.equal(ok.status, 200);
+    assert.deepEqual(await ok.json(), { at: 0, items: [] });
+  } finally {
+    await app.close();
+  }
+});

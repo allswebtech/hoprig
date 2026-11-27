@@ -1,4 +1,4 @@
-// Settings → Updates on the server: the updater (rows, Check now, Update now, Update all, one at a time, the log),
+// Settings → Version and updates on the server: the updater (rows, Check now, Update now, Update all, one at a time, the log),
 // the rules of each real item (with stand-ins for git, npm and the add-on), the routes, and the old Claude-only
 // setting read once into the new one. Nothing here installs, downloads or asks a server anything.
 import assert from 'node:assert/strict';
@@ -365,7 +365,7 @@ test('the old Claude-only setting: moved once at start; an older page or Tia may
     assert.deepEqual(f.config().updates, { mode: 'manual', notify: true });
     assert.equal(a.api.status().settings.updates.claude, 'notify');
     assert.throws(() => a.api.changeSettings({ updates: { claude: 'always' } }), /off, notify, auto/);
-    assert.throws(() => a.api.changeSettings({ updates: { mode: 'auto' } }), /Settings → Updates/);
+    assert.throws(() => a.api.changeSettings({ updates: { mode: 'auto' } }), /Settings → Version and updates/);
     await a.close();
     // An owner who had Claude Code update itself: after the move, only Claude Code does; nothing else starts
     // installing by itself without a new choice.
@@ -424,7 +424,7 @@ test('the output shows the home folder as "~" (no user name on the page)', async
   assert.equal(l.results.codex.error, 'npm error in ~/.npm');
 });
 
-test('Settings → Updates lists the offered coding tools only: Hoprig, Claude Code, OpenCode, the tunnel helper', async () => {
+test('Settings → Version and updates lists the offered coding tools only: Hoprig, Claude Code, OpenCode, the tunnel helper', async () => {
   const U = await import('../../src/automation/updates.mjs');
   const { realItems } = await import('../../src/automation/updateitems.mjs');
   const { demoUpdateItems } = await import('../../src/demo/updates.mjs');

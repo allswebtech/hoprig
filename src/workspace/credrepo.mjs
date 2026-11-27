@@ -2,6 +2,7 @@
 // (docs/WORKSPACE.md, "Credentials"). Off by default: the folder stays a local folder, owner-only, never in git.
 //
 //   workspace credentials                       its state: a local folder, or a repository with its address
+//   workspace credentials --get                 the folder is not the map's repository: set it aside, clone the repository
 //   workspace credentials --repo <address>      make it a repository and push it to that (private) repository
 //   workspace credentials --github [<name>]     the same, to a new private repository <name> (default "credentials")
 //                                               of the signed-in GitHub account
@@ -23,10 +24,11 @@ import path from 'node:path';
 import { gitRead } from '../gitread.mjs';
 import { withoutSecrets } from '../secretenv.mjs';
 import { cleanRemote, parseRepo } from '../pcsetup/projects.mjs';
-import { lsRemote } from '../pcsetup/workspace.mjs';
+import { lsRemote, stamp } from '../pcsetup/workspace.mjs';
+import { cloneRepo } from '../pcsetup/projects.mjs';
 import { capture } from '../setup/system.mjs';
 import { credsDir } from './credlinks.mjs';
-import { gitIn, kindAt, leaves, leavesWords, mkdirIn, removeIn } from './inside.mjs';
+import { chmodIn, gitIn, kindAt, leaves, leavesWords, mkdirIn, removeIn, renameIn, rmdirIn } from './inside.mjs';
 import { brainDir, isDir, isGitRepo, projectsIn, remoteOf, workspaceDir } from './layout.mjs';
 import { mapUrl, readMap, sameUrl, writeMap } from './map.mjs';
 
@@ -446,7 +448,14 @@ export async function applyCredentialsRepo(plan, { dir = workspaceDir(), run: gi
 /** The command. → exit code */
 export async function credentialsMain(args, { ui, write, usage, run = capture }) {
   const { flags } = await import('../pcsetup/project.mjs');
-  const o = flags(args, { repo: 'v', github: 'bool', 'dry-run': 'bool', json: 'bool' });
+  const o = flags(args, { repo: 'v', github: 'bool', get: 'bool', 'dry-run': 'bool', json: 'bool' });
+  // --get: the folder here is not the map's repository: set it aside (never deleted), clone the repository.
+  if (o.get && !o.errors.length && !o._.length && o.repo === undefined && !o.github && !o['dry-run']) {
+    const g = await getCredentialsRepo({ run });
+    if (o.json) return (write(JSON.stringify(g, null, 2) + '\n'), g.ok ? 0 : 1);
+    ui.line(g.ok ? 'ok' : 'fail', g.ok ? (g.already ? 'the credentials folder is the map\'s repository already' : `the credentials repository is cloned${g.aside ? `; your folder was kept as ${g.aside}` : ''}`) : g.why);
+    return g.ok ? 0 : 1;
+  }
   if (o.errors.length || o._.length > 1 || (o._.length && !o.github) || (o.repo !== undefined && o.github)) return usage();
   const json = (v) => (write(JSON.stringify(v, null, 2) + '\n'), 0);
   if (o.repo === undefined && !o.github) {
@@ -585,4 +594,89 @@ export async function upkeepCredentials({ dir = workspaceDir(), run: given = cap
   if (p.ok) lines.push('The credentials were pushed to the address the map names');
   else needs.push(`the credentials could not be pushed: ${gitWords(p)}`);
   return { lines, needs };
+}
+
+/**
+ * Files 600 and folders 700 in the credentials folder (never inside .git: git's own objects keep git's modes), after a
+ * clone and after a pull: a file that came in with the umask's 644 is closed to the other users of this computer. A link
+ * is never followed. Nothing on Windows (its folders are the owner's by their place). → how many entries were changed
+ */
+export function ownerOnlyTree(dir) {
+  if (process.platform === 'win32') return 0;
+  let n = 0;
+  const walk = (d) => {
+    let ents;
+    try {
+      ents = fs.readdirSync(d, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const e of ents) {
+      if (e.name === '.git' || e.isSymbolicLink()) continue;
+      const p = path.join(d, e.name);
+      const want = e.isDirectory() ? 0o700 : e.isFile() ? 0o600 : null;
+      if (want === null) continue;
+      try {
+        if ((fs.lstatSync(p).mode & 0o777) !== want) {
+          if (chmodIn({ root: dir }, p, want)) n++;
+        }
+      } catch {
+        /* gone since it was listed */
+      }
+      if (e.isDirectory()) walk(p);
+    }
+  };
+  walk(dir);
+  return n;
+}
+
+/** The map's credentials address, or null. */
+const mapAddress = (dir) => {
+  const m = readMap(dir);
+  return m.map && m.map.credentials && m.map.credentials.url ? m.map.credentials.url : null;
+};
+
+/** One row for the in-step list while the folder here is not the repository the map names: { state: 'credentials', why } or null. */
+export async function credentialsRow({ dir = workspaceDir() } = {}) {
+  const url = mapAddress(dir);
+  if (!url) return null;
+  const s = credentialsState({ dir });
+  if (s.folder === 'repository' && s.remote && sameUrl(s.remote, url)) return null;
+  return { id: 'credentials', label: 'credentials', project: '', state: 'credentials', why: s.folder === 'missing' ? 'the credentials repository is not here' : 'the credentials folder here is not the repository of the map', button: 'Get it' };
+}
+
+/**
+ * The press of "Get it": the folder here is set aside as credentials.unused-<time> (never deleted), the repository the
+ * map names is cloned into a new owner-only folder, and its files are closed to other users. A failed clone puts the
+ * folder back. Nothing of it is said by name. → { ok, already?, aside?, why? }
+ */
+export async function getCredentialsRepo({ dir = workspaceDir(), run = capture, runner, env = {} } = {}) {
+  const url = mapAddress(dir);
+  if (!url) return { ok: false, why: 'the map names no credentials repository' };
+  const c = credsDir(dir);
+  if (!(await credentialsRow({ dir }))) return { ok: true, already: true };
+  const at = { dir, root: c };
+  const outside = leaves(path.dirname(c), c, { dir });
+  if (outside) return { ok: false, why: `the credentials folder leads out of the workspace (${leavesWords(outside)}): nothing was changed` };
+  let aside = null;
+  if (kindAt(c) !== 'none') {
+    aside = `${c}.unused-${stamp()}`;
+    renameIn({ dir, root: path.dirname(c) }, c, aside);
+  }
+  mkdirIn(at, c, { mode: 0o700 });
+  const lines = [];
+  const r = await cloneRepo({ url, name: 'credentials' }, path.dirname(c), { quiet: true, ...(runner ? { run: runner } : {}), env, onLine: (l) => lines.push(l), root: c, at, mode: 0o700 });
+  if (!r.ok || r.skipped) {
+    // Put it back: the empty folder this press made goes, the owner's folder returns.
+    try {
+      if (isDir(c) && fs.readdirSync(c).length === 0) rmdirIn({ dir, root: path.dirname(c) }, c);
+      if (aside && kindAt(c) === 'none') renameIn({ dir, root: path.dirname(c) }, aside, c);
+    } catch {
+      /* said below */
+    }
+    return { ok: false, why: `the credentials repository could not be cloned (${gitWords({ stderr: lines.join('\n') }) || 'git failed'}): your folder was put back as it was` };
+  }
+  mkdirIn(at, c, { mode: 0o700 });
+  ownerOnlyTree(c);
+  return { ok: true, ...(aside ? { aside } : {}) };
 }

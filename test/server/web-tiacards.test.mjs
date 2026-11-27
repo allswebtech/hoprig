@@ -245,7 +245,7 @@ test('a status card follows the session through the page\'s poller; an ended one
   sessions = [{ name: 'shop', status: 'ended', statusAt: Date.now() }];
   ticks.at(-1)();
   await flush();
-  assert.match(texts(el).join(''), /Finished/);
+  assert.match(texts(el).join(''), /Ended/);
   assert.ok(el.classList.contains('ended'));
   sessions = [];
   ticks.at(-1)();
@@ -426,7 +426,7 @@ test('a Sessions list drawn 15 s or more after it was made keeps its states: it 
     const at0 = texts(el).join(' ');
     assert.match(at0, /shop\s*Needs your OK/, 'the state of now, drawn 20 s after it was made');
     assert.match(at0, /alpha\s*Working/, 'what the poller says now, not what the list said then');
-    assert.match(at0, /Fix the cart\s*Waiting for your next message/, 'a chat by its own name');
+    assert.match(at0, /Fix the cart\s*Finished/, 'a chat by its own name');
     assert.match(at0, /beta\s*Gone/, 'a session the poller does not have any more');
     assert.doesNotMatch(at0, /Read at/);
     // The poller's next ticks (every 3 s): the states stay, and follow a change.

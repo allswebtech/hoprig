@@ -110,7 +110,7 @@ test('turned on, it starts from now; then one message per event, also after a re
   const a = mk();
   await a.tick();
   await a.tick();
-  assert.deepEqual(sent, [{ title: 'Done: Cart fix', body: 'Open Work → Today to look at it and accept it.' }]);
+  assert.deepEqual(sent, [{ title: 'Done: Cart fix', body: 'Open Work → Tasks to look at it and accept it.' }]);
   NOW += M;
   await mk().tick(); // a restart: a new teller on the same state folder
   assert.equal(sent.length, 1);
@@ -147,7 +147,7 @@ test('at most one in the gap; the held ones go as ONE that names them', async ()
   await walk(a, NOW + M, M);
   assert.equal(sent.length, 2);
   assert.equal(sent[1].title, '1 done, 1 failed');
-  assert.equal(sent[1].body, 'Open Work → Today to look at them.\nSecond and Third');
+  assert.equal(sent[1].body, 'Open Work → Tasks to look at them.\nSecond and Third');
 });
 
 test('fifty finishing in one burst: one message, and it names them truthfully', async () => {
@@ -248,7 +248,7 @@ test('a digest every N hours while work runs, never one with nothing new', async
   await a.tick();
   assert.equal(sent.length, 1);
   assert.equal(sent[0].title, 'Work: 1 waits for you, 1 running');
-  assert.match(sent[0].body, /^Open Work → Today to look at what waits for you\.\nRunning: Long job, no estimate yet$/);
+  assert.match(sent[0].body, /^Open Work → Tasks to look at what waits for you\.\nRunning: Long job, no estimate yet$/);
   NOW += 4 * H;
   await a.tick();
   assert.equal(sent.length, 1, 'the same running job and nothing ended: nothing new, no digest');
@@ -361,7 +361,7 @@ test('a message reaches a real receiver as the product sends it (a local one on 
     const m = oneMessage({ what: 'finished', title: 'Cart fix' });
     const r = await sendNotification({ url: 'http://127.0.0.1:8211/t', format: 'ntfy' }, { force: true, status: 'automation', title: m.title, message: m.body, session: 'work' });
     assert.equal(r.sent, true);
-    assert.deepEqual(got, [{ title: 'Done: Cart fix', body: 'Open Work → Today to look at it and accept it.' }]);
+    assert.deepEqual(got, [{ title: 'Done: Cart fix', body: 'Open Work → Tasks to look at it and accept it.' }]);
   } finally {
     await new Promise((r) => srv.close(r));
   }

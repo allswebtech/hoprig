@@ -5,7 +5,7 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { isOwnFolder } from '../server/folders.mjs';
+import { isOwnFolder, realOr } from '../server/folders.mjs';
 import { fsError } from './files.mjs';
 import { checkName, fail, isGitName, isPrivateName, isSecret, locate, mayChangeFolderAsync } from './paths.mjs';
 import { replaceFile } from '../replacefile.mjs';
@@ -251,9 +251,24 @@ export async function receive(req, dir, name, roots, { replace = false, maxBytes
 }
 
 /**
+ * True when `abs` is a link (not followed) that leads into the credentials folder or another place that holds a
+ * sign-in, however many links it passes. A project's credential links are such links: a copy of one lands as a link
+ * that leads nowhere, where git does not ignore it, and neither a copy nor a move is the way to lay one.
+ */
+function linksIntoSecret(abs) {
+  try {
+    if (!fs.lstatSync(abs).isSymbolicLink()) return false;
+    return isSecret(realOr(path.resolve(path.dirname(abs), fs.readlinkSync(abs))));
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Move or copy `paths` into folder `to`: { done: [{ from, to }], failed: [{ path, error }] }. A move never goes
  * over something with the same name; a copy into the folder it comes from gets a free name ("x (2).txt"). Nothing
- * goes into itself, and a folder that holds a private folder or a sign-in file is neither moved nor copied.
+ * goes into itself, and a folder that holds a private folder or a sign-in file, or a link into such a file, is neither
+ * moved nor copied.
  */
 export async function transfer(paths, to, roots, { copy = false } = {}) {
   const list = pathList(paths);
@@ -265,6 +280,7 @@ export async function transfer(paths, to, roots, { copy = false } = {}) {
     try {
       const src = locate(p, roots, { mode: 'entry' });
       await mayChangeFolderAsync(src.abs);
+      if (linksIntoSecret(src.abs)) throw fail(403, 'that is a link to a credentials file or a sign-in: it is neither copied nor moved from here', { code: 'holds-protected' });
       if (dest.abs === src.abs || dest.abs.startsWith(src.abs + path.sep)) throw fail(400, 'a folder cannot go into itself');
       let name = path.basename(src.abs);
       if (copy && path.dirname(src.abs) === dest.abs) name = freeName(dest.abs, name);

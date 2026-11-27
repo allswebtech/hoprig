@@ -8,6 +8,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
 import { sandbox } from '../server/helpers.mjs';
+import { OWNER_PAGE_HEADER, SELF_HEADER } from '../../src/machines/relay.mjs';
 
 const box = sandbox('gatewayhost');
 test.after(() => box.cleanup());
@@ -42,6 +43,14 @@ const route = (method, p) => {
   }
   throw new Error(`no route ${method} ${p}`);
 };
+// A request as another computer's dashboard relays it: a machine token (caller computer) and the headers it set.
+const relayed = (p, headers, body = { confirm: 'box2' }) => {
+  for (const [m, re, fn] of feature.routes) {
+    const hit = re.exec(p);
+    if (hit && m === 'POST') return fn({ body, caller: 'computer', headers }, hit);
+  }
+  throw new Error(`no route ${p}`);
+};
 const unitFile = path.join(env.XDG_CONFIG_HOME, 'systemd', 'user', 'hoprig-gateway-relay.service');
 
 test('the lines it would add are shown first, and nothing is written or run for that', async () => {
@@ -75,6 +84,18 @@ test('a press without the computer\'s name, with another name, or from Tia\'s do
   for (const p of ['/api/gatewayhost/relay/service', '/api/gatewayhost/relay/start', '/api/gatewayhost/linger', '/m/box2/api/gatewayhost/relay/stop']) {
     assert.throws(() => checkRoute('POST', p, { confirm: 'box2' }), (e) => e.status === 403, `Tia's door: ${p}`);
   }
+});
+
+test('her mark on a relayed request is refused on every computer; the hub relaying the owner\'s own page still works', async () => {
+  running = false;
+  for (const verb of ['start', 'restart', 'stop']) {
+    await assert.rejects(relayed(`/api/gatewayhost/relay/${verb}`, { [SELF_HEADER]: '1' }), (e) => e.status === 403, verb);
+  }
+  assert.equal(running, false, 'nothing ran');
+  assert.equal((await relayed('/api/gatewayhost/relay/start', { [OWNER_PAGE_HEADER]: '1' })).ok, true);
+  assert.equal(running, true);
+  assert.equal((await relayed('/api/gatewayhost/relay/stop', {})).ok, true);
+  assert.equal(running, false);
 });
 
 test('made on his press, once; a second press changes nothing; removed the same way', async () => {

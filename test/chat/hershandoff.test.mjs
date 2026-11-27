@@ -32,11 +32,11 @@ const route = (routes, method, url) => {
   return (body) => r[2]({ body }, r[1].exec(url));
 };
 
-function harness({ found = null, chat = null } = {}) {
+function harness({ found = null, chat = null, config = {}, root = false } = {}) {
   const made = [];
   const started = [];
   const ctx = {
-    HttpError, config: () => ({ handsOff: { offered: false } }), backend: { list: async () => [] }, poke() {},
+    HttpError, config: () => ({ handsOff: { offered: false }, ...config }), root, backend: { list: async () => [] }, poke() {},
     readJson: async (req) => req.body || {},
     deck: { find: async () => found, start: async (o) => { started.push(o); return 'alpha'; }, respawn: async () => {} },
   };
@@ -64,6 +64,26 @@ test('a terminal of hers shown as a chat is a chat that is hers (not one whose O
     assert.equal(made[0].hers === true, hers, hers ? 'hers stays hers' : 'his stays his');
     assert.notEqual(made[0].byTia, true, 'its OKs stay the owner\'s');
     R.removeRun(file);
+  }
+});
+
+test('a terminal started in bypass opens as a chat in bypass while it is allowed; else as the fallback says', async () => {
+  const { file, run } = terminalRun(false);
+  const d = { sessionDefaults: { permissionMode: 'acceptEdits' } };
+  const cases = [
+    [['--dangerously-skip-permissions'], { allowBypass: true }, false, 'bypassPermissions'],
+    [['--model', 'opus', '--dangerously-skip-permissions'], { allowBypass: false }, false, 'acceptEdits'],
+    [['--dangerously-skip-permissions'], { allowBypass: true }, true, 'acceptEdits'], // as root: never bypass
+    [['--permission-mode', 'plan'], { allowBypass: true }, false, 'plan'],
+  ];
+  try {
+    for (const [carryArgs, config, root, mode] of cases) {
+      const { routes, made } = harness({ found: { run: { ...run, carryArgs } }, config: { ...d, ...config }, root });
+      await route(routes, 'POST', '/api/chats/from-session')({ session: 'alpha' });
+      assert.equal(made[0].permissionMode, mode, JSON.stringify([carryArgs, config, root]));
+    }
+  } finally {
+    R.removeRun(file); // a failed case must not leave a terminal on the conversation for the tests after it
   }
 });
 

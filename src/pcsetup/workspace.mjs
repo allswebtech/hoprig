@@ -690,7 +690,7 @@ export async function syncRepo(dir, rel, run = capture, { push = true, dryRun = 
   const out = leaves(root, dir, at);
   if (out) return notFollowed(rel, out);
   const g = (args, opts) => gitIn({ ...at, root }, dir, args, run, opts);
-  if (!isRepo(dir)) return { rel, did, todo: [{ why: 'not cloned', command: `hoprig project clone …` }] };
+  if (!isRepo(dir)) return { rel, did, todo: [{ why: 'not cloned', command: `hoprig get ${path.basename(path.resolve(root))}` }] };
   if (rel !== '.' && isLinkedWorktree(dir)) return { rel, did: [WORKTREE_LEFT], todo: [] }; // a second checkout, not this repository
   let s;
   let theirs = '@{u}'; // what a merge would take: in a dry run the server's commit when it is here already

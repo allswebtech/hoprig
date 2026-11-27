@@ -46,10 +46,20 @@ export function realGatewaySys(plan, { run = capture, has, chown = fs.lchownSync
       try {
         kill(pid, 'SIGTERM');
       } catch {
-        /* gone */
+        return; // gone
+      }
+      // Its port closes before it has ended (a database still being written): wait for the process itself, 10 s at most.
+      for (let i = 0; i < 40; i += 1) {
+        try {
+          readProc(pid);
+        } catch {
+          return;
+        }
+        await new Promise((r) => setTimeout(r, 250));
       }
     },
     copyData: async (from, to) => {
+      let began = false; // this call is making `to`: only then is anything at it this call's to take away
       try {
         const give = (p) => chown(p, user.uid, user.gid ?? user.uid);
         // The user's dashboard runs by now: a folder above `to` may have been made a link by a process of the user's.
@@ -64,6 +74,7 @@ export function realGatewaySys(plan, { run = capture, has, chown = fs.lchownSync
           there = false;
         }
         if (there) return { ok: false, error: `${to} is already there`, entries: [0, 0] };
+        began = true;
         fs.cpSync(from, to, { recursive: true, preserveTimestamps: true, verbatimSymlinks: true, errorOnExist: true });
         const own = (p) => {
           give(p);
@@ -72,10 +83,25 @@ export function realGatewaySys(plan, { run = capture, has, chown = fs.lchownSync
         own(to);
         return { ok: true, entries: [count(from), count(to)] };
       } catch (e) {
-        return { ok: false, error: e.message, entries: [0, 0] };
+        let said = e.message;
+        if (began) {
+          try {
+            fs.rmSync(to, { recursive: true, force: true });
+            said += `; the half-made copy at ${to} was removed`;
+          } catch (x) {
+            said += `; the half-made copy at ${to} could not be removed (${x.message})`;
+          }
+        }
+        return { ok: false, error: said, entries: [0, 0] };
       }
     },
-    startAsUser: (id) => runAsUser(user, ['hoprig', 'addons', 'start', id], { run, ...(has && { has }), timeout: 60_000 }),
+    // Root's copy of the program is in root's own Node: install it for the user first (a no-op for a program the owner defined).
+    startAsUser: async (id, { own = false } = {}) => {
+      const installed = await runAsUser(user, ['hoprig', 'addons', 'install', id], { run, ...(has && { has }), timeout: 600_000 });
+      // A copy of its own is the user's own: without it nothing is started (the move then starts root's again).
+      if (own && !installed?.ok) return installed;
+      return runAsUser(user, ['hoprig', 'addons', 'start', id], { run, ...(has && { has }), timeout: 60_000 });
+    },
     startAsRoot: (id) => run([process.execPath, binFile(), 'addons', 'start', id], { timeout: 60_000 }),
     userHoprig: async () => {
       try {

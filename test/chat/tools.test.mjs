@@ -8,6 +8,7 @@ import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
 import test from 'node:test';
+import { closedGateways } from '../seal.mjs';
 import { sandbox } from '../server/helpers.mjs';
 import { SESSION_ID, standIn, standInOpts } from './fixtures/opencode-standin.mjs';
 
@@ -65,7 +66,7 @@ test('a chat of OpenCode: refused while off or missing; only a provider that ser
   const { hashPassword } = await import('../../src/server/auth.mjs');
   const { createServer } = await import('../../src/server/server.mjs');
   const { toolsDir } = await import('../../src/paths.mjs');
-  saveConfig({ server: { backend: 'pty', roots: [path.dirname(proj)], passwordHash: await hashPassword('pw-for-tests') } });
+  saveConfig({ server: { backend: 'pty', roots: [path.dirname(proj)], passwordHash: await hashPassword('pw-for-tests') }, addons: closedGateways() });
   writeProfile('sub', { label: 'Main' }); // a Claude subscription: Claude Code only
   writeProfile('gw', { label: 'Gateway', api: ['messages', 'models'], env: { ANTHROPIC_BASE_URL: 'http://127.0.0.1:9', ANTHROPIC_AUTH_TOKEN: 'gw-token-of-the-test' } });
   const app = createServer({ watchTickMs: 300, dashboardFile: false, toolSessions: async () => [{ id: SESSION_ID, at: 1, title: 'Recorded session' }], chat: { resolveEnv: async () => ({}), engineOpts: standInOpts(s), idleMs: 30_000 } });
@@ -211,7 +212,7 @@ test('a chat of OpenCode: refused while off or missing; only a provider that ser
   // The page is told why the chat runs nothing (in place of an empty chat that invites a message); what OpenCode's
   // server still runs is shown.
   v = (await owner('GET', `/api/chats/${open}`)).json;
-  assert.match(v.toolOff, /^OpenCode is off on this computer: turn it on under Settings → Coding tools/);
+  assert.match(v.toolOff, /^OpenCode is off on this computer: turn it on under Settings → New sessions → Coding tools/);
   assert.ok(v.events.some((e) => e.kind === 'user'), 'read from the server that runs');
   const prompts = s.calls.filter((x) => x.path.endsWith('/prompt')).length;
   saveConfig({ codingTools: ['claude', 'opencode'] });
@@ -396,9 +397,9 @@ test('the chat page in another tool\'s words: its name, its modes, its OK cards 
   assert.equal(W.askTitle('Bash', { command: 'ls' }, 'OpenCode'), 'OpenCode wants to run a command');
   assert.equal(W.askTitle('Write', { file_path: '/a/b.txt' }), 'Claude wants to write b.txt');
   assert.equal(W.alwaysWords({ tool: 'Bash', input: { command: 'sleep 1 && echo x' }, alwaysText: 'sleep *, echo *' }, 'OpenCode'), '“Allow in this session” also lets OpenCode do what matches this again in this session without asking: sleep *, echo *.');
-  const St = await import('../../web/chat/statusline.js');
-  assert.equal(St.stateWords({ ...v, status: 'attention', asking: 'question' }), 'OpenCode asks you a question');
-  assert.equal(St.stateWords({ ...v, status: 'working', turn: true, activity: 'requesting', live: [] }), 'OpenCode is thinking…');
+  assert.equal(W.chatState({ ...v, status: 'attention', asking: 'question' }).text, 'Needs your answer');
+  assert.equal(W.liveWords({ ...v, status: 'working', turn: true, activity: 'requesting', live: [] }).text, 'Thinking');
+  assert.equal(W.liveWords({ ...v, status: 'attention', asking: 'question' }), null, 'a question waits: its card is the status');
   const { askNote } = await import('../../src/chat/events.mjs');
   assert.equal(askNote({ type: 'permission', tool: 'Bash', subject: 'ls -la .' }, '/w', 'OpenCode'), 'OpenCode wants to run: ls -la .');
 });

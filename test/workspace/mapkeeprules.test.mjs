@@ -121,7 +121,7 @@ async function bothMoved() {
   await round(B);
   byHand(A, inProject(shop, (p) => ({ ...p, repos: p.repos.map((r) => (r.dir === `code/${shop}-api` ? { dir: `code/${shop}-api2`, url: w.url(`${shop}-api2`) } : r)) })), 'Owner: rename shop-api');
   w.clone(w.bare(`blog${n}`), path.join(B.projects, `blog${n}`));
-  assert.deepEqual((await round(B, { push: false })).commit, { done: true }, 'B\'s own map commit');
+  assert.deepEqual((await round(B, { push: false, holdOwn: true })).commit, { done: true }, 'B\'s own map commit');
   return { ...t, shop, head: w.sh(server, 'rev-parse', 'main') };
 }
 
@@ -222,7 +222,7 @@ test('a commit of the owner\'s that changes no file stops the rule: nothing is t
   w.clone(w.bare(`shop${n}`), path.join(A.projects, `shop${n}`));
   await round(A);
   w.clone(w.bare(`blog${n}`), path.join(B.projects, `blog${n}`));
-  assert.deepEqual((await round(B, { push: false })).commit, { done: true });
+  assert.deepEqual((await round(B, { push: false, holdOwn: true })).commit, { done: true });
   w.sh(B.brain, 'commit', '-q', '--allow-empty', '-m', 'Owner: decision recorded here');
   const mine = w.sh(B.brain, 'rev-parse', 'HEAD');
   const r = await round(B);
@@ -251,7 +251,7 @@ test('Hoprig\'s own map commits that the rule takes off the branch stay reachabl
   w.clone(w.bare(`shop${n}`), path.join(A.projects, `shop${n}`));
   await round(A);
   w.clone(w.bare(`blog${n}`), path.join(B.projects, `blog${n}`));
-  assert.deepEqual((await round(B, { push: false })).commit, { done: true });
+  assert.deepEqual((await round(B, { push: false, holdOwn: true })).commit, { done: true });
   const own = w.sh(B.brain, 'rev-parse', 'HEAD');
   const r = await round(B);
   assert.deepEqual(r.pushed, { done: true }, JSON.stringify(r));
@@ -431,7 +431,7 @@ test('a rebase under way or a detached HEAD in the brain: nothing is committed i
 test('the activity line after the rule committed and pushed says saved and uploaded, never that saving is off', async () => {
   const { A, B } = await two();
   w.clone(w.bare(`blog${n}`), path.join(B.projects, `blog${n}`));
-  assert.deepEqual((await round(B, { push: false })).commit, { done: true }, 'B\'s map commit is made in an earlier round');
+  assert.deepEqual((await round(B, { push: false, holdOwn: true })).commit, { done: true }, 'B\'s map commit is made in an earlier round');
   w.clone(w.bare(`shop${n}`), path.join(A.projects, `shop${n}`));
   await round(A);
   const { apply } = await import('../../src/automation/workspacesync.mjs');
@@ -463,7 +463,7 @@ test('one name with two addresses on two computers: four alternating rounds leav
 test('sync on: a brain the map\'s rule settles in the same round is no thing to decide, and nothing is notified', async () => {
   const { A, B, serverNames } = await two();
   w.clone(w.bare(`blog${n}`), path.join(B.projects, `blog${n}`));
-  assert.deepEqual((await round(B, { push: false })).commit, { done: true });
+  assert.deepEqual((await round(B, { push: false, holdOwn: true })).commit, { done: true });
   w.clone(w.bare(`shop${n}`), path.join(A.projects, `shop${n}`));
   await round(A);
   const WS = await import('../../src/automation/workspacesync.mjs');
@@ -577,7 +577,7 @@ test('more versions of its own file saved here than it remembers, then the rule 
   // Pushing off for a while: every round saves a new version of computers/boxb.json in B's history only.
   for (let i = 0; i < 22; i++) {
     fs.mkdirSync(path.join(B.ws, 'development', `kit${i}`), { recursive: true });
-    assert.deepEqual((await round(B, { push: false })).needs, []);
+    assert.deepEqual((await round(B, { push: false, holdOwn: true })).needs, []);
   }
   // A moves the server; B pushes again: the rule moves B to the server's commit, which holds B's first version.
   w.clone(w.bare(`shop${n}`), path.join(A.projects, `shop${n}`));
@@ -659,7 +659,7 @@ test('a new address given by hoprig workspace map here, while the other computer
   w.sh(path.join(B.projects, `shop${n}`), 'remote', 'set-url', 'origin', w.url(`shop${n}-b2`));
   B.use();
   await M.updateMap({ dir: B.ws, projects: B.projects });
-  assert.deepEqual((await round(B, { push: false })).commit, { done: true });
+  assert.deepEqual((await round(B, { push: false, holdOwn: true })).commit, { done: true });
   A.use();
   w.bare(`shop${n}-a2`);
   w.sh(path.join(A.projects, `shop${n}`), 'remote', 'set-url', 'origin', w.url(`shop${n}-a2`));

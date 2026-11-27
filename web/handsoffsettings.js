@@ -3,11 +3,11 @@
 import { openConsentSheet, uncoveredLine } from './handsoff.js';
 import { api, fill, h, toast } from './lib.js';
 import { registerSettingsPage } from './registry.js';
-import { field, panel, saveBar, toggle } from './shell.js';
+import { field, fold, panel, saveBar, toggle } from './shell.js';
 
 const WHAT = 'With Hands-off on, Hoprig answers by itself, with no AI: a question gets the option the coding tool marked as recommended; a question with no mark gets your note for the project, where the tool takes a written answer; a plan in the App is approved and the session keeps the mode it had. Tool permissions follow the session\'s mode as always.';
-const NEVER = 'The net reads a question\'s words for a fixed list of signs — money or a paid plan, a sign-in, a push or a merge, a release or publishing, sending something out, a delete outside the folder, admin rights, switching a safety rule off, or giving the session more freedom — and leaves those to you, also when an option is marked as recommended. It only ever makes a question wait: it leans towards waiting, so it can hold an ordinary question and an unusual wording can slip past it. Every answer is shown on the session and in Activity; one press on the session or on the project\'s switch stops it; three answers in a row with no work between them, or ten within an hour, stop it too. It is off after an install and after every update.';
-const WALL = 'The wall reads what a session is about to do, at the act, and holds it as your card in every permission mode: administrator rights, publishing or a release, a pull or merge request, a push that would move a default branch or a tag, a delete outside the session\'s folder, and a move or write to Hoprig\'s own files. A command it cannot read with certainty waits for you. This is the part that holds; the net only makes a question wait.';
+const NEVER = 'The first check, the net, reads a question\'s words for a fixed list of signs — money or a paid plan, a sign-in, a push or a merge, a release or publishing, sending something out, a delete outside the folder, admin rights, switching a safety rule off, or giving the session more freedom — and leaves those to you, also when an option is marked as recommended. It only ever makes a question wait: it leans towards waiting, so it can hold an ordinary question and an unusual wording can slip past it. Every answer is shown on the session and in Activity; one press on the session or on the project\'s switch stops it; three answers in a row with no work between them, or ten within an hour, stop it too. It is off after an install and after every update.';
+const WALL = 'The second check, the wall, reads what a session is about to do, at the act, and holds it as your card in every permission mode: administrator rights, publishing or a release, a pull or merge request, a push that would move a default branch or a tag, a delete outside the session\'s folder, and a move or write to Hoprig\'s own files. A command it cannot read with certainty waits for you. This is the part that holds; the net only makes a question wait.';
 
 // A project's name is its folder's last part; the whole path stands under it.
 const folderName = (dir) => String(dir).replace(/\/+$/, '').split('/').pop() || dir;
@@ -47,7 +47,8 @@ function render() {
   };
   reload();
   return [
-    panel({ icon: 'sparkle', title: 'What Hands-off answers', desc: WHAT }, h('p.hint', NEVER), h('p.hint', WALL),
+    panel({ icon: 'sparkle', title: 'What Hands-off answers', desc: WHAT },
+      fold('handsoff-decides', 'How it decides what to leave to you', h('p.hint', NEVER), h('p.hint', WALL)),
       h('button.btn.secondary.small', { type: 'button', onclick: () => openConsentSheet({ always: true }) }, 'Read the first-time summary again')),
     panel({ icon: 'folder', title: 'Projects', desc: 'Turn it on per project. A session can also be turned on or stopped on its own page.' },
       list,

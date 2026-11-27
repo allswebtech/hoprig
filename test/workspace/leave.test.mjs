@@ -49,7 +49,7 @@ before(async () => {
   assert.equal(got.code, 0, got.text);
   // The computer's own file that set-up wrote: committed and pushed, so the brain holds nothing only here.
   w.sh(c.brain, 'add', '-A');
-  w.sh(c.brain, 'commit', '-q', '-m', 'this computer');
+  if (w.sh(c.brain, 'status', '--porcelain')) w.sh(c.brain, 'commit', '-q', '-m', 'this computer'); // get commits its own file itself now
   w.sh(c.brain, 'push', '-q');
   api = path.join(c.shop, 'code', 'shop-api');
   web = path.join(c.shop, 'code', 'shop-web');

@@ -64,7 +64,7 @@ test('a candidate that beats the baseline is written as one proposal file; at mo
   const r0 = runs();
   assert.equal(r0.length, 1 + 3 * 2);
   // The hold of each run is the most it may spend; the run ends when this process is gone.
-  assert.deepEqual(r0[0].argv, ['--jsonl', '--end-with-stdin', '--profile', 'paid-x', '--model', 'haiku', '--max-usd', '0.02']);
+  assert.deepEqual(r0[0].argv, ['--jsonl', '--end-with-stdin', '--profile', 'paid-x', '--model', 'haiku', '--max-usd', '0.03']);
   assert.ok(r0[1].argv.includes('--cases') && r0[1].argv.includes('--candidate'), JSON.stringify(r0[1].argv));
   assert.deepEqual(r0[1].files, ['prompt/getting-work-done.md']);
   assert.ok(!r0[2].argv.includes('--cases') && r0[2].argv.includes('--candidate'));

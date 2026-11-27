@@ -1,17 +1,49 @@
 // Markdown from a file shown as plain, safe formatting: headings, lists, quotes, code blocks, small tables, `code` and
 // **bold**.
-// Every piece of the file is set as text through h(); nothing in it is ever read as HTML, a link or an image.
+// Every piece of the file is set as text through h(); nothing in it is ever read as HTML or an image. Links only in a reply (rich), http and https only.
 import { add, h } from './lib.js';
 
-/** `code` and **bold** inside one line, as nodes. */
-export function inline(line) {
+/** A web address that may be a link: http and https only (a text that is anything else stays text). */
+export function webUrl(u) {
+  try {
+    const x = new URL(String(u));
+    return x.protocol === 'http:' || x.protocol === 'https:' ? x.href : null;
+  } catch {
+    return null;
+  }
+}
+const link = (href, kids) => h('a.md-link', { href, target: '_blank', rel: 'noopener noreferrer' }, kids);
+
+/**
+ * `code` and **bold** inside one line, as nodes. o.rich (a reply in the chat; a file view has none): also [text](url),
+ * a bare http(s) address (a full stop or bracket at its end is not part of it) and *italic*. o.onCode(text): a node for
+ * a `code` span (a path as a button), or null to leave it code.
+ */
+export function inline(line, { rich = false, onCode = null } = {}) {
   const out = [];
-  const re = /`([^`\n]+)`|\*\*([^*\n]+)\*\*/g;
+  const re = rich
+    ? /`([^`\n]+)`|\*\*([^*\n]+)\*\*|\[([^\]\n]+)\]\(([^)\s]+)\)|(https?:\/\/[^\s<>"'`]+)|(?<![*\w])\*([^*\s](?:[^*\n]*[^*\s])?)\*(?![*\w])/g
+    : /`([^`\n]+)`|\*\*([^*\n]+)\*\*/g;
   let last = 0;
   for (let m; (m = re.exec(line));) {
+    let end = re.lastIndex;
+    let node;
+    if (m[1] !== undefined) node = (onCode && onCode(m[1])) || h('code', m[1]);
+    else if (m[2] !== undefined) node = h('strong', m[2]);
+    else if (m[3] !== undefined) {
+      const u = webUrl(m[4]);
+      node = u ? link(u, m[3]) : null;
+    } else if (m[5] !== undefined) {
+      const bare = m[5].replace(/[.,;:!?)\]]+$/, '');
+      const u = webUrl(bare);
+      end = m.index + bare.length;
+      node = u ? link(u, bare) : null;
+    } else node = h('em', m[6]);
+    if (!node) continue; // not a link we make: left as the text it was
     if (m.index > last) out.push(line.slice(last, m.index));
-    out.push(m[1] !== undefined ? h('code', m[1]) : h('strong', m[2]));
-    last = re.lastIndex;
+    out.push(node);
+    last = end;
+    re.lastIndex = end;
   }
   if (last < line.length) out.push(line.slice(last));
   return out;
@@ -19,15 +51,16 @@ export function inline(line) {
 
 /**
  * The nodes of a Markdown text, in a div.md. `code(text)`: how a code block is drawn (default: a pre of its text).
- * `breaks`: a single line break inside a paragraph stays a line break (a chat message), not a space (a file).
+ * `rich`, `onCode`: see inline(). `breaks`: a single line break inside a paragraph stays a line break (a chat message), not a space (a file).
  */
-export function mdView(text, { code: block = null, breaks = false } = {}) {
+export function mdView(text, { code: block = null, breaks = false, rich = false, onCode = null } = {}) {
+  const inl = (l) => inline(l, { rich, onCode });
   const lines = String(text || '').replace(/\r\n?/g, '\n').split('\n');
   const out = [];
   let list = null; // { el, ordered }
   let para = [];
   const endPara = () => {
-    if (para.length) out.push(h('p', breaks ? para.flatMap((l, k) => (k ? [h('br'), ...inline(l)] : inline(l))) : inline(para.join(' '))));
+    if (para.length) out.push(h('p', breaks ? para.flatMap((l, k) => (k ? [h('br'), ...inl(l)] : inl(l))) : inl(para.join(' '))));
     para = [];
   };
   const endList = () => {
@@ -56,8 +89,8 @@ export function mdView(text, { code: block = null, breaks = false } = {}) {
       const rows = [];
       for (i += 2; i < lines.length && /^\s*\|.*\|\s*$/.test(lines[i]) && rows.length < 50; i++) rows.push(cells(lines[i]));
       i--;
-      out.push(h('div.md-tablewrap', h('table.md-table', h('thead', h('tr', head.map((c) => h('th', { scope: 'col' }, inline(c))))),
-        h('tbody', rows.map((r) => h('tr', head.map((_, k) => h('td', inline(r[k] || '')))))))));
+      out.push(h('div.md-tablewrap', h('table.md-table', h('thead', h('tr', head.map((c) => h('th', { scope: 'col' }, inl(c))))),
+        h('tbody', rows.map((r) => h('tr', head.map((_, k) => h('td', inl(r[k] || '')))))))));
       continue;
     }
     const head = /^(#{1,6})\s+(.*)$/.exec(line);
@@ -66,7 +99,7 @@ export function mdView(text, { code: block = null, breaks = false } = {}) {
       endList();
       // The closing #s go ("## Title ##"). Trimmed first: a pattern with a run of blanks before the #s took time in
       // the square of the blanks on a heading of a session's text.
-      out.push(h(`h${Math.min(4, head[1].length + 1)}`, inline(head[2].trimEnd().replace(/\s#+$/, '').trimEnd())));
+      out.push(h(`h${Math.min(4, head[1].length + 1)}`, inl(head[2].trimEnd().replace(/\s#+$/, '').trimEnd())));
       continue;
     }
     const item = /^(\s*)([-*+]|\d+[.)])\s+(.*)$/.exec(line);
@@ -77,13 +110,13 @@ export function mdView(text, { code: block = null, breaks = false } = {}) {
         list = { el: h(ordered ? 'ol' : 'ul'), ordered };
         out.push(list.el);
       }
-      add(list.el, h('li', inline(item[3])));
+      add(list.el, h('li', inl(item[3])));
       continue;
     }
     if (/^\s*>\s?/.test(line)) {
       endPara();
       endList();
-      out.push(h('blockquote', inline(line.replace(/^\s*>\s?/, ''))));
+      out.push(h('blockquote', inl(line.replace(/^\s*>\s?/, ''))));
       continue;
     }
     if (/^\s*(---+|\*\*\*+)\s*$/.test(line)) {

@@ -10,6 +10,8 @@
 // A chat is "chat:<id>" among the sessions (list_sessions); a terminal session stays start_session's and
 // send_to_session's.
 import { PERMISSION_MODES } from '../config.mjs';
+import { isSecretFolder } from '../server/folders.mjs';
+import { expandHome } from './commandplaces.mjs';
 import { bool, obj, ref, str } from './schema.mjs';
 import { ASSISTANT_NAME } from './tia.mjs';
 import { LOCAL } from './shown.mjs';
@@ -50,6 +52,8 @@ export const start_chat = tool({
     computer,
   }, { required: ['folder'] }),
   check(a) {
+    // The credentials folder and the sign-in places are the owner's: no card is offered for a chat there (the dashboard refuses it for her too).
+    if (comp(a) === LOCAL && typeof a.folder === 'string' && isSecretFolder(expandHome(a.folder))) throw toolError('that folder holds the owner\'s credentials or a sign-in: only the owner starts a chat there, from his own page', 'tell the owner; start the chat in a project folder');
     if (a.fork_of && ['conversation', 'message', 'goal', 'job', 'coding_tool'].some((k) => a[k] !== undefined)) throw toolError('a fork takes only its chat, its folder and the computer', 'leave conversation, message, goal, job and coding_tool out; send_to_chat writes the first message once the owner said yes');
     if (a.goal && a.job) throw toolError('give goal (a new job) or job (an existing one), not both', 'leave one out');
     if (a.conversation && a.coding_tool && a.coding_tool !== 'claude') throw toolError(`an earlier conversation is continued here only in Claude Code, not in ${toolName(a.coding_tool)}`, `leave conversation out for a new ${toolName(a.coding_tool)} chat, or show the owner his project (open_screen "workspace") to continue it there`);

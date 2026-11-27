@@ -133,6 +133,7 @@ const CALLERS = [
   }, { extra: { autoSwitch: { enabled: true, order: ['work', 'backup'] } } }],
   ['the Operator\'s tap "Continue on the next provider"', async () => {
     screenNow = LIMIT_SCREEN;
+    operator().forget(); // the rules that cost nothing look at the board every tick: what the screen shows now is not in that look
     const l = await call('GET', '/api/operator/attention');
     const it = l.json.items.find((i) => i.kind === 'limit');
     assert.ok(it, JSON.stringify(l.json.items));
@@ -144,6 +145,7 @@ const CALLERS = [
   ['Tia\'s rule "limit", and its Undo', async () => {
     for (const f of ['moves.json', 'runs-ended.jsonl']) fs.rmSync(path.join(box.state, f), { force: true });
     fs.rmSync(path.join(box.state, 'operator'), { recursive: true, force: true });
+    operator().forget();
     const r = await operator().reflex.round();
     assert.equal(r.acted, 1, JSON.stringify(r));
   }, { limit: true, extra: { autoSwitch: { enabled: false, order: ['work', 'backup'] }, assistant: { enabled: true, level: 'handsoff', accounts: ['work', 'backup'], dailyCapUsd: 5 }, operator: { acts: true, rules: { limit: true } } } }],

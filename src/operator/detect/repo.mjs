@@ -12,6 +12,23 @@ const n = (v) => (Number.isInteger(v) && v > 0 ? v : 0);
 export function detectRepo(board, { now = Date.now() } = {}) {
   const out = [];
   for (const r of board.repos ?? []) {
+    // A merge or a rebase that stopped half way: his git tree, so Hoprig only says it, in plain words.
+    if (r.merging === 'merge' || r.merging === 'rebase') {
+      const word = r.merging === 'merge' ? 'a merge' : 'a rebase';
+      out.push(makeItem({
+        kind: 'repo',
+        cls: 'waits',
+        subject: `${r.merging} half done in ${r.name}`,
+        key: `half ${r.name}`,
+        since: ms(r.fetchedAt),
+        state: [r.merging],
+        facts: [`${word} is half done in ${r.name}`, 'Hoprig leaves your git trees alone: finish it or undo it in the project'],
+        acts: [act('open', { href: `#/workspace/project/${encodeURIComponent(r.project || r.name)}`, label: 'Open the project' })],
+        why: 'Work that waits in the middle of git is easy to lose track of; look at it in the project.',
+        target: { path: r.path, branch: r.branch },
+      }));
+      continue;
+    }
     const behind = n(r.behind);
     const ahead = n(r.ahead);
     const dirty = n(r.dirty);

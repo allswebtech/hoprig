@@ -197,7 +197,7 @@ export function learnFeature(sctx, opts = {}) {
       const b = await sctx.readJson(req);
       if (!b || typeof b.run !== 'string' || !RUN_ID_RE.test(b.run)) throw fail(400, 'that is not a run');
       if (b.dryRun !== undefined && typeof b.dryRun !== 'boolean') throw fail(400, 'dryRun is true or false');
-      if (!readLearnSettings().on) throw fail(409, 'learning skills is off: turn it on in Settings → Learn skills', 'learn-off');
+      if (!readLearnSettings().on) throw fail(409, 'learning skills is off: turn it on in Skills → Learned', 'learn-off');
       const p = place();
       const run = readRun(p, b.run);
       if (!run) throw fail(404, 'that run is not there');

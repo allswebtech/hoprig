@@ -44,7 +44,7 @@ test('a day with the automations', async () => {
       ],
     },
   };
-  // The old setting "notify" (read once into Settings → Updates: Manual, with a notification).
+  // The old setting "notify" (read once into Settings → Version and updates: Manual, with a notification).
   const cc = fakeItem('claude', { title: 'Claude Code', info: { installed: '2.1.0', latest: '2.2.0', method: 'native', updateAvailable: true, canUpdate: true }, update: () => assert.fail('manual mode never updates') });
   const f = fakeCtx({ deck, automation, stateDir: t.dir, now: () => clock, updateItems: [cc] });
   let a = createAutomation(f.ctx);

@@ -42,7 +42,7 @@ const { setupSummary } = await import('../../web/pcsetup.js');
 const { fixText } = await import('../../web/health.js');
 
 test('one computer: three parts, each with its own address and one sentence', () => {
-  assert.deepEqual(PARTS.map((p) => [p.id, p.title]), [['', 'Overview'], ['setup', 'Setup'], ['health', 'Health'], ['advanced', 'Advanced']]);
+  assert.deepEqual(PARTS.map((p) => [p.id, p.title]), [['', 'Overview'], ['setup', 'Setup'], ['advanced', 'Advanced']]);
   for (const p of PARTS) assert.match(p.text, /^[A-Z][^.]*\.$/, `${p.title}: one sentence`);
   // Home → Get started still lands on Setup
   assert.match(src('getstarted.js'), /'pc\/setup': '#\/computer\/setup'/);
@@ -162,12 +162,10 @@ test('Add by SSH with a key file: the key is sent once and the field emptied bef
   assert.match(src('computers.js'), /byKey\(isAlive, added\)/, 'Add a computer → by SSH offers it');
 });
 
-test('Health: since when a computer is not reached, the figures in words, and the rules of its buttons', async () => {
-  const { figures, notReached } = await import('../../web/health.js');
+test('Health: since when a computer is not reached, and the rules of its buttons', async () => {
+  const { notReached } = await import('../../web/health.js');
   assert.equal(notReached('Box 2', null), 'Box 2 was never reached from here.');
   assert.match(notReached('Box 2', Date.now() - 3 * 3600_000), /^Box 2 was not reached since .+ \(3 h ago\)\.$|^Box 2 was not reached since .+\)\.$/);
-  const f = figures({ load: [0.5, 0.4, 0.3], cpus: 4, memory: { total: 8e9, available: 6e9 }, disks: [{ mount: '/', size: 1e11, used: 2e10, avail: 8e10 }] });
-  assert.deepEqual(f.map(([k]) => k), ['Load', 'Memory', 'Main disk']);
   const hs = src('health.js');
   assert.doesNotMatch(hs, /setInterval|setTimeout\(load|setTimeout\(gateways/, 'read when opened or on Refresh, never on a timer');
   assert.match(hs, /confirm: d\.computer/, 'every press carries the computer\'s name');
@@ -209,7 +207,7 @@ test('Health says where a command is typed, shows the service once, and the use-
   const s = src('health.js');
   assert.match(s, /Type this in a terminal on \$\{ctx\.label\(\)\}:/);
   assert.doesNotMatch(s, /'Fix there:'/);
-  assert.match(s, /filter\(\(c\) => c\.id !== 'service'\)/);
+  assert.match(s, /c\.id !== 'service'/);
   const uc = fs.readFileSync(path.join(WEB, '..', 'site', 'content', 'use-cases', 'server-from-the-dashboard.md'), 'utf8');
   assert.doesNotMatch(uc, /no terminal is needed/);
 });
@@ -220,14 +218,14 @@ test('Health\'s banner lets its button go under the text on a phone instead of s
 });
 
 test('Health shows why a computer was not reached, and says "on and online" only for one that is off', async () => {
-  const { healthSection } = await import('../../web/health.js');
+  const { healthAdvanced } = await import('../../web/health.js');
   const { machine } = await import('../../web/lib.js');
   const words = (n) => (typeof n === 'string' ? n : (n.children || []).map(words).join(' '));
   const drawn = async (answer) => {
     globalThis.fetch = async () => ({ ok: true, status: 200, json: async () => answer });
     machine.set('box2');
     try {
-      const el = healthSection({ label: () => 'Box 2' });
+      const el = healthAdvanced({ label: () => 'Box 2' });
       for (let i = 0; i < 20 && !words(el).includes('not reached'); i++) await new Promise((r) => setTimeout(r, 10));
       return words(el);
     } finally {

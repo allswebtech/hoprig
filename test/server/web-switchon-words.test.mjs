@@ -24,8 +24,9 @@ test('the sheet opened by Switch on is called Switch on, says first what it does
 test('every button that opens it for the stored skills says Switch on, and nothing says Link now', () => {
   assert.match(read('getstarted.js'), /linkBrainSheet\(after, \{ prefix: '~', switchOn: true \}\)/);
   assert.match(read('brainlink.js'), /label: switchOn \? 'Switch on' : 'Link', onclick: async \(\) => \{\n\s+if \(await linkBrainSheet\(\(\) => \{\}, \{ prefix, switchOn \}\)\)/);
-  assert.match(read('skillhub.js'), /linkBrainNote\(\{ only: \['skills'\], [^\n]*switchOn: true \}\)/, 'Skills says Switch on');
-  assert.match(read('brain.js'), /label: 'Switch on', onclick: async \(\) => \{\n\s+if \(await linkBrainSheet\(\(\) => \{\}, \{ switchOn: true \}\)\)/);
+  // The note with the button is on Memory, where the brain belongs; the Skills page no longer carries it.
+  assert.match(read('brain.js'), /linkBrainNote\(\{ switchOn: true, after: load \}\)/, 'Memory says Switch on');
+  assert.doesNotMatch(read('skillhub.js'), /linkBrainNote/, 'not on Skills');
   for (const f of ['getstarted.js', 'brainlink.js', 'brain.js', 'skilllearned.js', 'skillhub.js']) {
     assert.doesNotMatch(read(f).replace(/^\s*(\/\/|\*).*$/gm, ''), /Link now/, f);
   }

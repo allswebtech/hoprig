@@ -137,7 +137,7 @@ export function menuProfiles({ all = false } = {}) {
 export function ensureFirstProfile({ quiet = false } = {}) {
   const all = listProfiles();
   if (all.some((p) => servesTools(p).includes('claude')) || all.some((p) => p.name === 'sub')) return false;
-  writeProfile('sub', { label: 'Claude account (stored login)' });
+  writeProfile('sub', { label: 'Claude account' });
   // `quiet`: the caller says it in its own words (set-up, whose sign-in line comes before).
   if (!quiet) out(dim('Created the profile "sub": the Claude account this machine is logged in with (claude /login).'));
   return true;
@@ -318,7 +318,7 @@ export async function addProfile(nameArg) {
     prerun = pre;
     defaultLabel = `API via ${url.replace(/^https?:\/\//, '')}`;
   } else if (kind === '4') {
-    defaultLabel = 'Claude account (stored login)';
+    defaultLabel = 'Claude account';
   } else if (kind === '5') {
     const key = await askHidden('API key (it is not shown): ');
     if (!key) return null;

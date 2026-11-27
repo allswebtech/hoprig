@@ -1,8 +1,12 @@
 // Providers: an address in Claude Code's own settings file wins over every provider (src/codetools/ownsettings.mjs).
 // One panel says so, shows the exact lines a press takes out (a key's value never), and offers the two ways out: take
 // the address out (a backup is kept beside the file), or make that gateway a provider of its own first.
-import { api, confirmSheet, copyText, h, toast } from './lib.js';
+import { api, confirmSheet, copyText, h, openSheet, toast } from './lib.js';
+import { listRow } from './shell.js';
 import { icon } from './icons.js';
+
+/** The short words under a provider row: the whole sentence is in the sheet of the warning row. */
+export const ownShort = 'Not used by Claude Code now';
 
 /** The words a provider's row gets when the settings file decides instead of it (Claude Code only). */
 export const ownNote = (o) => (o ? `Not used by Claude Code now: ${o.words.replace(/; your providers cannot change that$/, '')}` : null);
@@ -78,4 +82,16 @@ export function ownBackupPanel(b, done) {
     h('p', h('strong', "A copy of Claude Code's old settings file is kept")),
     h('p.hint', `In the folder ${b.folder}, named ${b.name}. To put it back by hand, rename it to settings.json there.`),
     h('div.btnrow', btn, copy));
+}
+
+/** The warning as one row: the lines and the two ways out are in its sheet. null when the file names no address. */
+export function ownEndpointRow(o, done) {
+  if (!o) return null;
+  return listRow({ icon: 'alert', title: 'Claude Code uses its own address', sub: 'Your providers are not used', onclick: () => openSheet({ title: 'Claude Code uses its own address' }, (close) => ownEndpointPanel(o, () => { close(); done(); })) });
+}
+
+/** The copy that was kept, as one row with its sheet. null when there is none. */
+export function ownBackupRow(b, done) {
+  if (!b) return null;
+  return listRow({ icon: 'info', title: 'A copy of the old settings is kept', onclick: () => openSheet({ title: 'A copy of the old settings is kept' }, (close) => ownBackupPanel(b, () => { close(); done(); })) });
 }

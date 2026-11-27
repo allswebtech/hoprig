@@ -7,7 +7,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { bold, dim, makeUi, yours } from '../setup/ui.mjs';
 import { GIT_COMMANDS, GIT_USAGE, gitMain, printMapStatus } from './cli-git.mjs';
-import { isLinkedWorktree, workspaceStatus } from './layout.mjs';
+import { isLinkedWorktree, workspaceDir, workspaceStatus } from './layout.mjs';
 import { mapStatus } from './map.mjs';
 import { placesHere, projectsHere } from './where.mjs';
 import { findTool } from '../codetools/index.mjs';
@@ -236,7 +236,8 @@ export async function main(args = [], { ui = makeUi({}), write = (s) => process.
         else for (const l of toolLines([t])) ui.line(['blocked', 'stale'].includes(t.state) ? 'warn' : 'info', l);
         for (const m of t.missing) ui.line('warn', `${t.name} (${t.group}) needs ${m.program}, which this computer does not have${m.fix ? `:  ${m.fix}` : ''}`);
       }
-      printMapStatus(ui, ms);
+      const bi = await (await import('../pcsetup/workspace.mjs')).repoInfo(path.join(workspaceDir(), 'ai_brain')).catch(() => null);
+      printMapStatus(ui, ms, { brainBehind: bi && bi.ok ? bi.behind : 0 });
       for (const n of needs) {
         for (const x of n.notAccepted || []) ui.line('info', `${n.project} names ${x.name} as a need: not opened to its sessions until you allow it on this computer:  ${x.allow}`);
         if (n.missingNeeds.length) ui.line('info', `${n.project} needs ${n.missingNeeds.map((x) => x.name).join(', ')}, not on this computer:  hoprig get ${n.missingNeeds.map((x) => x.name).join(' ')}`);

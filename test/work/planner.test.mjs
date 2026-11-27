@@ -25,7 +25,7 @@ test('a planner file: the owner\'s id is asked first, then new items are written
   const before = fs.readFileSync(file, 'utf8');
   let r = await tasks('add', 'Renew the domain');
   assert.equal(r.code, 1);
-  assert.match(r.err, /this Work list is kept in a planning file\. First type your name or initials, as that file uses them, in Settings → Work → "Your id in a planning file"\. New items then get the same form\./);
+  assert.match(r.err, /this Work list is kept in a planning file\. First type your name or initials, as that file uses them, in Work → Tasks → Work settings \(at the foot\) → More → "Your id in a planning file"\. New items then get the same form\./);
   assert.doesNotMatch(r.err, /in that tool/, 'the field is in this dashboard, not in the planning tool');
   assert.equal(fs.readFileSync(file, 'utf8'), before, 'nothing written with a word that tool does not know');
   r = await tasks('owner');

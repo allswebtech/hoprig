@@ -104,3 +104,9 @@ test("the user manager's socket is waited for, bounded", async () => {
   assert.equal(await A.waitForBus(1001, { limitMs: 2000, stepMs: 500, sleep: async () => slept++, isSocket: () => false }), false);
   assert.equal(slept, 4, 'it gave up at the limit');
 });
+
+test("root's nvm marks do not reach the user's command", async () => {
+  const seen = [];
+  await A.runAsUser(user, ['id'], { has: () => true, readdir: () => [], run: async (a, o) => (seen.push(o.env), { ok: true }), env: { NVM_DIR: '/root/.nvm', NVM_BIN: '/root/.nvm/b', LANG: 'C', HOME: '/root' } });
+  assert.deepEqual(seen[0], { LANG: 'C', HOME: '/root' });
+});

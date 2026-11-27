@@ -43,14 +43,15 @@ test('the subtitle and the three asks are plain words', () => {
   // Paid use without his tap is possible at Hands off within the daily limit: the line never promises she always asks.
   assert.equal(tia.SUBTITLE, 'Tell Tia what you want done, in your own words. She asks you before anything risky, and before paid use unless you chose Hands off with a daily limit for it (Settings → Tia).');
   assert.doesNotMatch(tia.SUBTITLE, /risky or paid/);
-  assert.match(src, /intro: SUBTITLE,/);
+  assert.match(src, /intro: HEAD_LINE,/, 'her head carries the short line; SUBTITLE is the whole sentence');
+  assert.match(tia.SUBTITLE, /asks you before anything risky/);
   assert.deepEqual(tia.EXAMPLES, ['What needs me?', 'What is running?', 'Start a new project']);
 });
 
-test('each level has one short line; the full text of the chosen one is under a closed "More"', () => {
+test('each level has one short line; the lines and the full text of the chosen one are under a closed "What each level means"', () => {
   assert.ok(HELP.levelShort, 'no short lines');
   for (const l of LEVELS) assert.ok(HELP.levelShort[l] && HELP.levelShort[l].split(' ').length <= 20, l);
-  assert.match(src, /levelSeg, levelLines, fold\('tia-level-more', 'What each level means', levelHelp\)/);
+  assert.match(src, /levelSeg, fold\('tia-level-more', 'What each level means', levelLines, levelHelp\)/);
 });
 
 test('nothing is taken away: Lead model, her model, the limits, the cap and "runs on" are all still drawn', () => {
