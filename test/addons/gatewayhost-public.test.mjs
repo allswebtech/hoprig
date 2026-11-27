@@ -38,13 +38,14 @@ const writeFixed = (extra = []) => {
 const readFixed = () => JSON.parse(fs.readFileSync(fixedStateFile(), 'utf8'));
 
 let running = true;
+let gwVersion = '1.0.13';
 const log = [];
 const def = { id: 'trouteai', localOnly: ['--host', '127.0.0.1'] };
 const addon = {
   id: 'trouteai', title: 'TRouteAI', defined: false, gateway: { port: () => PORT },
   command: () => ['/opt/trouteai/bin/trouteai.mjs', '--port', String(PORT)],
   listen: () => listenRule(def, { host: '127.0.0.1', reason: null, tailscale: false, shipped: true }),
-  status: async () => ({ installed: true, running }),
+  status: async () => ({ installed: true, running, version: gwVersion }),
   start: async () => (log.push('start'), (running = true), { ok: true }),
   stop: async () => (log.push('stop'), (running = false), { ok: true }),
 };
@@ -126,6 +127,13 @@ test('turned on only after its refusals: each gives 409 with its code and writes
   running = false;
   await assert.rejects(on(), refused(409, 'not-running'));
   running = true;
+  // A gateway older than 1.0.13 does not treat a request for a public host name as from outside: refused, nothing written.
+  for (const v of ['1.0.11', null]) {
+    gwVersion = v;
+    await assert.rejects(on(), refused(409, 'gateway-old'), `version ${v}`);
+    assert.equal((await route('GET', P)({})).need, 'gateway-old');
+  }
+  gwVersion = '1.0.13';
   assert.deepEqual(steps, []);
   assert.deepEqual(readFixed().extra, []);
   assert.deepEqual(told, []);

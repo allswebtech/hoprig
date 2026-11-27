@@ -29,14 +29,16 @@ test('Operator: Tia acts by herself by a rule you switched on or by Tia decides,
   const off = readOperator({});
   assert.equal(off.acts, false, 'Tia acts by herself is off at first');
   assert.equal(off.active, false);
-  assert.ok(RULE_IDS.length > 0 && RULE_IDS.every((id) => off.rules[id] === false), 'every rule is off at first');
+  const { RULES } = await import('../src/operator/rules.mjs');
+  assert.ok(RULE_IDS.length > 0 && RULES.every((r) => off.rules[r.id] === (r.cost === 'none')), 'a rule that spends usage is off at first, one that costs nothing is on');
   assert.equal(readDecide({}).on, false, 'Tia decides is off at first');
   // Both ways need the master switch and Tia herself: the rules and the decider both read `active`.
   assert.equal(readOperator({ operator: { acts: true } }).active, false, 'with Tia off, nothing acts');
   assert.equal(readOperator({ operator: { acts: true }, assistant: { enabled: true } }).active, true);
   assert.match(read('src/operator/decider.mjs'), /return readOperator\(cfg\)\.active && readDecide\(cfg\)\.on;/, 'Tia decides runs only while active');
   const rules = flat(part(OPERATOR, 'What Tia does by herself (her rules)')).trim();
-  assert.match(rules, /^Tia may do a step by herself only by a rule you switched on or by \*\*Tia decides\*\* \(below\), and only while \*\*Tia acts by herself\*\* is on and Tia herself is on \(Settings → Tia\)\. All of it is off after an install and after an update\./);
+  assert.match(rules, /^Hoprig mends by itself what costs nothing, with no model: the rules marked "costs nothing" below are on from the first run under \*\*Settings → Automations → Mend problems by itself\*\*/);
+  assert.match(rules, /Tia may do any other step by herself only by a rule you switched on or by \*\*Tia decides\*\* \(below\), and only while \*\*Tia acts by herself\*\* is on and Tia herself is on \(Settings → Tia\): those are off after an install and after an update\./);
   assert.doesNotMatch(rules, /only by a rule you switched on, and only while/);
 });
 
@@ -149,10 +151,12 @@ test('Work: Tia changes a plan at once only on his own named words and never at 
   assert.match(tool, /if \(!x\.named\) return \{ level: 'L2',/);
   assert.match(tool, /const last = !ctx\.woken && typeof ctx\.heLast === 'string'/);
   // A plan's own words stay his: her door takes only a task's plan, milestone and what it waits for.
-  assert.ok(tia.includes('So do making a plan and changing a plan\'s own title, goal, milestones or status'));
+  assert.ok(tia.includes('Making a plan and changing its title, goal, projects or milestones is her act `change-plan`'));
+  assert.ok(tia.includes('A plan\'s status (done or dropped) stays yours on the Plans part.'));
   const door = read('src/assistant/door.mjs');
   assert.match(door, /r\('POST', `\/api\/work\/items\/\$\{SEG\}\/plan`, 'manage_work add, edit, undo', \(b\) => onlyKeys\(\['at', 'plan', 'milestone', 'after'\]\)\(b\) \|\| atOk\(b\)\),/);
-  assert.doesNotMatch(door, /r\('POST', '\/api\/work\/plans/);
+  // Her act change-plan (hoprig_act) makes and changes a plan: title, goal, projects and milestones, never its status.
+  assert.match(door, /r\('POST', '\/api\/work\/plans', 'hoprig_act change-plan', onlyKeys\(\['title', 'goal', 'projects', 'milestones'\]\)\),/);
   const nb = flat(part(WORK, 'Not built yet'));
   assert.doesNotMatch(nb, /Tia's tools to read or change a plan/);
   assert.match(nb, /Tia carrying a Work run of hers on to another provider by herself after a usage limit/);

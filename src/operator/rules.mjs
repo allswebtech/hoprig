@@ -7,11 +7,15 @@
 // never an instruction.
 //
 // config.json, key "operator" (the owner's own, set from the dashboard's page only):
+//   mends        true | false   "Mend problems by itself": the rules that cost nothing (cost 'none': no model, no usage);
+//                               on unless set to false, and not tied to Tia
 //   acts         true | false   the master switch "Tia acts by herself"; off after an install and after an update
-//   rules        { <id>: true | false }   each rule, off unless set to true
+//   rules        { <id>: true | false }   each rule: a rule of cost 'none' is on unless set to false, a rule of cost
+//                               'usage' (it spends an account's usage) is off unless set to true
 //   budgets      { <id>: { perHour, perDay, waitMinutes } }   low defaults (BUDGET_DEFAULTS)
 //   projectsOut  [project refs]   "she never acts in this project": <name>, or <place>/<name> in a group
-// Missing or broken means everything off. While Tia herself is off (assistant.enabled), no rule acts either.
+// A rule of cost 'usage' needs "Tia acts by herself" and Tia on; a rule of cost 'none' needs only the mends switch.
+// Missing or broken: the mends switch is on and the rules of cost 'none' are on; everything of cost 'usage' is off.
 
 const HOUR = 3600_000;
 export const LEFTOVER_AGE_MS = HOUR;
@@ -25,6 +29,7 @@ export const MISSION_OWNS = Object.freeze(['limit', 'stuck', 'ended', 'asks']);
 export const RULES = Object.freeze([
   {
     id: 'limit',
+    cost: 'usage',
     act: 'switch',
     sentence: 'When a session stops at a usage limit, continue it on the next provider of my order.',
     detail: 'The order is the one under Providers → Auto mode. Only to a provider Tia may use (Settings → Tia), to a provider paid per use only at "Hands off" and inside her daily limit for paid use (which counts the move), never while Auto mode is on, and never back to a provider the session left within the hour.',
@@ -34,14 +39,16 @@ export const RULES = Object.freeze([
   },
   {
     id: 'gateway',
+    cost: 'none',
     act: 'restart-gateway',
     sentence: 'When a gateway that open sessions go through does not answer, restart it.',
-    detail: 'Not a gateway that is only not started yet (its next session starts it), and never one you stopped yourself.',
+    detail: 'Also one that answers with server errors. Not a gateway that is only not started yet (its next session starts it), never one you stopped yourself, and never another program that holds its port.',
     undo: null,
-    noUndo: 'A restart cannot be undone.',
+    noUndo: 'A restart cannot be undone; Stop on its page ends it.',
   },
   {
     id: 'link',
+    cost: 'none',
     act: 'restart-link',
     sentence: 'When the public link is on and does not answer, restart it.',
     detail: 'Only while you have the public link on.',
@@ -50,6 +57,7 @@ export const RULES = Object.freeze([
   },
   {
     id: 'leftover',
+    cost: 'none',
     act: 'end',
     sentence: 'End a test\'s left-over processes.',
     detail: 'Only a test\'s, once it is older than an hour: an idle tmux server that a test or a try of Hoprig started (its state folder is in the temporary folder), or a test\'s dashboard. Your own tmux servers stay yours, also one started in the temporary folder.',
@@ -57,7 +65,26 @@ export const RULES = Object.freeze([
     noUndo: 'An ended process cannot be undone.',
   },
   {
+    id: 'reopen',
+    cost: 'none',
+    act: 'reopen',
+    sentence: 'When a session\'s coding tool died without ending, reopen the same conversation.',
+    detail: 'It resumes where it stopped and nothing is sent to it. Not one you ended yourself (/exit), and not one whose conversation is not known.',
+    undo: null,
+    noUndo: 'Close it on its page.',
+  },
+  {
+    id: 'clean',
+    cost: 'none',
+    act: 'clean',
+    sentence: 'When a disk is over 90 percent full, clean Hoprig\'s own old files.',
+    detail: 'Only what Hoprig made: its logs older than 14 days and its own temporary folders older than a day. Never your files.',
+    undo: null,
+    noUndo: 'It only removes files Hoprig makes again.',
+  },
+  {
     id: 'elsewhere',
+    cost: 'usage',
     act: 'elsewhere',
     sentence: 'When this computer is overloaded, start new work where there is room.',
     detail: 'Only Tia\'s new starts, only on a computer you let her use (Settings → Tia) that has room, until this computer has been calm for 10 minutes (2 hours at most). Nothing that runs moves.',
@@ -88,11 +115,16 @@ export function ruleFor(item, { now = Date.now() } = {}) {
       return has('switch') && typeof tg.session === 'string' && typeof tg.to === 'string' && tg.to && tg.hook === true ? byId.get('limit') : null;
     case 'provider':
       // The stopped gateway, never its "not started" note (that one is information: nothing waits for it).
-      // Never one the owner stopped himself (Settings → Add-ons): that stop is his act, not a crash.
+      // Never one the owner stopped himself (Settings → Add-ons): that stop is his act, not a crash. Never another
+      // program that holds its port: such an item has no restart act at all.
       return has('restart-gateway') && item.class === 'stopped' && typeof tg.addon === 'string' && tg.ownerStopped !== true ? byId.get('gateway') : null;
     case 'live':
       return has('restart-link') ? byId.get('link') : null;
+    case 'ended':
+      // Only a session whose own run record never said it ended (no SessionEnd): the tool died, nobody ended it.
+      return has('reopen') && typeof tg.session === 'string' && tg.reopen === true ? byId.get('reopen') : null;
     case 'machine':
+      if (has('clean') && tg.clean === true) return byId.get('clean');
       return has('elsewhere') && typeof tg.to === 'string' ? byId.get('elsewhere') : null;
     case 'leftover': {
       const born = t(item.since);
@@ -105,6 +137,12 @@ export function ruleFor(item, { now = Date.now() } = {}) {
 }
 
 export const BUDGET_DEFAULTS = Object.freeze({ perHour: 3, perDay: 10, waitMinutes: 10 });
+// A rule of cost 'none' tries again after 2 minutes (a gateway that did not come back is not left for 10), and a clean
+// of the disk is once a day.
+const RULE_BUDGETS = Object.freeze({ clean: { perHour: 1, perDay: 1, waitMinutes: 60 } });
+const budgetDefaults = (id) => ({ ...BUDGET_DEFAULTS, ...(byId.get(id)?.cost === 'none' ? { waitMinutes: 2 } : {}), ...(RULE_BUDGETS[id] || {}) });
+/** Whether a rule may act now: the mends switch for a rule of cost 'none', Tia's switches for one that spends usage. */
+export const ruleOn = (s, id) => s.rules[id] === true && (byId.get(id)?.cost === 'none' ? s.mends : s.active);
 const BUDGET_LIMITS = { perHour: [1, 30], perDay: [1, 200], waitMinutes: [1, 24 * 60] };
 // The words of the page's "Change the limits" form: a refusal names the field he typed in, not the setting's key.
 const BUDGET_WORDS = { perHour: 'An hour', perDay: 'A day', waitMinutes: 'Minutes between tries' };
@@ -118,13 +156,14 @@ export function readOperator(cfg) {
   const rules = {};
   const budgets = {};
   for (const id of RULE_IDS) {
-    rules[id] = isObj(raw.rules) && raw.rules[id] === true;
+    // A rule that costs nothing is on unless the owner turned it off; one that spends usage is off unless he turned it on.
+    rules[id] = byId.get(id).cost === 'none' ? !(isObj(raw.rules) && raw.rules[id] === false) : isObj(raw.rules) && raw.rules[id] === true;
     const b = isObj(raw.budgets) && isObj(raw.budgets[id]) ? raw.budgets[id] : {};
-    budgets[id] = Object.fromEntries(Object.entries(BUDGET_DEFAULTS).map(([k, d]) => [k, inRange(k, b[k]) ? b[k] : d]));
+    budgets[id] = Object.fromEntries(Object.entries(budgetDefaults(id)).map(([k, d]) => [k, inRange(k, b[k]) ? b[k] : d]));
   }
   const projectsOut = Array.isArray(raw.projectsOut) ? [...new Set(raw.projectsOut.filter((n) => typeof n === 'string' && n && n.length <= 100))] : [];
   const tia = cfg?.assistant?.enabled === true;
-  return { acts: raw.acts === true, tia, active: raw.acts === true && tia, rules, budgets, projectsOut };
+  return { mends: raw.mends !== false, acts: raw.acts === true, tia, active: raw.acts === true && tia, rules, budgets, projectsOut };
 }
 
 /**
@@ -135,13 +174,17 @@ export function applyOperatorPatch(cfg, p, projects = []) {
   if (!isObj(p)) throw new Error('send an object');
   const cur = isObj(cfg?.operator) ? cfg.operator : {};
   const next = {
+    ...(typeof cur.mends === 'boolean' ? { mends: cur.mends } : {}),
     acts: cur.acts === true,
     rules: { ...(isObj(cur.rules) ? cur.rules : {}) },
     budgets: { ...(isObj(cur.budgets) ? cur.budgets : {}) },
     projectsOut: Array.isArray(cur.projectsOut) ? [...cur.projectsOut] : [],
   };
   for (const [k, v] of Object.entries(p)) {
-    if (k === 'acts') {
+    if (k === 'mends') {
+      if (typeof v !== 'boolean') throw new Error('mends must be true or false');
+      next.mends = v;
+    } else if (k === 'acts') {
       if (typeof v !== 'boolean') throw new Error('acts must be true or false');
       next.acts = v;
     } else if (k === 'rules') {

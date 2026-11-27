@@ -26,7 +26,8 @@ globalThis.Node = FakeNode;
 globalThis.document ??= { createElement: (t) => new FakeElement(t), createElementNS: (ns, t) => new FakeElement(t), createTextNode: (t) => t, getElementById: () => null, addEventListener: () => {}, visibilityState: 'visible' };
 const read = (f) => fs.readFileSync(new URL(`../../web/${f}`, import.meta.url), 'utf8');
 const page = read('trouteaipage.js');
-const { publicNeed, PUBLIC_SENTENCE, ROWS_SHOWN } = await import('../../web/trouteaipage.js');
+const { publicNeed, PUBLIC_SENTENCE, ROWS_SHOWN, GATEWAY_NEEDS } = await import('../../web/trouteaipage.js');
+const { GATEWAY_NEEDS: SERVER_NEEDS, GATEWAY_PIN } = await import('../../src/addons/gateways.mjs');
 const { accountLine, lowestLeft, publicOffWords } = await import('../../web/trouteai.js');
 
 test('the parts come in the order of the design: status, problem, Open, Accounts, Add account, then the folds', () => {
@@ -129,4 +130,17 @@ test('a gateway that runs but does not answer is not asked for its accounts: one
   assert.ok(at > 0, 'the guard is there');
   assert.ok(at < page.indexOf("api(T('/accounts'))"), 'before the accounts are asked');
   assert.match(page.slice(at, at + 400), /does not answer yet[^]*manageFold\(ctx, gw\)\);\s*return fill/);
+});
+
+test('what needs a newer TRouteAI says so plainly, with Update beside it, and the page names the same version as the server', () => {
+  assert.equal(GATEWAY_NEEDS, SERVER_NEEDS, 'the page and the server name one version');
+  assert.equal(GATEWAY_NEEDS, GATEWAY_PIN, 'the version Install gets has what the page needs');
+  const [sentence, kind] = publicNeed({ need: 'gateway-old' });
+  assert.equal(kind, 'update');
+  assert.match(sentence, /needs TRouteAI 1\.0\.13/);
+  assert.match(page, /kind === 'update' \? btn\('secondary', \{ icon: 'download', label: 'Update'/, 'the refusal has its Update press');
+  assert.match(page, /\} else if \(g\.newer\) \{[^]*A newer TRouteAI is there\.[^]*label: 'Update'/, 'an own copy older than the pin: one line and the existing Update, nothing run');
+  const sheet = read('trouteai.js');
+  assert.match(sheet, /catalog\.needs && state\.update[^]*label: 'Update'/, 'the Add sheet offers Update when the list needs a newer one');
+  assert.match(sheet, /r\.needs && state\.update \? btn\('small secondary', \{ label: 'Update'/, 'Open signed in offers Update beside its line');
 });

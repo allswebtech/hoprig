@@ -15,3 +15,18 @@ export const CARRIED_ENV = [
  */
 export const carried = (env = process.env, locales = installedLocales()) =>
   CARRIED_ENV.filter((k) => env[k] && (!LOCALE_VARS.includes(k) || localeThere(env[k], locales))).map((k) => [k, String(env[k])]);
+
+/**
+ * `expected` with the text between `from` and `to` taken from `existing`: the keeper compares a service file with what
+ * the product would write, and the carried variables are those of the installing shell, which the keeper does not
+ * have. Without both markers in both texts, `expected` is returned as it is.
+ */
+export function swapBetween(existing, expected, from, to) {
+  if (typeof existing !== 'string') return expected;
+  const a = existing.indexOf(from);
+  const b = a < 0 ? -1 : existing.indexOf(to, a);
+  const c = expected.indexOf(from);
+  const d = c < 0 ? -1 : expected.indexOf(to, c);
+  if (b < 0 || d < 0) return expected;
+  return expected.slice(0, c) + existing.slice(a, b) + expected.slice(d);
+}

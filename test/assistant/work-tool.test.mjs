@@ -32,8 +32,8 @@ const writes = (ops) => ops.calls.map((c) => c.op);
 const outside = (t) => t.replace(/<untrusted_(\w+)[^>]*>[\s\S]*?<\/untrusted_\1>/g, '');
 const START = { action: 'start', task: 'fix-the-cart-total', brief: 'Make the cart total use the discount code. Done: the cart tests pass. Do not push.', kind: 'code' };
 
-test('the catalog: 25 tools with manage_work, its actions and their levels', () => {
-  assert.equal(TOOLS.length, 25);
+test('the catalog: 24 tools with manage_work, its actions and their levels', () => {
+  assert.equal(TOOLS.length, 24);
   const t = byName.get('manage_work');
   const want = { today: 'L0', list: 'L0', task: 'L0', plans: 'L0', plan: 'L0', mission: 'L0', goal: 'L2', fix_ids: 'L2', tidy: 'L2', mission_stop: 'L2', mission_add: 'L2', mission_tests: 'L2', run: 'L0', progress: 'L0', add: 'L1', edit: 'L1', done: 'L1', reopen: 'L1', undo: 'L1', start: 'L2', accept: 'L2', send_back: 'L2', drop: 'L2', remove: 'L2' };
   assert.deepEqual(Object.fromEntries(Object.keys(t.actions).map((k) => [k, t.levelOf({ action: k })])), want);

@@ -34,7 +34,7 @@ export const ASSISTANT_NAME = 'Tia';
 export const LEVELS = ['ask', 'work', 'handsoff'];
 // Off until the owner turns her on: an assistant that drives sessions is the most powerful part of Hoprig, and
 // still experimental.
-export const DEFAULTS = Object.freeze({ enabled: false, level: 'work', accounts: null, runsOn: null, maxSteps: 20, maxMinutes: 240, model: null, dailyCapUsd: null, answersHers: false });
+export const DEFAULTS = Object.freeze({ enabled: false, level: 'work', accounts: null, runsOn: null, maxSteps: 20, maxMinutes: 240, model: null, dailyCapUsd: null, actAlone: false, decides: false, answersHers: false });
 const MODEL_RE = /^[A-Za-z0-9][A-Za-z0-9._:/@+\-[\]]{0,119}$/; // as src/server/endpoint.mjs
 const NAME_RE = /^[a-z0-9][a-z0-9_-]{0,31}$/;
 
@@ -107,6 +107,11 @@ export function cleanTiaPatch(p, knownAccounts = [], runsOnAccounts = knownAccou
       // cannot send it: door.mjs SETTINGS_KEYS has no assistant key).
       if (typeof v !== 'boolean') throw new Error('answersHers must be true or false');
       out.answersHers = v;
+    } else if (k === 'decides') {
+      // "Tia decides" (off at first): her own right, so only his page sets it. Her small acts on Hoprig itself follow the one
+      // switch "Tia acts by herself" (ops.mjs assistantSettings), not a key of their own.
+      if (typeof v !== 'boolean') throw new Error(`${k} must be true or false`);
+      out[k] = v;
     } else if (k === 'lead') {
       // "Lead model" for the chats she starts (src/models/lead.mjs): off unless the owner turns it on.
       if (typeof v !== 'boolean') throw new Error('lead must be true or false');
@@ -195,7 +200,7 @@ export function resolveTia(raw, accounts) {
   // null: he chose no computers (as before this setting: where he names, else here); else the list, this one always in it.
   const computers = Array.isArray(r.computers) && r.computers.length ? [...new Set(['this', ...r.computers.filter((n) => typeof n === 'string')])] : null;
   const dailyCapUsd = typeof r.dailyCapUsd === 'number' && Number.isFinite(r.dailyCapUsd) && r.dailyCapUsd > 0 ? r.dailyCapUsd : null;
-  return { enabled: r.enabled !== false, level: r.level, allowed, computers, accountsDefault: !Array.isArray(r.accounts), runsOn, maxSteps: r.maxSteps, maxMinutes: r.maxMinutes, model, lead: r.lead === true, answersHers: r.answersHers === true, others: Array.isArray(r.others) ? r.others.filter((n) => allowed.includes(n)) : [], dailyCapUsd, subscription: firstFree ? firstFree.name : null, subsLimited, chosenLimited, noneAllowed };
+  return { enabled: r.enabled !== false, level: r.level, allowed, computers, accountsDefault: !Array.isArray(r.accounts), runsOn, maxSteps: r.maxSteps, maxMinutes: r.maxMinutes, model, lead: r.lead === true, answersHers: r.answersHers === true, actAlone: r.actAlone === true, decides: r.decides === true, others: Array.isArray(r.others) ? r.others.filter((n) => allowed.includes(n)) : [], dailyCapUsd, subscription: firstFree ? firstFree.name : null, subsLimited, chosenLimited, noneAllowed };
 }
 
 /**

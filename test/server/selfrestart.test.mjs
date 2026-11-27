@@ -102,3 +102,30 @@ test('serviceInstalled: the file each manager writes and its uninstall removes, 
   assert.equal(serviceInstalled('win32', { existsSync: () => false }), false);
   assert.equal(serviceInstalled('freebsd', { existsSync: () => true }), false);
 });
+
+test('restartAfterExit: after the restart the new version must answer, or the kept one is put back and the page says so', async () => {
+  const lines = [];
+  const calls = [];
+  let asked = null;
+  const code = await restartAfterExit(0, {
+    alive: () => false,
+    runService: (s) => (calls.push(s), 0),
+    log: { add: (e) => lines.push(e) },
+    check: async ({ restart }) => {
+      asked = restart;
+      await restart();
+      return { did: 'rolledback', text: 'Hoprig went back to 0.3.5 because 0.3.6 did not start.' };
+    },
+  });
+  assert.equal(code, 0);
+  assert.equal(typeof asked, 'function');
+  assert.deepEqual(calls, ['restart', 'restart'], 'the check can start the service again');
+  assert.equal(lines.length, 2);
+  assert.match(lines[1].did, /went back to the version before the update/);
+});
+
+test('restartAfterExit: no check after a restart that failed', async () => {
+  let checked = false;
+  await restartAfterExit(0, { alive: () => false, runService: () => 1, log: { add() {} }, check: async () => (checked = true) });
+  assert.equal(checked, false);
+});

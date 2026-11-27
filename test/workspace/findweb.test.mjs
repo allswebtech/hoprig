@@ -287,7 +287,7 @@ test('the page: a button per place with a rule, every change asked first, the wo
 test('the docs and the changelog say what the page does, in its own words', async () => {
   const read = (f) => fs.readFileSync(new URL(`../../${f}`, import.meta.url), 'utf8').replace(/\n\s*/g, ' ');
   const doc = read('docs/WORKSPACE.md');
-  assert.match(doc, /\*\*On the page: "Look on the git server"\.\*\* In \*\*Settings → Automations → Workspace\*\*/);
+  assert.match(doc, /\*\*On the page: "Look on the git server"\.\*\* In \*\*Settings → Workspace\*\*/);
   assert.match(doc, /\*\*Add these to the map\*\* first shows which entries go in \("Nothing is cloned"\)/);
   assert.match(doc, /the yes is refused with "This changed since you looked: look again\."/);
   assert.match(doc, /\*\*Take them out again\*\* right after takes out exactly the entries that add wrote/);

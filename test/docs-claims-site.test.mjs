@@ -140,7 +140,8 @@ test('the Operator use case: the order of the list, and every switch of Tia off 
   // Off at first: the main switch, every rule, Tia decides, its missions, the looks; none acts while Tia is off.
   const op = readOperator({});
   assert.equal(op.acts, false);
-  for (const id of RULE_IDS) assert.equal(op.rules[id], false, `rule ${id} off at first`);
+  const { RULES: ALL } = await import('../src/operator/rules.mjs');
+  for (const r of ALL) assert.equal(op.rules[r.id], r.cost === 'none', `rule ${r.id}: on at first only when it costs nothing`);
   assert.equal(readOperator({ operator: { acts: true }, assistant: { enabled: false } }).active, false, 'nothing acts while Tia is off');
   assert.equal(readOperator({ operator: { acts: true }, assistant: { enabled: true } }).active, true);
   assert.deepEqual(BUDGET_DEFAULTS, { perHour: 3, perDay: 10, waitMinutes: 10 });
@@ -161,7 +162,7 @@ test('the Operator use case: the order of the list, and every switch of Tia off 
   assert.match(read('web/operator-decide.js'), /about 3,400 tokens/);
   const page = flat(read('site/content/use-cases/what-needs-you.md'));
   assert.match(read('site/content/use-cases/what-needs-you.md'), /^---\norder: 19\n/);
-  assert.match(page, /While Tia's rules, \*\*Tia decides\*\* and her looks are off, nothing happens until you tap\. All of them are off at first\./);
+  assert.match(page, /While Tia's rules, \*\*Tia decides\*\* and her looks are off, nothing that spends usage happens until you tap\. Hoprig mends by itself what costs nothing, such as a gateway that stopped; everything else is off at first\./);
   assert.match(page, /# How do I see on one page what needs me\? Open \*\*Home\*\*\. Its \*\*Needs you\*\* group lists what needs you now/);
   assert.match(page, /\*\*Needs you\*\* lists the rows in this order: work that can be lost, stopped work, what waits for you, then this computer\. Inside each the oldest comes first\./);
   assert.doesNotMatch(page, /Operator\*\*|group \*\*More\*\*|Beside the list|Done by you|Watched/, 'the Operator page is gone: the page says where things are now');
@@ -171,7 +172,7 @@ test('the Operator use case: the order of the list, and every switch of Tia off 
   assert.match(read('web/operator-tia.js'), /fold\('tia-part-done', 'Done by Tia'/);
   assert.match(read('web/operator-rooms.js'), /LOOK_SENTENCE = 'Look at my other computers too'/);
   assert.match(page, /In \*\*Settings\*\*, \*\*Tia\*\*, the fold \*\*What she may do alone\*\* holds switches/);
-  assert.match(page, /A rule acts at most 3 times an hour and 10 times a day, with 10 minutes between two tries on the same thing/);
+  assert.match(page, /A rule acts at most 3 times an hour and 10 times a day, with 10 minutes between two tries on the same thing \(2 minutes for the rules that cost nothing\)/);
   assert.match(page, /about 3,400 tokens of her provider, at most 30 decisions and 125,000 tokens a day at first/);
   assert.match(page, /at most 2 looks and \$3 a day at first/);
   assert.match(page, /a session with no progress for 20 minutes/);
@@ -187,7 +188,7 @@ test('the Operator use case: the switches in the panel\'s order, what each needs
   const panel = fn.slice(fn.lastIndexOf("return h('section.op-tia'"), fn.indexOf('\n}\n'));
   const order = ['master,', 'decidePart(', 'lookPart(', 'correctionsPart(', "h('ul.op-rules'"].map((w) => panel.indexOf(w));
   assert.ok(order.every((at, i) => at > -1 && (i === 0 || at > order[i - 1])), `the panel's order: ${order}`);
-  const said = ['**Tia acts by herself** is the main switch', '- **Tia decides**:', '- **Tia looks into what nobody can explain**:', '- **Tia keeps your corrections**:', '- Last come her five rules'].map((w) => page.indexOf(w));
+  const said = ['**Tia acts by herself** is the main switch', '- **Tia decides**:', '- **Tia looks into what nobody can explain**:', '- **Tia keeps your corrections**:', '- Last come her seven rules'].map((w) => page.indexOf(w));
   assert.ok(said.every((at, i) => at > -1 && (i === 0 || at > said[i - 1])), `the page's order: ${said}`);
   // Tia OFF is drawn only while she may act; turning the main switch on asks first.
   assert.match(read('web/operator-tia.js'), /const off = v\.acts \? h\('button\.btn\.danger\.op-off'/);
@@ -195,8 +196,8 @@ test('the Operator use case: the switches in the panel\'s order, what each needs
   assert.match(page, /Turning it on asks you to confirm first\. .*While it is on, the button \*\*Tia OFF\*\* stands at the top of the fold and stops her at once\./);
   // Five rules, and the guide that lists them.
   const { RULES } = await import('../src/operator/rules.mjs');
-  assert.equal(RULES.length, 5);
-  assert.match(page, /The \[Operator guide\]\(\/docs\/operator\/\) lists all five\./);
+  assert.equal(RULES.length, 7);
+  assert.match(page, /The \[Operator guide\]\(\/docs\/operator\/\) lists all seven\./);
   // Corrections: off at first, 200 a day, 90 days, kept with the main switch off (only their own switch counts).
   const C = await import('../src/operator/corrections.mjs');
   assert.equal(C.readCorrections({}).on, false);
@@ -244,7 +245,8 @@ test('the index names the Operator and Tia, and says Tia and what she does by he
   const { readLook } = await import('../src/operator/look.mjs');
   const off = readOperator({});
   assert.equal(off.tia, false, 'Tia is off at first (assistant.enabled)');
-  assert.ok(!off.acts && RULE_IDS.every((id) => !off.rules[id]) && !readDecide({}).on && !readLook({}).on);
+  const { RULES } = await import('../src/operator/rules.mjs');
+  assert.ok(!off.acts && RULES.every((r) => off.rules[r.id] === (r.cost === 'none')) && !readDecide({}).on && !readLook({}).on);
   const index = flat(read('site/content/index.md'));
   assert.match(index, /### What are the Operator and Tia\?/);
   assert.match(index, /\[see on one page what needs you\]\(\/use-cases\/what-needs-you\/\)/);
@@ -455,7 +457,7 @@ test('money, the stop and Auto mode: a rule and Tia decides spend on a paid prov
   const typing = 'Typing into a session that runs on a provider paid per use, the nudge too, is money: \\*\\*Tia decides\\*\\* does it only at \\*\\*Hands off\\*\\* and within';
   for (const [name, page] of [['index', index], ['README', readme], ['ai-team', flat(read('site/content/use-cases/ai-team.md'))], ['tell', flat(read('site/content/use-cases/tell-the-assistant.md'))]]) assert.match(page, new RegExp(`to nudge it.*${name === 'README' ? billed(typing) : typing}`), name);
   // Finding: every thing Tia decides may do to a session without a card is named, the nudge's fixed line and the stop.
-  assert.match(flat(read('site/content/use-cases/tell-the-assistant.md')), /a stop or a message she would send to that session is a card too\. \*\*Tia decides\*\* on the Operator page, once you turn it on, may still do two things to that session without a card when it is stuck: type one fixed line of Hoprig's into it to nudge it, once while it makes no progress, and end it, but only in a project where you ticked \*\*Tia may end a stuck session in this project\*\* on the project's page/);
+  assert.match(flat(read('site/content/use-cases/tell-the-assistant.md')), /a stop or a message she would send to that session is a card too\. \*\*Tia decides\*\* \(\*\*Settings → Tia\*\*\), once you turn it on, may still do two things to that session without a card when it is stuck: type one fixed line of Hoprig's into it to nudge it, once while it makes no progress, and end it, but only in a project where you ticked \*\*Tia may end a stuck session in this project\*\* on the project's page/);
   for (const [name, page] of [['index', index], ['README', readme]]) assert.doesNotMatch(page, /no check of Hoprig reads your words|the cap does not count that move|in a project you wrote a note for/, name);
   assert.doesNotMatch(readme, /Whatever costs money, stops work,/);
   assert.doesNotMatch(readme, /and moves the ones she started there, without asking\. A/);
@@ -468,7 +470,7 @@ test('money, the stop and Auto mode: a rule and Tia decides spend on a paid prov
   const tell = flat(read('site/content/use-cases/tell-the-assistant.md'));
   assert.doesNotMatch(tell, /One move is not counted by that cap/);
   assert.doesNotMatch(tell, /The cap does not count what the Operator page's switches spend/);
-  assert.match(tell, /The same limit holds what the Operator page's switches spend, once you turn them on\. At \*\*Hands off\*\*, the limit rule or \*\*Tia decides\*\* may move a session at a usage limit onto such a provider, only within that limit, and each move counts against it\. The short call of \*\*Tia decides\*\* and a look into what nobody can explain may also run on one when every provider you allowed her is paid per use \(Auto mode counts as paid per use here when its order holds such a provider\), only within that limit too/);
+  assert.match(tell, /The same limit holds what her switches in \*\*Settings → Tia\*\* spend, once you turn them on\. At \*\*Hands off\*\*, the limit rule or \*\*Tia decides\*\* may move a session at a usage limit onto such a provider, only within that limit, and each move counts against it\. The short call of \*\*Tia decides\*\* and a look into what nobody can explain may also run on one when every provider you allowed her is paid per use \(Auto mode counts as paid per use here when its order holds such a provider\), only within that limit too/);
   assert.doesNotMatch(tell, /\bcap\b/i, 'the use case names Tia\'s limit as its field does');
   const needs = flat(read('site/content/use-cases/what-needs-you.md'));
   assert.match(needs, /\*\*Tia decides\*\* and the looks cost tokens of a provider you allowed her\. One paid per use is used only at her level \*\*Hands off\*\*, only when every provider you allowed her is paid per use \(Auto mode counts as paid per use here when its order holds such a provider\), and only within her daily limit for paid use \(Settings → Tia\), which counts each of them\./);
@@ -501,4 +503,14 @@ test('money, the stop and Auto mode: a rule and Tia decides spend on a paid prov
   assert.match(op, /one billed by use only at "Hands off" and within the daily limit for paid use, which holds \$0\.50 before the call and then counts what the call reported it cost\. Auto mode counts as billed by use here when its order holds a provider billed by use, and the reason on the item names it; with an order of subscriptions only, it counts as free of charge\./);
   for (const [name, page] of [['index', index], ['README', readme], ['ai-team', team]]) assert.doesNotMatch(page, /end a stuck session where your note for the project asks for it/, name);
   assert.match(op, /Money is in one: "continue on the next provider" goes to a provider billed by use only at her level \*\*Hands off\*\* and within the daily limit for paid use, as the limit rule does, and the move counts against the limit\. Typing into a session that runs on a provider billed by use \(the nudge, an answer to its question\) is money too: offered only at \*\*Hands off\*\* and within the limit, and each counts \$0\.50 against it\. Below \*\*Hands off\*\*, or with no room in the limit, such a step is not offered, and neither is the stop of a stuck session whose nudge is still owed: an item whose only step it was is yours, with no call, and the item says so in one line \(with \*\*Set a daily limit for paid use\*\* when the limit is why\)\. What "Tia decides" may do to a session without a card is in this table and nothing else: the nudge types the one fixed sentence above, and the stop needs the project's tick, which is read again right before the session is ended\./);
+});
+
+test('the sleep page says trying again after a server error is on at first, bounded as the code is', async () => {
+  const { readSettings } = await import('../src/automation/settings.mjs');
+  const s = readSettings(null);
+  assert.equal(s.retry.enabled, true);
+  assert.equal(s.retry.max, 3);
+  const page = flat(read(SLEEP));
+  assert.match(page, /\*\*Try again after a server error\*\* \(on at first\):.*three times, then stop and say so in Needs you\./);
+  assert.doesNotMatch(page, /server error\*\* \(off at first\)/);
 });

@@ -144,7 +144,7 @@ export function tiaPanel(v, after, { confirm = confirmActs } = {}) {
       return false;
     }
     after('master');
-  }, 'Off after an install and after an update. Only the rules below, only the ones you switch on.', 'master');
+  }, 'Off after an install and after an update. Only the rules below that you switch on, and small jobs on Hoprig itself, each with Undo.', 'master');
   return h('section.op-tia', { 'aria-label': 'What Tia does by herself' },
     off ? h('div.op-tia-head', off) : null,
     h(`p.op-tia-said${v.active ? '.on' : ''}`, { id: 'op-tia-said', role: 'status' }, v.said),

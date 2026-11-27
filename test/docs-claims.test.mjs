@@ -65,14 +65,14 @@ test('the work-while-you-sleep use case shows Work → Schedules, and the screen
   assert.match(read(SLEEP), /!\[Work → Schedules: two schedules, with the queued messages below\]/);
 });
 
-test('with tmux, Reopen sessions after a restart is off at first, and the pages say so; tmux is explained where it first stands', async () => {
+test('with tmux, Reopen sessions after a restart is on at first, and the pages say so; tmux is explained where it first stands', async () => {
   const { DEFAULTS, restoreOn } = await import('../src/automation/settings.mjs');
-  assert.equal(restoreOn(DEFAULTS, { capabilities: { persistent: true } }), true, 'tmux: on at first too: a restart of the computer ends tmux');
+  assert.equal(restoreOn(DEFAULTS, { capabilities: { persistent: true } }), true, 'tmux: on at first');
   assert.equal(restoreOn(DEFAULTS, { capabilities: { persistent: false } }), true, 'the built-in terminals: on at first');
   for (const text of [flat(section('It keeps going without you')), flat(read(SLEEP))]) {
     assert.doesNotMatch(text, /survive a restart by themselves/);
-    assert.match(text, /With tmux \(a program that keeps terminals running[^)]*\) it is off at first/);
-    assert.match(text, /not a restart of the computer/);
+    assert.match(text, /with tmux \(a program that keeps terminals running[^)]*\)/);
+    assert.match(text, /after a restart of the computer/);
   }
   const readme = read('README.md');
   const first = readme.search(/\btmux\b/);
@@ -198,14 +198,17 @@ test('the Operator line: one recommended step, nothing without a tap unless a ru
   const { readDecide } = await import('../src/operator/decide-store.mjs');
   const off = readOperator({});
   assert.equal(off.acts, false);
-  assert.ok(RULE_IDS.length > 0 && RULE_IDS.every((id) => off.rules[id] === false), 'every rule is off at first');
+  // What costs nothing is on from the first run (the mends); what spends usage is off.
+  const { RULES } = await import('../src/operator/rules.mjs');
+  assert.ok(RULE_IDS.length > 0 && RULES.every((r) => off.rules[r.id] === (r.cost === 'none')), 'every rule that spends usage is off at first, the others are on');
+  assert.equal(off.mends, true);
   assert.equal(readDecide({}).on, false, 'Tia decides is off at first');
   // A look starts a session by itself with no rule and no Tia decides: only Tia acts by herself and the look's own switch.
   const { looks, readLook } = await import('../src/operator/look.mjs');
   assert.equal(readLook({}).on, false, 'the looks are off at first');
   const lookDir = fs.mkdtempSync(path.join(os.tmpdir(), 'look-'));
   const only = { operator: { acts: true, look: { on: true } }, assistant: { enabled: true } };
-  assert.ok(RULE_IDS.every((id) => readOperator(only).rules[id] === false) && readDecide(only).on === false);
+  assert.ok(RULES.filter((r) => r.cost === 'usage').every((r) => readOperator(only).rules[r.id] === false) && readDecide(only).on === false);
   assert.equal(looks({ ctx: { config: () => only }, dir: () => lookDir }).enabled(), true, 'a look may start with every rule and Tia decides off');
   fs.rmSync(lookDir, { recursive: true, force: true });
   // The Operator has no page of its own: its cards are rows of Home's Needs you, and the switches of Tia are on Settings, Tia.
@@ -215,8 +218,8 @@ test('the Operator line: one recommended step, nothing without a tap unless a ru
   const op = /- \*\*Operator\*\*:[^\n]*?(?= - \*\*Updates\*\*)/.exec(what)[0];
   assert.match(op, /one recommended step for each/);
   // Both ways Tia acts without a tap are named, as the page names them.
-  assert.match(op, /nothing happens until you tap it, unless you switched on one of Tia's rules, \*\*Tia decides\*\* or \*\*Tia looks into what nobody can explain\*\* \(all are off at first/);
-  assert.match(flat(read('docs/OPERATOR.md')), /nothing happens until you tap it, unless you switch on one of Tia's rules, \*\*Tia decides\*\* or \*\*Tia looks into what nobody can explain\*\* \(below\)\. All of them are off after an install and after an update\./);
+  assert.match(op, /nothing that spends usage happens until you tap it, unless you switched on one of Tia's rules, \*\*Tia decides\*\* or \*\*Tia looks into what nobody can explain\*\* \(all are off at first/);
+  assert.match(flat(read('docs/OPERATOR.md')), /Tia may do any other step by herself only by a rule you switched on or by \*\*Tia decides\*\* \(below\), and only while \*\*Tia acts by herself\*\* is on and Tia herself is on \(Settings → Tia\): those are off after an install and after an update\./);
   assert.match(read('site/content/changelog.md'), /^- \*\*While Tia's rules, Tia decides and her looks are off, nothing happens until you tap\.\*\*/m);
   // Three places name what needs you; each says what it holds that the others do not.
   assert.match(op, /everything Hoprig watches/);
@@ -253,7 +256,7 @@ test('Work, what is not there yet: Do it has a branch of its own now; the OKs ar
   const item = flat(/- \*\*Work, what is not there yet\*\*[\s\S]*?(?=\n- \*\*)/.exec(section('Not built, or not proven yet'))[0]);
   assert.doesNotMatch(item, /\(only a run/);
   assert.doesNotMatch(item, /not on a branch of its own/);
-  assert.match(item, /The sessions that need an OK are shown on the dashboard \(Home, the Operator\), not in `hoprig tasks`\./);
+  assert.match(item, /The sessions that need an OK are shown on the dashboard \(Home, under \*\*Needs you\*\*\), not in `hoprig tasks`\./);
 });
 
 test('the automations have the dashboard\'s own names: the queue switch, and no "Restore" for reopening sessions', () => {
@@ -276,7 +279,7 @@ test('the commands table: a row with subcommands lists all of them, and the tabl
   const { USAGE: SHIP } = await import('../src/ship/cli.mjs');
   for (const sub of [...new Set([...SHIP.matchAll(/hoprig ship ([a-z]+)/g)].map((m) => m[1]))]) assert.match(row('hop ship '), new RegExp(`\\b${sub}\\b`), `ship ${sub}`);
   const service = /service ([a-z|]+)/.exec(read('src/server/cli.mjs'))[1].split('|');
-  assert.deepEqual(service, ['install', 'uninstall', 'status', 'restart']);
+  assert.deepEqual(service, ['install', 'uninstall', 'status', 'start', 'stop', 'restart']);
   for (const sub of service) assert.match(row('hop service '), new RegExp(`\\b${sub}\\b`), `service ${sub}`);
   assert.match(read('bin/hoprig.mjs'), /case 'sync': \{[^}]*ws\.main\(\['sync', \.\.\.rest\]\)/);
   assert.match(row('hop sync '), /= hop workspace sync/);

@@ -176,11 +176,13 @@ test('policy: accounts — refused outside the list; API needs a card unless Han
 });
 
 test('policy: destructive and system tools stay cards at every level', () => {
-  for (const t of ['run_command', 'change_setting', 'set_auto_mode']) {
-    for (const level of LEVELS) assert.equal(lv(t, {}, f({ mine: true }), tia(level)).level, 'L2', `${t} ${level}`);
+  for (const level of LEVELS) assert.equal(lv('run_command', {}, f({ mine: true }), tia(level)).level, 'L2', `run_command ${level}`);
+  // The acts that change settings and Auto mode are L2 by the rule (hoprig_act), also with "She may act alone" on.
+  for (const act of ['change-setting', 'auto-mode', 'auto-order', 'stop-gateway', 'restart-hoprig']) {
+    for (const level of LEVELS) assert.equal(lv('hoprig_act', { act }, f({ mine: true }), { ...tia(level), actAlone: true }).level, 'L2', `${act} ${level}`);
   }
   const cards = {
-    manage_computer: ['add', 'update', 'coding_tool', 'setup_fix', 'set_up', 'end_process', 'reboot', 'power_off', 'restart_dashboard'],
+    manage_computer: ['update', 'coding_tool', 'setup_fix', 'set_up', 'end_process', 'reboot', 'power_off', 'restart_dashboard'],
     manage_project: ['new', 'get', 'add_repository', 'install', 'create_folders'],
     manage_automation: ['add_schedule', 'change_schedule', 'delete_schedule', 'set_rule', 'resume'],
     manage_skills: ['install', 'remove', 'cancel_review', 'undo_update', 'twice_dismiss', 'twice_draft', 'learned_install', 'learned_discard', 'learned_undo'],
@@ -189,6 +191,8 @@ test('policy: destructive and system tools stay cards at every level', () => {
   for (const [t, actions] of Object.entries(cards)) {
     for (const action of actions) for (const level of LEVELS) assert.equal(lv(t, { action }, f({ mine: true }), tia(level)).level, 'L2', `${t} ${action} ${level}`);
   }
+  // Pairing a computer and dropping a project are on the never list: they only refuse in words, so never a card.
+  for (const [t, action] of [['manage_computer', 'add'], ['manage_project', 'drop']]) for (const level of LEVELS) assert.equal(lv(t, { action }, f({ mine: true }), tia(level)).level, 'L0', `${t} ${action} ${level}`);
   assert.equal(lv('stop_session', { session: 's' }, f({ mine: false }), tia('handsoff')).level, 'L2');
   assert.equal(lv('stop_session', { session: 's' }, f({ mine: true }), tia('work')).level, 'L1');
   assert.equal(lv('stop_session', { session: 's' }, f({ mine: true }), tia('ask')).level, 'L2');

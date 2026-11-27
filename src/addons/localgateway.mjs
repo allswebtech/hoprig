@@ -5,7 +5,7 @@
 //
 // A definition: { id, title, summary, homepage,
 //   npm        the npm package that installs and updates it, or null: then `bin` is a program already on the computer
-//   own        (a shipped one only) { pin }: Install puts the package into Hoprig's own folder at that version
+//   own        (a shipped one only) { pin, from? } (from: the oldest copy that takes --data-dir): Install puts the package into Hoprig's own folder at that version
 //              (owncopy.mjs) and it is started as Node plus the copy's entry file; a copy that is on the computer
 //              already (npm install -g) is used until then
 //   allowScripts  (a shipped one only) the packages of it whose install scripts npm may run, as its README names them
@@ -343,7 +343,7 @@ export function localGateway(def, { shipped = false, reason = () => serverReason
     return bin ? { kind: own ? 'global' : 'program', bin, entry: null, version: own ? packageVersion(bin, def.npm) : null } : null;
   };
   /** The words that name its data folder: only where the copy takes them (the own copy, or a global one of the pinned version or newer). */
-  const dataArgs = (c) => (own && c && (c.kind === 'own' || atLeast(c.version, def.own.pin)) ? ['--data-dir', dataFolder()] : []);
+  const dataArgs = (c) => (own && c && (c.kind === 'own' || atLeast(c.version, def.own.from || def.own.pin)) ? ['--data-dir', dataFolder()] : []);
   /** The command line of a start: the own copy as Node plus its entry file (the same on every system), else the program. */
   const lineOf = (c, listenArgs) => {
     const args = startArgs(def, port(), [...listenArgs, ...dataArgs(c)]);
@@ -456,6 +456,8 @@ export function localGateway(def, { shipped = false, reason = () => serverReason
     const stale = mine && withVersion && own ? await updatedAfterStart(found) : null;
     return {
       installed: Boolean(bin), version, running: mine, url: url(),
+      // A newer version than this copy is what Install would put there: only said, never done by itself.
+      ...(own && version && !atLeast(version, def.own.pin) ? { newer: true } : {}),
       ...(own && found ? { copy: found.kind } : {}),
       ...(found?.broken ? { problem: entryProblem(found.entry, title, id) || `${title}'s copy in Hoprig's own folder is damaged: install it again with: hoprig addons install ${id}` } : {}),
       ...(byService ? { byService: true } : {}),

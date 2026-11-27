@@ -11,7 +11,7 @@
 import { autoLeftOut, chooseAccount, resolveTia } from '../assistant/tia.mjs';
 import { claudeTurn } from '../skillhub/learnlook.mjs';
 import { CHEAPEST } from '../skillhub/learnset.mjs';
-import { readOperator, ruleFor } from './rules.mjs';
+import { readOperator, ruleFor, ruleOn } from './rules.mjs';
 import { ASK, MISSION_KINDS, TABLE_KINDS, offeredSteps } from './decide-table.mjs';
 import { engineOwns } from '../mission/seam.mjs';
 import { SYSTEM, itemPrompt, parseDecision } from './decide-prompt.mjs';
@@ -157,7 +157,7 @@ export function decider({ ctx, rx, dir, now = Date.now, accounts, asks, turn = c
       // Seen with a paid move left out for money (`<rev>|<gate>`): looked at again on each tick, since the level or the
       // cap may change while the item stays the same; one() goes on only when the gate changed (decided once per gate).
       const r = ruleFor(it, { now: t });
-      if (r && s.rules[r.id]) continue; // a rule that is on acts first
+      if (r && ruleOn(s, r.id)) continue; // a rule that is on acts first
       const f = firstSeen.get(it.id);
       if (!f || f.rev !== it.rev || f.at > t) {
         firstSeen.set(it.id, { rev: it.rev, at: t });

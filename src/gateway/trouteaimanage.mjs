@@ -216,8 +216,8 @@ export async function callGateway(method, path, opts = {}) {
     if (!token) {
       const folder = opts.folder || dataFolder();
       if (!fs.existsSync(nodePath.join(folder, 'cli-token'))) {
-        const { GATEWAY_PIN } = await import('../addons/gateways.mjs');
-        throw new ManageError(`TRouteAI runs, but it has no command token file: the program that runs is older than ${GATEWAY_PIN} (the first that writes it), or it was started before it was updated. Next step: if the copy on this computer is older than ${GATEWAY_PIN}, press Update (Providers → TRouteAI), then press Restart there, so the copy on this computer runs.`, 409, 'token');
+        const { GATEWAY_MANAGED_FROM } = await import('../addons/gateways.mjs');
+        throw new ManageError(`TRouteAI runs, but it has no command token file: the program that runs is older than ${GATEWAY_MANAGED_FROM} (the first that writes it), or it was started before it was updated. Next step: if the copy on this computer is older than ${GATEWAY_MANAGED_FROM}, press Update (Providers → TRouteAI), then press Restart there, so the copy on this computer runs.`, 409, 'token');
       }
       throw new ManageError('Hoprig cannot read TRouteAI\'s command token (others can read its file, or it is not yours, or it is not a token). Start TRouteAI once from Hoprig as this user, then try again.', 409, 'token');
     }

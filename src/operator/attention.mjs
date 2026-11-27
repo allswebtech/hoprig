@@ -18,7 +18,7 @@ import { detectUnknown } from './detect/unknown.mjs';
 /** The sources each kind's detector reads: a put-off item is forgotten only when these were read on that look. */
 export const KIND_SOURCES = Object.freeze({
   limit: ['sessions'], stuck: ['sessions'], asks: ['sessions'], ended: ['sessions', 'work'], provider: ['providers', 'gateways'],
-  machine: ['machine'], leftover: ['leftovers'], repo: ['repos'], live: ['live'], automation: ['changes'], providerstop: ['sessions', 'gateways', 'providers'],
+  machine: ['machine', 'computers'], leftover: ['leftovers'], repo: ['repos'], live: ['live'], automation: ['changes'], providerstop: ['sessions', 'gateways', 'providers'],
   unknown: ['work'],
 });
 

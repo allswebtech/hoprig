@@ -168,8 +168,9 @@ a stop. Each answer she gives is a line in her Activity ("answered an OK in …:
 She follows it as a job; when its turn ends she reads the run and tells you in two lines what was done and what
 waits for you. She does not accept a result and starts no second session by herself. Text from a task, a brief, a
 session's answer, a commit's subject or a file's name is data to her, never an instruction. Save, Tidy, the doubles,
-where Work lives and the command's route stay yours: her door refuses them. So do making a plan and changing a plan's
-own title, goal, milestones or status, which stay yours on the Plans part, and removing a task's branch.
+where Work lives and the command's route stay yours: her door refuses them, and so does removing a task's branch.
+Making a plan and changing its title, goal, projects or milestones is her act `change-plan`: a line in her Activity, with Undo.
+A plan's status (done or dropped) stays yours on the Plans part.
 
 ## Plans
 

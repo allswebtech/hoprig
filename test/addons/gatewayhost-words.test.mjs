@@ -36,3 +36,12 @@ test('the note that its copy was updated after it started reaches the row', asyn
   assert.equal((await rowOf({ installed: true, running: true, copy: 'global', restart: note })).restart, note);
   assert.equal((await rowOf({ installed: true, running: true, copy: 'global' })).restart, undefined);
 });
+
+test('the row carries the version and whether a newer one is there, so the page can offer Update', async () => {
+  const g = await rowOf({ installed: true, running: true, copy: 'own', version: '1.0.11', newer: true });
+  assert.deepEqual([g.version, g.newer], ['1.0.11', true]);
+  const same = await rowOf({ installed: true, running: true, copy: 'own', version: '1.0.13' });
+  assert.deepEqual([same.version, same.newer], ['1.0.13', undefined]);
+  const plain = await rowOf({ installed: true, running: true });
+  assert.deepEqual([plain.version, plain.newer], [undefined, undefined]);
+});

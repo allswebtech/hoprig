@@ -71,7 +71,10 @@ export function serverAdapter(sctx, { log = console.log, chat = null } = {}) {
       async list() {
         const st = await sctx.state();
         const runs = new Map(listRuns().map((r) => [r.runId, r]));
-        return st.sessions.map((c) => {
+        // A session on a provider paid per use: the retry rule never sends again on it (retry.mjs).
+        const paid = new Set((st.profiles || []).filter((p) => p.paid === true).map((p) => p.name));
+        return st.sessions.map((c0) => {
+          const c = c0.profile && paid.has(c0.profile.name) ? { ...c0, paidProfile: true } : c0;
           const r = c.runId ? runs.get(c.runId) : null;
           if (!r) return c;
           // `hers`: the dashboard marked this run Tia's (hermark.mjs), so a restore after a reboot brings it back as hers.

@@ -166,10 +166,10 @@ test('a start with fifty open sessions, three ticks and a first open of Home giv
     }
   }
 
-  // The Operator's look at the providers' readings and its six checks, one per pass, in each tick.
+  // The Operator's look at the providers' readings and its seven checks, one per pass, in each tick.
   for (let n = 1; n <= 3; n++) {
     const mine = checks.filter((x) => x[0] === n).map((x) => x[1]);
-    assert.equal(mine.length, 7, `tick ${n}: the Operator looked at the readings and its six checks (${mine.length})`);
-    assert.equal(new Set(mine).size, 7, `tick ${n}: two of the Operator's looks began in one pass: ${mine.join(' ')}`);
+    assert.equal(mine.length, 8, `tick ${n}: the Operator looked at the readings and its seven checks (${mine.length})`);
+    assert.equal(new Set(mine).size, 8, `tick ${n}: two of the Operator's looks began in one pass: ${mine.join(' ')}`);
   }
 });

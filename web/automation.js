@@ -523,7 +523,7 @@ function choiceRow(label, value, options, onchange, hint) {
   return h('div.switchrow.au-choice', h('span.switchrow-text', h('span.switchrow-label', label, mark), hint ? h('span.hint', hint) : null), sel);
 }
 
-function rulesPart(st, after) {
+export function rulesPart(st, after) {
   const s = st.settings;
   const set = async (patch) => {
     const next = await saveSettings(patch);
@@ -551,6 +551,9 @@ function rulesPart(st, after) {
   idleGateway.hidden = !s.idle.gateway;
   return [
     panel({ icon: 'clock', title: 'Keep the work going', desc: 'What happens when you are not watching.' },
+      rule('Mend problems by itself', !(s.operator && s.operator.mends === false), (v) => ({ operator: { mends: v } }),
+        { line: 'A dashboard that stopped comes back, a bad update goes back, a stopped gateway starts again, a session whose tool died is reopened, and leftovers are cleaned.',
+          more: 'No AI and no usage. Each mend is a line in Activity; one that did not help becomes a row in Needs you.' }),
       rule('Try again after a server error', s.retry.enabled, (v) => ({ retry: { enabled: v } }),
         { line: 'In a Claude Code session: when the provider\'s servers are busy or the connection breaks, it sends "continue" after a short wait.',
           more: 'Up to three times; never at a usage limit. Other coding tools\' sessions are left as they are.' }),

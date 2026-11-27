@@ -18,7 +18,7 @@ This version is about starting, and about fewer things on the screen. One line i
 - **A conversation is one card on Home.** A conversation you open in the App and in a terminal is one card, not two or three. Home's groups are **Needs you**, Working and **Ready**.
 - **The queue has no switch.** It always sends. An old switch that was off is still honoured, with **Turn it on** in the queue's banner.
 - **The box is not offered on Windows.** Where Hoprig told you to use it inside WSL 2 (Windows' own Linux), it now says the box is not offered on Windows and that such work runs on a Linux or Mac computer of yours.
-- **TRouteAI lives in Hoprig's own folder.** Install puts version 1.0.11 there, so a start from a session and one from a service use the same data. A copy that npm already put on your computer stays in use until you press Install or Update; nothing changes by itself.
+- **TRouteAI lives in Hoprig's own folder.** Install puts version 1.0.13 there, so a start from a session and one from a service use the same data. Adding an account from a list, opening TRouteAI signed in and its public address need that version: with an older copy the page says so, with **Update** beside it. A copy that npm already put on your computer stays in use until you press Install or Update; nothing changes by itself.
 
 ### Starting
 
@@ -28,6 +28,8 @@ This version is about starting, and about fewer things on the screen. One line i
 - **Only this computer may open the dashboard at first.** The first run has no question about it; to use it from your phone, turn that on later in Settings.
 - **A later `hoprig setup` is the full run.** It asks what a first run does not, for a second computer or for someone who wants to choose.
 - **A fresh install is plainer.** The first provider is called **Claude account**, reopening sessions after a restart is on, and on Windows the Python and Terminal extras kits are one tick away instead of on by themselves.
+- **Hoprig keeps itself running.** On Linux, macOS and Windows, a dashboard that dies is started again by the service after 3 seconds. One that keeps failing is handed to a keeper (on Linux after 5 failed starts in a minute, on macOS and Windows a check every minute), which writes the service files again and tries once more; it does nothing after you stop Hoprig yourself.
+- **An update that does not start is put back.** When the new version does not answer within a minute, the version before it comes back and Home says so under **Needs you**. This holds for a Hoprig installed with npm; a copy from git is never swapped.
 
 ### The App chat
 
@@ -52,6 +54,11 @@ This version is about starting, and about fewer things on the screen. One line i
 - **Tia is one button, and her switches are in one place.** Her chat opens from the round button (the sparkle on a phone), and **Settings → Tia** opens with her on switch and her level, then closed folds.
 - **Providers shows your accounts first.** The gateway is one row, and the rule for what happens at a usage limit is one row.
 - **Smaller changes.** Page heads are one short line on a phone, and a press is at least 44 px on a touch screen.
+- **A new session starts in the project, not in a code folder inside it.** New session, the Projects page and the first chat start in the project's own folder, one row per project; a code folder has no row of its own, and **Another folder…** reaches one.
+- **Hoprig mends some things by itself, with no model.** A gateway or the public link that does not answer is restarted, a session whose tool died is reopened where it stopped with nothing sent to it, a test's left-over processes are ended, and its own old files are cleaned when the disk is over 90% full. Each leaves a line and costs no usage; **Settings → Automations → Mend problems by itself** turns it off, and everything else stays a row of **Needs you** with one button.
+- **Tia can manage Hoprig itself, by one rule.** She does by herself only what changes nothing but Hoprig's own state and can be undone with one press, and only when **Tia acts by herself** is on, in Settings, Tia; a stop, money, another computer or anything hard to undo is a card you tap.
+- **There is a list of what she never does, at any level.** Signing in or out, keys and passwords, the credentials folder, opening the computer to the internet, adding a computer, deleting work and raising her own rights stay yours, and a card is never confirmed by voice.
+- **You can speak to Tia.** The microphone beside her box (and the App's message box) uses the browser's own speech recognition, so it needs a browser that has it, such as Chrome, Edge or Safari, and an https address or this computer itself. A message you speak is sent 1.5 seconds after you stop unless you touch the box, and her answer to it is read aloud by the browser (a typed message is never read aloud); **Settings → Appearance** has the switches for reading aloud.
 
 ### One conversation, one session
 

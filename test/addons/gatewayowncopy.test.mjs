@@ -61,7 +61,7 @@ function fakeNpm() {
     const prefix = argv[argv.indexOf('--prefix') + 1];
     const spec = argv.at(-1);
     const asked = spec.slice(spec.lastIndexOf('@') + 1);
-    const version = asked === 'latest' ? '1.0.12' : asked; // what the registry's newest is, for the stand-in
+    const version = asked === 'latest' ? '1.0.14' : asked; // what the registry's newest is, for the stand-in
     const pkg = path.join(prefix, 'node_modules', 'trouteai');
     fs.mkdirSync(path.join(pkg, 'bin'), { recursive: true });
     fs.writeFileSync(path.join(pkg, 'package.json'), JSON.stringify({ name: 'trouteai', version, bin: { trouteai: 'bin/trouteai.mjs' } }));
@@ -102,7 +102,19 @@ test.after(async () => {
 
 test('the shipped gateway names the version Install puts into Hoprig\'s own folder, and no defined one can', () => {
   assert.equal(SHIPPED[0].own.pin, GATEWAY_PIN);
-  assert.equal(GATEWAY_PIN, '1.0.11');
+  assert.equal(GATEWAY_PIN, '1.0.13');
+});
+
+test('an own copy older than the pin is not changed by itself: status says a newer one is there, and nothing is run', { skip }, async () => {
+  const { g, npm } = make();
+  await g.install({ onLine: () => {} });
+  assert.equal((await g.status()).newer, undefined, 'a copy at the pin has nothing newer');
+  const pj = path.join(toolsDir(), 'trouteai', 'node_modules', 'trouteai', 'package.json');
+  fs.writeFileSync(pj, JSON.stringify({ ...JSON.parse(fs.readFileSync(pj, 'utf8')), version: '1.0.11' }));
+  const calls = npm.calls.length;
+  const s = await g.status();
+  assert.deepEqual([s.version, s.copy, s.newer], ['1.0.11', 'own', true]);
+  assert.equal(npm.calls.length, calls, 'no install ran: nothing changes by itself');
 });
 
 test('Install: into the tools folder at the pinned version with the scripts its README allows; never a global install', async () => {
@@ -273,7 +285,7 @@ test('Update: the newest from npm into the own folder; a running one is stopped,
     const r = await g.update({ onLine: () => {} });
     assert.equal(r.ok, true, JSON.stringify(r));
     assert.equal(npm.calls.at(-1).at(-1), 'trouteai@latest', 'npm resolves the newest');
-    assert.equal((await g.status()).version, '1.0.12');
+    assert.equal((await g.status()).version, '1.0.14');
     assert.equal((await g.status()).running, true);
     assert.notEqual(starts().at(-1).pid, first, 'it was started again');
   } finally {
@@ -296,7 +308,7 @@ test('Update that fails its own check and cannot start: it says it is down and w
     assert.equal(r.ok, false);
     assert.doesNotMatch(r.error, /started again as it was/);
     assert.match(r.error, /not running/);
-    assert.match(r.error, /1\.0\.12/);
+    assert.match(r.error, /1\.0\.14/);
   } finally {
     await gone(g);
   }
@@ -373,7 +385,7 @@ test('Update of a gateway that its service runs: stopped through the service, up
     const log = fs.readFileSync(ctl, 'utf8');
     assert.match(log, /--user stop hoprig-gateway-trouteai\.service/);
     assert.match(log, /(--user start hoprig-gateway-trouteai\.service|enable --now hoprig-gateway-trouteai\.service)/);
-    assert.equal((await g.status()).version, '1.0.12');
+    assert.equal((await g.status()).version, '1.0.14');
     assert.equal((await g.status()).running, true);
   } finally {
     killMain();

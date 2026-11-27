@@ -1,10 +1,12 @@
-// `<app> service install|uninstall|status|restart`: run the dashboard in the background, started with your login. One
+// `<app> service install|uninstall|status|start|stop|restart`: run the dashboard in the background, started with your login. One
 // module per service manager: systemd (Linux), launchd (macOS), Task Scheduler (Windows).
 import fs from 'node:fs';
 import path from 'node:path';
-import { service as launchd, plistFile } from './launchd.mjs';
-import { service as systemd, UNIT, unitDir } from './systemd.mjs';
-import { service as windows, scriptFile } from './windows.mjs';
+import { clearStopped, markStopped } from '../../keeper/keep.mjs';
+import { stateDir } from '../../paths.mjs';
+import { files as launchdFiles, service as launchd, plistFile } from './launchd.mjs';
+import { files as systemdFiles, service as systemd, UNIT, unitDir } from './systemd.mjs';
+import { files as windowsFiles, service as windows, scriptFile } from './windows.mjs';
 
 const MANAGERS = { linux: systemd, darwin: launchd, win32: windows };
 
@@ -26,9 +28,25 @@ export async function service(sub, platform = process.platform, opts = {}) {
       return 1;
     }
   }
-  if (manager) return manager(sub, opts);
+  if (manager) {
+    const code = await manager(sub, opts);
+    // The owner's own stop is remembered, so the keeper (src/keeper/keep.mjs) and the Windows script leave it stopped;
+    // every start clears it.
+    if (code === 0) {
+      const state = opts.state || stateDir();
+      if (sub === 'stop') markStopped(state);
+      else if (['start', 'restart', 'install'].includes(sub)) clearStopped(state);
+    }
+    return code;
+  }
   console.error(`Running the dashboard as a service is not supported on ${platform}. Start it with the "serve" command.`);
   return 1;
+}
+
+/** The service files `install` writes, as the product would write them now: [{ file, text }] (the keeper compares them). */
+export function serviceFiles(platform = process.platform, opts = {}) {
+  const make = { linux: systemdFiles, darwin: launchdFiles, win32: windowsFiles }[platform];
+  return make ? make(opts) : [];
 }
 
 /**

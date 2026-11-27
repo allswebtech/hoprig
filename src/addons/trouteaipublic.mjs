@@ -21,6 +21,7 @@ import path from 'node:path';
 import { loadConfig } from '../config.mjs';
 import { dataFolder } from '../gateway/trouteaibase.mjs';
 import { readFixed } from './cloudflared.mjs';
+import { GATEWAY_NEEDS, atLeast } from './owncopy.mjs';
 
 export const GATEWAY = 'trouteai';
 export const DEFAULT_PORT = 20017;
@@ -55,6 +56,7 @@ const WHY = {
   'link-custom': 'Set up Hoprig\'s public link as Custom first (Settings, Public link).',
   'link-off': 'Turn Hoprig\'s public link on first (Settings, Public link).',
   'not-running': 'Start TRouteAI first.',
+  'gateway-old': `The public address needs TRouteAI ${GATEWAY_NEEDS}: only from that version does it treat a request for a public name as from outside. Press Update.`,
   'first-password': 'TRouteAI still uses its first password. Set your own first.',
   'no-password': 'TRouteAI has no password. Set one first.',
   'open-api': 'TRouteAI answers its model address without a key, so it stays private.',
@@ -66,17 +68,20 @@ const refuse = (need, why = WHY[need]) => ({ ok: false, need, error: why });
 /**
  * Why the public address cannot be turned on now: { need, error } or null. Reads only: fixed.json, the link's state,
  * the gateway's data folder (whether its first-password file is there), its sign-in state and its model address.
- * `deps`: link () → the public link's status, gateway () → { installed, running } of the shipped gateway, signIn ()
+ * `deps`: link () → the public link's status, gateway () → { installed, running, version } of the shipped gateway, signIn ()
  * → { requireLogin, signInSet (its hasPassword), oidcEnabled } | null, firstFile (), openApi (port) → a path | null, dns (name) → the
  * hostnames already there (for a name in use for another port).
  */
 export async function cannotTurnOn(deps = {}) {
+  const gw = deps.gateway ? await deps.gateway() : { installed: false, running: false };
+  if (!gw.installed || !gw.running) return refuse('not-running');
+  // A safety refusal, decided by the version: an older gateway would take a request that arrives for a public name as local.
+  // It comes before the link's own needs: Update is the one press that fixes it, whatever the link is.
+  if (!atLeast(gw.version, GATEWAY_NEEDS)) return refuse('gateway-old');
   const fixed = deps.fixed ? deps.fixed() : readFixed();
   if (!fixed || fixed.mode !== 'named') return refuse('link-custom', fixed && fixed.mode === 'token' ? 'With a tunnel token the names are set in the Cloudflare dashboard, so TRouteAI\'s address cannot be made from here. Set up Hoprig\'s public link as Custom first (Settings, Public link).' : WHY['link-custom']);
   const link = deps.link ? await deps.link() : null;
   if (!link || link.on !== true || link.kind !== 'custom') return refuse('link-off');
-  const gw = deps.gateway ? await deps.gateway() : { installed: false, running: false };
-  if (!gw.installed || !gw.running) return refuse('not-running');
   const file = deps.firstFile ? deps.firstFile() : path.join(dataFolder(), 'initial-admin-password.txt');
   if (fs.existsSync(file)) return refuse('first-password');
   const s = deps.signIn ? await deps.signIn() : null;

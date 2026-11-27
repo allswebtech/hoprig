@@ -183,7 +183,7 @@ export function gatewayHostFeature(ctx, opts = {}) {
       link: pub.link || (async () => (await import('./linkswitch.mjs')).status({ why: false })),
       gateway: pub.gateway || (async () => {
         const st = await statusOf(a);
-        return { installed: Boolean(st.installed), running: Boolean(st.running) };
+        return { installed: Boolean(st.installed), running: Boolean(st.running), version: st.version || null };
       }),
       firstFile: pub.firstFile || (() => path.join(folder, 'initial-admin-password.txt')),
       signIn: pub.signIn || (async () => {
@@ -205,7 +205,7 @@ export function gatewayHostFeature(ctx, opts = {}) {
         const gateways = await Promise.all(list().map(async (a) => {
           const st = await Promise.resolve(a.status()).catch(() => ({ installed: false, running: false }));
           const plan = planOf(a);
-          return { id: a.id, title: a.title, marksFirst: a.marksFirst === true, firstWaiting: Boolean(a.firstLines && a.firstLines.waiting()), defined: a.defined === true, manage: hasSetUp(a), listens: hasSetUp(a) ? listensSentence(a) : null, installed: !!st.installed, running: !!st.running, ...(st.copy ? { copy: st.copy } : {}), ...(st.note ? { note: st.note } : {}), ...(st.restart ? { restart: st.restart } : {}), ...(st.problem ? { problem: st.problem } : {}), ...(st.foreign ? { foreign: true } : {}), port: a.gateway ? Number(a.gateway.port()) : null, service: { kind: plan.kind, ...(plan.sentence ? { sentence: plan.kind === 'missing' && st.installed ? missingProgram(a.title, st.copy) : plan.sentence } : {}), ...(await serviceState(plan, { run })) } };
+          return { id: a.id, title: a.title, marksFirst: a.marksFirst === true, firstWaiting: Boolean(a.firstLines && a.firstLines.waiting()), defined: a.defined === true, manage: hasSetUp(a), listens: hasSetUp(a) ? listensSentence(a) : null, installed: !!st.installed, running: !!st.running, ...(st.version ? { version: st.version } : {}), ...(st.newer === true ? { newer: true } : {}), ...(st.copy ? { copy: st.copy } : {}), ...(st.note ? { note: st.note } : {}), ...(st.restart ? { restart: st.restart } : {}), ...(st.problem ? { problem: st.problem } : {}), ...(st.foreign ? { foreign: true } : {}), port: a.gateway ? Number(a.gateway.port()) : null, service: { kind: plan.kind, ...(plan.sentence ? { sentence: plan.kind === 'missing' && st.installed ? missingProgram(a.title, st.copy) : plan.sentence } : {}), ...(await serviceState(plan, { run })) } };
         }));
         const linger = await lingerOf({ run }).catch(() => null);
         const signedIn = typeof ctx.signedInHosts === 'function' ? ctx.signedInHosts() : [];

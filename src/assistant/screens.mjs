@@ -18,7 +18,7 @@ const PER_COMPUTER = /^(computer|workspace|code|new-project|get-project|skills|p
 export const open_screen = tool({
   name: 'open_screen',
   level: 'L1',
-  description: `Show the owner a button to a dashboard page. Use it for what only he may do: add a provider, sign it in or out, sign in with another Claude account at a usage limit, or change its key (providers), remove a computer or add one by pairing code (computers, computer/advanced), the password, the network and sign-in devices (settings/security), notifications (settings/notifications), how new sessions are allowed to act (settings/new-sessions), whether updates run by themselves (settings/updates), another coding tool's sign-in (settings/codingtools), ${ASSISTANT_NAME}'s own settings (settings/tia) — and to show him any page: a new session (new), the editor (code), the desktop and its apps (desktop/…).`,
+  description: `A button that opens a dashboard page for the owner. Use it for what only he does: add a provider, sign it in or out, sign in with another Claude account at a usage limit, or change its key (providers), remove or pair a computer (computers), the password and sign-in devices (settings/security), notifications, how new sessions are allowed to act (settings/new-sessions), updates by themselves, the public link on (settings/public-link), another coding tool's sign-in, ${ASSISTANT_NAME}'s own settings (settings/tia); and to show him any page: a new session (new), the editor (code), the desktop (desktop/…).`,
   input: obj({ screen: str({ enum: SCREENS }), computer }, { required: ['screen'] }),
   async run(ops, a) {
     const link = a.computer && a.computer !== LOCAL && PER_COMPUTER.test(a.screen) ? `#/m/${a.computer}/${a.screen}` : `#/${a.screen}`;

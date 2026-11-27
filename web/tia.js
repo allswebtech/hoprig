@@ -15,13 +15,13 @@ import { leadSwitch } from './leadswitch.js';
 import { store } from './store.js';
 import { knownChatTools } from './chat/start.js';
 import { keepTabIn } from './tabwrap.js';
-import { micButton } from './voice.js';
+import { composerControls, micButton, speech, touchScreen } from './voice.js';
 import { byTiaList, tiaAloneFold } from './operator-tia.js';
 import { missionLimits } from './mission.js';
 import { activityRows, activityWords, continuesOf, sessionWords, stamp, workCardWords } from './tiaactivity.js';
 import { DID, TOOL_WORDS, doingLine, jobChip, wordFor } from './tiawords.js';
 import { cardElement, closeChoice, formFields } from './tiacards.js';
-import { messageView } from './tiamsg.js';
+import { messageView, turnVoice } from './tiamsg.js';
 
 const NAME = 'Tia';
 // The line a card carries when her text had characters nobody can see (src/assistant/fence.mjs HIDDEN_REMOVED, the same words).
@@ -331,6 +331,7 @@ function chatPanel(host, { scrollEl = null, fresh = false } = {}) {
     if (es) es.close();
     clearTimeout(pollTimer);
     mic.dispose(); // the microphone never listens for a panel that is gone
+    speech.stop();
   };
   const list = h('div.tia-chat', { 'aria-live': 'polite' });
   const cardsBox = h('div.tia-cards');
@@ -340,8 +341,19 @@ function chatPanel(host, { scrollEl = null, fresh = false } = {}) {
   const send = btn('primary icon tia-send', { icon: 'send', title: 'Send', type: 'submit' });
   // Speak instead of typing: the words go into the box, and he sends them (voice.js).
   // The line under it takes room from the chat: a card waiting for an OK is kept in sight (toBottom).
-  const mic = micButton(input, { noted: () => toBottom() });
+  // Here (and only here) a spoken message is sent by itself after a short pause, and her answer to it is read aloud.
+  let placed = false; // the controls exist: the microphone's first look comes before them
+  const mic = micButton(input, { noted: () => toBottom(), auto: () => submit(), speaks: true, onState: () => place() });
   const form = h('form.tia-composer', { onsubmit: (e) => { e.preventDefault(); submit(); } }, input, mic.el, send);
+  placed = true;
+  const voice = turnVoice();
+  // On a phone one control sits beside the box: the microphone while it is empty, Send once there is text.
+  function place() {
+    if (!placed) return;
+    const c = composerControls({ touch: touchScreen(), empty: !input.value.trim(), state: mic.state() });
+    mic.el.style.display = c.mic ? '' : 'none';
+    send.style.display = c.send ? '' : 'none';
+  }
   input.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && !e.shiftKey && innerWidth > 700) {
       e.preventDefault();
@@ -352,6 +364,7 @@ function chatPanel(host, { scrollEl = null, fresh = false } = {}) {
   input.addEventListener('input', () => {
     input.style.height = 'auto';
     input.style.height = `${Math.min(input.scrollHeight + 2, 180)}px`;
+    place();
   });
   // Cards sit right above the message box, where the eye is, also after the chat scrolled down.
   const newPill = h('button.tia-newpill', { type: 'button', hidden: true, onclick: () => { newPill.hidden = true; toBottom(); } }, icon('down', { size: 15 }), h('span', 'New messages'));
@@ -406,6 +419,8 @@ function chatPanel(host, { scrollEl = null, fresh = false } = {}) {
     h('div.tia-examples', EXAMPLES.map((x) => h('button.tia-example', { type: 'button', onclick: () => { input.value = x; submit(); } }, icon('send', { size: 15 }), h('span', x))))));
 
   function render(e) {
+    const aloud = voice.see(e);
+    if (aloud) speech.speak(aloud);
     if (e.kind !== 'notice') lastNotice = null;
     // A notice answered since (his next message, also the one "Use …" sent, or her words) has no "Use …" any more: the
     // same on a reload, where the history is drawn again, so his message is never sent twice from one notice.
@@ -622,16 +637,21 @@ function chatPanel(host, { scrollEl = null, fresh = false } = {}) {
       input.focus();
       return;
     }
+    // A message he spoke (the box still holds what was heard): her answer is read aloud and the server is told.
+    const spoken = again === null && mic.heard();
+    speech.stop();
+    voice.begin(spoken);
     mic.stop();
     if (newChatLine) newChatLine.remove();
     send.disabled = true;
     fill(err);
     busy('reading your message');
     try {
-      const r = await api(`${A}/chat`, { text, conversation: conv || undefined, context: pageContext(), ...(choice ? { choice } : {}), ...(Number.isInteger(noticeNo) ? { again: noticeNo } : {}) });
+      const r = await api(`${A}/chat`, { text, conversation: conv || undefined, context: pageContext(), ...(spoken ? { spoken: true } : {}), ...(choice ? { choice } : {}), ...(Number.isInteger(noticeNo) ? { again: noticeNo } : {}) });
       if (again === null) {
         input.value = '';
         input.style.height = '';
+        mic.forget();
       }
       if (r.conversation !== conv) {
         conv = r.conversation;
@@ -644,10 +664,12 @@ function chatPanel(host, { scrollEl = null, fresh = false } = {}) {
       }
     } catch (e) {
       busy(null);
+      voice.begin(false);
       fill(err, h('p.banner.error-box', icon('alert', { size: 18 }), h('span', `${NAME} did not get your message: ${e.message}. Your text is still in the box: press Send to try again.`)));
     } finally {
       send.disabled = false;
-      input.focus();
+      place();
+      if (!(spoken && touchScreen())) input.focus(); // a phone's keyboard does not open over a spoken message
     }
   }
 
@@ -658,7 +680,8 @@ function chatPanel(host, { scrollEl = null, fresh = false } = {}) {
   } else empty();
   if (said === 'toast') toast('New chat started');
   // The box is hidden (closed, or not shown on this page): listening stops, the conversation stays.
-  return { stop, quiet: () => mic.stop() };
+  place();
+  return { stop, quiet: () => { mic.stop(); speech.stop(); } };
 }
 
 // ---------- the chat box: Tia on every page ----------

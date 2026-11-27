@@ -412,13 +412,18 @@ test('the lead-in about her rules counts them as the code has them, and its list
   const { RULES } = await import('../src/operator/rules.mjs');
   const WORDS = ['no', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine'];
   const find = (map) => [...map.keys()].find((l) => /^Tia can do \w+ steps by herself, by rules you switch on\.$/.test(l));
+  const said = { limit: 'continue a session that stopped at a usage limit', gateway: 'restart a gateway that open sessions go through', link: 'restart the public link', leftover: "end a test's left-over processes", reopen: 'reopen a session whose coding tool died without ending', clean: "clean Hoprig's own old logs and temporary folders", elsewhere: 'start her new work on a computer you chose that has room' };
+  // The lead-in of a block that is released is history (its hash is held below): it counts the rules that version had.
+  // These rules came after it, in 0.4.0, and their lines are written with the block's other new lines.
+  const LATER_RULES = ['reopen', 'clean'];
+  const own = find(new Map([...block.matchAll(/^- \*\*(.+?)\*\*.*$/gm)].map((m) => [m[1], m[0]])));
   const lead = find(newer) || find(items);
   assert.ok(lead, 'the lead-in "Tia can do … steps by herself, by rules you switch on." stands');
-  assert.equal(lead, `Tia can do ${WORDS[RULES.length]} steps by herself, by rules you switch on.`);
+  const ids = own ? RULES.map((r) => r.id) : RULES.map((r) => r.id).filter((id) => !LATER_RULES.includes(id));
+  assert.equal(lead, `Tia can do ${WORDS[ids.length]} steps by herself, by rules you switch on.`);
   // One part of the item for each rule, in the rules' own order (src/operator/rules.mjs).
-  const said = { limit: 'continue a session that stopped at a usage limit', gateway: 'restart a gateway that open sessions go through', link: 'restart the public link', leftover: "end a test's left-over processes", elsewhere: 'start her new work on a computer you chose that has room' };
   assert.deepEqual(RULES.map((r) => r.id), Object.keys(said), 'a rule was added or taken away: say it in the item');
-  for (const [id, w] of Object.entries(said)) assert.ok(current.get(lead).includes(w), `the item names the rule ${id}`);
+  for (const id of ids) assert.ok(current.get(lead).includes(said[id]), `the item names the rule ${id}`);
 });
 
 test("the Operator's parts are named in the blocks as the page heads them", () => {

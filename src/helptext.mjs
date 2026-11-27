@@ -33,6 +33,7 @@ const INTERNAL = {
   router: 'usage: hoprig router\n  the router of Auto mode on this computer: Hoprig starts it by itself when a session needs it; not typed by hand',
   'router-url': 'usage: hoprig router-url\n  the address of this computer\'s Auto mode router, without its key',
   run: 'usage: hoprig run <profile> [args for Claude Code]\n  start Claude Code under that profile (the same as hoprig <profile> [args])',
+  keep: 'usage: hoprig keep [--failed]\n  what the service manager runs while the dashboard is down: it writes the service files again, goes back to the kept\n  version after a bad update, and tells you; not typed by hand',
   '__service-restart': 'usage: hoprig __service-restart <pid>\n  the helper of a restart asked for on the dashboard\'s own page: it waits for that process to end, then starts\n  the background dashboard again; not typed by hand',
 };
 
@@ -106,6 +107,7 @@ const COMMAND = {
   tokens: machinesCli,
   machines: machinesCli,
   serve: serverCli,
+  stop: serverCli,
   passwd: serverCli,
   service: serverCli,
   ...Object.fromEntries(Object.entries(INTERNAL).map(([k, v]) => [k, () => v])),

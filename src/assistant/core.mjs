@@ -25,7 +25,7 @@ import { AuditLog } from './audit.mjs';
 import { CardError, CardStore } from './cards.mjs';
 import { ViewStore, makeCard, shortText, validForm } from './cardkinds.mjs';
 import { cardOf, jobProgress, runProgress, needsItems } from './cardmake.mjs';
-import { HIDDEN_REMOVED, cleanInput, fence, fenceData, neutralize, stripped } from './fence.mjs';
+import { HIDDEN_REMOVED, cleanInput, fence, fenceData, maskShapes, neutralize, stripped } from './fence.mjs';
 import { JobStore } from './jobs.mjs';
 import { decideLevel } from './policy.mjs';
 import { runConfirmed } from './confirmed.mjs';
@@ -162,7 +162,7 @@ export function render(result, tool, args = null) {
     // forged fence tag inside is still neutralised.
     parts.push(`<skill name="${result.skill.name}">\n${neutralize(result.skill.text, 16_000)}\n</skill>`);
   }
-  return capParts(parts, RESULT_MAX - TAIL_ROOM).join('\n');
+  return maskShapes(capParts(parts, RESULT_MAX - TAIL_ROOM).join('\n'));
 }
 
 /** A Map that forgets its oldest entry past `max`. */
@@ -253,9 +253,9 @@ export function createAssistantCore({
   }
 
   const ctxFor = (conversation, extra = {}) => ({
-    now, conversation, skills, jobs, memo, tia: tiaFor, choose: chooseAccount, freePct,
+    now, conversation, skills, jobs, memo, audit, tia: tiaFor, choose: chooseAccount, freePct,
     // A turn a job woke: the owner may not be looking at the conversation (notify_owner pushes its question too).
-    woken: turns.get(conversation)?.origin === 'job', heSaid: heSaid.get(conversation) || '', ...extra,
+    woken: turns.get(conversation)?.origin === 'job', spoken: turns.get(conversation)?.spoken === true, heSaid: heSaid.get(conversation) || '', ...extra,
   });
 
   /**
@@ -281,8 +281,8 @@ export function createAssistantCore({
   }
 
   /** The facts policy.mjs needs, looked up by the dashboard (never taken from the model). */
-  async function facts(tool, args) {
-    const f = { session: null, mine: false, account: null, work: false, herWork: false };
+  async function facts(tool, args, conversation = null) {
+    const f = { session: null, mine: false, account: null, work: false, herWork: false, spoken: conversation !== null && turns.get(conversation)?.spoken === true };
     if (args.session && baseLevel(tool, args) !== 'L0') {
       const list = await ops.listSessions({ computer: args.computer || LOCAL });
       const c = list.find((x) => x.name === args.session && (x.computer || LOCAL) === (args.computer || LOCAL));
@@ -492,6 +492,7 @@ export function createAssistantCore({
     }
 
     try {
+      const turn0 = turns.get(conversation);
       let tia = await tiaFor(args.computer || LOCAL);
       if (!tia.enabled) return { isError: true, text: errorText(`${ASSISTANT_NAME} is turned off`, 'the owner can turn her on in Settings → Tia') };
       // Where a start goes, only while he chose computers for her (Settings → Tia): else exactly as before.
@@ -509,7 +510,9 @@ export function createAssistantCore({
           tia = await tiaFor(args.computer);
         }
       }
-      const f = await facts(tool, args);
+      const f = await facts(tool, args, conversation);
+      // The owner spoke this message (the page marks it): only ever raises a level (acts.mjs levelFor), never lowers one.
+      f.spoken = turn0 !== undefined && turn0.origin === 'owner' && turn0.spoken === true;
       // What only the dashboard knows for this call (a project's unpublished commits …), for policy.mjs.
       // heLast: his message of this turn (none in a job's turn), for a rule that asks whether he named what is changed.
       if (tool.facts) f.extra = await tool.facts(ops, args, ctxFor(conversation, { heLast: turns.get(conversation)?.origin === 'owner' ? turns.get(conversation).text : null }));
@@ -958,7 +961,7 @@ export function createAssistantCore({
         // A tap on an answer she offered is her words sent in his name: it is not counted as his.
         if (!choices.some((c) => c.options.some((o) => String(o).trim() === String(turn.text).trim()))) heSaid.set(conversation, `${heSaid.get(conversation) || ''}\n${String(turn.text).slice(0, 20_000)}`.slice(-60_000));
       }
-      turns.set(conversation, turn.origin === 'job' ? { origin: 'job', job: turn.job, mode: turn.mode } : { origin: 'owner', text: String(turn.text || '').slice(0, 20_000) });
+      turns.set(conversation, turn.origin === 'job' ? { origin: 'job', job: turn.job, mode: turn.mode } : { origin: 'owner', text: String(turn.text || '').slice(0, 20_000), spoken: turn.spoken === true });
     },
     endTurn(conversation) {
       turns.delete(conversation);

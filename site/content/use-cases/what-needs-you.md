@@ -6,7 +6,7 @@ short: Home lists what needs you, most urgent first, with one button for the rec
 
 # How do I see on one page what needs me?
 
-Open **Home**. Its **Needs you** group lists what needs you now, from everything Hoprig watches, such as sessions, providers, gateways, the public link, your repositories and the computer itself. The most urgent comes first, and each row has one button for the recommended step. While Tia's rules, **Tia decides** and her looks are off, nothing happens until you tap. All of them are off at first.
+Open **Home**. Its **Needs you** group lists what needs you now, from everything Hoprig watches, such as sessions, providers, gateways, the public link, your repositories and the computer itself. The most urgent comes first, and each row has one button for the recommended step. While Tia's rules, **Tia decides** and her looks are off, nothing that spends usage happens until you tap. Hoprig mends by itself what costs nothing, such as a gateway that stopped; everything else is off at first.
 
 ## Who this is for
 
@@ -33,7 +33,7 @@ In **Settings**, **Tia**, the fold **What she may do alone** holds switches that
 - **Tia decides**: for something new, such as a session at a limit or with no progress, a gateway or the public link that does not answer, or an overloaded computer, she asks a small model once to pick one of the steps prepared for it, or to leave it to you. Each decision costs about 3,400 tokens of her provider, at most 30 decisions and 125,000 tokens a day at first, and is written under **Done by Tia** with its reason. **Also a mission's choices** lets her also choose for a mission's task that reaches a usage limit or waits until a time: the next provider of your order, or the wait.
 - **Tia looks into what nobody can explain**: for a failure nobody can explain yet, she starts a session that only reads, to find the cause, at most 2 looks and $3 a day at first. Its finding is a row; only your **Make it a task** turns it into a task.
 - **Tia keeps your corrections**: when you decline her card, press Undo on her act or tap another step than the one she recommended, she keeps one small record of it, at most 200 a day, for 90 days, on this computer only. Nothing changes by itself from them: they are shown where you decide, and **Forget these** removes them. It only keeps records, so it works also while the main switch is off.
-- Last come her five rules, one switch each. For example: when a session stops at a usage limit, continue it on the next provider of your order; when a gateway or the public link does not answer, restart it. A rule acts at most 3 times an hour and 10 times a day, with 10 minutes between two tries on the same thing, unless you change its limits. The [Operator guide](/docs/operator/) lists all five.
+- Last come her seven rules, one switch each. For example: when a session stops at a usage limit, continue it on the next provider of your order; when a gateway or the public link does not answer, restart it. A rule acts at most 3 times an hour and 10 times a day, with 10 minutes between two tries on the same thing (2 minutes for the rules that cost nothing), unless you change its limits. The [Operator guide](/docs/operator/) lists all seven.
 
 In the same fold, the switch **Look at my other computers too** (off at first) lets the dashboard read your other computers by itself, at most once a minute. While it is off, they are read only when you open a computer's **Overview** or press **Refresh** there.
 

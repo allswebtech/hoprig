@@ -115,6 +115,17 @@ export class FakeOps {
     this.s = clone(state);
     this.calls = []; // every write: { op, args }
     this.reads = []; // every read: { op, args }
+    // The mends of src/operator/mends.mjs, as hoprig_act calls them: each one only records itself.
+    const mend = (op, out = {}) => async (a) => {
+      this.#write(`mends.${op}`, a);
+      return { ok: true, ...(typeof out === 'function' ? out(a) : out) };
+    };
+    this.mends = { restartGateway: mend('restartGateway'), startGateway: mend('startGateway'), stopGateway: mend('stopGateway'), reopenSession: mend('reopenSession'), hold: mend('hold'), release: mend('release'), cleanOwnTemp: mend('cleanOwnTemp', { bytes: 1_200_000_000 }), probeProvider: mend('probeProvider', { up: true }) };
+  }
+  /** One route of hers through the door (ops.route): recorded; a new plan answers with its id. */
+  async route(a) {
+    this.#write('route', a);
+    return a.path === '/api/work/plans' ? { plan: { id: 'new-plan' } } : { ok: true };
   }
 
   #session(computer, name) {
@@ -650,11 +661,11 @@ Object.assign(FakeOps.prototype, WORK_OPS);
  * and X-Hoprig-Conversation. Owner-only routes (confirm, reject) are NOT reachable with the token.
  * Returns { url, token, core, ops, close() }.
  */
-export async function startFakeDashboard({ ops = new FakeOps(), token = 'test-token-not-a-secret', skills, now } = {}) {
+export async function startFakeDashboard({ ops = new FakeOps(), token = 'test-token-not-a-secret', skills, now, audit = new AuditLog({ file: null }) } = {}) {
   const core = createAssistantCore({
     ops,
     jobs: new JobStore({ dir: null, ...(now ? { now } : {}) }),
-    audit: new AuditLog({ file: null }),
+    audit,
     cards: new CardStore(now ? { now } : {}),
     skills: skills || new Skills({ dirs: [{ dir: '/nonexistent-owner-skills', source: 'owner' }, { dir: fileURLToPath(new URL('../../skills', import.meta.url)), source: 'built-in' }] }),
     ...(now ? { now } : {}),

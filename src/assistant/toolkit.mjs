@@ -7,7 +7,7 @@ import { obj, ref, str } from './schema.mjs';
 import { isCodingCard } from '../automation/cards.mjs';
 import { OFFERED } from '../codetools/offered.mjs';
 import { LOCAL } from './shown.mjs';
-import { fenceData } from './fence.mjs';
+import { fenceData, maskShapes } from './fence.mjs';
 
 // A terminal session's name, or a chat's (src/chat: "chat:<conversation id>", 41 characters).
 export const SESSION = /^([A-Za-z0-9_][A-Za-z0-9_.-]{0,39}|chat:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/;
@@ -121,7 +121,7 @@ export class ToolError extends Error {
 export const toolError = (message, next, detail) => new ToolError(message, next, detail);
 
 /** An error as she reads it: this code's own words outside, what a computer said (`detail`) inside the fence. */
-export const errorText = (message, next, detail, tool) => `Error: ${message}.${next ? ` Next: ${next}.` : ''}${detail !== undefined ? `\n${fenceData({ tool, said: 'error' }, detail)}` : ''}`;
+export const errorText = (message, next, detail, tool) => maskShapes(`Error: ${message}.${next ? ` Next: ${next}.` : ''}${detail !== undefined ? `\n${fenceData({ tool, said: 'error' }, detail)}` : ''}`);
 /** What an error that is not a ToolError said (a route's answer, as a rule): data, never words of the message. */
 export const errorDetail = (e) => ({ error: String((e && e.message) || 'unknown error').slice(0, 300) });
 /** Any error of a tool's run, as she reads it: a ToolError with its words, any other one only inside the fence. */
@@ -153,7 +153,7 @@ const ORDER = { L0: 0, L1: 1, L2: 2 };
  */
 export function actionTool({ name, description, actions, fields, actionDesc = 'What to do.' }) {
   // actionDesc: what each action does, when the tool's description would pass the contract's 1024 characters.
-  const input = obj({ action: str({ enum: Object.keys(actions), desc: actionDesc }), ...fields, computer }, { required: ['action'] });
+  const input = obj({ action: str({ enum: Object.keys(actions), full: true, desc: actionDesc }), ...fields, computer }, { required: ['action'] });
   const levelOf = (a) => {
     const l = actions[a.action].level;
     return typeof l === 'function' ? l(a) : l;

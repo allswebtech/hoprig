@@ -382,6 +382,7 @@ export function createServer(opts = {}) {
       move: async (name, to) => { const { term, run } = await sessionOr404(name); if (!run) throw new HttpError(409, 'this is a plain shell'); const p = pickProfile(to, run.tool || 'claude'); if (!p) throw bad('there is no such provider'); await moveTo(term, run, p.name); },
       stop: async (name) => { await sessionOr404(name); await backend.kill(name); },
       nudge: async (name, text) => { await sessionOr404(name); await deck.sendToTool(name, text, { enter: true }); }, // only while the coding tool is in front (typing.mjs)
+      start: (o) => { const a = features.find((f) => f.name === 'automation')?.automation; if (!a) throw new HttpError(503, 'automations are not running'); return a.deck.start(o); }, // a rule reopens a session whose coding tool died: the very start a restart makes
     }, asks: asksAdapter({ chat }), rooms: () => rooms.keeper.view(), work: () => work.looks, ...opts.operator }),
     rooms, // GET /api/operator/rooms: each computer's room for new work; the switch "Look at my other computers too"
     shipFeature(ctx, { chat, assistant: () => features.find((f) => f.name === 'assistant'), ...opts.ship }), // Work → Go live: put finished task branches together, check them, go live on the owner's tap

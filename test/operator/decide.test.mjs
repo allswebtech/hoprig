@@ -78,7 +78,8 @@ const failing = () => {
 
 function rig({ decide = { on: true }, acts = true, tia = true, rules = {}, notes = {}, mayEnd = {}, world: w = {}, m = model(), card = null } = {}) {
   fs.rmSync(opDir, { recursive: true, force: true });
-  saveConfig({ projectsDir: projects, assistant: { enabled: tia }, operator: { acts, rules, decide, notes, mayEnd } });
+  // The mends are off here: these tests are about Tia's decisions, which the rules that cost nothing (mends.test.mjs) would act before.
+  saveConfig({ projectsDir: projects, assistant: { enabled: tia }, operator: { mends: false, acts, rules, decide, notes, mayEnd } });
   const world = { sessions: [], gateways: [], live: null, leftovers: [], machine: null, ...w };
   const calls = [];
   const clock = { t: NOW };
