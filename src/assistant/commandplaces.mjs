@@ -74,7 +74,7 @@ export function commandPlaces(command, folder, { platform = process.platform, ho
     add(w);
     moving = win && /^(cd|chdir|pushd|sl|set-location)$/i.test(w);
     // "--file=C:\x" and "KEY=/x": the part after the first "="
-    const eq = w.indexOf('=');
+    const eq = win ? w.indexOf('=') : -1; // (elsewhere nothing changes: `of=/dev/sdb` is a card, not a refusal)
     if (eq > 0) add(w.slice(eq + 1).replace(/^["']|["']$/g, ''));
     // "-Path:C:\x" and ">C:\x" style glue: a drive path that starts inside the word
     if (win) {
