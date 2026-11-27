@@ -932,6 +932,7 @@ body.is-demo .page-title::after { display: inline-block; }
   .side-item[aria-current='page']::before { content: ''; position: absolute; left: 0; top: 9px; bottom: 9px; width: 3px; border-radius: 99px; background: var(--accent); }
   .side-item .nav-badge { position: static; margin-left: auto; }
   .bottombar, .fab { display: none; }
+  .gear-btn { display: none; }
   .shell-main { flex: 1; }
   /* The main column: right after the sidebar, left-aligned at every width, at most 1200 px. */
   .page { padding: 0 36px 120px; }

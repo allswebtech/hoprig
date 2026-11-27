@@ -135,7 +135,8 @@ test('structure: the main pages, the second group, the Settings pages, and old a
   const group = (g) => pages.filter((m) => m[2] === g).sort((a, b) => a[3] - b[3]).map((m) => m[1]);
   assert.deepEqual(group('main'), ['work', 'workspace', 'providers', 'computers'], 'Home is the router\'s own, then Work · Workspace · Providers · Computers');
   // Automations has no page of its own any more: Work → Schedules, Settings → Automations, Work → Activity.
-  assert.deepEqual(group('more'), ['operator', 'skills', 'brain', 'tia', 'settings']);
+  // The menu is Home, Work, Workspace, Providers, Computers and Settings last (shell.js menuItems); no More page.
+  assert.ok(group('more').includes('settings'), 'Settings is a registered page the menu puts last');
   // Every address in PAGE_ADDRESSES (what Tia's open_screen may open) leads to a page that exists.
   const ids = new Set([...pages.map((m) => m[1]), ...[...pageFiles().map(src).join('\n').matchAll(/registerPage\(\{\s*id: '([a-z-]+)'/g)].map((m) => m[1])]);
   const list = /export const PAGE_ADDRESSES = \[([\s\S]*?)\];/.exec(src('app.js'))[1];
@@ -143,7 +144,7 @@ test('structure: the main pages, the second group, the Settings pages, and old a
   assert.ok(addresses.length > 20);
   for (const a of addresses) {
     const first = a.slice(2).split('/')[0];
-    assert.ok(first === '' || ['new', 'more'].includes(first) || ids.has(first), `${a} leads to a page`);
+    assert.ok(first === '' || ['new'].includes(first) || a === '#/more' || ids.has(first), `${a} leads to a page`);
   }
   // The Settings pages, in the order of the list (registry.js SETTINGS_ORDER wins over a file's own number): the design's
   // order, nothing else. Editor, Coding tools, About, Work and Field reports are cards of other pages now.
@@ -202,7 +203,7 @@ test('one floating thing on a phone: Tia is a button in the page head there, the
   const before = registeredHeadTools().length;
   registerHeadTool(() => null);
   assert.equal(registeredHeadTools().length, before + 1);
-  assert.match(src('shell.js'), /h\('div\.head-icons', registeredHeadTools\(\)/, 'the page head draws the registered buttons next to light/dark');
+  assert.match(src('shell.js'), /h\('div\.head-icons', registeredHeadTools\(\)/, 'the page head draws the registered buttons next to the Settings gear');
   assert.match(src('tia.js'), /registerHeadTool\(/);
   const css = src('page-automations.css').replace(/\/\*[\s\S]*?\*\//g, '');
   assert.match(css, /@media \(max-width: 899px\) \{\s*\.tia-launch \{ display: none; \}/, 'no round launcher on a phone');

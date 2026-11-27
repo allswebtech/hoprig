@@ -176,10 +176,11 @@ test('a rule that left an item to him says so on its card; Done by Tia shows Und
   assert.ok(texts(cut).includes('the limit rule was cut off by a stop of the dashboard'), texts(cut).join('|'));
 });
 
-test('the sidebar and the tab bar give a page\'s number the same words for a screen reader', async () => {
+test('the sidebar and the tab bar draw their number in one place, with the same words for a screen reader', async () => {
   const fs = await import('node:fs');
   const src = fs.readFileSync(new URL('../../web/shell.js', import.meta.url), 'utf8');
-  assert.equal(src.match(/'aria-label': badgeLabel\(/g).length, 2, 'both places use badgeLabel');
+  assert.equal(src.match(/'aria-label': badgeLabel\(/g).length, 1, 'the list and the bar share navItem, which uses badgeLabel');
+  assert.match(src, /fill\(bottom, bar\.map\(\(p\) => navItem\(p, current, 'tab'\)\)\)/);
   assert.doesNotMatch(src, /waiting for you` \}/);
   const { badgeLabel } = await import('../../web/shell.js');
   assert.deepEqual([badgeLabel(1), badgeLabel(3)], ['1 thing needs you', '3 things need you']);

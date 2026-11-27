@@ -1,6 +1,6 @@
 // The frame every page is drawn in, and the shared parts of a page (style.css names the same components):
-//   sidebar      desktop (>= 900 px): logo and name, the main pages, a divider, the second group
-//   bottombar    phone: Home · Projects · Accounts · Computers · More (More lists the second group)
+//   sidebar      desktop (>= 900 px): logo and name, then one list: Home, Work, Projects, Providers, Computers, Settings
+//   bottombar    phone: Home · Work · Projects · Providers · Computers; Settings is the gear in the page head
 //   pagehead     the page's title, one sentence saying what it is for, at most one primary action
 //   switcher     which computer, on a page that belongs to one computer, only when there are several
 //   panel        a card with an icon, a title and one sentence
@@ -12,8 +12,8 @@
 import { APP_NAME } from './brand.js';
 import { icon } from './icons.js';
 import { helpParts } from './helpline.js';
-import { BARE, MACHINE_STATE, applyPageTheme, errorWords, fill, h, link, machine, prefs, wayLink } from './lib.js';
-import { navPages, pageById, registeredHeadTools } from './registry.js';
+import { BARE, MACHINE_STATE, errorWords, fill, h, link, machine, prefs, wayLink } from './lib.js';
+import { homeCount, navPages, pageById, registeredHeadTools } from './registry.js';
 import { store } from './store.js';
 import { cameFrom, named, startOver, wayBack, windowWay } from './trail.js';
 
@@ -37,20 +37,21 @@ function navItem(p, current, cls) {
     p.count ? h('span.nav-badge', { 'aria-label': badgeLabel(p.count) }, String(p.count)) : null);
 }
 
+/** The menu: one list (Home, the main pages, Settings last) and the phone bar (the same without Settings, which is the gear). */
+export function menuItems() {
+  const home = { ...HOME, count: homeCount() };
+  const bar = [home, ...navPages('main')];
+  const settings = pageById('settings');
+  return { bar, list: settings ? [...bar, { ...settings, count: 0 }] : bar };
+}
+
 function paintNav(side, bottom, pageId) {
   const current = currentItem(pageId);
-  const main = [HOME, ...navPages('main')];
-  const more = navPages('more');
+  const { list, bar } = menuItems();
   fill(side,
     h('a.side-brand', { href: '#/', onclick: startOver }, h('img.side-mark', { src: 'icon.svg', alt: '', width: 36, height: 36 }), h('span.side-name', APP_NAME)),
-    h('div.side-group', main.map((p) => navItem(p, current, 'side-item'))),
-    h('div.side-group', h('div.side-group-title', 'More'), more.map((p) => navItem(p, current, 'side-item'))));
-  const inMore = current === 'more' || more.some((p) => p.id === current);
-  const waiting = more.reduce((n, p) => n + p.count, 0);
-  fill(bottom,
-    main.map((p) => navItem(p, current, 'tab')),
-    h('a.tab', { href: '#/more', 'aria-current': inMore ? 'page' : null, onclick: startOver }, icon('grid', { size: 22 }), h('span', 'More'),
-      waiting ? h('span.nav-badge', { 'aria-label': badgeLabel(waiting) }, String(waiting)) : null));
+    h('div.side-group', list.map((p) => navItem(p, current, 'side-item'))));
+  fill(bottom, bar.map((p) => navItem(p, current, 'tab')));
 }
 
 /** The label of the open computer for titles ("Providers · laptop"), or null on this computer. */
@@ -84,23 +85,9 @@ export function computerSwitcher(target) {
   return h('div.switch-menu', btn, pop);
 }
 
-/** The light/dark button of the page head (the same choice as Settings → Appearance, kept on this device). */
-function themeButton() {
-  const dark = () => (document.documentElement.dataset.theme || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')) === 'dark';
-  const b = h('button.icon-btn', { type: 'button' });
-  const paint = () => {
-    const d = dark();
-    b.title = d ? 'Light colours' : 'Dark colours';
-    b.setAttribute('aria-label', b.title);
-    fill(b, icon(d ? 'sun' : 'moon', { size: 16 }));
-  };
-  b.addEventListener('click', () => {
-    prefs.set('page.theme', dark() ? 'light' : 'dark');
-    applyPageTheme();
-    paint();
-  });
-  paint();
-  return b;
+/** The Settings gear of the page head, on a phone (a wide window has Settings in the list). The light or dark choice lives in Settings, Appearance. */
+function gearButton() {
+  return h('a.icon-btn.gear-btn', { href: link('#/settings'), title: 'Settings', 'aria-label': 'Settings', onclick: startOver }, icon('settings', { size: 16 }));
 }
 
 /** "Connection lost — reconnecting…" while the last poll failed. */
@@ -125,7 +112,7 @@ export function endFrame() {
  * on a phone. `wide`: room for two columns (Settings). `fillWindow`: the page fills the window and its last part
  * stays at the bottom (Tia's chat). `primaryInHead`: a page of cards he reads and answers (Home, Work) keeps its main
  * action in the page head on a phone too, never floating over the first card's text. The page head holds, on the right, the page's tools, its main action, the
- * computer pill (a page of one computer, with several) and the light/dark button.
+ * computer pill (a page of one computer, with several) and, on a phone, the Settings gear.
  */
 export function frame({ title, place = null, intro = null, page = null, back: parent = null, backLabel: parentLabel = 'Back', backOnPhoneOnly: parentOnPhoneOnly = false, introOnPhone = true, actions = [], primary = null, body, extra = [], wide = false, fillWindow = false, primaryInHead = false }) {
   endFrame();
@@ -197,7 +184,7 @@ export function frame({ title, place = null, intro = null, page = null, back: pa
         } catch {
           return null;
         }
-      }), themeButton())));
+      }), gearButton())));
   const fab = primary && !primaryInHead ? go('fab') : null;
   fill(app, side, h('div.shell-main', h(`main.page${wide ? '.wide' : ''}${fillWindow ? '.fill' : ''}`, head, body)), extra, fab, bottom);
   document.body.classList.add('has-nav');
