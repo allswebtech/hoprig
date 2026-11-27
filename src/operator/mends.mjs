@@ -5,16 +5,22 @@
 //
 //   portHolder(port)              who holds a TCP port on this computer (Linux): { pid, name } or null
 //   httpLook(url)                 one request with no key and no body: the status number, or 0 when nothing answered
-//   probeAddress(address)         "host:port" or a URL: a knock, then one request: { state, status }
+//   probeAddress(address)         "host:port" or a URL on this computer: one knock, no request: { state, status }
 //   defaultNext(current, list)    the provider a limit moves to when the owner set no order: his subscriptions in list order
 //   ownTemp({...})                what Hoprig made in its own folders and in the temporary folder that is old enough to go
 //   cleanOwnTemp({...})           removes exactly that; returns { freed, files }
 //   reopenSession(t, { start })   starts the same conversation again with resume, sending nothing to it
+//   restartGateway({ id })        stops and starts a gateway add-on here, as a function: never through a route or her door
+//   stopGateway({ id })           stops it and notes it as the owner's own stop (her act runs only on his tap)
+//   probeProvider({ name })       one look at a gateway's local address or a provider's base address: no key, no body
 
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { knock } from '../knock.mjs';
+import { findAddon } from '../addons/index.mjs';
+import { noteStarted, noteStopped } from '../addons/stopmark.mjs';
+import { readProfile } from '../profiles.mjs';
 
 const DAY = 24 * 3600_000;
 export const LOG_KEEP_MS = 14 * DAY;
@@ -104,11 +110,11 @@ export async function httpLook(url, { timeoutMs = 5000, fetchFn = fetch } = {}) 
 }
 
 /**
- * Whether something answers at an address: a knock first (is anything listening), then one request with no key. An
- * address that holds a user name or a key (`user:pass@`, `?key=`) is never sent anywhere: it is not looked at.
+ * Whether something is listening at an address on this computer: one short knock, no request. Any other address is
+ * skipped (nothing knocks outside this computer by itself). An address that holds a user name or a key (`user:pass@`, `?key=`) is never sent anywhere: it is not looked at.
  * → { state: 'answers' | 'closed' | 'silent' | 'skipped', status }
  */
-export async function probeAddress(address, { knockFn = knock, look = httpLook } = {}) {
+export async function probeAddress(address, { knockFn = knock } = {}) {
   let u;
   try {
     u = new URL(/^[a-z]+:\/\//i.test(address) ? address : `http://${address}`);
@@ -116,11 +122,12 @@ export async function probeAddress(address, { knockFn = knock, look = httpLook }
     return { state: 'skipped', status: 0 };
   }
   if (!/^https?:$/.test(u.protocol) || u.username || u.password || u.search) return { state: 'skipped', status: 0 };
+  const host = u.hostname.replace(/^\[|\]$/g, '');
+  // Only this computer is looked at, and only with a knock: nothing is sent to an address outside it.
+  if (!['127.0.0.1', 'localhost', '::1'].includes(host)) return { state: 'skipped', status: 0 };
   const port = Number(u.port) || (u.protocol === 'https:' ? 443 : 80);
-  const k = await knockFn({ host: u.hostname.replace(/^\[|\]$/g, ''), port }, 3000);
-  if (k !== 'open') return { state: k, status: 0 };
-  const status = await look(`${u.origin}/`);
-  return { state: status ? 'answers' : 'silent', status };
+  const k = await knockFn({ host, port }, 1500);
+  return { state: k === 'open' ? 'answers' : k, status: 0 };
 }
 
 // ---- the limit's default order ----
@@ -239,4 +246,48 @@ export async function reopenSession(t, { start }) {
     if (e.existing) throw Object.assign(new Error('its conversation runs already: nothing was reopened'), { status: 409 });
     throw e;
   }
+}
+
+// ---- a gateway: the acts of hers that run on the owner's tap, in the server ----
+
+const addonOf = (id, find) => {
+  const a = typeof id === 'string' ? find(id) : null;
+  return a && a.gateway ? a : null;
+};
+const NONE = { ok: false, said: 'there is no such gateway on this computer' };
+
+/** Stop a gateway add-on and start it again. Sessions answered through it lose the request in flight. */
+export async function restartGateway({ id } = {}, { find = findAddon } = {}) {
+  const a = addonOf(id, find);
+  if (!a) return NONE;
+  const s = await a.stop();
+  if (!s.ok) return { ok: false, said: `${a.title || id} was not restarted: ${s.error || 'it did not stop'}` };
+  const r = await a.start();
+  if (!r.ok) return { ok: false, said: r.error || 'the gateway did not start' };
+  noteStarted(a.id);
+  return { ok: true, said: `restarted ${a.id}` };
+}
+
+/** Stop a gateway add-on. It is the owner's own stop (his tap): the Operator's rule leaves it stopped. */
+export async function stopGateway({ id } = {}, { find = findAddon } = {}) {
+  const a = addonOf(id, find);
+  if (!a) return NONE;
+  const s = await a.stop();
+  if (!s.ok) return { ok: false, said: `${a.title || id} was not stopped: ${s.error || 'it did not stop'}` };
+  noteStopped(a.id);
+  return { ok: true, said: `stopped ${a.id}` };
+}
+
+/** Whether a gateway of this computer, or a provider's base address, answers. { ok, up, said } */
+export async function probeProvider({ name } = {}, { find = findAddon, probe = probeAddress, profile = readProfile } = {}) {
+  const a = typeof name === 'string' ? find(name) : null;
+  let address = a && a.gateway && typeof a.gateway.port === 'function' && a.gateway.port() ? `127.0.0.1:${a.gateway.port()}` : null;
+  if (!address && typeof name === 'string') {
+    const base = profile(name)?.env?.ANTHROPIC_BASE_URL;
+    if (typeof base === 'string' && base) address = base;
+  }
+  if (!address) return { ok: false, said: 'there is no address of that name to look at' };
+  const r = await probe(address);
+  if (r.state === 'skipped') return { ok: false, said: 'its address is not one to look at without a key' };
+  return { ok: true, up: r.state === 'answers', said: r.state === 'answers' ? 'answers' : r.state === 'closed' ? 'nothing listens' : 'does not answer' };
 }

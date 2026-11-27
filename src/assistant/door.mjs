@@ -21,7 +21,7 @@ import { cardComputer, confirmedCard } from './confirmed.mjs';
 
 const SEG = '[^/]+';
 const CHAT_ID = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}';
-const r = (method, path, tool, body = null, card = null) => ({ method, re: new RegExp(`^${path}$`), path, tool, body, card });
+const r = (method, path, tool, body = null, card = null, cardTools = ['manage_computer']) => ({ method, re: new RegExp(`^${path}$`), path, tool, body, card, cardTools });
 
 /** Keys of POST /api/settings her tools may send (hoprig_act change-setting, auto-mode, auto-order). */
 const SETTINGS_KEYS = {
@@ -140,9 +140,6 @@ export const ALLOW = [
   r('POST', '/api/chats/from-session', 'send_to_session (to_chat)', (b) => onlyKeys(['session'])(b) || (typeof b.session !== 'string' ? 'say which session' : null)),
   // Only the carry-on message: a restart of the session in place (restart: true) is the page's own button.
   r('POST', `/api/sessions/${SEG}/continue`, 'send_to_session (continue)', onlyKeys([])),
-  // A gateway the owner set up: restart, start and stop (hoprig_act restart-gateway, stop-gateway). Only the owner's
-  // confirmation of this computer travels with it; a gateway's sign-ins, keys and service stay behind NEVER.
-  r('POST', `/api/gatewayhost/${SEG}/(start|stop|restart)`, 'hoprig_act restart-gateway, stop-gateway', onlyKeys(['confirm'])),
   r('GET', '/api/folders/recent', 'list_projects'),
   r('GET', '/api/folders/browse', 'list_projects (folder)'),
   r('GET', '/api/folders/sessions', 'list_projects (folder)'),
@@ -222,15 +219,17 @@ export const ALLOW = [
   r('GET', '/api/updates', 'get_computer_status (coding_tools), manage_computer update'),
   r('POST', '/api/updates/check', 'manage_computer check_updates', onlyKeys([])),
   r('POST', '/api/updates/run', 'manage_computer update', (b) => onlyKeys(['id'])(b) || (typeof b.id !== 'string' ? 'say which item to update' : null)),
-  // The restart after an update of Hoprig, by her card only (it ends her own turn): nothing to send.
-  r('POST', '/api/updates/restart', 'manage_computer restart_dashboard, hoprig_act restart-hoprig', onlyKeys([])),
+  // The restart after an update of Hoprig, by her card only (it ends her own turn): nothing to send, and only as the act of
+  // a card he confirmed for it, from her tool or her act (confirmed.mjs).
+  r('POST', '/api/updates/restart', 'manage_computer restart_dashboard, hoprig_act restart-hoprig', onlyKeys([]), (c) => (c.tool === 'manage_computer' && c.input.action === 'restart_dashboard') || (c.tool === 'hoprig_act' && c.input.act === 'restart-hoprig'), ['manage_computer', 'hoprig_act']),
   r('POST', '/api/pc/kill', 'manage_computer end_process'),
   r('POST', '/api/pc/power', 'manage_computer reboot, power_off'),
   r('POST', '/api/machine/label', 'manage_computer rename (this computer)'),
   r('POST', `/api/machines/${SEG}/rename`, 'manage_computer rename (another computer)'),
   r('GET', '/api/addons', 'manage_computer addon'),
   // Not the public link's: it opens the computer to the internet, through its own route and a card.
-  r('POST', `/api/addons/(?!public-link/)${SEG}/(start|stop)`, 'manage_computer addon', onlyKeys([])),
+  // Starting or stopping one (a gateway is one) changes what works for every session: the act of his card, like the two below.
+  r('POST', `/api/addons/(?!public-link/)${SEG}/(start|stop)`, 'manage_computer addon', onlyKeys([]), (c, p) => c.input.action === 'addon' && p === `/api/addons/${c.input.addon}/${c.input.addon_action}`),
   // Installing or updating one changes what is installed: only as the act of a card he confirmed for exactly that.
   r('POST', `/api/addons/(?!public-link/)${SEG}/(install|update)`, 'manage_computer addon', onlyKeys(['confirm']), (c, p) => c.input.action === 'addon' && p === `/api/addons/${c.input.addon}/${c.input.addon_action}`),
   r('GET', '/api/public-link', 'manage_computer public_link'),
@@ -292,8 +291,9 @@ export const NEVER_ROUTES = Object.freeze({
     /^\/api\/profiles(\/|$)/,
     /^\/api\/accounts(\/|$)/,
     /^\/api\/addons\/[^/]+\/setup$/,
-    // A gateway's own sign-ins, keys, accounts, combos and service: only its restart, start and stop are hers (ALLOW).
-    /^\/api\/gatewayhost(?!\/[a-z][a-z0-9-]{0,30}\/(?:start|stop|restart)$)(\/|$)/,
+    // A gateway's own sign-ins, keys, accounts, combos, service, restart, start and stop: the owner's own presses. Her acts on a
+    // gateway run in the server on his tap (src/operator/mends.mjs), never through a route.
+    /^\/api\/gatewayhost(\/|$)/,
     /^\/api\/gateways\/defined(\/|$)/, // a gateway of the owner's own: a program Hoprig will run
     /^\/api\/codetools\/[^/]+\/signin$/,
     /^\/api\/workspace\/git\/.+$/, // signing in to GitHub, the commit name, the brain's repository
@@ -404,7 +404,7 @@ export function checkRoute(method, url, body, ctx) {
   }
   if (entry.card) {
     const c = confirmedCard();
-    if (!c || c.tool !== 'manage_computer' || cardComputer(c) !== computer || !entry.card(c, p, body)) throw refuse(`${method} ${p} is the owner's own: it runs only when he confirms her card for it`);
+    if (!c || !entry.cardTools.includes(c.tool) || cardComputer(c) !== computer || !entry.card(c, p, body)) throw refuse(`${method} ${p} is the owner's own: it runs only when he confirms her card for it`);
   }
   return { method, route: p, computer, tool: entry.tool };
 }

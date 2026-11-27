@@ -118,7 +118,8 @@ export const isSecretFolder = (p) => typeof p === 'string' && path.isAbsolute(p)
 export function browse(p, roots, opts) {
   const dir = insideRoots(p, roots);
   if (!dir) return null;
-  const root = roots.find((r) => within(dir, r));
+  // the outermost root that holds it (roots may lie inside one another: the projects folder inside the home)
+  const root = roots.filter((r) => within(dir, r)).sort((a, b) => a.length - b.length)[0];
   const parent = dir === root ? null : path.dirname(dir);
   return { path: dir, short: tilde(dir), parent, dirs: isSecretFolder(dir) ? [] : listDirs(dir, roots, opts) };
 }

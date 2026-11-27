@@ -60,11 +60,11 @@
       "workspace-group-add-card",
       "workspace-drop-other-computer",
       "work-plan-unnamed-change",
-      "act-gateway-restart-alone",
+      "act-gateway-restart-alone-card",
       "act-gateway-stop-card",
       "act-restart-hoprig-card",
       "act-spoken-clean-card",
-      "act-typed-clean-runs"
+      "act-typed-clean-card"
     ],
     "refusal": [
       "admin-refused-form-full",

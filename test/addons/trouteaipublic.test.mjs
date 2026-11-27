@@ -64,7 +64,7 @@ test.after(() => {
 const fine = (over = {}) => ({
   fixed: () => (fs.existsSync(C.fixedStateFile()) ? JSON.parse(fs.readFileSync(C.fixedStateFile(), 'utf8')) : null),
   link: async () => ({ on: true, kind: 'custom' }),
-  gateway: async () => ({ installed: true, running: true }),
+  gateway: async () => ({ installed: true, running: true, version: '1.0.13' }),
   firstFile: () => path.join(tmp, 'no-such-first-password.txt'),
   signIn: async () => ({ requireLogin: true, signInSet: true, oidcEnabled: false }),
   openApi: async () => null,
@@ -116,6 +116,14 @@ test('every refusal has its own code, in the order of the design', async () => {
   assert.equal(await need({ link: async () => ({ on: true, kind: 'temporary' }) }), 'link-off');
   assert.equal(await need({ gateway: async () => ({ installed: true, running: false }) }), 'not-running');
   assert.equal(await need({ gateway: async () => ({ installed: false, running: false }) }), 'not-running');
+  // Only from 1.0.13 does the gateway treat a request for a public host name as from outside: older or unknown is refused.
+  const gwAt = (version) => async () => ({ installed: true, running: true, ...(version ? { version } : {}) });
+  for (const v of ['1.0.11', '1.0.10', '0.9.9', null]) assert.equal(await need({ gateway: gwAt(v) }), 'gateway-old', `version ${v}`);
+  for (const v of ['1.0.13', '1.0.14', '1.1.0', '2.0.0']) assert.equal(await P.cannotTurnOn(fine({ gateway: gwAt(v) })), null, `version ${v}`);
+  const old = await P.cannotTurnOn(fine({ gateway: gwAt('1.0.11') }));
+  assert.match(old.error, /TRouteAI 1\.0\.13/);
+  assert.match(old.error, /Update/);
+  assert.equal((await P.stateOf(fine({ gateway: gwAt('1.0.11') }))).need, 'gateway-old');
   const first = path.join(tmp, 'initial-admin-password.txt');
   fs.writeFileSync(first, 'x');
   assert.equal(await need({ firstFile: () => first }), 'first-password');

@@ -78,12 +78,12 @@ test('the answer about the Operator and Tia says what her levels and her switche
   assert.match(HELP.levelShort.work, /^She does the job herself and asks you before anything risky\.$/);
   const levels = 'She has three levels, set in Settings → Tia: **Ask me** (she asks you before everything she types into a session), **Do the work** (as installed: she does the job herself and asks you before anything risky) and **Hands off** (she may also use the paid providers you allowed, within the daily limit below).';
   assert.ok(tia.includes(levels), 'the three levels said first');
-  // The switches on the Operator page: the limit rule (src/operator/rules.mjs), Tia decides (web/operator-decide.js
+  // The switches in Settings → Tia: the limit rule (src/operator/rules.mjs), Tia decides (web/operator-decide.js
   // DECIDE_WORDS), the look (web/operator-look.js LOOK_WORDS).
   assert.match(read('src/operator/rules.mjs'), /'When a session stops at a usage limit, continue it on the next provider of my order\.'/);
   assert.match(read('web/operator-decide.js'), /she asks a small model once to pick one of the steps prepared for it, or to leave it to you/);
   assert.match(read('web/operator-look.js'), /When a run fails for a reason nobody can explain, she starts one look into it: a session .* that can only read the project/);
-  const switches = 'On the Operator page she has switches of her own, all off at first: rules such as the limit rule (a session at a usage limit goes on with the next provider of your order); **Tia decides** (for a new item that needs you, she asks a small model one short question and does the step it picks, or leaves it to you); and a look into what nobody can explain (a session that only reads the project, to find why a run failed).';
+  const switches = 'In **Settings → Tia** she has switches of her own, all off at first: rules such as the limit rule (a session at a usage limit goes on with the next provider of your order); **Tia decides** (for a new item that needs you, she asks a small model one short question and does the step it picks, or leaves it to you); and a look into what nobody can explain (a session that only reads the project, to find why a run failed).';
   assert.ok(tia.includes(switches), 'the switches said before their names are used');
   // Each name is explained before its first use in the answer.
   for (const [name, said] of [['**Ask me**', levels], ['**Hands off**', levels], ['**Tia decides**', switches], ['limit rule', switches], ['nobody can explain', switches]]) {

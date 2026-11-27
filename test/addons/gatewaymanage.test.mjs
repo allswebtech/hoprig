@@ -21,7 +21,7 @@ fs.writeFileSync(path.join(folder, 'cli-token'), `${CLI_TOKEN}\n`, { mode: 0o600
 async function setup(fakeOpts = {}, extra = {}) {
   const gw = await fakeManage(fakeOpts);
   let clock = 1_000_000;
-  const addon = { id: 'trouteai', title: 'TRouteAI', gateway: { port: () => gw.port } };
+  const addon = { id: 'trouteai', title: 'TRouteAI', gateway: { port: () => gw.port }, ...('gwVersion' in extra ? { status: async () => ({ installed: true, running: true, version: extra.gwVersion }) } : {}) };
   const feature = gatewayManageFeature({ HttpError, readJson: async (req) => req.body, caller: (req) => req.caller || 'page' }, { addons: () => [addon, { id: 'mine', defined: true, gateway: { port: () => gw.port } }], computer: () => 'box2', folder: () => folder, deps: { sameUser: async () => 'own' }, now: () => clock, ...extra });
   const route = (method, p) => {
     const [pathname, query = ''] = p.split('?');
@@ -234,6 +234,29 @@ test('keys: only the ones Hoprig made are listed and removed', async () => {
     assert.ok(!s.gw.state.keys.some((k) => k.id === 'k1'));
   } finally {
     await s.close();
+  }
+});
+
+test('by the gateway\'s version: older than 1.0.13 the list of providers and the signed-in page say what is needed, and the gateway is not asked', async () => {
+  for (const v of ['1.0.11', '1.0.10']) {
+    const s = await setup({ catalog: [{ id: 'openai', name: 'OpenAI', flow: 'api-key' }], authLink: true }, { gwVersion: v });
+    try {
+      const r = await s.ok('GET', `${T}/providers`);
+      assert.deepEqual([r.catalog, r.needs], [false, '1.0.13']);
+      assert.equal(r.sentence, 'Adding an account from a list needs TRouteAI 1.0.13. Press Update.');
+      const o = await s.ok('POST', `${T}/open`, LOCAL);
+      assert.deepEqual(o, { url: null, needs: '1.0.13', says: 'Opening TRouteAI signed in needs TRouteAI 1.0.13. Press Update.' });
+      assert.deepEqual(s.gw.state.calls.filter((c) => /catalog|auth\/link/.test(c.url)), [], 'decided by the version: no route was tried');
+    } finally {
+      await s.close();
+    }
+  }
+  const n = await setup({ catalog: [{ id: 'openai', name: 'OpenAI', flow: 'api-key' }], authLink: true }, { gwVersion: '1.0.13' });
+  try {
+    assert.equal((await n.ok('GET', `${T}/providers`)).catalog, true);
+    assert.equal((await n.ok('POST', `${T}/open`, LOCAL)).url, `http://localhost:${n.gw.port}/login/link?code=${LINK_CODE}`);
+  } finally {
+    await n.close();
   }
 });
 

@@ -247,6 +247,8 @@ main() {
       apk) PKGS="$PKGS build-base python3 linux-headers" ;;
     esac
   fi
+  # git: the first step, New project, needs it (the package has this name on every package manager above).
+  if [ "$OS" = Linux ] && [ -n "$PM" ] && [ "$SUDO" != none ] && ! have git; then PKGS="$PKGS git"; fi
   # tmux keeps the sessions through a restart of the dashboard or an update: part of the same one step, when that step
   # can run (an ordinary user without sudo is not asked for more than the build tools need).
   if [ "$OS" = Linux ] && [ -n "$PM" ] && [ "$SUDO" != none ] && ! have tmux; then PKGS="$PKGS tmux"; fi

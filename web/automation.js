@@ -552,7 +552,7 @@ export function rulesPart(st, after) {
   return [
     panel({ icon: 'clock', title: 'Keep the work going', desc: 'What happens when you are not watching.' },
       rule('Mend problems by itself', !(s.operator && s.operator.mends === false), (v) => ({ operator: { mends: v } }),
-        { line: 'A dashboard that stopped comes back, a bad update goes back, a stopped gateway starts again, a session whose tool died is reopened, and leftovers are cleaned.',
+        { line: 'Restarts a gateway or the public link that stops answering, reopens a session whose tool died, and clears its own leftovers.',
           more: 'No AI and no usage. Each mend is a line in Activity; one that did not help becomes a row in Needs you.' }),
       rule('Try again after a server error', s.retry.enabled, (v) => ({ retry: { enabled: v } }),
         { line: 'In a Claude Code session: when the provider\'s servers are busy or the connection breaks, it sends "continue" after a short wait.',

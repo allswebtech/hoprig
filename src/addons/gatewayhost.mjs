@@ -44,6 +44,7 @@ import { hasSetUp, listensSentence, logFileOf, lastLines, ownProgramCommand, scr
 import { lingerCommand, lingerOf, makeService, removeService, serviceNow, servicePlan, serviceState } from './gatewayservice.mjs';
 import { defaultHubLabel } from '../machines/hub.mjs';
 import { tokenIdOf } from '../machines/index.mjs';
+import { fromHerDoor } from '../server/herdoor.mjs';
 import { fixedMarkTold } from './fixedlink.mjs';
 import { stateOf as publicState, turnOff as publicOff, turnOn as publicOn } from './trouteaipublic.mjs';
 import { capture, showCommand } from '../setup/system.mjs';
@@ -95,7 +96,7 @@ export function gatewayHostFeature(ctx, opts = {}) {
 
   /** The owner's page or a hub's token, never Tia's door; and the confirmation that names this computer. */
   const ownerOnly = (req) => {
-    if (ctx.caller && ctx.caller(req) === 'self') throw fail(403, 'a gateway on a computer is started, stopped or made a service only by its owner, on the page');
+    if (fromHerDoor(ctx, req)) throw fail(403, 'a gateway on a computer is started, stopped or made a service only by its owner, on the page');
   };
   async function checked(req) {
     ownerOnly(req);
@@ -183,7 +184,7 @@ export function gatewayHostFeature(ctx, opts = {}) {
       link: pub.link || (async () => (await import('./linkswitch.mjs')).status({ why: false })),
       gateway: pub.gateway || (async () => {
         const st = await statusOf(a);
-        return { installed: Boolean(st.installed), running: Boolean(st.running) };
+        return { installed: Boolean(st.installed), running: Boolean(st.running), version: st.version || null };
       }),
       firstFile: pub.firstFile || (() => path.join(folder, 'initial-admin-password.txt')),
       signIn: pub.signIn || (async () => {
@@ -205,7 +206,7 @@ export function gatewayHostFeature(ctx, opts = {}) {
         const gateways = await Promise.all(list().map(async (a) => {
           const st = await Promise.resolve(a.status()).catch(() => ({ installed: false, running: false }));
           const plan = planOf(a);
-          return { id: a.id, title: a.title, marksFirst: a.marksFirst === true, firstWaiting: Boolean(a.firstLines && a.firstLines.waiting()), defined: a.defined === true, manage: hasSetUp(a), listens: hasSetUp(a) ? listensSentence(a) : null, installed: !!st.installed, running: !!st.running, ...(st.copy ? { copy: st.copy } : {}), ...(st.note ? { note: st.note } : {}), ...(st.restart ? { restart: st.restart } : {}), ...(st.problem ? { problem: st.problem } : {}), ...(st.foreign ? { foreign: true } : {}), port: a.gateway ? Number(a.gateway.port()) : null, service: { kind: plan.kind, ...(plan.sentence ? { sentence: plan.kind === 'missing' && st.installed ? missingProgram(a.title, st.copy) : plan.sentence } : {}), ...(await serviceState(plan, { run })) } };
+          return { id: a.id, title: a.title, marksFirst: a.marksFirst === true, firstWaiting: Boolean(a.firstLines && a.firstLines.waiting()), defined: a.defined === true, manage: hasSetUp(a), listens: hasSetUp(a) ? listensSentence(a) : null, installed: !!st.installed, running: !!st.running, ...(st.version ? { version: st.version } : {}), ...(st.newer === true ? { newer: true } : {}), ...(st.copy ? { copy: st.copy } : {}), ...(st.note ? { note: st.note } : {}), ...(st.restart ? { restart: st.restart } : {}), ...(st.problem ? { problem: st.problem } : {}), ...(st.foreign ? { foreign: true } : {}), port: a.gateway ? Number(a.gateway.port()) : null, service: { kind: plan.kind, ...(plan.sentence ? { sentence: plan.kind === 'missing' && st.installed ? missingProgram(a.title, st.copy) : plan.sentence } : {}), ...(await serviceState(plan, { run })) } };
         }));
         const linger = await lingerOf({ run }).catch(() => null);
         const signedIn = typeof ctx.signedInHosts === 'function' ? ctx.signedInHosts() : [];

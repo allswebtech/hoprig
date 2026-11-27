@@ -8,6 +8,7 @@ import { AuditLog } from '../../src/assistant/audit.mjs';
 import { CardStore } from '../../src/assistant/cards.mjs';
 import { createAssistantCore } from '../../src/assistant/core.mjs';
 import { scheduleSentence } from '../../src/assistant/domains.mjs';
+import { runConfirmed } from '../../src/assistant/confirmed.mjs';
 import { checkRoute } from '../../src/assistant/door.mjs';
 import { JobStore } from '../../src/assistant/jobs.mjs';
 import { Skills } from '../../src/assistant/skills.mjs';
@@ -131,7 +132,7 @@ test('manage_project: new and get are cards that show what will be made; sync is
   assert.ok(staged(await call('manage_project', { action: 'add_repository', project: 'shop', repo: 'mobile' })));
 });
 
-test('manage_computer: rename is L1; setup fix and set up show what runs; add-on start L1, the rest cards; no remove', async () => {
+test('manage_computer: rename is L1; setup fix and set up show what runs; add-on start is a card too; no remove', async () => {
   const { call, ops } = setup();
   await call('get_computer_status', {});
   assert.equal((await call('manage_computer', { action: 'rename', label: 'Work laptop' })).isError, false);
@@ -146,11 +147,11 @@ test('manage_computer: rename is L1; setup fix and set up show what runs; add-on
   r = await call('manage_computer', { action: 'set_up', kits: ['tools'] });
   assert.match(r.text, /Developer tools: apt install gh/);
   assert.match((await call('manage_computer', { action: 'set_up', kits: ['nope'] })).text, /not setup kits: nope/);
-  assert.equal((await call('manage_computer', { action: 'addon', addon: 'trouteai', addon_action: 'start' })).isError, false);
+  assert.ok(staged(await call('manage_computer', { action: 'addon', addon: 'trouteai', addon_action: 'start' })), 'a gateway start is a card, never done alone');
   assert.ok(staged(await call('manage_computer', { action: 'addon', addon: 'trouteai', addon_action: 'install' })));
   assert.ok(staged(await call('manage_computer', { action: 'update', item: 'claude' })));
   assert.match((await call('manage_computer', { action: 'remove', computer: 'box2' })).text, /action: must be one of/, 'removing a computer is the owner\'s own step');
-  assert.deepEqual(writes(ops), ['renameComputer', 'addon']);
+  assert.deepEqual(writes(ops), ['renameComputer']);
 });
 
 test('manage_computer public_link: on is his own press and no card of hers; off runs; never as an add-on', async () => {
@@ -586,7 +587,8 @@ test('manage_computer restart_dashboard: a card with the versions, what happens 
 
 test('her door: the restart takes no field; how updates run stays his', () => {
   const ctx = { caller: 'tia' };
-  assert.equal(checkRoute('POST', '/api/updates/restart', {}, ctx).tool, 'manage_computer restart_dashboard, hoprig_act restart-hoprig');
-  assert.throws(() => checkRoute('POST', '/api/updates/restart', { force: true }, ctx), (e) => e.status === 403);
+  const card = { id: 'c_r', tool: 'manage_computer', input: { action: 'restart_dashboard' } };
+  assert.equal(runConfirmed(card, () => checkRoute('POST', '/api/updates/restart', {}, ctx)).tool, 'manage_computer restart_dashboard, hoprig_act restart-hoprig');
+  assert.throws(() => runConfirmed(card, () => checkRoute('POST', '/api/updates/restart', { force: true }, ctx)), (e) => e.status === 403);
   assert.throws(() => checkRoute('POST', '/api/updates/settings', { mode: 'auto' }, ctx), (e) => e.status === 403);
 });

@@ -88,7 +88,7 @@ export const ACTS = {
     },
   },
   'restart-gateway': {
-    what: 'restart or start a gateway the owner set up and did not stop himself',
+    what: 'restart or start a gateway the owner set up and did not stop himself; a card he taps',
     needs: ['item: the gateway name'],
     check(a) {
       ID(a, 'gateway');
@@ -368,8 +368,8 @@ export function callFacts(a, f = {}, found = {}) {
 
 /**
  * The level of one call (policy.mjs): { level, why } or { refuse, next }.
- * `f.spoken`: the owner spoke the message (the server only raises from it). `tia.actAlone`: Settings → Tia, She may act
- * alone; `tia.level` "ask" turns every L1 act into a card.
+ * `f.spoken`: the owner spoke the message (the server only raises from it). `tia.actAlone`: Settings → Tia, What she may do alone,
+ * Tia acts by herself; `tia.level` "ask" turns every L1 act into a card.
  */
 export function decide(a, f = {}, tia = {}) {
   const x = ACTS[a.act];
@@ -383,7 +383,7 @@ export function decide(a, f = {}, tia = {}) {
   // L1 from here. Undoing an act is as strict as the act it does.
   if (a.act === 'undo-act' && f.extra && f.extra.inverse === 'L2') return { level: 'L2', why: 'undoing it is an act that needs your tap' };
   if (tia.level === 'ask') return { level: 'L2', why: 'the owner set "Ask me"' };
-  if (tia.actAlone !== true) return { level: 'L2', why: `${ASSISTANT_NAME} may not act alone yet: Settings → ${ASSISTANT_NAME}, She may act alone` };
+  if (tia.actAlone !== true) return { level: 'L2', why: `${ASSISTANT_NAME} may not act alone yet: Settings → ${ASSISTANT_NAME}, What she may do alone, ${ASSISTANT_NAME} acts by herself` };
   return { level: 'L1' };
 }
 function whyCard(facts) {

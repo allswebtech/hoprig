@@ -250,7 +250,7 @@ delete after them stays held.
 How much the coding tool asks you first is its permission mode, set where you start a session, in the App's mode menu
 or in **Settings → New sessions**. **Bypass permissions** (offered once **Allow bypass permissions mode** is on, never as
 root) makes Claude Code ask nothing except a question, a plan, what your own settings insist on and a few deletes or
-command lines it cannot judge; Hoprig still stops a command line it cannot read with certainty. **Allow everything**
+command lines it cannot judge; while Hands-off is on, Hoprig still stops a command line it cannot read with certainty. **Allow everything**
 goes one step further and is Claude Code only. In a session or chat that you yourself put into it, on your own page,
 nothing of Hoprig's wall is held and nothing asks, also while Hands-off is on: a command Hoprig cannot read, a delete
 inside or outside the session's folder, a push, a merge, a release, a publish, a command with sudo. Each one runs. When

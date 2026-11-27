@@ -31,7 +31,7 @@ function snapshot(root) {
 }
 const changes = (a, b) => [...new Set([...Object.keys(a), ...Object.keys(b)])].filter((k) => a[k] !== b[k]).sort();
 
-test('the start and three ticks read an agent\'s stop into an item: nothing is started, no provider is asked for anything but its address, nothing is written', { timeout: 90_000, skip: !posix && 'the stand-ins are POSIX' }, async (t) => {
+test('the start and three ticks read an agent\'s stop into an item: nothing is started, no provider is asked, nothing is written', { timeout: 90_000, skip: !posix && 'the stand-ins are POSIX' }, async (t) => {
   const w = tempWork('operator-providers-byitself');
   assert.ok(process.env.HOPRIG_WORKSPACE_DIR.startsWith(w.root), 'a workspace of its own');
   // Traps first on the PATH: a program of the real system that anything here started would be written down.
@@ -45,7 +45,7 @@ test('the start and three ticks read an agent\'s stop into an item: nothing is s
   process.env.PATH = [traps, ...PATH.split(path.delimiter).filter((d) => !fs.existsSync(path.join(d, 'trouteai')))].join(path.delimiter);
   t.after(() => { process.env.PATH = PATH; });
 
-  // The provider's endpoint: the only request it may get is the address check's bare GET (no key, no body, no model).
+  // The provider's endpoint: it must never be asked anything.
   const asked = [];
   const relay = http.createServer((req, res) => { asked.push(`${req.method} ${req.url}${req.headers.authorization || req.headers['x-api-key'] || req.headers['content-length'] ? ' WITH A KEY OR A BODY' : ''}`); res.writeHead(500).end(); });
   await new Promise((r) => relay.listen(0, '127.0.0.1', r));
@@ -117,7 +117,7 @@ test('the start and three ticks read an agent\'s stop into an item: nothing is s
   const out = r.items.find((x) => x.kind === 'providerstop' && /not started by Hoprig/.test(x.subject));
   assert.equal(out?.subject, 'session 8cbd5db6 in blog, not started by Hoprig', JSON.stringify(r.items.map((x) => x.subject)));
   assert.ok(out.facts.some((f) => f.startsWith('agent a77 stopped: the endpoint refuses this model name')), out.facts.join('|'));
-  assert.ok(asked.every((a) => a === 'GET /'), `only the address check reached the provider, with no key and no body: ${asked.join(', ')}`);
+  assert.deepEqual(asked, [], 'no provider is asked');
   assert.ok(!fs.existsSync(trapLog), `a program of the real system was started: ${fs.existsSync(trapLog) ? fs.readFileSync(trapLog, 'utf8') : ''}`);
   assert.ok(!programs.some((p) => /^(claude|codex|opencode|node|curl|wget) /.test(`${p} `)), `no coding tool or request: ${programs.join(' | ')}`);
   // The run record is read, not written; outside the state folder nothing changes; in it, only what the dashboard

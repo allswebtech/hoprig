@@ -400,7 +400,7 @@ export function reflexes({ ctx, perform, fresh, peek = fresh, line, dir, now, ac
       : !s.tia ? 'Tia is turned off in Settings → Tia, so she does nothing by herself.'
         : frozen ? `The record of what Tia did could not be read, so she does nothing by herself until ${clock(d.frozenUntil, t)}.`
           : !anyOn ? 'Tia may act, but every rule is off, so she does nothing by herself.'
-            : 'Tia does by herself only what the rules that are on say, within their limits.';
+            : 'Tia does by herself only what the rules that are on say, within their limits, and small jobs on Hoprig itself, each with Undo.';
     // What the card of an item says when a rule left it to him: why (the rev says which picture of it).
     const his = {};
     for (const [item, h] of Object.entries(d?.his || {})) his[item] = { rev: h.rev, words: h.words, ...(h.cap === true ? { cap: true } : {}), ...(Array.isArray(h.ways) ? { ways: h.ways } : {}) };

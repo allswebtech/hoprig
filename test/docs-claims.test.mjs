@@ -139,7 +139,7 @@ test('the install paragraph names what install.sh installs, with sudo, and the l
   const older = await installerAsks(`${major}.${minor - 1}.9`);
   assert.equal(older.code, 1, older.out);
   assert.doesNotMatch(older.out, /no terminal to ask in|Install now/, 'it asks nothing: it says what it installs and does it');
-  assert.match(older.out, /hoprig installer: installing build-essential python3 tmux did not succeed/, 'it ran the install, which the stand-in refused');
+  assert.match(older.out, /hoprig installer: installing build-essential python3 git tmux did not succeed/, 'it ran the install, which the stand-in refused');
   assert.match(older.out, /^Hoprig needs a few parts of the system\. If your computer asks for its password, type it and press Enter/m, 'the system parts, with sudo, said in one plain line');
   assert.match(older.out, /Found Node\.js \S+, older than \S+, the lowest Hoprig runs on: the newest long-term release of Node\.js goes in its place, for you only, with nvm\./, 'an older Node.js is installed again');
   const floor = await installerAsks(MIN_NODE_TEXT.split('.').length === 3 ? MIN_NODE_TEXT : `${MIN_NODE_TEXT}.0`);
@@ -256,7 +256,7 @@ test('Work, what is not there yet: Do it has a branch of its own now; the OKs ar
   const item = flat(/- \*\*Work, what is not there yet\*\*[\s\S]*?(?=\n- \*\*)/.exec(section('Not built, or not proven yet'))[0]);
   assert.doesNotMatch(item, /\(only a run/);
   assert.doesNotMatch(item, /not on a branch of its own/);
-  assert.match(item, /The sessions that need an OK are shown on the dashboard \(Home, the Operator\), not in `hoprig tasks`\./);
+  assert.match(item, /The sessions that need an OK are shown on the dashboard \(Home, under \*\*Needs you\*\*\), not in `hoprig tasks`\./);
 });
 
 test('the automations have the dashboard\'s own names: the queue switch, and no "Restore" for reopening sessions', () => {

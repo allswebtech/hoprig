@@ -824,3 +824,8 @@ test('a mixed reason with long provider names: the card and its line end whole, 
   await r.f.reflex.leave(it2, fits.code, fits.words);
   assert.equal(r.view().his[it.id].words, fits.words);
 });
+
+test('the head sentence with a rule on names the small jobs on Hoprig itself, each with Undo', () => {
+  const r = rig({ rules: { leftover: true } });
+  assert.equal(r.view().said, 'Tia does by herself only what the rules that are on say, within their limits, and small jobs on Hoprig itself, each with Undo.');
+});

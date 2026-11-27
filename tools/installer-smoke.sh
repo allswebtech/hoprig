@@ -70,8 +70,21 @@ export HOPRIG_SOURCE=$TGZ
 ARGS="--yes --only base --access local"
 [ "$MODE" = serve ] && ARGS="$ARGS --no-service"
 if [ "$WIN" = 1 ]; then
-  step install powershell -NoProfile -ExecutionPolicy Bypass -File "$(cygpath -w "$REPO/install.ps1")" $ARGS
-  PATH="$(cygpath "$APPDATA")/npm:$PATH"
+  # The runner's own account is an administrator, which the installer refuses unless it is allowed on purpose.
+  export HOPRIG_ALLOW_ADMIN=1
+  # The line is pasted into a NEW PowerShell window: its PATH is the saved one (a runner step also has the Node.js of its
+  # own setup first, which a person does not have, so the installer would find a Node.js it must not take as theirs).
+  step install powershell -NoProfile -ExecutionPolicy Bypass -Command "\$env:Path = [Environment]::GetEnvironmentVariable('Path','Machine') + ';' + [Environment]::GetEnvironmentVariable('Path','User'); & '$(cygpath -w "$REPO/install.ps1")' $ARGS; exit \$LASTEXITCODE"
+  # A NEW PowerShell window of that person reads the PATH saved in the registry (all users, then their own): the
+  # installer put Node.js and the hoprig command into the person's own folder and saved it there. This window did not
+  # start from it, so it is read the same way here.
+  SAVED=$(powershell -NoProfile -Command "[Environment]::GetEnvironmentVariable('Path','Machine') + ';' + [Environment]::GetEnvironmentVariable('Path','User')" | tr -d '\r')
+  NEWPATH=$(printf '%s' "$SAVED" | tr ';' '\n' | while IFS= read -r d; do [ -n "$d" ] && cygpath -u "$d"; done | tr '\n' ':')
+  PATH="$NEWPATH$PATH"
+  # A person types hoprig into PowerShell or cmd, which runs hoprig.cmd (it starts the node.exe beside it). Git Bash would
+  # take the extensionless script npm also writes, which starts the first node on the PATH: not what that person gets.
+  hoprig() { cmd //c hoprig "$@"; }
+  say "saved PATH starts with: $(printf '%s' "$NEWPATH" | tr ':' '\n' | head -3 | tr '\n' ' ')"
 else
   step install sh "$REPO/install.sh" $ARGS
   PATH="$HOME/.local/bin:$PATH"
@@ -82,6 +95,7 @@ fi
 tail -n 40 "$OUT/install.log"
 export PATH
 say "node: $(node --version 2>&1), hoprig: $(hoprig --version 2>&1 | head -1)"
+[ "$(uname -s)" = Linux ] && { git --version >/dev/null 2>&1 || { say "git: not found after the install"; exit 1; }; }
 command -v hoprig >/dev/null 2>&1 || { say "hoprig command: not found after the install"; exit 1; }
 
 if [ "$MODE" = serve ]; then

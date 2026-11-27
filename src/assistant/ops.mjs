@@ -345,7 +345,10 @@ export function createOps(o) {
     rooms: () => get(LOCAL, '/api/operator/rooms?start=1'),
     async assistantSettings() {
       const a = cfg().assistant;
-      return a && typeof a === 'object' && !Array.isArray(a) ? a : {};
+      // Her small acts on Hoprig itself (hoprigact.mjs) follow the ONE switch the owner has for what she does by herself:
+      // Settings → Tia, What she may do alone, "Tia acts by herself" (config operator.acts). No key of their own.
+      const base = a && typeof a === 'object' && !Array.isArray(a) ? a : {};
+      return { ...base, actAlone: cfg().operator?.acts === true };
     },
 
     // ---- the owner ----

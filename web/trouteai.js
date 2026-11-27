@@ -53,7 +53,7 @@ export const publicOffWords = (state) => `TRouteAI opens from here once its publ
 /**
  * Open TRouteAI's own page, signed in where the gateway can do that. A blank tab is opened at once on the press (a phone
  * does not block it), then sent to the address Hoprig works out (POST …/open). `state`: { computer, port, signedIn,
- * publicUrl (its public address while that is on, else null) }; `hint(text)` shows the one line under the button.
+ * publicUrl (its public address while that is on, else null) }; `hint(text, more)` shows the one line under the button.
  */
 export async function openGatewayPage(state, hint = () => {}) {
   const onThatComputer = LOOPBACK.includes(location.hostname);
@@ -69,7 +69,7 @@ export async function openGatewayPage(state, hint = () => {}) {
   const plain = onThatComputer ? `http://${host}:${state.port}/` : `${state.publicUrl}/`;
   try {
     const r = await api(T('/open'), { confirm: state.computer, where: onThatComputer ? 'local' : 'public', host: onThatComputer ? host : location.hostname });
-    hint(r.says || '');
+    hint(r.says || '', r.needs && state.update ? btn('small secondary', { label: 'Update', onclick: state.update }) : null);
     go(r.url || plain);
   } catch (e) {
     if (tab) tab.close();
@@ -101,7 +101,9 @@ export async function addSheet(state, done) {
   }
   if (!catalog.catalog) {
     return fill(body, h('p.sheet-text', catalog.sentence),
-      h('div.sheet-actions', btn('primary', { label: 'Open TRouteAI\'s page', onclick: () => openGatewayPage(state) })));
+      h('div.sheet-actions', catalog.needs && state.update
+        ? btn('primary', { icon: 'download', label: 'Update', onclick: () => { sheetClose(); state.update(); } })
+        : btn('primary', { label: 'Open TRouteAI\'s page', onclick: () => openGatewayPage(state) })));
   }
   const choose = () => {
     const q = h('input.field', { type: 'search', placeholder: 'Search providers', autocomplete: 'off', 'aria-label': 'Search providers' });

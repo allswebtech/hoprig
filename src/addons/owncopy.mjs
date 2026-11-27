@@ -43,6 +43,10 @@ export function packageVersion(file, pkg) {
   }
 }
 
+// The first version that treats a request for a public host name as from outside whatever a tunnel adds, that lists its
+// providers for a tool that manages them, and that makes a one-time sign-in link. What needs it asks for this version.
+export const GATEWAY_NEEDS = '1.0.13';
+
 /** Is `version` at least `floor`? A version that is not known is not. */
 export const atLeast = (version, floor) => Boolean(version) && compareVersions(version, floor) >= 0;
 

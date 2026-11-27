@@ -115,16 +115,17 @@ test('defaultNext: with no order set the limit names the next subscription provi
   assert.equal(mends.defaultNext('plan-c', [{ name: 'plan-c' }, { name: 'plan-d', limited: { until: NOW - 1 } }], NOW), 'plan-d');
 });
 
-test('probeAddress: a closed port, a silent one and an answer; an address with a name, a password or a query is never asked', async () => {
-  const k = (v) => async () => v;
-  const asked = [];
-  const look = async (u) => { asked.push(u); return 200; };
-  assert.deepEqual(await mends.probeAddress('gw1.example:8080', { knockFn: k('closed'), look }), { state: 'closed', status: 0 });
-  assert.deepEqual(await mends.probeAddress('http://gw1.example:8080', { knockFn: k('silent'), look }), { state: 'silent', status: 0 });
-  assert.deepEqual(asked, []);
-  assert.deepEqual(await mends.probeAddress('https://gw1.example/v1', { knockFn: k('open'), look }), { state: 'answers', status: 200 });
-  assert.deepEqual(asked, ['https://gw1.example/'], 'one request, the origin only');
-  assert.deepEqual(await mends.probeAddress('https://gw1.example', { knockFn: k('open'), look: async () => 0 }), { state: 'silent', status: 0 });
+test('probeAddress: only an address on this computer is knocked, with no request; any other address, a name, a password or a query is never asked', async () => {
+  const knocks = [];
+  const knockOf = (v) => async (t, ms) => { knocks.push([t.host, t.port, ms]); return v; };
+  const look = async () => assert.fail('no request is ever sent');
+  assert.deepEqual(await mends.probeAddress('127.0.0.1:8080', { knockFn: knockOf('closed'), look }), { state: 'closed', status: 0 });
+  assert.deepEqual(await mends.probeAddress('http://localhost:8080', { knockFn: knockOf('silent'), look }), { state: 'silent', status: 0 });
+  assert.deepEqual(await mends.probeAddress('http://[::1]:9/v1', { knockFn: knockOf('open'), look }), { state: 'answers', status: 0 });
+  assert.deepEqual(knocks, [['127.0.0.1', 8080, 1500], ['localhost', 8080, 1500], ['::1', 9, 1500]], 'a short knock, nothing more');
+  for (const out of ['gw1.example:8080', 'https://gw1.example/v1', 'http://10.0.0.5:80', 'https://127.0.0.1.example']) {
+    assert.deepEqual(await mends.probeAddress(out, { knockFn: () => assert.fail('no knock outside this computer'), look }), { state: 'skipped', status: 0 }, out);
+  }
   for (const bad of ['http://user:pw@gw1.example', 'http://gw1.example/?key=abc', 'ftp://gw1.example', 'not an address at all']) {
     assert.deepEqual(await mends.probeAddress(bad, { knockFn: () => assert.fail('no knock'), look: () => assert.fail('no request') }), { state: 'skipped', status: 0 }, bad);
   }

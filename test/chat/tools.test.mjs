@@ -8,6 +8,7 @@ import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
 import test from 'node:test';
+import { closedGateways } from '../seal.mjs';
 import { sandbox } from '../server/helpers.mjs';
 import { SESSION_ID, standIn, standInOpts } from './fixtures/opencode-standin.mjs';
 
@@ -65,7 +66,7 @@ test('a chat of OpenCode: refused while off or missing; only a provider that ser
   const { hashPassword } = await import('../../src/server/auth.mjs');
   const { createServer } = await import('../../src/server/server.mjs');
   const { toolsDir } = await import('../../src/paths.mjs');
-  saveConfig({ server: { backend: 'pty', roots: [path.dirname(proj)], passwordHash: await hashPassword('pw-for-tests') } });
+  saveConfig({ server: { backend: 'pty', roots: [path.dirname(proj)], passwordHash: await hashPassword('pw-for-tests') }, addons: closedGateways() });
   writeProfile('sub', { label: 'Main' }); // a Claude subscription: Claude Code only
   writeProfile('gw', { label: 'Gateway', api: ['messages', 'models'], env: { ANTHROPIC_BASE_URL: 'http://127.0.0.1:9', ANTHROPIC_AUTH_TOKEN: 'gw-token-of-the-test' } });
   const app = createServer({ watchTickMs: 300, dashboardFile: false, toolSessions: async () => [{ id: SESSION_ID, at: 1, title: 'Recorded session' }], chat: { resolveEnv: async () => ({}), engineOpts: standInOpts(s), idleMs: 30_000 } });

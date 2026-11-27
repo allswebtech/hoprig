@@ -292,9 +292,9 @@ export const manage_computer = actionTool({
       },
     },
     addon: {
-      // Starting a gateway that is installed is harmless; installing, updating (they run installers) and stopping
-      // (sessions may use it) need the owner.
-      level: (a) => (a.addon_action === 'start' ? 'L1' : 'L2'),
+      // Every action is a card: a gateway start changes which providers work for every session of the computer
+      // (and would undo a stop he made himself), install and update run installers, a stop cuts sessions off.
+      level: 'L2',
       need: ['addon', 'addon_action'],
       check(a) {
         // The public link opens the computer to the internet: it has its own action, with a card for on.

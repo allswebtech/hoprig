@@ -11,6 +11,7 @@ reports them), **Add provider** at the top, a row for **TRouteAI** and a row **A
 A press on a row opens it. **At a limit** opens a sheet with the two choices, **Stop and ask me** and **Carry on with the
 next provider**, the order of the providers and, under **Advanced**, the rest. **TRouteAI** opens its own page
 (`#/providers/trouteai`): is it running, open it, its accounts and combos, its public address, and everything to manage it.
+Adding an account from a list, Open TRouteAI signed in and the public address need TRouteAI 1.0.13 or newer: with an older copy the page says so, with **Update** beside it.
 
 ![Providers, At a limit: Stop and ask me or Carry on with the next provider, and the order of providers](screenshots/auto-mode-desktop-light.webp)
 

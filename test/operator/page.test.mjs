@@ -247,7 +247,7 @@ test('after his own change the panel is drawn again while the focus is on the sw
   const box = h0();
   let key = tia.drawTia(box, tiaView(), () => {});
   switchOf(box, 'master').focus();
-  const on = tiaView({ acts: true, active: true, said: 'Tia does by herself only what the rules that are on say, within their limits.' });
+  const on = tiaView({ acts: true, active: true, said: 'Tia does by herself only what the rules that are on say, within their limits, and small jobs on Hoprig itself, each with Undo.' });
   key = tia.drawTia(box, on, () => {}, { drawn: key, force: true });
   assert.ok(texts(box).includes(on.said), 'drawn again with what the server says now');
   assert.ok(texts(box).includes('Tia OFF'), 'Tia OFF is there');
@@ -285,7 +285,7 @@ test('on another computer\'s page the Tia panel is read only: no switch, no Tia 
   const { machine } = await import('../../web/lib.js');
   machine.set('box2');
   try {
-    const panel = tia.tiaPanel(tiaView({ acts: true, active: true, said: 'Tia does by herself only what the rules that are on say, within their limits.' }), () => {});
+    const panel = tia.tiaPanel(tiaView({ acts: true, active: true, said: 'Tia does by herself only what the rules that are on say, within their limits, and small jobs on Hoprig itself, each with Undo.' }), () => {});
     assert.deepEqual(all(panel, (n) => n.tag === 'input' || n.tag === 'button' || n.tag === 'details'), []);
     assert.ok(texts(panel).includes('Change this on that computer\'s own dashboard.'), texts(panel).join('|'));
     const list = tia.byTiaList([{ at: '2026-03-10T14:00:00Z', by: 'limit', subject: 'session alpha', act: 'switch', ok: true, result: 'moved to plan-b', undo: 'aabbccdd' }], { undoable: ['aabbccdd'] }, () => {});

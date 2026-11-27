@@ -173,6 +173,16 @@ test('install.sh: a locale the computer lacks on a computer with no os-release f
   assert.match(r.out, /hoprig-stand-in setup --yes/, 'the whole script ran, to its last line');
 });
 
+test('install.sh: git is part of the one package step where it is missing, and not named where it is there', { skip: posixOnly }, async () => {
+  const none = bareComputer('git-missing');
+  assert.equal((await installBare(none, { piped: false })).code, 0);
+  assert.match(none.record(), /apt-get install -y -q .*\bgit\b/);
+  const has = bareComputer('git-there');
+  fs.writeFileSync(path.join(s.tmp, 'git-there', 'bin', 'git'), '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+  assert.equal((await installBare(has, { piped: false })).code, 0);
+  assert.doesNotMatch(has.record(), /apt-get install .*\bgit\b/);
+});
+
 test('install.sh: the package manager is told not to ask (a question would wait for ever in a hidden log)', { skip: posixOnly }, async () => {
   const pc = bareComputer('quiet-apt');
   const r = await installBare(pc, { piped: false });
@@ -181,13 +191,13 @@ test('install.sh: the package manager is told not to ask (a question would wait 
   const apt = rec.filter((l) => l.startsWith('apt-get '));
   assert.deepEqual(apt.filter((l) => !/read \d+ bytes/.test(l)), [
     'apt-get update -q | DEBIAN_FRONTEND=noninteractive',
-    'apt-get install -y -q build-essential python3 tmux | DEBIAN_FRONTEND=noninteractive',
+    'apt-get install -y -q build-essential python3 git tmux | DEBIAN_FRONTEND=noninteractive',
   ]);
   // through sudo for an ordinary user, with the setting inside the sudo command (sudo drops the environment)
   if (process.getuid() !== 0) {
     assert.deepEqual(rec.filter((l) => l.startsWith('sudo ')), [
       'sudo env DEBIAN_FRONTEND=noninteractive apt-get update -q',
-      'sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y -q build-essential python3 tmux',
+      'sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y -q build-essential python3 git tmux',
     ]);
   }
   // One plain line about the password, ticks, and none of the package manager's words or names on the screen.

@@ -111,5 +111,5 @@ test('the docs, the changelog and the README say what the code does, in the page
   assert.match(work, /With Auto off nothing of it reads the list or writes anything\./);
   const log = flat('site/content/changelog.md');
   assert.match(log, /\*\*Tia starts this project's ready tasks by herself\*\*, off after the update and after a new install/);
-  assert.match(flat('README.md'), /\*\*Auto\*\*, a switch per project on Work → Team \(off at first\)/);
+  assert.match(flat('README.md'), /\*\*Auto\*\*, a switch per project in Settings → Tia → Limits and roles \(off at first\)/);
 });

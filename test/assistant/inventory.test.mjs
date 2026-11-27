@@ -184,11 +184,12 @@ test('the written levels are what the rule gives, and the NEVER classes are the 
     const row = rows.find((r) => r.act === `act ${act}`);
     assert.ok(row && row.hers.some((h) => h.tool === 'hoprig_act' && h.action === act), act);
   }
-  assert.equal(rows.find((r) => r.act === 'act restart-gateway').level, 'L1');
+  assert.equal(rows.find((r) => r.act === 'act restart-gateway').level, 'L2');
   assert.equal(rows.find((r) => r.act === 'act stop-gateway').level, 'L2');
   assert.equal(rows.find((r) => r.act === 'act probe-provider').level, 'L0');
   assert.equal(rows.find((r) => r.act === 'act auto-order').level, 'L2');
-  assert.equal(rows.find((r) => r.act === 'act clean-own-temp').facts.undo, 'remake');
+  assert.equal(rows.find((r) => r.act === 'act clean-own-temp').facts.undo, false, 'deleted files are not put back by one press');
+  assert.equal(rows.find((r) => r.act === 'act clean-own-temp').level, 'L2');
   // The keeper's command is in the inventory, not an act of anyone's: the service manager runs it.
   const keep = rows.find((r) => r.act === 'hoprig keep');
   assert.equal(keep.not, 'not-an-act');

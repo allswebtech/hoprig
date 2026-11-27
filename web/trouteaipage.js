@@ -15,6 +15,8 @@ const ID = 'trouteai';
 const T = (p) => `~/api/gatewayhost/${ID}${p}`;
 /** Accounts shown before "All N accounts". */
 export const ROWS_SHOWN = 5;
+/** The first TRouteAI that the public address, the provider list and the signed-in page need (the server decides by the version). */
+export const GATEWAY_NEEDS = '1.0.13';
 export const PUBLIC_SENTENCE = 'Anyone on the internet can then reach two things at this address: TRouteAI\'s page, behind its password, and its model address, behind its keys.';
 
 /** The one line of what a refused public address needs, and the press that fixes it: [sentence, kind]. */
@@ -26,6 +28,7 @@ export function publicNeed(p) {
     'no-password': ['TRouteAI has no password. Set one first.', 'password'],
     'open-api': ['TRouteAI answers its model address without a key, so it stays private.', null],
     'not-running': ['Start TRouteAI first.', 'start'],
+    'gateway-old': [`The public address needs TRouteAI ${GATEWAY_NEEDS}: only from that version does it treat a request for a public name as from outside. Press Update.`, 'update'],
     'dns-taken': [`There is already a DNS record for ${p.hostname} in Cloudflare. Delete it there first.`, null],
   }[p.need];
   return words || [p.why || 'TRouteAI\'s public address cannot be turned on now.', null];
@@ -72,7 +75,8 @@ function publicFold(p, ctx) {
     fill(body, h('p.hint', sentence),
       kind === 'settings' ? h('a.btn.secondary', { href: link('#/settings/public-link') }, 'Open Settings, Public link') : null,
       kind === 'password' ? btn('secondary', { icon: 'key', label: 'Set a new password', onclick: () => passwordSheet(ctx) }) : null,
-      kind === 'start' ? btn('secondary', { icon: 'play', label: 'Start', onclick: () => startIt(ctx) }) : null);
+      kind === 'start' ? btn('secondary', { icon: 'play', label: 'Start', onclick: () => startIt(ctx) }) : null,
+      kind === 'update' ? btn('secondary', { icon: 'download', label: 'Update', onclick: () => updateIt(ctx) }) : null);
     return f;
   }
   fill(body, h('p.hint', PUBLIC_SENTENCE), sw);
@@ -180,6 +184,9 @@ export function trouteaiPage({ frame }) {
     if (problem) {
       parts.push(h('div.banner.warn', icon('alert', { size: 18 }), h('span', problem),
         g.problem ? btn('small secondary', { label: 'Update', onclick: () => updateIt(ctx) }) : btn('small secondary', { label: 'Restart', onclick: () => restartIt(ctx) })));
+    } else if (g.newer) {
+      // Its own copy is older than the one Install puts there now: nothing changes by itself, Update is the owner's press.
+      parts.push(h('div.banner.warn', icon('alert', { size: 18 }), h('span', 'A newer TRouteAI is there.'), btn('small secondary', { label: 'Update', onclick: () => updateIt(ctx) })));
     }
     if (!g.running) {
       parts.push(manageFold(ctx, gw));
@@ -206,10 +213,11 @@ export function trouteaiPage({ frame }) {
     const openState = { computer: ctx.computer, port: g.port, signedIn: ctx.signedIn, publicUrl: pub.state === 'on' ? pub.url : null };
     const onLoop = ['localhost', '127.0.0.1', '[::1]', '::1'].includes(location.hostname);
     hint.textContent = !onLoop && !openState.publicUrl ? publicOffWords(openState) : '';
+    openState.update = () => updateIt(ctx);
     parts.push(
-      h('div.tr-open', btn('primary block', { icon: 'external', label: 'Open TRouteAI', onclick: () => openGatewayPage(openState, (t) => { hint.textContent = t; }) }), hint),
+      h('div.tr-open', btn('primary block', { icon: 'external', label: 'Open TRouteAI', onclick: () => openGatewayPage(openState, (t, more) => fill(hint, t, more)) }), hint),
       accountsPart(ctx, accounts.accounts, limits),
-      h('div.savebar.start', btn('secondary', { icon: 'plus', label: 'Add account', onclick: () => addSheet({ computer: ctx.computer, port: g.port, signedIn: ctx.signedIn }, load) })),
+      h('div.savebar.start', btn('secondary', { icon: 'plus', label: 'Add account', onclick: () => addSheet({ computer: ctx.computer, port: g.port, signedIn: ctx.signedIn, update: () => updateIt(ctx) }, load) })),
       combosPart({ computer: ctx.computer }),
       publicFold(pub, ctx));
     if (gw && gw.ready) parts.push(sharing(gw, load, `Share with your other computers · ${gw.shared ? 'On' : 'Off'}`));

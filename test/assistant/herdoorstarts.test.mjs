@@ -68,7 +68,7 @@ const NOT_STARTS = {
   'POST /api/updates/restart': 'restarts the dashboard; no coding tool starts by it, and a session the restore reopens keeps its own mark (restore-hers.test.mjs)',
   'POST /api/updates/run': 'updates a program', 'POST /api/pc/kill': 'ends a process',
   'POST /api/pc/power': 'reboots: the restore afterwards brings each session back with its own mark (automation/restore.mjs)',
-  'POST /api/gatewayhost/[^/]+/(start|stop|restart)': 'a gateway\'s own program (hoprig_act), no coding tool', 'POST /api/work/plans': 'writes a plan file; starts nothing', 'POST /api/work/plans/[^/]+': 'writes a plan file; starts nothing',
+  'POST /api/work/plans': 'writes a plan file; starts nothing', 'POST /api/work/plans/[^/]+': 'writes a plan file; starts nothing',
   'POST /api/machine/label': 'a name', 'POST /api/machines/[^/]+/rename': 'a name',
   'POST /api/addons/(?!public-link/)[^/]+/(start|stop)': 'an add-on\'s service, no coding tool',
   'POST /api/addons/(?!public-link/)[^/]+/(install|update)': 'an add-on\'s install, on his card', 'POST /api/public-link': 'off only',

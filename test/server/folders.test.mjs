@@ -36,6 +36,13 @@ test('path traversal is refused', () => {
   assert.equal(insideRoots(path.dirname(root), roots), null, 'parent of the root');
 });
 
+test('browse: with roots inside one another the top is the outermost, so Up reaches the home above', () => {
+  const nested = resolveRoots([path.join(root, 'proj'), root]);
+  const r = fs.realpathSync(root);
+  assert.equal(browse(path.join(root, 'proj'), nested).parent, r);
+  assert.equal(browse(root, nested).parent, null);
+});
+
 test('browse lists folders only, hidden on request, no escaping symlinks', () => {
   const b = browse(root, roots);
   assert.deepEqual(b.dirs.map((d) => d.name), ['proj', 'proj-link']);

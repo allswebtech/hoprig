@@ -107,8 +107,9 @@ export function cleanTiaPatch(p, knownAccounts = [], runsOnAccounts = knownAccou
       // cannot send it: door.mjs SETTINGS_KEYS has no assistant key).
       if (typeof v !== 'boolean') throw new Error('answersHers must be true or false');
       out.answersHers = v;
-    } else if (k === 'actAlone' || k === 'decides') {
-      // "She may act alone" and "Tia decides" (Settings → Tia, off at first): her own rights, so only his page sets them.
+    } else if (k === 'decides') {
+      // "Tia decides" (off at first): her own right, so only his page sets it. Her small acts on Hoprig itself follow the one
+      // switch "Tia acts by herself" (ops.mjs assistantSettings), not a key of their own.
       if (typeof v !== 'boolean') throw new Error(`${k} must be true or false`);
       out[k] = v;
     } else if (k === 'lead') {

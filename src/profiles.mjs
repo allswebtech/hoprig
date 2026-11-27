@@ -36,7 +36,7 @@ export const NAME_RE = /^[a-z0-9][a-z0-9_-]{0,31}$/;
 // Words that are commands (hoprig's own, and common wrapper commands), so they cannot name a profile.
 export const RESERVED = new Set([
   'run', 'add', 'rm', 'profiles', 'serve', 'hook', 'help', 'passwd', 'service', 'doctor', 'version', 'setup', 'claude', 'auto', 'pair', 'tokens', 'machines', 'mcp', 'addons', 'router', 'router-url', 'assistant', 'link', 'join', 'public', 'pc', 'demo', 'project', 'skills', 'workspace', 'tools', 'codex', 'opencode', 'chat', 'tasks', 'gateways', 'get', 'sync', 'drop', 'field', 'ship', 'adopt', 'sessions', 'box', 'move-to-user',
-  'x', 'start', 'stop', 'restart', 'update', 'log', 'logs', 'open', 'status',
+  'x', 'start', 'stop', 'keep', 'restart', 'update', 'log', 'logs', 'open', 'status',
 ]);
 const META = new Set(['LABEL', 'PRERUN', 'MODELS', 'MAPSESSIONS', 'API', 'TOOLS', 'SIGNIN']);
 const KEY_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;

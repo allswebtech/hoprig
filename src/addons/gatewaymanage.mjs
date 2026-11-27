@@ -40,6 +40,7 @@ import { defaultHubLabel } from '../machines/hub.mjs';
 import { tokenIdOf } from '../machines/index.mjs';
 import { readFixed } from './cloudflared.mjs';
 import { gatewayAddons } from './gateways.mjs';
+import { GATEWAY_NEEDS, atLeast } from './owncopy.mjs';
 import { entryOf } from './trouteaipublic.mjs';
 
 const OWN_PAGE = 'This gateway cannot list its providers for Hoprig yet (an older version), so Add opens the gateway\'s own page.';
@@ -120,6 +121,11 @@ export function gatewayManageFeature(ctx, opts = {}) {
       throw e;
     }
   };
+  /** True only when the gateway's version is known and older than the one the list of providers and the sign-in link need. */
+  const tooOld = async (addon) => {
+    const v = addon.status ? (await Promise.resolve(addon.status({ version: false })).catch(() => ({}))).version : null;
+    return Boolean(v) && !atLeast(v, GATEWAY_NEEDS);
+  };
   const flowOf = async (o, provider) => (await catalogOf(o))?.find((p) => p.id === provider)?.flow || null;
   const https = (u) => (typeof u === 'string' && /^https:\/\/[^\s]+$/.test(u) ? u : null);
 
@@ -175,7 +181,8 @@ export function gatewayManageFeature(ctx, opts = {}) {
         return { ok: true };
       }],
       ['GET', new RegExp(`^/api/gatewayhost/(${URLS})/providers$`), async (req, m) => {
-        const { opts: o } = await get(req, m[1]);
+        const { addon, opts: o } = await get(req, m[1]);
+        if (await tooOld(addon)) return { catalog: false, needs: GATEWAY_NEEDS, sentence: `Adding an account from a list needs ${addon.title} ${GATEWAY_NEEDS}. Press Update.` };
         const providers = await run(() => catalogOf(o));
         return providers ? { catalog: true, providers } : { catalog: false, sentence: OWN_PAGE };
       }],
@@ -316,6 +323,7 @@ export function gatewayManageFeature(ctx, opts = {}) {
           const e = entryOf((opts.fixed || readFixed)());
           base = e ? `https://${e.hostname}` : null;
         }
+        if (base && (await tooOld(addon))) return { url: null, needs: GATEWAY_NEEDS, says: `Opening ${addon.title} signed in needs ${addon.title} ${GATEWAY_NEEDS}. Press Update.` };
         if (!base) return { url: null, says: where === 'public' ? `${addon.title} opens here once its public address is on.` : null };
         let r = null;
         try {

@@ -61,6 +61,7 @@ import { callJson } from './relay.mjs';
 import { RAW_BODY, legEncrypted, relayLeg } from './legs.mjs';
 import { auditToken } from './tokenaudit.mjs';
 import { neverClassOf } from '../assistant/door.mjs';
+import { SHEET_STEP } from '../workspace/whomay.mjs';
 import { bearerOf, createToken, listTokens, markHub, revokeToken, touchToken, verifyToken } from './tokens.mjs';
 
 const BODY_MAX = 64 * 1024;
@@ -175,7 +176,10 @@ export function createMachines({ authed, originOk, clientIp = (req) => (req.sock
     if (!entry) return { status: 401, body: { error: 'this computer does not accept that token (unknown or revoked)', code: 'token' } };
     if (!tokenMayReach(p) && p !== '/ws/term') return { status: 403, body: { error: 'not allowed from another dashboard', code: 'token-forbidden' } };
     // Her relay carries her mark: what her own door never gives her (sign-in, credentials, opening out, pairing, deleting work, her rights) is refused here too, whatever the other dashboard let through.
-    if (req.headers && req.headers[SELF_HEADER] === '1' && !['owner', null].includes(neverClassOf(p))) return { status: 403, body: { error: 'that is the owner\'s own step, never Tia\'s', code: 'her-never' } };
+    if (req.headers && req.headers[SELF_HEADER] === '1' && !['owner', null].includes(neverClassOf(p))) {
+      const sheet = /^\/api\/workspace\/(drop|group\/remove|rules)(\/|$)/.test(p);
+      return { status: 403, body: { error: sheet ? `that is ${SHEET_STEP}` : 'that is the owner\'s own step, never Tia\'s', code: 'her-never' } };
+    }
     req[TOKEN] = entry;
     touchToken(entry.id);
     return null;

@@ -102,9 +102,9 @@ export function addonsFeature(sctx, opts = {}) {
     const a = addonOf(m);
     if (!ACTIONS.includes(action)) throw fail(400, 'unknown action');
     if (action === 'remove' && typeof a.remove !== 'function') throw fail(404, `${a.title} has nothing here to remove`);
-    // A gateway's install, update and remove change what is installed here: the owner's press (start and stop stay as they were).
-    if (a.gateway && (action === 'install' || action === 'update' || action === 'remove')) {
-      ownersPress(sctx, req, b, { name: computer(), what: `${{ install: 'Installing', update: 'Updating', remove: 'Removing' }[action]} ${a.title}`, card: (c) => c.tool === 'manage_computer' && c.input.action === 'addon' && c.input.addon === a.id && c.input.addon_action === action });
+    // A gateway's install, update, remove, start and stop change what is installed or what works here: the owner's press, or his card for her.
+    if (a.gateway && ACTIONS.includes(action)) {
+      ownersPress(sctx, req, b, { name: computer(), what: `${{ install: 'Installing', update: 'Updating', remove: 'Removing', start: 'Starting', stop: 'Stopping' }[action]} ${a.title}`, plain: action === 'start' || action === 'stop', card: (c) => c.tool === 'manage_computer' && c.input.action === 'addon' && c.input.addon === a.id && c.input.addon_action === action });
     }
     if (jobs.get(a.id)?.running || (a.gateway && gatewayBusy(a.id))) throw fail(409, `${a.title} is busy with something else; wait until it finishes`);
     run(a, action, {}, tokenIdOf(req));

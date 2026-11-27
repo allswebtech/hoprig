@@ -76,10 +76,11 @@ test('every forbidden route refuses a valid token', async () => {
 
 test('a request that carries the mark of her relay (a hub relaying her) never reaches what her door never gives her', async () => {
   const relayed = (p, method = 'POST') => fetch(dash.base + p, { method, headers: { Authorization: `Bearer ${token}`, 'x-hoprig-self': '1', 'Content-Type': 'application/json' }, body: method === 'POST' ? '{}' : undefined }).then(async (r) => ({ status: r.status, json: await r.json().catch(() => ({})) }));
-  for (const p of ['/api/gateways/trouteai/share', '/api/addons/public-link/start', '/api/workspace/drop', '/api/herrights', '/api/workspace/credentials', '/api/updates/settings', '/api/settings/bypass/everything']) {
+  for (const p of ['/api/gateways/trouteai/share', '/api/addons/public-link/start', '/api/workspace/drop', '/api/herrights', '/api/workspace/credentials', '/api/updates/settings', '/api/settings/bypass/everything', '/api/gatewayhost/trouteai/restart', '/api/gatewayhost/trouteai/start', '/api/gatewayhost/trouteai/stop']) {
     const r = await relayed(p);
     assert.equal(r.status, 403, p);
     assert.ok(['her-never', 'token-forbidden'].includes(r.json.code), p + ' ' + r.json.code);
+    if (p.startsWith('/api/gatewayhost/')) assert.equal(r.json.code, 'her-never', p);
   }
   // what she may do still passes the gate; the same token without her mark is the owner's other computer and is not asked
   assert.equal((await relayed('/api/state', 'GET')).status, 200);

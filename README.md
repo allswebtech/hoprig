@@ -97,10 +97,10 @@ wget -qO- https://raw.githubusercontent.com/allswebtech/hoprig/main/install.sh |
   commits and changed files) comes back onto the task for **Accept** or **Send back**; Accept leaves the branch for
   Go live, and nothing is merged or pushed. **Plans** hold a goal, milestones and
   dated tasks with what waits for what, on a timeline; **Plan with AI** has a session research a goal and propose a
-  plan, and nothing is written before you accept it. **Auto**, a switch per project on Work → Team (off at first),
+  plan, and nothing is written before you accept it. **Auto**, a switch per project in Settings → Tia → Limits and roles (off at first),
   lets Tia start that project's ready tasks by herself, one at a time, each one in Activity and stopped by **End**. **Another program** adds a task with a Work token (made in
   Work settings at the foot of Work → Tasks, shown once, good for Work only) and hears its result through a signed webhook; such a task starts
-  only when you start it. **Missions** (off at first, on Work → Team) let Tia do a goal with roles: a developer,
+  only when you start it. **Missions** (off at first, in Settings → Tia → Limits and roles) let Tia do a goal with roles: a developer,
   tester or ops session may run only the project's tests, its build and its scripts, each in a box with no network.
   [docs/WORK.md](docs/WORK.md)
 - **Operator**: what stopped or is about to, from everything Hoprig watches (a session at its limit,
@@ -442,8 +442,11 @@ model…) through Claude's API, so Claude Code can use them. Hoprig ships one as
   remove the keys Hoprig made. A provider's check that finds a model name without a combo has a **Make the combo** press.
 - **The lifecycle on Advanced → Service → Gateways.** Restart, Log, Update, Remove (its copy in Hoprig's folder only; your data and
   the provider stay: `hop addons remove trouteai`) and the gateway's own dashboard password. `hop doctor` says which copy runs.
-- **Still in TRouteAI's own page**, until its next version: adding a provider that its list does not offer yet, and its
-  other settings.
+- **Needs TRouteAI 1.0.13.** Install puts that version into Hoprig's own folder. Adding an account from a list of
+  providers, Open TRouteAI signed in and the public address need it: with an older copy the page says so in one line,
+  with **Update** beside it, and the public address stays off (only from 1.0.13 does the gateway treat a request for a
+  public name as from outside). A copy that is older is never changed by itself.
+- **Still in TRouteAI's own page:** adding a provider that its list does not offer, and its other settings.
 
 Any other gateway can be added as a definition of your own:
 
@@ -639,7 +642,7 @@ nothing else (not Tia, not an automation, not another computer) types into that 
   Agent) that fit your projects are offered with the reason; nothing is added without you.
 - **Working rules**: a starting set, such as the right model and effort for the task and "done means proven".
 - **Kits**: Basics, Node.js, Python, GitHub and Terminal extras are set up by default; Docker, PHP + database,
-  Flutter versions (fvm), Flutter and Android are optional, off until you choose them. Flutter and the Android SDK's
+  Flutter versions (fvm), Flutter and Android are optional, off until you choose them. On Windows, Python and Terminal extras are optional too. Flutter and the Android SDK's
   command-line tools go into the workspace's `development/` folder, downloaded only from Google's own hosts and checked
   against the vendor's own list; one you already have (and an Android Studio) is used where it is. Android Studio is
   not downloaded, and Google's licence stays yours to accept. The sheet says what it downloads, how big it is and
@@ -925,7 +928,7 @@ Said plainly, so nothing here is a surprise:
 - **Work, what is not there yet**: Tia does not carry a Work run of hers on to another provider after a usage limit
   by herself, and she does not answer the OKs of a session of hers that no job follows. Hoprig does not write a note
   into a session to take the option it recommends.
-  The sessions that need an OK are shown on the dashboard (Home, the Operator), not in `hoprig tasks`.
+  The sessions that need an OK are shown on the dashboard (Home, under **Needs you**), not in `hoprig tasks`.
 - **What Hoprig's folder check cannot see** (Hoprig stays inside each entry's own folder of the workspace): a folder
   that a program already running on this computer swaps for a link in the instant between the check and the act, and
   a bind mount, which looks like a folder.

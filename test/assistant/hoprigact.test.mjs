@@ -1,5 +1,5 @@
 // hoprig_act and the rule behind every act: levelFor on the six facts of a row, run again on the facts of each call.
-// A gateway restart is L1 (she does it alone only when the owner allowed it, else a card), a stop is a card, a paid
+// A gateway restart and a stop are a card at every level, run in the server on the tap, a paid
 // provider in the Auto order says so on its card, a spoken L1 act that cannot be put back with one press is a card, a
 // place that holds credentials is refused, an act of another conversation can be undone, and the tool array does not
 // change when an act is added.
@@ -86,35 +86,37 @@ test('arguments raise a level and never lower it', () => {
 
 test('decide: L1 runs alone only with the owner\'s switch and not at Ask me; L2 and N never run alone', () => {
   const a = { act: 'restart-gateway', item: 'gw1' };
-  assert.deepEqual(decide(a, {}, { actAlone: true, level: 'work' }), { level: 'L1' });
+  assert.equal(decide(a, {}, { actAlone: true, level: 'work' }).level, 'L2', 'a restart drops the requests of every session on the gateway: a card');
   assert.equal(decide(a, {}, { actAlone: false, level: 'work' }).level, 'L2');
   assert.equal(decide(a, {}, { actAlone: true, level: 'ask' }).level, 'L2');
   assert.equal(decide({ act: 'stop-gateway', item: 'gw1' }, {}, { actAlone: true, level: 'handsoff' }).level, 'L2');
+  for (const level of ['ask', 'work', 'handsoff']) assert.equal(decide({ act: 'restart-gateway', item: 'gw1' }, {}, { actAlone: true, level }).level, 'L2', `a restart is a card at ${level}`);
   assert.equal(decide({ act: 'probe-provider', item: 'gw1' }, {}, {}).level, 'L0');
   assert.ok(decide({ act: 'nothing' }, {}, {}).refuse);
   assert.equal(decide({ act: 'reopen-session', session: 's' }, { session: { cwd: '/x' }, mine: true }, { actAlone: true }).level, 'L1');
   assert.equal(decide({ act: 'reopen-session', session: 's', computer: 'box2' }, { session: { cwd: '/x' }, mine: true }, { actAlone: true }).level, 'L2', 'another computer');
   assert.equal(decide({ act: 'clean-own-temp' }, { spoken: true }, { actAlone: true }).level, 'L2');
-  assert.equal(decide({ act: 'clean-own-temp' }, { spoken: false }, { actAlone: true }).level, 'L1');
+  assert.equal(decide({ act: 'clean-own-temp' }, { spoken: false }, { actAlone: true }).level, 'L2', 'deleting files cannot be taken back with one press: a card, typed or spoken');
 });
 
-test('a gateway restart runs at L1 with "She may act alone" on, and is a card with it off', async () => {
-  const on = setup({ alone: true });
-  const r = await on.call({ act: 'restart-gateway', item: 'gw1' });
-  assert.equal(r.isError, false, r.text);
-  assert.equal(on.writes('mends.restartGateway').length, 1);
-  assert.deepEqual(on.writes('mends.restartGateway')[0].args, { id: 'gw1' });
-  const line = on.audit.recent().find((e) => e.tool === 'hoprig_act');
-  assert.equal(line.level, 'L1');
-  assert.equal(line.outcome, 'done');
-  assert.deepEqual(line.result.undo, { act: 'stop-gateway', item: 'gw1' }, 'Activity can undo it');
-
-  const off = setup({ alone: false });
-  const c = await off.call({ act: 'restart-gateway', item: 'gw1' });
-  assert.ok(c.card, 'a card');
-  assert.equal(off.writes('mends.restartGateway').length, 0, 'nothing ran');
-  assert.match(c.card.lines.join('\n'), /Restart the gateway gw1\?/);
-  assert.match(c.card.lines.join('\n'), /sessions? on it wait/);
+test('a gateway restart is a card at every level and with the switch on or off; on the tap it runs once, in the server', async () => {
+  for (const alone of [true, false]) {
+    for (const level of ['ask', 'work', 'handsoff']) {
+      const t = setup({ alone, level });
+      const c = await t.call({ act: 'restart-gateway', item: 'gw1' });
+      assert.ok(c.card, `a card (${alone} ${level})`);
+      assert.equal(t.writes('mends.restartGateway').length, 0, 'nothing ran before the tap');
+      assert.match(c.card.lines.join('\n'), /Restart the gateway gw1\?/);
+      assert.match(c.card.lines.join('\n'), /sessions? on it wait/);
+    }
+  }
+  const t = setup({ alone: true });
+  const c = await t.call({ act: 'restart-gateway', item: 'gw1' });
+  const done = await t.core.confirm(c.card.id);
+  assert.equal(done.ok, true, JSON.stringify(done));
+  assert.equal(t.writes('mends.restartGateway').length, 1, 'the function ran once');
+  assert.deepEqual(t.writes('mends.restartGateway')[0].args, { id: 'gw1' });
+  assert.deepEqual(t.ops.calls.filter((x) => /gatewayhost/.test(x.path || '')), [], 'no route of a gateway was dispatched');
 });
 
 test('a stop is a card at every level of hers, also with the switch on', async () => {
@@ -165,7 +167,7 @@ test('Auto mode and a setting are acts of hoprig_act now, and the old names stil
   assert.equal(bad.isError, true);
 });
 
-test('an act of hers the owner spoke: an L1 act with nothing to take back is a card, one with undo stays L1', async () => {
+test('an act of hers the owner spoke: an act with nothing to take back is a card (also typed), one with undo stays L1', async () => {
   const t = setup({ alone: true });
   t.core.beginTurn('v1', { origin: 'owner', text: 'clean up the old files', spoken: true });
   const spoken = await t.call({ act: 'clean-own-temp' }, { conversation: 'v1' });
@@ -174,8 +176,10 @@ test('an act of hers the owner spoke: an L1 act with nothing to take back is a c
   assert.match(spoken.card.lines.join('\n'), /Free 1\.2 GB of Hoprig's own old logs and copies\?/);
   t.core.beginTurn('v2', { origin: 'owner', text: 'clean up the old files' });
   const typed = await t.call({ act: 'clean-own-temp' }, { conversation: 'v2' });
-  assert.equal(typed.isError, false, typed.text);
-  assert.equal(t.writes('mends.cleanOwnTemp').filter((c) => !c.args.dryRun).length, 1, 'typed: it ran');
+  assert.ok(typed.card, 'typed: a card too');
+  assert.equal(t.writes('mends.cleanOwnTemp').filter((c) => !c.args.dryRun).length, 0, 'typed: nothing ran before the tap');
+  assert.equal((await t.core.confirm(typed.card.id)).ok, true);
+  assert.equal(t.writes('mends.cleanOwnTemp').filter((c) => !c.args.dryRun).length, 1, 'on the tap it ran');
   t.core.beginTurn('v3', { origin: 'owner', text: 'hold the schedules', spoken: true });
   const held = await t.call({ act: 'hold-starts', value: true }, { conversation: 'v3' });
   assert.equal(held.isError, false, held.text);
@@ -213,7 +217,8 @@ test('Undo: an act of another conversation, from the last 7 days, can be undone 
 
 test('undoing a restart is a stop, so it needs his tap', async () => {
   const t = setup({ alone: true });
-  await t.call({ act: 'restart-gateway', item: 'gw1' }, { conversation: 'a' });
+  const c = await t.call({ act: 'restart-gateway', item: 'gw1' }, { conversation: 'a' });
+  assert.equal((await t.core.confirm(c.card.id)).ok, true);
   const entry = t.audit.recent().find((e) => e.tool === 'hoprig_act' && e.outcome === 'done');
   const u = await t.call({ act: 'undo-act', item: String(entry.at) }, { conversation: 'b' });
   assert.ok(u.card, 'a card');
@@ -243,7 +248,7 @@ test('act list with a word returns the acts, their levels and what they need', a
   assert.match(r.text, /restart-gateway/);
   assert.match(r.text, /stop-gateway/);
   assert.doesNotMatch(r.text, /auto-order/);
-  assert.match(r.text, /"level":"L1"/);
+  assert.match(r.text, /"level":"L0"/);
   assert.match(r.text, /"level":"L2"/);
 });
 
@@ -259,7 +264,7 @@ test('a card is never confirmed by voice: the confirm route refuses a confirm th
 // Every class of NEVER, with routes of the code that fall in it: refused at her door, on this computer and behind a
 // linked computer's prefix, and before anything is dispatched, whatever a row of ALLOW would say.
 const SAMPLES = {
-  'sign-in': [['POST', '/api/login'], ['POST', '/api/profiles/add'], ['POST', '/api/accounts/claude-login/start'], ['POST', '/api/tokens/abcdef123456/revoke'], ['POST', '/api/gatewayhost/trouteai/add/key'], ['POST', '/api/gatewayhost/trouteai/service'], ['POST', '/api/gatewayhost/linger'], ['POST', '/api/workspace/git/signin']],
+  'sign-in': [['POST', '/api/login'], ['POST', '/api/profiles/add'], ['POST', '/api/accounts/claude-login/start'], ['POST', '/api/tokens/abcdef123456/revoke'], ['POST', '/api/gatewayhost/trouteai/add/key'], ['POST', '/api/gatewayhost/trouteai/service'], ['POST', '/api/gatewayhost/linger'], ['POST', '/api/gatewayhost/trouteai/restart'], ['POST', '/api/gatewayhost/trouteai/start'], ['POST', '/api/gatewayhost/trouteai/stop'], ['POST', '/api/workspace/git/signin']],
   credentials: [['POST', '/api/workspace/credentials']],
   'open-out': [['POST', '/api/public-link/custom/start'], ['POST', '/api/machines/box2/forward'], ['POST', '/api/gateways/trouteai/share'], ['POST', '/api/addons/public-link/start']],
   pair: [['POST', '/api/pair/code'], ['POST', '/api/joins'], ['POST', '/api/links/code'], ['POST', '/api/machines/box2/remove'], ['POST', '/api/machines/box2/hostkey'], ['POST', '/api/machines/url']],
@@ -289,8 +294,6 @@ test('every NEVER class is refused at her door, here and behind a linked compute
     }
   }
   assert.deepEqual(seen, [], 'nothing was dispatched');
-  // The three routes of a gateway she may restart, start and stop are not of any class.
-  for (const verb of ['restart', 'start', 'stop']) assert.equal(neverClassOf(`/api/gatewayhost/trouteai/${verb}`), null, verb);
-  assert.equal(checkRoute('POST', '/api/gatewayhost/trouteai/restart', { confirm: 'desk' }, ctx).tool, 'hoprig_act restart-gateway, stop-gateway');
-  assert.throws(() => checkRoute('POST', '/api/gatewayhost/trouteai/restart', { confirm: 'desk', password: 'x' }, ctx), (e) => e.status === 403, 'only the confirmation travels with it');
+  // A gateway is restarted, started and stopped by the owner's tap, in the server: never through a route of her door.
+  for (const verb of ['restart', 'start', 'stop']) assert.ok(ALLOW.every((e) => !e.re.test(`/api/gatewayhost/trouteai/${verb}`)), verb);
 });

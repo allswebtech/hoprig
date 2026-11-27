@@ -404,7 +404,7 @@ page on GitHub.
 
 ## What Tia can do, and what she cannot
 
-Every act of Hoprig is one row of `src/assistant/inventory.json`: 389 in all (45 commands, 317 changes in the dashboard, 7 skills). Tia does 124 of them with a tool of hers, 7 more by another route of the same effect, and 258 are not hers. A test holds the file to the code: a new command or route without a row fails it.
+Every act of Hoprig is one row of `src/assistant/inventory.json`: 389 in all (45 commands, 317 changes in the dashboard, 7 skills). Tia does 122 of them with a tool of hers, 7 more by another route of the same effect, and 260 are not hers. A test holds the file to the code: a new command or route without a row fails it.
 
 ### What she does
 
@@ -428,7 +428,7 @@ Every act of Hoprig is one row of `src/assistant/inventory.json`: 389 in all (45
 | `hoprig sync` | manage_project workspace_sync | asks you when the facts say so (the rest is yours: publishing commits, into a default branch too, is your own press on the Workspace page; her sync only fetches and fast-forwards) |
 | `hoprig tasks` | manage_work today, manage_work list, manage_work add, manage_work edit, manage_work done, manage_work start | does it; asks you when the facts say so; always asks you (the rest is yours: saving the Work file to git, and making a plan or changing its own title, goal and milestones, stay yours) |
 | `hoprig skills` | manage_skills installed, manage_skills suggested, manage_skills find, manage_skills install, manage_skills check_updates | does it; always asks you |
-| `hoprig addons` | manage_computer addon | asks you when the facts say so (the rest is yours: an add-on's set-up as a provider handles its keys) |
+| `hoprig addons` | manage_computer addon | always asks you (the rest is yours: an add-on's set-up as a provider handles its keys) |
 | `hoprig public` | manage_computer public_link | does it |
 | `hoprig machines` | manage_computer rename | does it (the rest is yours: removing a computer and adding one, by its address or by SSH, hand out its token; her card only opens Computers) |
 | `POST /api/sessions` | start_session | asks you when the facts say so |
@@ -448,10 +448,8 @@ Every act of Hoprig is one row of `src/assistant/inventory.json`: 389 in all (45
 | `POST /api/automation/settings` | manage_automation set_rule, manage_automation set_upkeep_hours, manage_automation pause, manage_automation resume | always asks you; does it |
 | `POST /api/automation/queue/<id>` | manage_automation queue_message, manage_automation queue_clear | asks you when the facts say so; does it |
 | `POST /api/automation/schedules` | manage_automation add_schedule, manage_automation change_schedule, manage_automation delete_schedule | asks you when the facts say so; always asks you |
-| `POST /api/addons/<id>/(install|update|start|stop)` | manage_computer addon | asks you when the facts say so |
+| `POST /api/addons/<id>/(install|update|start|stop)` | manage_computer addon | always asks you |
 | `POST /api/public-link` | manage_computer public_link | does it (the rest is yours: turning it on opens the computer to the internet, your own press; she only turns it off or opens that page) |
-| `POST /api/gatewayhost/<id>/(start|stop)` | hoprig_act restart-gateway, hoprig_act stop-gateway | asks you when the facts say so; always asks you |
-| `POST /api/gatewayhost/<id>/restart` | hoprig_act restart-gateway | asks you when the facts say so |
 | `POST /api/pcsetup/setup` | manage_computer set_up | always asks you |
 | `POST /api/pcsetup/fix` | manage_computer setup_fix | always asks you |
 | `POST /api/pcsetup/install` | manage_project install | always asks you |
@@ -515,14 +513,14 @@ Every act of Hoprig is one row of `src/assistant/inventory.json`: 389 in all (45
 | `skill handle-usage-limit` | manage_procedures find | does it |
 | `skill morning-status` | manage_procedures find | does it |
 | `skill triage-sessions` | manage_procedures find | does it |
-| `act restart-gateway` | hoprig_act restart-gateway | asks you when the facts say so |
+| `act restart-gateway` | hoprig_act restart-gateway | always asks you |
 | `act stop-gateway` | hoprig_act stop-gateway | always asks you |
 | `act restart-hoprig` | hoprig_act restart-hoprig | always asks you |
 | `act probe-provider` | hoprig_act probe-provider | does it |
 | `act reopen-session` | hoprig_act reopen-session | asks you when the facts say so |
 | `act continue-session` | hoprig_act continue-session | asks you when the facts say so |
 | `act hold-starts` | hoprig_act hold-starts | asks you when the facts say so |
-| `act clean-own-temp` | hoprig_act clean-own-temp | asks you when the facts say so |
+| `act clean-own-temp` | hoprig_act clean-own-temp | always asks you |
 | `act change-plan` | hoprig_act change-plan | asks you when the facts say so |
 | `act undo-act` | hoprig_act undo-act | asks you when the facts say so |
 | `act auto-order` | hoprig_act auto-order | always asks you |
@@ -699,7 +697,7 @@ Every act of Hoprig is one row of `src/assistant/inventory.json`: 389 in all (45
 - `POST /api/adopt/retire/check`: It opens the sheet that removes your old folders after Arrange, and that sheet is yours alone on your own page.
 - `POST /api/adopt/retire`: Removing your old folders cannot be undone, so only you do it, on your own page, with the project's name typed.
 
-**Administrator rights** (17):
+**Administrator rights** (19):
 
 - `hoprig gateways`: A gateway of your own is a program the dashboard will run.
 - `hoprig move-to-user`: Moving Hoprig from root to an ordinary user stops root's dashboard and changes which user its services run as.
@@ -708,6 +706,8 @@ Every act of Hoprig is one row of `src/assistant/inventory.json`: 389 in all (45
 - `POST /api/gateways/defined/add`: A gateway of your own is a program the dashboard will run on this computer.
 - `POST /api/gateways/defined/confirm`: A gateway of your own is a program the dashboard will run on this computer.
 - `POST /api/gateways/defined/remove`: A gateway of your own is a program the dashboard will run on this computer.
+- `POST /api/gatewayhost/<id>/(start|stop)`: A gateway of your own is a program this computer runs; its start and stop on Health are your own presses.
+- `POST /api/gatewayhost/<id>/restart`: Restarting a gateway stops and starts a program of this computer, and every session it answers loses its request: your own press on Health.
 - `POST /api/gatewayhost/<id>/setup`: Setting up a gateway installs and starts a program and makes a key for it: your own press, naming this computer.
 - `POST /api/gatewayhost/<id>/service`: Making or removing a gateway's service changes what this computer starts by itself.
 - `POST /api/gatewayhost/linger`: Turning lingering on runs a command with administrator rights.
