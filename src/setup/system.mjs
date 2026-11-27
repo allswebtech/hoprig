@@ -132,9 +132,7 @@ export function installCommands(pm, packages, { root = false } = {}) {
 export function showCommand(argv) {
   // nodeNpm's start is shown as the user would type it: that Node, then npm's own file.
   if (argv[1] === '-e' && String(argv[2]).startsWith(NODE_NPM_MARK)) argv = [argv[0], ...argv.slice(3)];
-  // On Windows a backslash is a path's own character (C:\Users\me), not an escape: such a word is shown as it is typed.
-  const plain = process.platform === 'win32' ? /^[A-Za-z0-9_@%+=:,./~\\-]+$/ : /^[A-Za-z0-9_@%+=:,./~-]+$/;
-  return argv.map((a) => (plain.test(a) ? a : `'${a.replace(/'/g, `'\\''`)}'`)).join(' ');
+  return argv.map((a) => (/^[A-Za-z0-9_@%+=:,./~-]+$/.test(a) ? a : `'${a.replace(/'/g, `'\\''`)}'`)).join(' ');
 }
 
 /**

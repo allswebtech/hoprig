@@ -74,7 +74,9 @@ test('the Install confirmation says in one line that two parts build a helper: t
   assert.equal(buildsLine({ npm: 'x' }), null);
   const a = (await listAddons()).find((x) => x.id === def.id);
   assert.equal(a.builds, line);
-  const into = `npm install --prefix ${path.join(toolsDir(), def.id)} --save-exact --loglevel=error ${def.npm}@${def.own.pin}`;
+  // A Windows path (backslashes) is shown in single quotes, which PowerShell and a Git shell both read as it is.
+  const prefix = path.join(toolsDir(), def.id);
+  const into = `npm install --prefix ${process.platform === 'win32' ? `'${prefix}'` : prefix} --save-exact --loglevel=error ${def.npm}@${def.own.pin}`;
   assert.equal(a.installCommand, into);
   const lines = runsLines({ ...def, args: def.args });
   assert.equal(lines[0], `Hoprig installs and updates it with: ${into}`);

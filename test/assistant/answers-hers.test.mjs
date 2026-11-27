@@ -40,5 +40,6 @@ test('Settings → Tia: the switch under the level, saved at once by its own pre
   const src = fs.readFileSync(new URL('../../web/tia.js', import.meta.url), 'utf8');
   assert.match(src, /toggle\('She answers the OKs of her Work runs', s\.answersHers === true, async \(on\) => \{\s*try \{\s*await api\(`\$\{A\}\/settings`, \{ answersHers: on \}\);/);
   assert.match(src, /more: v\.help\.answersHers \}, \{ key: 'tia-answers-hers' \}\)/);
-  assert.match(src, /fold\('tia-level-more', 'What each level means', levelHelp\)\),\s*answersHers,/);
+  assert.match(src, /fold\('tia-level-more', 'What each level means', levelLines, levelHelp\)\)/);
+  assert.match(src, /fill\(limitsBox,\s*s\.enabled \? \[\s*answersHers,/);
 });
