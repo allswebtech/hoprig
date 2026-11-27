@@ -4,7 +4,7 @@
 // here on the server wherever that happens. Which tools are offered is the tools' registry's choice
 // (src/codetools/index.mjs: the enabled ones), so a tool that is off is refused here too.
 import { getAutoSwitch } from '../autoswitch.mjs';
-import { EFFORTS, PERMISSION_MODES } from '../config.mjs';
+import { EFFORTS, OWNER_MODES, PERMISSION_MODES } from '../config.mjs';
 import { assertServes, readProfile, servesTools } from '../profiles.mjs';
 import { anyTool, enabledToolIds, findTool, notOffered } from '../codetools/index.mjs';
 import { isOffered } from '../codetools/offered.mjs';
@@ -109,4 +109,5 @@ export function modelOk(tool, m, choices) {
 export const modelRefusal = (m, choices) => (choices.check && choices.check(m)) || (choices.models.length ? `the model must be one of: ${choices.models.slice(0, 20).join(', ')}${choices.models.length > 20 ? ', …' : ''}` : 'that is no model id');
 
 /** A permission mode kept for a chat of `tool`: Claude Code's modes are all its own; another tool's or null. */
-export const modeFor = (tool, mode) => (tool === 'claude' ? (PERMISSION_MODES.includes(mode) ? mode : null) : OC_MODES.includes(mode) ? mode : null);
+// Claude Code's App chat may hold Allow everything too (bypassgate.mjs ALL): who may choose it is checked where it is chosen.
+export const modeFor = (tool, mode) => (tool === 'claude' ? (OWNER_MODES.includes(mode) ? mode : null) : OC_MODES.includes(mode) ? mode : null);

@@ -26,8 +26,8 @@ import { answeredLines, exactCard, handsOffBar, heldActCard, openConsentSheet, u
 import { isStarting, markStarting, startingPill } from './newsession.js';
 // A terminal whose start was stopped before the coding tool ran (the card's startStopped).
 export const START_STOPPED = 'The start was stopped before the coding tool ran. The conversation is free again: continue it in the App or start it again.';
-import { forgetHere, named, wayBack, windowWay } from './trail.js';
-import { extrasLine, rootRefusedNext } from './sessionitem.js';
+import { forgetHere, handOver, named, wayBack, windowWay } from './trail.js';
+import { extrasLine, rootRefusedNext, whereNow } from './sessionitem.js';
 import { CTRL_V, KEY_BAR, KEY_HELP, backToLive, inOrder, inputMessages, keyBarTarget, mayConnect, pageTitle, pasteKey, reconnectWait, stickyCtrl, termKey } from './termkeys.js';
 import { clipboardPictures, dragHasFiles, failWords, filesOf, pastedFiles, typedPaths } from './termdrop.js';
 
@@ -87,6 +87,12 @@ export function openSession(app, name) {
     h('span.titlebtn-name', name, where), icon('chevronDown', { size: 16 }), otherBadge);
   const profileBtn = h('button.profilebtn.hidden', { type: 'button', title: 'Move to another provider', onclick: () => moveAccount() },
     icon('user', { size: 16 }), h('span.profilebtn-label', '…'), icon('chevronDown', { size: 14 }));
+  // The way to the App: one visible control in the head (registered by the App chat, chat/page.js), shown only where
+  // this conversation can open there. It was a row inside More.
+  const openApp = registeredSessionActions().find((a) => a.id === 'open-chat');
+  const openBtn = h('button.btn.small.secondary.sessopen.hidden', { type: 'button', 'aria-label': 'Open in App', onclick: () => openApp.run({ name, machine: machine.current }) },
+    icon('text', { size: 16 }), h('span.sessopen-label', h('span.sessopen-long', 'Open in '), 'App'));
+  let offeredFor; // the conversation the button was last asked about
   const statusSlot = h('div.sess-state');
   const toolSlot = h('span.sess-tool'); // the coding tool's name, beside the session's name (not a line of its own on a phone)
   const needSlot = h('div.sess-need'); // a limit, or a question waiting for your OK: above the terminal
@@ -143,7 +149,7 @@ export function openSession(app, name) {
     h('header.sessbar', chrome(),
       inWindow === null ? null : h('a.btn.ghost.sessback', { href: way.hash, 'aria-label': `Back to ${way.label}`, title: `Back to ${way.label}` }, icon('back'), h('span.sessback-label', way.label)),
       h('div.sess-title', h('div.sess-name-row', titleBtn, toolSlot), h('div.sess-sub', statusSlot)),
-      h('div.sessbar-end', profileBtn, btn('icon ghost', { icon: 'more', title: 'More for this session', onclick: () => menu() }))),
+      h('div.sessbar-end', openApp ? openBtn : null, profileBtn, btn('icon ghost', { icon: 'more', title: 'More for this session', onclick: () => menu() }))),
     needSlot,
     box,
     quickRow,
@@ -733,9 +739,19 @@ export function openSession(app, name) {
     otherBadge.textContent = String(others);
     otherBadge.classList.toggle('hidden', !others);
     otherBadge.title = `${others} other session${others === 1 ? '' : 's'} need${others === 1 ? 's' : ''} you`;
-    if (!s) return;
+    if (!s) {
+      // Gone: its conversation may stand somewhere else now (handed to the App from another tab): an old address opens
+      // it where it is now, in the place of this one (trail.js handOver).
+      const now = !disposed && session && whereNow(d.sessions, { name, key: session.key, sessionId: session.sessionId });
+      if (now) handOver(`#/${now.kind === 'chat' ? `chat/${now.chatId}` : `s/${encodeURIComponent(now.name)}`}`, machine.current);
+      return;
+    }
     const toolBefore = cardTool(session);
     session = s;
+    if (openApp && s.sessionId !== offeredFor) {
+      offeredFor = s.sessionId;
+      Promise.resolve(openApp.describe ? openApp.describe({ name, machine: machine.current }) : {}).then((r) => openBtn.classList.toggle('hidden', r === null), () => {});
+    }
     if (cardTool(s) !== toolBefore) placeholder();
     // An answer sent a moment ago is part of what the banner shows (lib.js answeredNow), not of the card.
     const key = JSON.stringify([s, profiles, answeredNow({ ...s, machine: machine.current })]);
@@ -855,10 +871,11 @@ export function openSession(app, name) {
     if (!list.length) return null;
     const at = (ms) => new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     // The command itself for the shell (no tool name), and where it ran when not in the session's folder.
+    const named = (a) => (a.by === 'all' ? 'Allowed without asking (Allow everything): ' : 'Allowed by Hoprig in bypass mode: ');
     const line = (a) => `${a.tool && a.tool !== 'Bash' ? `${a.tool}: ` : ''}${a.what || a.tool}${a.folder ? ` · in ${a.folder}` : ''} · ${at(a.at)}`;
     const newest = list[list.length - 1];
     const earlier = list.slice(0, -1).reverse();
-    const head = h('span', h('strong', 'Allowed by Hoprig in bypass mode: '), line(newest));
+    const head = h('span', h('strong', named(newest)), line(newest));
     if (!earlier.length) return h('p.sess-allowed', { role: 'status' }, head);
     return h('details.sess-allowed', { role: 'status', ontoggle: () => refit() }, h('summary', head), h('ul', earlier.map((a) => h('li', line(a)))));
   }
@@ -952,7 +969,7 @@ export function openSession(app, name) {
     // Rows features add (registry.js registerSessionAction, e.g. the queue), with their state if it comes quickly.
     const me = { name, machine: machine.current };
     const quick = (p) => Promise.race([Promise.resolve().then(() => p), new Promise((r) => setTimeout(() => r({}), 700))]);
-    const extra = (await Promise.all(registeredSessionActions().map(async (a) => {
+    const extra = (await Promise.all(registeredSessionActions().filter((a) => a.id !== 'open-chat').map(async (a) => {
       const d = a.describe ? await quick(a.describe(me)).catch(() => ({})) : {};
       return d === null ? null : { value: `action:${a.id}`, label: d.label || a.label, sub: d.sub ?? a.sub, icon: a.icon };
     }))).filter(Boolean);

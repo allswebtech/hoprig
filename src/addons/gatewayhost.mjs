@@ -28,6 +28,9 @@
 //   POST /api/gatewayhost/<id>/password { confirm, password }   its own reset-password command with the same data folder;
 //                                                            the password goes by its standard input and is never kept,
 //                                                            logged or answered → { ok, line }
+//   GET  /api/gatewayhost/trouteai/public               its public address: { state, hostname, url, answers, told, linkOn, need, why }
+//   POST /api/gatewayhost/trouteai/public { confirm, on }  turn it on or off (src/addons/trouteaipublic.mjs): only the owner's own
+//                                                            browser, never a linked computer's token, Tia or a session
 // Every route of this list answers the owner's page and a linked main computer, never Tia or a coding session (caller
 // "self": 403), and every change carries `confirm`. Nothing that comes back holds a provider's key, token or sign-in.
 //
@@ -40,6 +43,9 @@ import { gatewayAddons } from './gateways.mjs';
 import { hasSetUp, listensSentence, logFileOf, lastLines, ownProgramCommand, scrub, setupShippedGateway } from '../gateway/trouteai.mjs';
 import { lingerCommand, lingerOf, makeService, removeService, serviceNow, servicePlan, serviceState } from './gatewayservice.mjs';
 import { defaultHubLabel } from '../machines/hub.mjs';
+import { tokenIdOf } from '../machines/index.mjs';
+import { fixedMarkTold } from './fixedlink.mjs';
+import { stateOf as publicState, turnOff as publicOff, turnOn as publicOn } from './trouteaipublic.mjs';
 import { capture, showCommand } from '../setup/system.mjs';
 
 /** Start a gateway here from Health: its own start(), which listens as every start does (localgateway.mjs listenRule). */
@@ -64,6 +70,16 @@ export async function onePress(id, fn, busy) {
 
 /** A copy is installed (its status says so) but the service search cannot find its program: say that, never "not installed". */
 const missingProgram = (title, copy) => `Hoprig cannot find the program of this copy of ${title} to run it as a service.${copy === 'global' ? " Press Install here: a copy in Hoprig's own folder can run as a service." : copy === 'own' ? ' Install it again.' : ''}`;
+
+/** One look from this computer at the public address's sign-in page: does it answer (any HTTP answer below 500)? */
+async function look(url) {
+  try {
+    const r = await fetch(`${url}/login`, { redirect: 'manual', signal: AbortSignal.timeout(8000) });
+    return r.status < 500;
+  } catch {
+    return false;
+  }
+}
 
 export function gatewayHostFeature(ctx, opts = {}) {
   const run = opts.run || ((argv) => capture(argv, { timeout: 30_000 }));
@@ -140,6 +156,48 @@ export function gatewayHostFeature(ctx, opts = {}) {
     return { ok: true, service: true, lines };
   }
 
+  /** Stop it (when it runs) and start it again, each through its service where one is made: { ok, lines } or { ok: false, error }. */
+  async function bounce(a, plan) {
+    const was = await statusOf(a);
+    const lines = [];
+    if (was.running) {
+      const x = await act(a, plan, 'stop');
+      if (!x.ok) return x;
+      lines.push(...(x.lines || []));
+    }
+    const y = await act(a, plan, 'start');
+    if (!y.ok) return y;
+    return { ok: true, lines: [...lines, ...(y.lines || [])] };
+  }
+  /** The owner's own browser: its sign-in cookie, no machine token, not one of Tia's in-process requests. */
+  const ownBrowser = (req) => !(ctx.caller && ctx.caller(req) === 'self') && (opts.tokenOf || tokenIdOf)(req) === null && Boolean(req.headers && req.headers.cookie);
+  const told = (a) => {
+    if (hasSetUp(a)) (opts.markTold || fixedMarkTold)();
+  };
+  const pub = opts.public || {};
+  /** What the public address looks at, each one overridable by a test. */
+  async function publicDeps(a) {
+    const folder = (await baseOf()).dataFolder();
+    return {
+      fixed: pub.fixed,
+      link: pub.link || (async () => (await import('./linkswitch.mjs')).status({ why: false })),
+      gateway: pub.gateway || (async () => {
+        const st = await statusOf(a);
+        return { installed: Boolean(st.installed), running: Boolean(st.running) };
+      }),
+      firstFile: pub.firstFile || (() => path.join(folder, 'initial-admin-password.txt')),
+      signIn: pub.signIn || (async () => {
+        try {
+          return await (opts.gatewayCall || (await import('../gateway/trouteaimanage.mjs')).callGateway)('GET', '/api/settings/require-login', { port: Number(a.gateway.port()), folder });
+        } catch {
+          return null;
+        }
+      }),
+      openApi: pub.openApi,
+      step: pub.step || (async (n, b, o) => (await import('./linkswitch.mjs')).customStep(n, b, o)),
+    };
+  }
+
   return {
     name: 'gatewayhost',
     routes: [
@@ -161,6 +219,7 @@ export function gatewayHostFeature(ctx, opts = {}) {
         // Each acts on what really runs: the copy on its port, whoever started it, and its service where that is made.
         const r = await onePress(a.id, () => act(a, plan, m[2]), busy(a));
         // What this start printed first (a first password among it), shown once on this answer, failed or not.
+        if (r.ok && m[2] === 'start') told(a);
         const first = m[2] === 'start' && a.firstLines ? a.firstLines.take() : [];
         if (!r.ok) throw fail(409, r.error || `${a.title} did not ${m[2]}`, first.length ? { details: { first } } : {});
         return { ok: true, already: r.already === true, service: r.service === true, ...(r.outside ? { outside: true } : {}), lines: r.lines || [], ...(first.length ? { first } : {}) };
@@ -193,6 +252,7 @@ export function gatewayHostFeature(ctx, opts = {}) {
           return stopped ? { ...made, lines: [`Stopped the ${a.title} Hoprig had started`, ...made.lines, ...wait] } : { ...made, lines: [...made.lines, ...wait] };
         }, busy(a));
         if (!r.ok) throw fail(409, r.lines.join(' · '));
+        if (b.on) told(a);
         return { ok: true, already: r.already === true, stopped, lines: r.lines, linger: b.on ? await lingerOf({ run }).catch(() => null) : null };
       }],
       // Stop it and start it again, for a setting changed in the gateway's own page: both as one press.
@@ -200,18 +260,8 @@ export function gatewayHostFeature(ctx, opts = {}) {
         await checked(req);
         const a = addonOf(m[1]);
         const plan = planOf(a);
-        const r = await onePress(a.id, async () => {
-          const was = await statusOf(a);
-          const lines = [];
-          if (was.running) {
-            const x = await act(a, plan, 'stop');
-            if (!x.ok) return x;
-            lines.push(...(x.lines || []));
-          }
-          const y = await act(a, plan, 'start');
-          if (!y.ok) return y;
-          return { ok: true, lines: [...lines, ...(y.lines || [])] };
-        }, busy(a));
+        const r = await onePress(a.id, async () => bounce(a, plan), busy(a));
+        if (r.ok) told(a);
         const first = a.firstLines ? a.firstLines.take() : [];
         if (!r.ok) throw fail(409, r.error || `${a.title} did not restart`, first.length ? { details: { first } } : {});
         return { ok: true, lines: r.lines || [`Restarted ${a.title}`], ...(first.length ? { first } : {}) };
@@ -280,12 +330,54 @@ export function gatewayHostFeature(ctx, opts = {}) {
         const b = await checked(req);
         const a = shippedOnly(addonOf(m[1]));
         const pw = b.password;
-        if (typeof pw !== 'string' || pw.length < 8 || pw.length > 200 || /[\r\n]/.test(pw)) throw fail(400, 'The new password has 8 to 200 characters on one line.');
+        if (typeof pw !== 'string' || pw.length < 12 || pw.length > 200 || /[\r\n]/.test(pw)) throw fail(400, 'The new password has 12 to 200 characters on one line.');
         const plan = ownProgramCommand(a, ['reset-password', '--password-stdin'], (await baseOf()).dataFolder());
         if (!plan) throw fail(409, `${a.title}'s program was not found: set it up first.`);
         const r = await onePress(a.id, () => input([plan.command, ...plan.args], pw), busy(a));
         if (!r.ok) throw fail(409, `${a.title} did not take the new password${r.stderr ? ` (${scrub(String(r.stderr).split('\n').filter(Boolean).pop())})` : ''}. Next step: stop ${a.title}'s page, start it again from Hoprig, then try again.`);
+        // The first password in its file is no longer the password: the file goes, so nothing still says it is.
+        fs.rmSync(path.join((await baseOf()).dataFolder(), 'initial-admin-password.txt'), { force: true });
         return { ok: true, line: `The new password is set. Every browser that was signed in to ${a.title} is signed out.` };
+      }],
+      // Its public address (trouteaipublic.mjs): read by the page, turned on or off only by the owner's own browser.
+      ['GET', /^\/api\/gatewayhost\/([a-z][a-z0-9-]{0,30})\/public$/, async (req, m) => {
+        ownerOnly(req);
+        const a = shippedOnly(addonOf(m[1]));
+        return publicState(await publicDeps(a));
+      }],
+      ['POST', /^\/api\/gatewayhost\/([a-z][a-z0-9-]{0,30})\/public$/, async (req, m) => {
+        if (!ownBrowser(req)) throw fail(403, 'TRouteAI\'s public address is turned on and off only by you, in your own browser on this computer\'s page: not by Tia, a session, another computer or the command line.');
+        const b = await checked(req);
+        const a = shippedOnly(addonOf(m[1]));
+        if (typeof b.on !== 'boolean') throw fail(400, 'say on: true to turn the public address on, on: false to turn it off');
+        if ((opts.linkBusy || (() => false))()) throw Object.assign(fail(409, 'The public link is busy with something else; wait until it finishes.'), { details: { need: 'busy' } });
+        const deps = await publicDeps(a);
+        const plan = planOf(a);
+        const r = await onePress(a.id, async () => {
+          const was = b.on ? await publicState(deps) : null;
+          const x = b.on ? await publicOn(deps) : await publicOff(deps);
+          if (!x.ok) return x;
+          const lines = [...x.lines];
+          // Nothing changed (no name to take out, or the name is there and TRouteAI was told): no restart, sessions are not made to wait.
+          if (x.already && (!b.on || was.told)) return { ok: true, lines, answers: null };
+          // The service file names the address (its environment): written again when its text changed, then TRouteAI starts with it.
+          if ((await serviceState(plan, { run })).made) lines.push(...(await makeService(planOf(a), { run })).lines);
+          const st = await statusOf(a);
+          if (st.running) {
+            const y = await bounce(a, planOf(a));
+            if (!y.ok) return { ok: false, need: 'restart', error: `The name is set, but ${a.title} did not restart: ${y.error || 'no reason given'}` };
+            lines.push(...(y.lines || []));
+            if (b.on) told(a);
+          }
+          let answers = null;
+          if (b.on && x.url) {
+            answers = await (pub.look || look)(x.url);
+            lines.push(answers ? `${x.url} answers.` : `${x.url} does not answer yet: the new name can take a minute to be known. Look again in a moment.`);
+          }
+          return { ok: true, lines, answers };
+        }, busy(a));
+        if (!r.ok) throw Object.assign(fail(409, r.error), { details: { need: r.need } });
+        return { ok: true, lines: r.lines, answers: r.answers };
       }],
       ['POST', /^\/api\/gatewayhost\/linger$/, async (req) => {
         await checked(req);

@@ -288,7 +288,7 @@ export async function main(args, { out = (s) => process.stdout.write(`${s}\n`), 
       if (!t.week.some((d) => d.items.length)) lines.push('  nothing dated');
       lines.push('', 'Done lately');
       lines.push(...(t.doneLately.length ? t.doneLately.map((it) => `  ${it.doneAt}  ${it.title}${fromText(it)}`) : ['  nothing yet']));
-      lines.push('', 'Sessions that need an OK are on the dashboard\'s Today.');
+      lines.push('', 'Sessions that need an OK are on the dashboard\'s Home, in Needs you.');
       show({ place: where, ...t, proposals }, lines.join('\n'));
       return 0;
     }

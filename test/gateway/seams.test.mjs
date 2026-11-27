@@ -35,8 +35,11 @@ const fakeNpm = () => async (argv) => {
   fs.writeFileSync(path.join(pkg, 'package.json'), JSON.stringify({ name: 'trouteai', version: '1.0.11', bin: { trouteai: 'bin/trouteai.mjs' } }));
   fs.writeFileSync(path.join(pkg, 'bin', 'trouteai.mjs'), '// stand-in\n');
   fs.mkdirSync(path.join(prefix, 'node_modules', '.bin'), { recursive: true });
-  fs.rmSync(path.join(prefix, 'node_modules', '.bin', 'trouteai'), { force: true });
-  fs.symlinkSync(path.join('..', 'trouteai', 'bin', 'trouteai.mjs'), path.join(prefix, 'node_modules', '.bin', 'trouteai'));
+  // npm's shim in .bin: a link on POSIX, a .cmd file on Windows (what the product looks for there)
+  const shim = path.join(prefix, 'node_modules', '.bin', process.platform === 'win32' ? 'trouteai.cmd' : 'trouteai');
+  fs.rmSync(shim, { force: true });
+  if (process.platform === 'win32') fs.writeFileSync(shim, '@echo off\r\n');
+  else fs.symlinkSync(path.join('..', 'trouteai', 'bin', 'trouteai.mjs'), shim);
   return { ok: true, code: 0 };
 };
 const check = async () => ({ ok: true, stdout: 'TRouteAI 1.0.11\n', stderr: '' });
@@ -127,7 +130,7 @@ test('Health\'s list carries copy, note, problem and foreign; Remove is the add-
 });
 
 test('the page: Health\'s Remove and Update are the add-on\'s jobs, and the row says the copy, the note and the problem', () => {
-  const src = fs.readFileSync(path.join(path.dirname(new URL(import.meta.url).pathname), '..', '..', 'web', 'health.js'), 'utf8');
+  const src = fs.readFileSync(new URL('../../web/health.js', import.meta.url), 'utf8');
   assert.ok(!/gatewayhost\/\$\{g\.id\}\/remove/.test(src), 'no second Remove route');
   assert.match(src, /addonJob\('remove'/);
   assert.match(src, /addonJob\('update'/);

@@ -253,11 +253,12 @@ test('after his own change the panel is drawn again while the focus is on the sw
   assert.ok(texts(box).includes('Tia OFF'), 'Tia OFF is there');
   assert.equal(document.activeElement, switchOf(box, 'master'), 'the focus is on the new master switch');
   // While he types in an open "Change the limits" form, the 15-second reload does not draw over it (his own Save does).
-  const form = all(box, (n) => n.tag === 'details')[0];
+  const limitsForms = () => all(box, (n) => n.tag === 'details' && String(n.className).includes('op-limits'));
+  const form = limitsForms()[0];
   form.open = true;
   all(form, (n) => n.tag === 'input')[0].focus();
   const kept = tia.drawTia(box, tiaView({ acts: true, said: 'other words' }), () => {}, { drawn: key });
-  assert.equal(all(box, (n) => n.tag === 'details')[0], form, 'the open form he types in stays');
+  assert.equal(limitsForms()[0], form, 'the open form he types in stays');
   assert.equal(kept, key);
   tia.drawTia(box, tiaView({ acts: true, said: 'other words' }), () => {}, { drawn: key, force: true, focus: 'limits-limit' });
   assert.ok(texts(box).includes('other words'), 'after his Save it is drawn again');
@@ -509,7 +510,7 @@ test('a Stopped card is a row of Home Needs you with its one button; a card that
   await tick();
   stop();
   const t = texts(box);
-  assert.ok(t.includes('Needs you') && t.includes('session alpha'), t.join('|'));
+  assert.ok(t.includes('session alpha') && !t.includes('Needs you'), 'only the rows: the heading and its count are Home\'s group: ' + t.join('|'));
   assert.ok(!t.includes('repository shop'), 'a branch that is only here is not a row');
   assert.ok(!t.includes('For your information') && !t.includes('Watched') && !t.includes('Done by you'), 'no old parts');
   const primary = all(box, (n) => n.tag === 'a' && n.className.split(' ').includes('primary'));
@@ -545,7 +546,7 @@ test('the old address of the Operator opens Home; Home draws the rows with the o
   const fs = await import('node:fs');
   const home = fs.readFileSync(new URL('../../web/home.js', import.meta.url), 'utf8');
   assert.match(home, /import \{ needsYouRows \} from '\.\/operator\.js'/);
-  assert.match(home, /needsYouRows\(opRows\)/);
+  assert.match(home, /needsYouRows\(opRows,/);
   const src = fs.readFileSync(new URL('../../web/operator.js', import.meta.url), 'utf8');
   assert.match(src, /typeof registry\.registerHomeCount === 'function'/);
 });
@@ -572,4 +573,34 @@ test('a session that asks is not a row while its own card is on Home; one that h
   const chat = { ...asks, subject: 'chat "Fix it" (99883e68)' };
   assert.equal(page.sameAsCard(chat, [{ sessions: [{ name: 'x', chatId: '99883e68-aaaa', status: 'attention' }] }]), true, 'a chat is found by its id');
   assert.equal(page.sameAsCard(stuckItem, [{ sessions: [{ name: 'alpha', status: 'attention' }] }]), false, 'no progress is Working on Home: its row stays');
+});
+
+test('Needs you holds the Operator rows above the session rows, and the one badge is their sum', async () => {
+  const reg = await import('../../web/registry.js');
+  const home = await import('../../web/home.js');
+  const box = h0();
+  answers.length = 0;
+  answers.push(attention([stuckItem]));
+  const counts = [];
+  const stop = page.needsYouRows(box, (n) => counts.push(n));
+  await tick();
+  stop();
+  assert.deepEqual(counts, [1]);
+  const sessions = [
+    { name: 'one', kind: 'claude', status: 'attention', statusAt: 1 },
+    { name: 'two', kind: 'claude', status: 'attention', statusAt: 1 },
+    { name: 'three', kind: 'claude', status: 'working', statusAt: 1 },
+  ];
+  const groups = home.homeGroups(sessions, { needsRows: ['providers'], lead: { el: box, n: 1 } });
+  const needs = groups.find((g) => g.id === 'needs');
+  assert.equal(needs.rows[0], box, 'the Operator rows stand first, above the providers row and the sessions');
+  assert.equal(needs.rows.length, 2);
+  assert.equal(needs.count, 1 + 1 + 2, 'Operator rows + providers row + sessions that need you');
+  assert.equal(groups.find((g) => g.id === 'working').count, 1);
+  home.setOwnNeeds(home.ownNeedsCount(groups, 1));
+  assert.equal(reg.homeCount(), needs.count, 'the registry sums the Operator count and Home count: the badge equals the group count');
+  // A group with no rows is not drawn: no Operator rows, no sessions that need you.
+  const quiet = home.homeGroups(sessions.slice(2), { lead: { el: box, n: 0 } });
+  assert.deepEqual(quiet.map((g) => g.id), ['working']);
+  home.setOwnNeeds(0);
 });

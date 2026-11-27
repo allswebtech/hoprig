@@ -40,6 +40,13 @@
 //                                       another computer's file holds (again: this computer IS that one, set up again)
 //   GET  /api/workspace/whohas         which computer has what (whohas.mjs): every place's entries, here and only in
 //                                       the map, each computer's file with when it was written; read only
+//   GET  /api/workspace/instep         the projects that are not in step: { at, items: [{ id, label, project, state: behind |
+//                                       dirty | diverged | unpushed, why, button }] }, from the last look, no network; [] when
+//                                       all is in step
+//   POST /api/workspace/instep/look { project? }   look now (fetch, and move a clean branch that is only behind): the
+//                                       owner's own page only; the list as it is after it
+//   POST /api/workspace/instep/credentials {}   "Get it" on the credentials row: the folder here is set aside (never deleted)
+//                                       and the map's credentials repository cloned; the owner's own page only
 //   GET  /api/workspace/find?in=<place> what the hosting site has that fits a place's naming rule (read only, no --add)
 //   POST /api/workspace/find/add { in, dryRun?, seen? }  find --add (no clone); find/undo { entries } takes exactly
 //                                       those out again; find/get { in, repo, dryRun?, seen? } get --in, a background job
@@ -65,6 +72,7 @@
 //   POST /api/workspace/git/brain/moveout { files }   the owner's yes on the save sheet's key refusal: the named files
 //                                       the save refuses are moved to the folder beside the brain the sheet named
 //                                       (brainmove.mjs), never deleted; each name is checked again here
+//   GET/POST /api/workspace/credmove[/...]  the encrypted move of credentials between his computers (credweb.mjs)
 //   GET  /api/workspace/credentials     the credentials folder: a folder here or a repository, its address (credweb.mjs)
 //   POST /api/workspace/credentials { github?|repo?, dryRun?, typed?, seen?, confirmNotGithub? }   make it a private
 //                                       repository: a dry run with the name to type, then his typed yes (a job)
@@ -187,11 +195,48 @@ export function workspaceFeature(sctx, opts = {}) {
     }
   };
 
+  // The encrypted move of credentials between his computers (credweb.mjs credMoveRoutes), built when first asked.
+  let moveRoutes = null;
+  const MOVE_LEGS = [['GET', ''], ['POST', '/expect'], ['POST', '/pack'], ['POST', '/upload'], ['POST', '/trust'], ['POST', '/own'], ['POST', '/mark']];
+  const viaMove = async (i, ...args) => {
+    if (!moveRoutes) {
+      const { credMoveRoutes } = await import('./credweb.mjs');
+      moveRoutes = credMoveRoutes({ readJson: sctx.readJson, mine, places, locked: (fn) => brainLocked(places().dir, fn), run: opts.run || capture, ...(opts.now ? { now: opts.now } : {}), keys, bool });
+    }
+    return moveRoutes[i][2](...args);
+  };
+
   const routes = [
+    ...MOVE_LEGS.map(([method, leg], i) => [method, new RegExp(`^/api/workspace/credmove${leg}$`), (...args) => viaMove(i, ...args)]),
     ['GET', /^\/api\/workspace\/whohas$/, async (req) => {
       ownerOnly(req);
       const w = await import('./whohas.mjs');
       return w.whoHas({ ...places(), machines: await w.machineNames(), ...(opts.run ? { run: opts.run } : {}) });
+    }],
+    ['GET', /^\/api\/workspace\/instep$/, async (req) => {
+      ownerOnly(req);
+      return (await import('./instep.mjs')).instepNow({ dir: places().dir });
+    }],
+    ['POST', /^\/api\/workspace\/instep\/credentials$/, async (req) => {
+      ownerOnly(req);
+      keys(await sctx.readJson(req), []);
+      await mine(req, 'getting the credentials repository');
+      const r = await (await import('./credrepo.mjs')).getCredentialsRepo({ dir: places().dir, ...(opts.run ? { run: opts.run } : {}) });
+      if (!r.ok) throw fail(409, r.why);
+      return { ok: true, ...(r.already ? { already: true } : {}) };
+    }],
+    ['POST', /^\/api\/workspace\/instep\/look$/, async (req) => {
+      ownerOnly(req);
+      const b = await sctx.readJson(req);
+      keys(b, ['project']);
+      if (b.project !== undefined) nameOf(b.project);
+      await mine(req, 'looking at the projects');
+      const I = await import('./instep.mjs');
+      const { loadConfig } = await import('../config.mjs');
+      const { readSettings } = await import('../automation/settings.mjs');
+      const ff = readSettings(loadConfig().automation).workspace.ffProjects;
+      await I.lookProjects({ ...places(), ff, ...(b.project ? { only: b.project } : {}), ...(opts.run ? { run: opts.run } : {}) });
+      return I.instepNow({ dir: places().dir });
     }],
     ['GET', /^\/api\/workspace\/find$/, async (req, m, q) => {
       ownerOnly(req);

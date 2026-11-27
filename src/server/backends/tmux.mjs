@@ -318,9 +318,11 @@ export class TmuxBackend {
     return this.run(['rename-session', '-t', `=${name}`, next]);
   }
 
-  /** Every pane of the session (-s), its programs first, as in respawn. */
-  async kill(name) {
-    await this.#endPrograms(['list-panes', '-s', '-t', `=${name}`, '-F', SHELL_FORMAT]);
+  /** Every pane of the session (-s), its programs first, as in respawn (`hold` given longer). */
+  async kill(name, { hold = null } = {}) {
+    await this.#endPrograms(['list-panes', '-s', '-t', `=${name}`, '-F', SHELL_FORMAT], hold);
+    // When a session was last closed on purpose: a tmux server that ends right after is not a death (automation/index.mjs).
+    this.closedAt = Date.now();
     return this.run(['kill-session', '-t', `=${name}`]);
   }
 

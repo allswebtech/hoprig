@@ -4,7 +4,7 @@
 // (its link, the browser's Back, the session switcher) takes off what came after it; a press in the navigation and
 // Home start a new trail. A page of another computer is a place of its own.
 
-import { BARE, WINDOW, samePlace as sameAddress } from './lib.js';
+import { BARE, WINDOW, link, samePlace as sameAddress } from './lib.js';
 
 const KEY = 'trail';
 const MAX = 8;
@@ -15,6 +15,9 @@ const EACH = new Set(['session', 'chat']);
 
 let trail = { stack: [], here: null };
 let fresh = false;
+// The next place takes the place of the one shown (handOver): the chat and the terminal of one conversation are one
+// place, so a way back never leads from one to the other.
+let instead = false;
 
 // Only addresses of this page are ever links (never "javascript:"), whatever the storage holds.
 const isHash = (v) => typeof v === 'string' && v.startsWith('#/') && v.length < 600;
@@ -73,6 +76,11 @@ export function arrive(hash, from = null) {
   const page = placeOf(hash);
   let here = trail.here;
   if (here && from && !EACH.has(here.page) && samePage(here, placeOf(from), from)) here.hash = from;
+  if (instead) {
+    // A hand-over: the place shown goes, what came before it stays the way back.
+    instead = false;
+    here = null;
+  }
   if (fresh || page === 'home') {
     // A press in the navigation, or Home (where every trail starts): the new trail starts at this page.
     fresh = false;
@@ -147,10 +155,21 @@ export function startOver(e) {
   fresh = true;
 }
 
+/**
+ * A conversation moves between the App and a terminal (Open in Terminal, Open in the App): `hash` (of computer `m`)
+ * takes the place of the page shown, in the browser's history as on the trail, so Back from either goes where he was
+ * before he opened the conversation.
+ */
+export function handOver(hash, m = undefined) {
+  instead = true;
+  location.replace(m === undefined ? link(hash) : link(hash, m));
+}
+
 /** Tests: start with an empty trail. */
 export function resetTrail() {
   trail = { stack: [], here: null };
   fresh = false;
+  instead = false;
 }
 
 if (typeof window !== 'undefined') load();

@@ -1,6 +1,6 @@
 // Work and the Operator said the same "what needs you now" for two different lists, so a newcomer could not tell the
-// pages apart. Each page has one line of its own now, said the same wherever the page is named: Work's Today is what
-// is due and what waits for your yes; the Operator is what stopped or is about to.
+// pages apart. Each page has one line of its own now, said the same wherever the page is named: Work's Tasks lists what
+// waits for your yes and what is due; the Operator is what stopped or is about to.
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -10,17 +10,16 @@ import { fileURLToPath } from 'node:url';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const read = (f) => fs.readFileSync(path.join(ROOT, f), 'utf8');
 
-const WORK = 'what is due, and what waits for your yes';
-
 test('Work and the Operator each say what they list, in words of their own, wherever the page is named', () => {
-  const work = /intro: '([^']*)'/.exec(read('web/work.js').slice(read('web/work.js').indexOf("title: 'Work'")))[1];
-  assert.match(work, new RegExp(WORK.replace(/,/g, ',?')), work);
-  assert.doesNotMatch(work, /needs you now/, 'Work\'s page');
+  // Work has no intro line under its title (its first group, "Waits for your yes", says what it lists).
+  const workSrc = read('web/work.js');
+  assert.doesNotMatch(workSrc.slice(workSrc.indexOf("title: 'Work'"), workSrc.indexOf("title: 'Work'") + 200), /intro:/);
+  assert.match(workSrc, /title: 'Waits for your yes'/);
   assert.doesNotMatch(read('web/operator.js'), /export const INTRO/, 'the Operator has no page and no intro line any more');
   const readme = read('README.md').replace(/\n\s*/g, ' ');
-  assert.match(readme, /\*\*Work\*\*: your tasks, and its \*\*Today\*\* tab that lists what is due this week, what waits for your yes/);
+  assert.match(readme, /\*\*Work\*\*: your tasks, and its \*\*Tasks\*\* tab that lists what waits for your yes first and what is due this week/);
   assert.match(readme, /\*\*Operator\*\*: what stopped or is about to, from everything Hoprig watches/);
-  assert.match(read('docs/WORK.md'), /one screen \(Today\) for what is due and what waits for\s+your yes/);
+  assert.match(read('docs/WORK.md'), /Tasks first for what waits for\s+your yes and what is due/);
   assert.match(read('docs/OPERATOR.md'), /^# Operator: what stopped or is about to\n/);
   assert.match(read('site/content/changelog.md'), /\*\*Operator: one page that says what stopped or is about to\.\*\*/);
 });

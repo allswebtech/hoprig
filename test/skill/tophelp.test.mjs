@@ -17,7 +17,7 @@ test.after(() => fs.rmSync(home, { recursive: true, force: true }));
 const hop = (...args) => spawnSync(process.execPath, [BIN, ...args], { env: sealed({ ...probeEnv(home), PORT: '0' }), cwd: home, encoding: 'utf8' });
 
 // Words that Hoprig starts itself, or that this version does not offer: not for a person to read in the top help.
-const NOT_NAMED = ['hook', 'router', 'router-url', 'run', '__service-restart', 'codex'];
+const NOT_NAMED = ['hook', 'router', 'router-url', 'run', '__service-restart', 'keep', 'codex'];
 const top = hop('help').stdout;
 const lines = top.replace(/\n+$/, '').split('\n');
 const moreAt = lines.findIndex((l) => /^More:/.test(l));

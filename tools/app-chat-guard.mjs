@@ -6,8 +6,13 @@
 //          scroller (it scrolls sideways on purpose: a code block), overlay (a menu, a toast: floats over the page),
 //          cutX, cutY (its text is cut: wider or higher than the box), ellipsis, way (a title, or a Show all button, gives the whole text),
 //          sideways (it is a box that scrolls sideways on its own: its content is wider than it),
-//          icon: { x, y, w, h, empty } | null (the picture inside a button) }
-// The window: { w, h, scrollW } (scrollW: the page's own scroll width).
+//          icon: { x, y, w, h, empty } | null (the picture inside a button),
+//          tap (a button or link of the bar, the foot or the tail: a finger presses it), round (drawn with border-radius 50%),
+//          oneLine + lines (text meant for one line, and how many lines it takes) }
+// The window: { w, h, scrollW, touch, fields, foot: { h, bg }, conv: { h, bg }, live: { present, last }, oldStatus, esc: [parts], beside: [parts] }
+// (scrollW: the page's own scroll width; foot: the dock, bg: with a Background tasks line; conv: the conversation;
+// live: the living line and whether only queued messages come after it; oldStatus: the line under the box is still drawn;
+// esc: parts that name the Esc key; beside: controls that share a row with a sent message).
 // A fault: { part, kind, px, other? }; line() writes it as one line with the state and the width.
 
 const TOL = 0.75; // a rounding of the browser, in pixels
@@ -22,6 +27,20 @@ export function judge(boxes, win) {
   if (win.bodyScrollW > win.w + 1) add({ part: 'the page body' }, 'scrolls sideways', win.bodyScrollW - win.w);
   // A phone makes the page larger when a field with a text size under 16 px gets the focus (and moves the page).
   if (win.touch) for (const f of win.fields || []) if (f.fs < 16) add({ part: f.part }, 'text size under 16 px on a touch screen', 16 - f.fs);
+  // Phone checks of the design of 27 Nov: the foot's height, the conversation with the keyboard open, where the status is.
+  const phoneW = win.touch && win.w <= 600;
+  if (phoneW && win.foot) {
+    const max = win.foot.bg ? 150 : 100;
+    if (win.foot.h > max + TOL) add({ part: 'the foot' }, `taller than ${max} px`, win.foot.h - max);
+  }
+  if (phoneW && win.h <= 500 && win.conv && win.conv.h > 0) {
+    const min = win.conv.bg ? 244 : 294;
+    if (win.conv.h < min - TOL) add({ part: 'the conversation' }, `under ${min} px high with the keyboard open`, min - win.conv.h);
+  }
+  if (win.live && win.live.present && !win.live.last) add({ part: 'the living line' }, 'is not the last thing before the queued messages', 1);
+  if (win.oldStatus) add({ part: 'the line under the box' }, 'still drawn', 1);
+  if (win.touch) for (const part of win.esc || []) add({ part }, 'names the Esc key on a touch screen', 1);
+  for (const part of win.beside || []) add({ part }, 'shares a row with a sent message', 1);
   const right = (b) => b.x + b.w;
   const bottom = (b) => b.y + b.h;
   boxes.forEach((b, i) => {
@@ -41,12 +60,16 @@ export function judge(boxes, win) {
     }
     const cw = b.cw === undefined ? b.w : b.cw;
     if (b.w - cw > 1 && !b.scroller && !b.inRow) add(b, 'cut off by its container', b.w - cw);
+    // A finger presses it: 44 by 44. A round button is a circle. Text meant for one line stays on one.
+    if (win.touch && b.tap && Math.min(b.fullW ?? b.w, b.fullH ?? b.h) < 44 - TOL) add(b, 'press target under 44 px', 44 - Math.min(b.fullW ?? b.w, b.fullH ?? b.h)); // the whole button, not what a scrolling window shows of it
+    if (b.round && Math.abs(b.w - b.h) > 1) add(b, 'a round button that is an oval', Math.abs(b.w - b.h));
+    if (b.oneLine && b.lines > 1) add(b, 'text on more than one line', b.lines - 1);
     if (b.sideways && !b.scroller) add(b, 'scrolls sideways inside', b.sideways);
     if ((b.cutX || b.cutY) && !b.ellipsis && !b.way) add(b, 'text cut with no ellipsis and no way to read it', b.cutX || b.cutY);
     if (b.icon) {
       const c = b.icon;
       if (c.empty || c.w < 4 || c.h < 4) add(b, 'its picture is empty', 1);
-      else {
+      else if (b.fullH === undefined || b.h >= b.fullH - 1) { // a button the scrolling window shows only a sliver of has its picture outside the sliver
         const m = Math.min(c.x - b.x, c.y - b.y, right(b) - (c.x + c.w), bottom(b) - (c.y + c.h));
         if (m < MARGIN - TOL) add(b, 'its picture has no margin in the button', MARGIN - m);
       }
@@ -84,16 +107,20 @@ export const PARTS = [
   ['a queued bubble', '.chat-queued'], ['the queued bubble text', '.chat-queued-bubble'], ['the queued message', '.chat-queued-text'],
   ['the input box', '.chat-composer'], ['the text field', 'textarea.chat-input'], ['an input button', '.chat-composer button, .chat-composer .btn'],
   ['the row of chips', '.chat-chips'], ['a chip', '.chat-chip'], ['the line under the box', '.chat-status'],
+  ['the title text', '.chat-title-text'], ['the head of the list over the chat', '.chat-side-over-head'],
   ['the panel at the right', '.chat-rail'], ['a card of the panel', '.chat-rcard'], ['a row of the panel', '.chat-rail-rows dt, .chat-rail-link'],
+  ['a button of the foot or the tail', '.chat-dock button, .chat-dock a, .chat-tail button, .chat-tail a, .chat-side-over .chat-side button, .chat-side-over .chat-side a'],
 ];
+// Text that is one line by design: the title, a session's name.
+const ONE_LINE = '.chat-title-text, .chat-title-sub, .chat-side-name';
 // Boxes that scroll sideways on purpose.
 const SCROLLERS = 'pre, .md-tablewrap, .chat-code, .chat-out, .chat-cmd, .chat-chips';
 // Floating: menus, toasts, sheets.
-const OVERLAYS = '.chat-menu, .toast, .sheet, .chat-pop, [role=dialog], [role=menu]';
+const OVERLAYS = '.chat-menu, .toast, .sheet, .chat-pop, [role=dialog], [role=menu], .chat-side-over .chat-side';
 
 /** Run in the page: → { win: { w, h, scrollW }, boxes } (JSON). */
 export const COLLECT = `(() => {
-  const PARTS = ${JSON.stringify(PARTS)}, SCROLLERS = ${JSON.stringify(SCROLLERS)}, OVERLAYS = ${JSON.stringify(OVERLAYS)};
+  const PARTS = ${JSON.stringify(PARTS)}, SCROLLERS = ${JSON.stringify(SCROLLERS)}, OVERLAYS = ${JSON.stringify(OVERLAYS)}, ONE_LINE = ${JSON.stringify(ONE_LINE)};
   const list = [];
   const index = new Map();
   for (const [part, sel] of PARTS) {
@@ -106,6 +133,7 @@ export const COLLECT = `(() => {
       list.push({ el, part, r, cs });
     }
   }
+  const touch = matchMedia('(pointer: coarse)').matches;
   const boxes = list.map(({ el, part, r, cs }) => {
     const up = [];
     for (let a = el.parentElement; a; a = a.parentElement) if (index.has(a)) up.push(index.get(a));
@@ -138,8 +166,12 @@ export const COLLECT = `(() => {
     }
     const name = el.matches('button, a') ? (el.getAttribute('aria-label') || el.title || el.innerText || '').replace(/\\s+/g, ' ').trim().slice(0, 30) : '';
     return {
-      part: name ? part + ' "' + name + '"' : part, x: r.x, y: top, w: r.width, h: Math.max(0, bot - top), cx: left, cw: Math.max(0, right - left), up,
-      scroller: el.matches(SCROLLERS) && (ox === 'auto' || ox === 'scroll'), // a code block or table that really scrolls; one that only clips is a fault overlay: !!el.closest(OVERLAYS) || cs.position === 'fixed',
+      part: name ? part + ' "' + name + '"' : part, x: r.x, y: top, fullW: r.width, fullH: r.height, w: r.width, h: Math.max(0, bot - top), cx: left, cw: Math.max(0, right - left), up,
+      scroller: el.matches(SCROLLERS) && (ox === 'auto' || ox === 'scroll'), // a code block or table that really scrolls; one that only clips is a fault
+      overlay: !!el.closest(OVERLAYS) || cs.position === 'fixed',
+      tap: touch && el.matches('button, a, .btn') && !!el.closest('.chat-bar, .chat-dock, .chat-tail, .chat-side-over .chat-side'),
+      round: el.matches('button, a, .btn') && cs.borderTopLeftRadius === '50%',
+      oneLine: el.matches(ONE_LINE), lines: Math.round(r.height / (parseFloat(cs.lineHeight) || parseFloat(cs.fontSize) * 1.3 || 1)),
       inRow: !!(el.parentElement && el.parentElement.matches('.chat-chips')), // a chip in the row that scrolls: reached by scrolling
       cutX: text && clipsX && el.scrollWidth > el.clientWidth + 1 ? el.scrollWidth - el.clientWidth : 0,
       cutY: text && (clipsY || clamp) && el.scrollHeight > el.clientHeight + 1 ? el.scrollHeight - el.clientHeight : 0,
@@ -147,8 +179,31 @@ export const COLLECT = `(() => {
       sideways: (ox === 'auto' || ox === 'scroll') && el.scrollWidth > el.clientWidth + 1 ? el.scrollWidth - el.clientWidth : 0, icon,
     };
   });
-  const touch = matchMedia('(pointer: coarse)').matches;
   const fields = touch && document.body.classList.contains('chat-mode') ? [...document.querySelectorAll('input:not([type=checkbox]):not([type=radio]):not([type=file]):not([type=range]):not([type=hidden]), textarea, select')]
     .filter((e) => e.getClientRects().length).map((e) => ({ part: 'a field (' + (e.className || e.tagName).toString().split(' ')[0] + ')', fs: parseFloat(getComputedStyle(e).fontSize) })) : [];
-  return { win: { w: window.innerWidth, h: window.innerHeight, scrollW: document.documentElement.scrollWidth, bodyScrollW: document.body.scrollWidth, touch, fields }, boxes };
+  const shown = (e) => !!e && e.getClientRects().length > 0 && getComputedStyle(e).visibility !== 'hidden';
+  const sizeOf = (sel) => { const e = document.querySelector(sel); return shown(e) ? e.getBoundingClientRect().height : 0; };
+  const bg = [...document.querySelectorAll('.chat-dock .chat-bg, .chat-dock .chat-todos')].some((e) => shown(e));
+  const live = [...document.querySelectorAll('.chat-tail .chat-live')].find(shown);
+  const after = live ? [...live.parentElement.children].slice([...live.parentElement.children].indexOf(live) + 1).filter(shown) : [];
+  // What names the Esc key where a finger types: the box's hint, a button's name, the line under the box, the foot's words.
+  const esc = [];
+  if (touch) {
+    const named = (e) => /\bEsc\b/.test((e.getAttribute('placeholder') || '') + ' ' + (e.title || '') + ' ' + (e.getAttribute('aria-label') || ''));
+    for (const e of document.querySelectorAll('.chat-bar *, .chat-dock *, .chat-tail *')) if (shown(e) && (named(e) || (e.children.length === 0 && /\bEsc\b/.test(e.textContent || '')))) esc.push((e.className || e.tagName).toString().split(' ')[0]);
+  }
+  // A control that shares a row with a sent message: lies beside a bubble of the conversation, not under or over it.
+  const beside = [];
+  for (const u of document.querySelectorAll('.chat-user')) {
+    const ur = u.getBoundingClientRect();
+    if (ur.width < 1) continue;
+    for (const c of u.closest('.chat-item') ? u.closest('.chat-item').querySelectorAll('button, a') : []) {
+      if (u.contains(c) || !shown(c)) continue;
+      const cr = c.getBoundingClientRect();
+      if (Math.min(cr.bottom, ur.bottom) - Math.max(cr.top, ur.top) > 4 && (cr.right <= ur.left + 1 || cr.left >= ur.right - 1)) beside.push((c.getAttribute('aria-label') || c.title || c.innerText || c.className).toString().slice(0, 30));
+    }
+  }
+  return { win: { w: window.innerWidth, h: window.innerHeight, scrollW: document.documentElement.scrollWidth, bodyScrollW: document.body.scrollWidth, touch, fields,
+    foot: { h: sizeOf('.chat-dock'), bg }, conv: { h: sizeOf('.chat-scroll'), bg },
+    live: { present: !!live, last: after.every((e) => e.matches('.chat-queued, .chat-queue, [class*=queue]')) }, oldStatus: shown(document.querySelector('.chat-status')), esc, beside }, boxes };
 })()`;

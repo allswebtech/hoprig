@@ -124,9 +124,10 @@ function sys() {
   return s;
 }
 
+// Linux only: the walk plays a Linux desktop (apt, systemd, a Linux home), which does not exist on Windows.
 // The first run itself asks nothing (test/setup/firstrun-quiet.test.mjs); this is the full run, which a person or an
 // expert starts on purpose later (the settings file is there), here on a computer that has nothing yet.
-test('a fresh Linux desktop, the whole set-up: 7 questions of Hoprig, and a second run asks nothing new', SHELL_STANDINS, async () => {
+test('a fresh Linux desktop, the whole set-up: 7 questions of Hoprig, and a second run asks nothing new', { ...SHELL_STANDINS, skip: process.platform === 'win32' ? 'a Linux desktop set-up (apt, systemd) does not exist on Windows' : SHELL_STANDINS.skip }, async () => {
   const first = person();
   const code = await SU.setup([], { ui: first.ui, sys: sys(), parts, firstRun: false });
   const list = `questions asked:\n${first.asked.map((q, i) => `${i + 1}. ${q}`).join('\n')}\n\n${first.rec.text}`;

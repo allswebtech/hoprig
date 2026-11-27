@@ -21,6 +21,7 @@ Start work
 
 The dashboard
   hoprig serve                start the web dashboard (hoprig service install keeps it running)
+  hoprig stop                 stop the dashboard (it stays stopped until hoprig service start)
   hoprig link                 a one-time link and QR code that signs your phone in
   hoprig public on | off      open the dashboard from anywhere, no server of your own needed
   hoprig demo                 try the dashboard with sample data first
@@ -627,6 +628,15 @@ usage:
                                        --take-over ends this Hoprig's dashboard on that port first)
 ```
 
+## hoprig stop
+
+`hoprig stop --help` prints:
+
+```text
+usage:
+  hoprig stop                            stop the dashboard; it stays stopped until you start it
+```
+
 ## hoprig passwd
 
 `hoprig passwd --help` prints:
@@ -643,7 +653,7 @@ usage:
 
 ```text
 usage:
-  hoprig service install|uninstall|status|restart
+  hoprig service install|uninstall|status|start|stop|restart
                                        run the dashboard in the background from login
                                        (systemd on Linux, launchd on macOS, Task Scheduler on Windows)
 ```

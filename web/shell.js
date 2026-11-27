@@ -22,6 +22,12 @@ const app = typeof document !== 'undefined' ? document.getElementById('app') : n
 /** Home is the router's own page; every other navigation item is a registered page (registry.js). */
 const HOME = { id: 'home', title: 'Home', icon: 'home', perComputer: false, count: 0 };
 
+// The pages of the phone bar and of the menu, and the pages that are tabs of one of them (Skills and Memory under
+// Projects): they have no way back. A way back there is labelled from the history, and says a page that is not its parent.
+const TOP_PAGES = new Set(['home', 'work', 'workspace', 'providers', 'computers', 'settings', 'skills', 'brain']);
+/** A page that shows no way back by itself: a top page whose own parent is not named (a sub-page names its parent). */
+export const isTopPage = (page, parent = null) => !parent && TOP_PAGES.has(page);
+
 /** The navigation item a page lights up: itself, or the item it belongs to (navAs). */
 const currentItem = (pageId) => (pageById(pageId) || {}).navAs || pageId;
 
@@ -87,7 +93,7 @@ export function computerSwitcher(target) {
 
 /** The Settings gear of the page head, on a phone (a wide window has Settings in the list). The light or dark choice lives in Settings, Appearance. */
 function gearButton() {
-  return h('a.icon-btn.gear-btn', { href: link('#/settings'), title: 'Settings', 'aria-label': 'Settings', onclick: startOver }, icon('settings', { size: 16 }));
+  return h('a.icon-btn.gear-btn', { href: link('#/settings'), title: 'Settings', 'aria-label': 'Settings', onclick: startOver }, icon('gear', { size: 22 }));
 }
 
 /** "Connection lost — reconnecting…" while the last poll failed. */
@@ -119,12 +125,12 @@ export function frame({ title, place = null, intro = null, page = null, back: pa
   // The way back is the page that sent you here (trail.js); without one, the page's own parent. `place` is what a
   // link back to this page says, when the title alone would not ("Setup" for a computer's Setup part).
   named(place || (typeof title === 'string' ? title : Array.isArray(title) && typeof title[0] === 'string' ? title[0] : ''));
-  const way = page === 'home' && !parent ? null : wayBack(parent); // Home is where every trail starts
+  const way = isTopPage(page, parent) ? null : wayBack(parent); // a page of the bar or the menu is where a trail starts
   const back = way ? way.hash : parent;
   const backLabel = way ? way.label : parentLabel;
   const backOnPhoneOnly = way ? false : parentOnPhoneOnly;
   // A page whose parent is a list beside it on a desktop (Settings): there the way back stays the page you came from.
-  const from = !way && parentOnPhoneOnly ? cameFrom() : null;
+  const from = !way && parentOnPhoneOnly && !isTopPage(page, parent) ? cameFrom() : null;
   const backLink = (href, label, cls) => h(`a.pagehead-back${cls}`, { href, 'aria-label': `Back to ${label}` }, icon('back', { size: 16 }), h('span.pagehead-back-label', label));
   const reg = page ? pageById(page) : null;
   const switcher = h('div.switcher-slot');
@@ -174,7 +180,6 @@ export function frame({ title, place = null, intro = null, page = null, back: pa
       back ? backLink(back, backLabel, backOnPhoneOnly ? '.phone-only' : '') : null,
       from ? backLink(from.hash, from.label, '.desktop-only') : null,
       h('div.pagehead-title-row',
-        back ? null : h('img.pagehead-mark', { src: 'icon.svg', alt: '', width: 26, height: 26 }),
         h('h1.page-title', title)),
       intro ? h(`p.page-intro${introOnPhone ? '' : '.desktop-only'}`, intro) : null),
     h('div.head-tools', actions.length ? h('div.pagehead-actions', actions) : null, go(primaryInHead ? 'pagehead-primary.head-always' : 'pagehead-primary'), switcher,

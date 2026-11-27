@@ -77,14 +77,14 @@ function viewLanding({ frame }) {
     title: 'Code editor',
     page: 'code',
     intro: WINDOW
-      ? 'Open a folder from Files: Open in Editor in a folder\'s menu (⋯), or open a text file there.'
-      : ['Open a project\'s code from ', h('a', { href: link('#/workspace') }, 'Workspace'), ': the code button (</>) on its row, or Open code on its page.'],
+      ? 'Open a folder from Files.'
+      : ['Open code from ', h('a', { href: link('#/workspace') }, 'Projects'), '.'],
     ...(WINDOW && recent.length ? { primary: { label: 'Open Files', icon: 'folder', onclick: () => openApp('files', '#/desktop/files') } } : {}),
     body: [
       recent.length
         ? panel({ icon: 'clock', title: 'Opened lately', desc: 'In this browser.' }, h('div.rows', recent.map((r) => listRow({ href: codeHash(r.dir), icon: 'code', title: folderName(r.dir), sub: tildePath(r.dir) }))))
         : WINDOW ? emptyState('code', 'No folder is open yet.', fromFiles())
-          : emptyState('code', 'No folder is open yet.', h('a.btn.primary', { href: link('#/workspace') }, 'Go to Workspace')),
+          : emptyState('code', 'No folder is open yet.', h('a.btn.primary', { href: link('#/workspace') }, 'Go to Projects')),
     ],
   });
 }

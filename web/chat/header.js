@@ -6,16 +6,36 @@
 // rail). A conversation stays with the coding tool it started with: the provider changes, the coding tool does not.
 // On a phone the title opens the session menu, with the provider in it.
 import { icon } from '../icons.js';
-import { BARE, api, chooseSheet, fill, h, kindLabel, link, openApp, profileIcon, profileState, promptSheet, servesTool, toast, toolBadge } from '../lib.js';
+import { BARE, api, chooseSheet, fill, h, kindLabel, link, openApp, openSheet, profileIcon, profileState, promptSheet, servesTool, stateOf, toast, toolBadge } from '../lib.js';
 import { closeMenuOf, openMenu } from '../desktop/menu.js'; // the drop-down menu with submenus (also the desktop's)
 import { store } from '../store.js';
 import { copyBranch, railFits } from './rail.js';
 import { notPickable } from './deletes.js';
 import { sideFits } from './sidebar.js';
+import * as W from './words.js';
 import { VIEWS, canCompact, caps, failText, toolWord, touchScreen, turnRuns, viewChoices } from './words.js';
+import { hasKeys } from './keys.js';
 
 const phone = () => typeof matchMedia !== 'undefined' && matchMedia('(max-width: 599px)').matches;
 const base = (p) => String(p || '').split('/').filter(Boolean).pop() || String(p || '');
+
+/**
+ * The state word of the title bar's sub line: { key, text } when the session is doing something or stopped, null for
+ * Ready and Finished (an idle session has no word; a dot is never drawn without one). The words are Home's (lib.js
+ * stateOf); words.js chatState says the same for the whole chat page and is used when it is there.
+ */
+export function stateMark(v) {
+  if (!v) return null;
+  let m;
+  if (typeof W.chatState === 'function') m = W.chatState(v);
+  else {
+    const st = stateOf(v);
+    const key = st.key === 'limit' ? 'limit' : st.key === 'failed' ? 'error' : st.key === 'shell' ? 'terminal' : st.key === 'attention' ? 'attention'
+      : st.key === 'waiting' ? (v.endedInError ? 'error' : v.lastMessage ? 'finished' : 'ready') : st.key === 'starting' ? 'working' : st.key === 'working' ? (v.background ? 'background' : 'working') : 'stopped';
+    m = { key, text: st.text };
+  }
+  return !m || m.key === 'ready' || m.key === 'finished' ? null : { key: m.key === 'failed' ? 'error' : m.key, text: m.text };
+}
 
 /** A provider's plan usage in a few words: "5-hour 42% · weekly 10%", or ''. */
 export function usageWords(p) {
@@ -123,6 +143,26 @@ export function sessionTree(v, { view = null, thought = false, who = 'Claude', l
     : x.value === 'openin' ? { ...x, items: openInItems(v) } : x));
 }
 
+const GROUP_OF = {
+  stop: 'Now', tasks: 'Now', compact: 'Now', rewind: 'Now', parts: 'Now',
+  terminal: 'Open', files: 'Open', diff: 'Open', changes: 'Open',
+  rename: 'This session', provider: 'This session', fork: 'This session', history: 'This session', clear: 'This session', archive: 'This session', delete: 'This session',
+};
+export const GROUPS = ['Now', 'Open', 'This session', 'More'];
+/**
+ * A phone's one menu: the session menu and the more menu merged, each entry once, in four groups: Now (what the turn
+ * does), Open (the terminal, the files, the changes), This session (rename, provider, fork, earlier conversations,
+ * archive, delete) and More (the transcript view, the branch, Hands-off, Select to delete, Trash).
+ * o: { view, rail, side } as sessionItems and moreItems take them → [{ title, items }]
+ */
+export function phoneGroups(v, { view = null, rail = null, side = null } = {}) {
+  const seen = new Set();
+  const all = [...moreItems(v, { rail, wide: false, touch: true, side, sideWide: false }), ...sessionItems(v, { view, phone: true })].filter((x) => !seen.has(x.value) && seen.add(x.value));
+  const rank = (x) => (GROUP_OF[x.value] === 'Now' ? ['stop', 'tasks', 'compact', 'rewind', 'parts'].indexOf(x.value) : GROUP_OF[x.value] === 'Open' ? ['terminal', 'files', 'diff', 'changes'].indexOf(x.value)
+    : GROUP_OF[x.value] === 'This session' ? ['rename', 'provider', 'fork', 'history', 'clear', 'archive', 'delete'].indexOf(x.value) : 0);
+  return GROUPS.map((title) => ({ title, items: all.filter((x) => (GROUP_OF[x.value] || 'More') === title).sort((a, b) => rank(a) - rank(b)) })).filter((g) => g.items.length);
+}
+
 /**
  * o: { A, way: { hash, label } | null (a window that started on this chat: no way back), side: { hidden(), toggle() } | null
  * (the session list at the left, sidebar.js: its button is the bar's first), act: { stop, compact, clear,
@@ -136,10 +176,11 @@ export function createHeader(o) {
   const titleSub = h('span.chat-title-sub'); // on a phone: the folder and provider, under the title
   // Desktop: the title renames, the caret beside it opens the session menu. Phone: both open the session menu (the
   // folder and the provider do not fit beside the title; the menu has the provider too).
-  const titleBtn = h('button.chat-title', { type: 'button', onclick: () => (phone() ? sessionMenu() : rename()) }, h('span.chat-title-row', titleText), titleSub);
+  const titleBtn = h('button.chat-title', { type: 'button', onclick: () => (phone() ? phoneMenu() : rename()) }, h('span.chat-title-row', titleText), titleSub);
   const titleH1 = h('h1.chat-h1', titleBtn);
   const caretBtn = h('button.btn.icon.ghost.chat-caret', { type: 'button', 'aria-label': 'Session menu', title: 'Session menu', 'aria-haspopup': 'menu', 'aria-expanded': 'false', onclick: () => sessionMenu() }, icon('chevronDown', { size: 16 }));
   const folderLabel = h('span.chat-folder');
+  const stateSlot = h('span.chat-stateslot'); // wide: the state word as a small chip before the folder (the phone has it in the sub line)
   const provLabel = h('span.chat-chip-label');
   const provBtn = h('button.chip.chat-hchip', { type: 'button', onclick: () => providerMenu() }, icon('user', { size: 13 }), provLabel, icon('chevronDown', { size: 12 }));
   const toolSlot = h('span.chat-toolslot'); // the coding tool's chip, when it is not Claude Code
@@ -147,7 +188,7 @@ export function createHeader(o) {
   // as the desktop app's does; the hand-off to a terminal session is in the session menu (Open in > Continue in
   // Terminal). Its Files and Changes are its editor.
   const barBtn = (name, ic, label, onclick) => h('button.btn.icon.ghost.chat-tbtn', { type: 'button', title: name, 'aria-label': label, onclick }, icon(ic, { size: 17 }));
-  const termBtn = barBtn('Terminal (Ctrl+`)', 'terminal', 'Terminal: a shell in this folder, under the chat', () => o.act.termPane && o.act.termPane());
+  const termBtn = barBtn(hasKeys() ? 'Terminal (Ctrl+`)' : 'Terminal', 'terminal', 'Terminal: a shell in this folder, under the chat', () => o.act.termPane && o.act.termPane());
   termBtn.setAttribute('aria-pressed', 'false');
   // Hide / Show session rail: only where the screen is wide enough for the rail (rail.css).
   const railBtn = o.rail ? barBtn('Hide session rail', 'rail', 'Hide session rail', () => o.rail.toggle()) : null;
@@ -155,13 +196,27 @@ export function createHeader(o) {
   // The bar's first buttons, as the desktop app's: hide or show the session list (it flips its words), and Home (never
   // in a window of the desktop, which has its own way). Both show from the width the list does (sidebar.css); below it
   // the Back arrow stands in their place.
-  const sideBtn = o.side ? h('button.btn.icon.ghost.chat-sidebtn', { type: 'button', onclick: () => o.side.toggle() }, icon('panelLeft', { size: 17 })) : null;
+  // A phone says Sessions and draws a list; where the list stands beside the chat, the button hides and shows it.
+  const pic = (name, cls, size) => {
+    const svg = icon(name, { size });
+    svg.setAttribute('class', `icon ${cls}`);
+    return svg;
+  };
+  const sideBtn = o.side ? h('button.btn.icon.ghost.chat-sidebtn', { type: 'button', onclick: () => o.side.toggle() }, pic('panelLeft', 'ic-panel', 17), pic('list', 'ic-list', 20)) : null;
   const homeBtn = BARE ? null : h('a.btn.icon.ghost.chat-homebtn', { href: link('#/'), title: 'Home', 'aria-label': 'Home' }, icon('home', { size: 17 }));
   const paintSide = () => {
     if (!sideBtn) return;
+    if (phone()) {
+      sideBtn.title = 'Sessions';
+      sideBtn.setAttribute('aria-label', 'Sessions');
+      sideBtn.setAttribute('aria-haspopup', 'dialog');
+      sideBtn.removeAttribute('aria-pressed');
+      return;
+    }
     const word = o.side.hidden() ? 'Show session list' : 'Hide session list';
     sideBtn.title = word;
     sideBtn.setAttribute('aria-label', word);
+    sideBtn.removeAttribute('aria-haspopup');
     sideBtn.setAttribute('aria-pressed', String(!o.side.hidden())); // pressed: the list is shown
   };
   paintSide();
@@ -170,12 +225,14 @@ export function createHeader(o) {
     barBtn('Changes', 'git', 'Changes: the diff of the folder (git), to review and comment on', () => (o.act.diff ? o.act.diff() : openEditor(v.cwd, 'changes'))),
     barBtn('Files', 'code', 'Files: the folder in the editor', () => openEditor(v.cwd)),
     railBtn);
+  // Wide: the more menu. A phone: the one menu, the same sheet the title opens.
+  const moreBtn = h('button.btn.icon.ghost.chat-morebtn', { type: 'button', title: 'More for this session', 'aria-label': 'More for this session', onclick: () => (phone() ? phoneMenu() : more()) }, icon('moreV'));
   const el = h('header.chat-bar',
     o.way && h('a.btn.ghost.chatback', { href: o.way.hash, 'aria-label': `Back to ${o.way.label}`, title: `Back to ${o.way.label}` }, icon('back'), h('span.chatback-label', o.way.label)),
     sideBtn, homeBtn,
-    h('div.chat-head', h('div.chat-h1row', titleH1, caretBtn), h('div.chat-sub', toolSlot, folderLabel, provBtn)),
+    h('div.chat-head', h('div.chat-h1row', titleH1, caretBtn), h('div.chat-sub', toolSlot, stateSlot, folderLabel, provBtn)),
     tbtns,
-    h('button.btn.icon.ghost.chat-morebtn', { type: 'button', title: 'More for this session', 'aria-label': 'More for this session', onclick: () => more() }, icon('moreV')));
+    moreBtn);
 
   const saveTitle = async (text) => {
     try {
@@ -289,6 +346,27 @@ export function createHeader(o) {
     if (pick && pick !== cur) o.act.moveTo(pick, (profiles.find((p) => p.name === pick) || {}).label || pick);
   }
 
+  // A phone: ONE sheet for the title and the dots, grouped (Now, Open, This session, More), its title the session's name.
+  async function phoneMenu() {
+    // An entry says more only where the words carry a value (the branch, the provider, the view) or a reason (it is off).
+    const says = (it) => !!it.sub && (it.disabled || ['branch', 'provider', 'view'].includes(it.value));
+    const row = (it) => h(`button.choice${it.danger ? '.danger' : ''}${says(it) ? '.has-sub' : ''}`, { type: 'button', disabled: it.disabled, onclick: () => pickFrom(it.value) },
+      it.icon ? h('span.choice-icon', icon(it.icon)) : null,
+      h('span.choice-main', h('span.choice-label', it.label), it.sub ? h('span.choice-sub', it.sub) : null),
+      h('span.choice-end', icon('chevronRight')));
+    let pickFrom = () => {};
+    const view = o.view ? o.view.now() : null;
+    const groups = phoneGroups(v, { view, rail: null, side: null });
+    const pick = await openSheet({ title: menuTitle(v), subtitle: v ? v.short || v.cwd : null, tall: true }, (close) => {
+      pickFrom = close;
+      return groups.map((g) => h('section.chat-menu-group', { 'aria-label': g.title }, h('h3.chat-menu-gh', g.title), h('div.choice-list', g.items.map(row))));
+    });
+    if (!pick) return;
+    const moreValues = new Set(moreItems(v, { touch: true }).map((x) => x.value));
+    if (moreValues.has(pick)) o.act[pick]?.();
+    else sessionPick(pick);
+  }
+
   async function more() {
     const what = await chooseSheet({
       title: menuTitle(v),
@@ -327,7 +405,13 @@ export function createHeader(o) {
       fill(titleText, v.title || 'New session');
       titleBtn.setAttribute('aria-label', phone() ? `${v.title || 'New session'}: session menu` : `${v.title || 'New session'}. Rename`);
       titleBtn.title = phone() ? '' : 'Rename this session';
-      fill(titleSub, [v.engine && v.engine.id !== 'claude' ? v.engine.label : '', base(v.cwd), v.profile ? v.profile.label : ''].filter(Boolean).join(' · '));
+      moreBtn.title = phone() ? 'Session menu' : 'More for this session';
+      moreBtn.setAttribute('aria-label', moreBtn.title);
+      // The state word first, in its colour (nothing when the session is Ready or Finished), then the folder and provider.
+      const mark = stateMark(v);
+      const word = (cls) => (mark ? h(`span.chat-state${cls}`, { dataset: { key: mark.key } }, mark.text) : null);
+      fill(titleSub, mark ? [word(''), ' · '] : null, [v.engine && v.engine.id !== 'claude' ? v.engine.label : '', base(v.cwd), v.profile ? v.profile.label : ''].filter(Boolean).join(' · '));
+      fill(stateSlot, word('.chat-statechip'));
       fill(folderLabel, icon('folder', { size: 13 }), h('span.chat-chip-label', base(v.cwd)));
       folderLabel.title = v.short || v.cwd || '';
       if (railBtn) {

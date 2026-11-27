@@ -300,6 +300,8 @@ export function createOps(o) {
     checkUpdates: ({ computer }) => post(computer, '/api/updates/check', {}),
     runUpdate: ({ computer, id }) => post(computer, '/api/updates/run', { id }),
     // The restart that loads a version just installed (the Updates page's Restart now): it ends this dashboard, so her turn too.
+    // One route of hers through the door, for an act (hoprig_act change-plan): the door still checks it.
+    route: ({ computer, method, path: p, body }) => api(computer, method, p, body),
     restartDashboard: ({ computer }) => post(computer, '/api/updates/restart', {}),
     killProcess: ({ computer, pid, signal }) => post(computer, '/api/pc/kill', { pid, signal: signal === 'KILL' ? 'KILL' : 'TERM' }),
     power: ({ computer, action }) => post(computer, '/api/pc/power', { action, confirm: action }),

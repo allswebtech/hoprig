@@ -11,7 +11,7 @@ import { errorBox, okBox } from './shell.js';
 import { gitDone, gitRows, openGitSetup } from './gitsetup.js';
 import { firstRunCard, isFirstRun } from './firstrun.js';
 import { store } from './store.js';
-import { SETTINGS_ALIASES } from './settings.js';
+import { SETTINGS_ALIASES, setGetStartedDismissed } from './settings.js';
 
 /** Where a "page" action leads. */
 export const TARGETS = {
@@ -289,7 +289,7 @@ export function getStartedArea({ firstRun = () => false, onChange = () => {} } =
         run: (a) => runAction(a, load),
         onDismiss: async () => {
           try {
-            await api('~/api/settings', { server: { getStartedDismissed: true } });
+            await setGetStartedDismissed(true);
             await store.refresh();
           } catch (e) {
             toast(e, { kind: 'error' });
@@ -311,7 +311,7 @@ export function getStartedArea({ firstRun = () => false, onChange = () => {} } =
       },
       onDismiss: async () => {
         try {
-          await api('~/api/settings', { server: { getStartedDismissed: true } });
+          await setGetStartedDismissed(true);
           await store.refresh();
           toast('Closed. At the foot of the Settings list, Show Get started again brings it back.', { ms: 8000, action: { label: 'Open Settings', run: () => (location.hash = link('#/settings')) } });
         } catch (e) {

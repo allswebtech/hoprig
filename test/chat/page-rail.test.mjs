@@ -289,15 +289,8 @@ test('the branch name in the rail and in the status line is a button that copies
     assert.ok(btn, 'the Branch row\'s value is a button');
     assert.equal(btn.attrs['aria-label'], 'Copy branch name fix/cart-total');
     await btn.listeners.click();
-    const St = await import('../../web/chat/statusline.js');
-    const line = St.createStatusLine();
-    line.paint({ branch: 'main', engine: { id: 'claude' }, status: 'waiting' }, { view: 'normal' });
-    const part = byClass(line.el, 'chat-branch')[0];
-    assert.ok(part, 'the status line\'s branch too');
-    await part.listeners.click();
-    line.stop();
     await new Promise((r) => setTimeout(r, 5));
-    assert.deepEqual(copied, ['fix/cart-total', 'main']);
+    assert.deepEqual(copied, ['fix/cart-total'], 'the branch is in the rail only: there is no status line under the box');
   } finally {
     if (nav) Object.defineProperty(globalThis, 'navigator', nav);
     else delete globalThis.navigator;
@@ -391,7 +384,7 @@ test('with a finger the head\'s and the rail\'s controls are 44 px, at every wid
     return blocks.join('\n');
   };
   const head = coarse('../../web/chat/chat.css');
-  for (const sel of ['.chat-caret', '.chat-tbtn', 'button.chat-st-part']) assert.match(head, new RegExp(`${sel.replace('.', '\\.')}[^{]*\\{[^}]*min-height:\\s*44px`), sel);
+  for (const sel of ['.chat-caret', '.chat-tbtn']) assert.match(head, new RegExp(`${sel.replace('.', '\\.')}[^{]*\\{[^}]*min-height:\\s*44px`), sel);
   assert.match(head, /\.chat-caret[^{]*\{[^}]*min-width:\s*44px/);
   const rail = coarse('../../web/chat/rail.css');
   for (const sel of ['.chat-rail-link', '.chat-rcard-count', '.chat-rcard-fold > summary']) assert.ok(rail.includes(sel), sel);

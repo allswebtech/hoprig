@@ -2,7 +2,7 @@
 // their own any more (fewer pages): their parts live where a person looks for them.
 //   Schedules  Work → Schedules (#/work/schedules, web/workschedules.js): the list, "Add schedule" (this file's form,
 //              a sentence that says what will happen), and the queue below it
-//   Rules      Settings → While you are away (#/settings/automations, below): one switch per automation; "Pause all
+//   Rules      Settings → Automations (#/settings/automations, below): one switch per automation; "Pause all
 //              automations", rarely used, under Advanced. The schedules' own two settings are on top of Work → Schedules.
 //   Activity   Work → Activity (#/work/activity): what the automations did, under the runs of the tasks
 // The same file brings the session view's "Queue" button and the "3 queued" badge on Home's session cards.
@@ -144,7 +144,7 @@ const loading = (text = 'Loading…') => h('div.empty.compact.au-loading', h('di
 // ---------- Schedules ----------
 
 export function schedulesPart(st, { reload, addSchedule, rows = null, computers = [] }) {
-  // The two settings of the schedules, on top of the list they are about (they were in Settings → While you are away).
+  // The two settings of the schedules, on top of the list they are about (they were in Settings → Automations).
   const settings = h('div.card.au-sched-settings',
     toggle('Run schedules', st.settings.schedules.enabled, async (v) => {
       await saveSettings({ schedules: { enabled: v } });
@@ -523,7 +523,7 @@ function choiceRow(label, value, options, onchange, hint) {
   return h('div.switchrow.au-choice', h('span.switchrow-text', h('span.switchrow-label', label, mark), hint ? h('span.hint', hint) : null), sel);
 }
 
-function rulesPart(st, after) {
+export function rulesPart(st, after) {
   const s = st.settings;
   const set = async (patch) => {
     const next = await saveSettings(patch);
@@ -551,6 +551,9 @@ function rulesPart(st, after) {
   idleGateway.hidden = !s.idle.gateway;
   return [
     panel({ icon: 'clock', title: 'Keep the work going', desc: 'What happens when you are not watching.' },
+      rule('Mend problems by itself', !(s.operator && s.operator.mends === false), (v) => ({ operator: { mends: v } }),
+        { line: 'A dashboard that stopped comes back, a bad update goes back, a stopped gateway starts again, a session whose tool died is reopened, and leftovers are cleaned.',
+          more: 'No AI and no usage. Each mend is a line in Activity; one that did not help becomes a row in Needs you.' }),
       rule('Try again after a server error', s.retry.enabled, (v) => ({ retry: { enabled: v } }),
         { line: 'In a Claude Code session: when the provider\'s servers are busy or the connection breaks, it sends "continue" after a short wait.',
           more: 'Up to three times; never at a usage limit. Other coding tools\' sessions are left as they are.' }),
@@ -597,7 +600,7 @@ function atOnceRow(st, after) {
     'Never two of one project; a run that has to wait starts when a place is free.');
 }
 
-// Settings → While you are away: the switches of what the dashboard does by itself (the schedules' own two settings are
+// Settings → Automations: the switches of what the dashboard does by itself (the schedules' own two settings are
 // on top of Work → Schedules).
 function automationSettings() {
   const box = h('div.au-settings', loading());
@@ -616,7 +619,7 @@ function automationSettings() {
   return box;
 }
 registerSettingsPage({
-  id: 'automations', title: 'While you are away', icon: 'zap', order: 18, desc: 'What the dashboard does by itself, by fixed rules, without AI: trying again, reopening sessions, housekeeping.',
+  id: 'automations', title: 'Automations', icon: 'zap', order: 18, desc: 'What the dashboard does by itself, by fixed rules, without AI: trying again, reopening sessions, housekeeping, and your workspace.',
   summary: () => (cache.get(keyOf()) && cache.get(keyOf()).settings.paused ? 'Paused' : 'Retry, restart, housekeeping'), render: automationSettings,
 });
 

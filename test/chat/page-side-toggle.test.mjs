@@ -59,8 +59,11 @@ test('Cmd+\\ or Ctrl+\\ hides and shows the list; the sheet has a row for it; it
   assert.equal(k.why, undefined, 'no reason needed: the browser leaves it');
   assert.ok(K.shortcuts(false).some(([keys, what]) => keys === 'Ctrl+\\' && /session list/.test(what)));
   assert.ok(!K.shortcuts(false, 'alt-shift').some(([keys]) => keys === 'Ctrl+\\'), 'a window of the desktop has no list');
-  assert.ok(K.isKey({ key: '\\', code: 'Backslash', ctrlKey: true, metaKey: false, altKey: false, shiftKey: false }, k));
-  assert.ok(!K.isKey({ key: '|', code: 'Backslash', ctrlKey: true, metaKey: false, altKey: false, shiftKey: true }, k), 'with Shift it is another key');
+  // the key press of THIS computer: Cmd on a Mac, Ctrl elsewhere (isKey reads the browser's own platform)
+  const here = K.desktopKeys().find((x) => x.id === 'side');
+  const press = { ...K.pressOf(here), key: '\\', code: 'Backslash' };
+  assert.ok(K.isKey(press, here));
+  assert.ok(!K.isKey({ ...press, key: '|', shiftKey: true }, here), 'with Shift it is another key');
   const page = src('chat/keys.js');
   assert.match(page, /k\.id === 'side'\) o\.side && o\.side\(\)/);
 });

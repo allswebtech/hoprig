@@ -26,7 +26,9 @@ export const LEAD_TERMINAL = 'Only an App session can do this: in a terminal, Ho
  * (`modes`: the modes it offers now; null: not known here). → one line.
  */
 export function partModeLine(mode, modes = null) {
-  const m = mode === 'bypassPermissions' && Array.isArray(modes) && !modes.includes(mode) ? 'manual' : mode;
+  // A part never runs in Allow everything: its mode is Bypass permissions at most.
+  const own = mode === 'allowEverything' ? 'bypassPermissions' : mode;
+  const m = own === 'bypassPermissions' && Array.isArray(modes) && !modes.includes(own) ? 'manual' : own;
   if (!m || !MODE[m]) return 'Parts run in this session\'s mode, and never in bypass permissions unless you allow it in Settings.';
   return `Parts run in this session's mode: now ${MODE[m].chip.toLowerCase()}.`;
 }

@@ -29,6 +29,7 @@ export function renameLines(text) {
 
 // file → [how many renames, why each is a move and not a replace]
 const MOVES = {
+  'src/keeper/keep.mjs': [2, 'the failed version of an update set aside and put back (a folder move, not a replaced file); the kept one is copied in'],
   'src/runfile.mjs': [1, 'a stale lock taken over under its takeover lock: a refusal is "not taken", and the wait loop tries again until its end'],
   'src/operator/look.mjs': [3, 'its lock: a stale one renamed aside and a fresh one put back (a refusal is "another holds it"); a broken record set aside'],
   'src/operator/record.mjs': [3, 'its lock: a stale one renamed aside and a fresh one put back (a refusal is "another holds it"); a broken record set aside'],

@@ -10,9 +10,9 @@ import { ago, api, confirmSheet, fill, h, link, stateOf, toast } from './lib.js'
 import { store } from './store.js';
 import * as registry from './registry.js';
 import { navChanged, registerPage } from './registry.js';
-import { groupHead } from './shell.js';
 import { findingPart } from './operator-look.js';
 import { placeLinks } from './operator-ways.js';
+import { plainRow } from './operator-plain.js';
 
 const A = '/api/operator';
 const CLASS_WORDS = { harm: 'Can lose work', stopped: 'Stopped', waits: 'Waits for you', machine: 'This computer', info: 'For your information' };
@@ -24,7 +24,7 @@ let count = 0;
 async function pollCount() {
   try {
     const r = await api(`${A}/attention`);
-    setCount(r.needs ?? r.count);
+    setCount(rowsOf(r));
   } catch {
     /* logged out, offline or an older computer: keep the last */
   }
@@ -35,6 +35,8 @@ function setCount(n) {
     navChanged();
   }
 }
+/** The rows of Home's Needs you that are the Operator's: the cards that ask, without those a session card already shows. */
+const rowsOf = (r) => (r.items || []).filter((i) => asksYou(i) && !sameAsCard(i)).length;
 /** The number on Home's badge: the cards that ask the owner to act (the rows of Needs you). */
 export const homeCount = () => count;
 // The menu lane gives the badge of Home a hook; without it (this lane alone) the count only lives here.
@@ -130,24 +132,30 @@ export function sameAsCard(it, machines = store.all || []) {
  * other steps behind "More steps" (closed). The risk of a step is asked by the sheet when it is pressed.
  */
 export function itemRow(it, catalog, tap, { changed = false, finding = null, done = () => {}, opened = new Set() } = {}) {
+  const plain = plainRow(it);
   const main = it.acts.find((a) => a.id === it.recommended) || it.acts[0];
-  const others = [...it.acts.filter((a) => a !== main), { id: 'dismiss' }];
-  const more = h('details.op-more', h('summary', { 'aria-label': `More steps for ${it.subject}` }, 'More'), h('div.op-more-acts', others.map((a) => actButton(it, a, catalog, { primary: false, tap }))));
+  // A step that stops something is never the first, red button of a row: it waits inside More, asked as it is today.
+  const quiet = catalog[main.id]?.risk === 'stops';
+  const shown = { ...it, subject: plain.title };
+  const named = (a) => (plain.labels[a.id] ? { ...a, label: plain.labels[a.id] } : a);
+  const rest = [...it.acts.filter((a) => a !== main), { id: 'dismiss' }];
+  const others = (quiet ? [main, ...rest] : rest).map(named);
+  const more = h('details.op-more', h('summary', { 'aria-label': `More steps for ${plain.title}` }, 'More'), h('div.op-more-acts', others.map((a) => actButton(shown, a, catalog, { primary: false, tap }))));
   more.open = opened.has(it.id);
   more.addEventListener('toggle', () => opened[more.open ? 'add' : 'delete'](it.id)); // kept while the rows are drawn again
   return h(`article.op-row.op-${it.class}`, { 'data-item': it.id },
     h('div.op-row-text',
-      h('h3.op-subject', it.subject),
-      h('p.op-row-fact', changed ? 'Changed: look again' : it.facts[0] || classWords(it))),
+      h('h3.op-subject', plain.title),
+      h('p.op-row-fact', changed ? 'Changed: look again' : plain.line || classWords(it))),
     findingPart(it, finding, done),
-    h('div.op-acts', actButton(it, main, catalog, { primary: true, tap }), more));
+    h('div.op-acts', quiet ? null : actButton(shown, named(main), catalog, { primary: true, tap }), more));
 }
 
 /**
  * Home's Needs you rows: draws the cards that ask the owner to act into `box` and keeps them up to date. Nothing is
  * drawn (the box stays empty) while none asks. Returns the function that stops it.
  */
-export function needsYouRows(box) {
+export function needsYouRows(box, onCount = () => {}) {
   let alive = true;
   let drawn = null;
   let changedId = null; // the item a tap was refused on because it changed
@@ -175,13 +183,14 @@ export function needsYouRows(box) {
       return; // older computer, offline or logged out: what is drawn stays
     }
     if (!alive) return;
-    setCount(r.needs ?? r.count);
     const items = r.items.filter((i) => asksYou(i) && !sameAsCard(i));
+    setCount(items.length);
     const key = `${JSON.stringify(items.map((i) => [i.id, i.rev, i.since, i.facts]))}|${changedId || ''}|${JSON.stringify(r.findings || {})}`;
     if (key === drawn) return;
     drawn = key;
-    fill(box, items.length ? h('section.home-group.g-needs-op', { 'aria-label': 'Needs you' }, groupHead('Needs you'),
-      h('div.cards.op-rows', items.map((it) => itemRow(it, r.acts, tap, { changed: it.id === changedId, finding: r.findings?.[it.id] || null, done: () => alive && load(), opened })))) : null);
+    // Only the cards: the heading and the count are Home's group, which holds this box above its sessions.
+    fill(box, items.length ? h('div.cards.op-rows', items.map((it) => itemRow(it, r.acts, tap, { changed: it.id === changedId, finding: r.findings?.[it.id] || null, done: () => alive && load(), opened }))) : null);
+    onCount(items.length);
   }
   load();
   const every = setInterval(() => alive && !document.hidden && load(), 15_000);
@@ -196,7 +205,7 @@ function viewOperator() {
   location.replace('#/');
   let tries = 0;
   const look = setInterval(() => {
-    const at = document.querySelector('.g-needs-op, .g-needs');
+    const at = document.querySelector('.g-needs');
     if (at || ++tries > 20) {
       clearInterval(look);
       at?.scrollIntoView({ block: 'start' });

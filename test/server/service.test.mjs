@@ -13,7 +13,7 @@ test('systemd unit: absolute paths, carried PATH, escaping, restart, kill mode',
   assert.match(u, /^Environment="LANG=en_US\.UTF-8"$/m);
   assert.match(u, /^Environment="HOPRIG_STATE_DIR=\/s"$/m);
   assert.doesNotMatch(u, /SECRET_TOKEN|HOME=/, 'only the listed variables are carried');
-  assert.match(u, /^Restart=on-failure$/m);
+  assert.match(u, /^Restart=always$/m);
   assert.match(u, /^KillMode=process$/m);
   assert.match(u, /^WantedBy=default\.target$/m);
   assert.ok(CARRIED_ENV.includes('PATH'));
@@ -37,7 +37,7 @@ test('launchd plist: absolute paths, carried variables only, escaping, restart o
   assert.match(p, /<key>PATH<\/key>\s*<string>\/opt\/node 26\/bin:\/usr\/bin<\/string>/);
   assert.match(p, /<key>HOPRIG_STATE_DIR<\/key>\s*<string>\/s &amp; &lt;t&gt;<\/string>/);
   assert.doesNotMatch(p, /SECRET_TOKEN|<key>HOME<\/key>/, 'only the listed variables are carried');
-  assert.match(p, /<key>KeepAlive<\/key>\s*<dict>\s*<key>SuccessfulExit<\/key>\s*<false\/>/);
+  assert.match(p, /<key>KeepAlive<\/key>\s*<true\/>/);
   assert.match(p, /<key>RunAtLoad<\/key>\s*<true\/>/);
   assert.match(p, /<key>AbandonProcessGroup<\/key>\s*<true\/>/);
   assert.match(p, /<key>StandardErrorPath<\/key>\s*<string>\/Users\/u\/\.local\/state\/x\/dashboard\.log<\/string>/);
@@ -53,7 +53,7 @@ test('launchd plist is valid for macOS itself (plutil), launchctl argv', { skip:
     const parsed = JSON.parse(execFileSync('plutil', ['-convert', 'json', '-o', '-', file]).toString());
     assert.deepEqual(parsed.ProgramArguments, [process.execPath, parsed.ProgramArguments[1], 'serve']);
     assert.equal(parsed.EnvironmentVariables.HOPRIG_STATE_DIR, '/s & <t>');
-    assert.deepEqual(parsed.KeepAlive, { SuccessfulExit: false });
+    assert.equal(parsed.KeepAlive, true);
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
@@ -80,9 +80,10 @@ test('Windows startup script: carried variables quoted for PowerShell, UTF-8 log
   assert.ok(lines.includes("$env:HOPRIG_STATE_DIR = 'C:\\it''s $(here)'"), 'single quotes: no expansion, quote doubled');
   assert.ok(!s.includes('SECRET_TOKEN'));
   assert.ok(lines.includes("Set-Location -LiteralPath 'C:\\Users\\me'"));
-  assert.ok(lines.includes("& 'C:\\Program Files\\nodejs\\node.exe' 'C:\\Users\\o''brien\\app\\bin\\x.mjs' 'serve' *>> 'C:\\Users\\me\\AppData\\Local\\x\\dashboard.log'"));
+  assert.ok(lines.includes("  & 'C:\\Program Files\\nodejs\\node.exe' 'C:\\Users\\o''brien\\app\\bin\\x.mjs' 'serve' *>> 'C:\\Users\\me\\AppData\\Local\\x\\dashboard.log'"));
   assert.ok(lines.includes("$PSDefaultParameterValues['Out-File:Encoding'] = 'utf8'"));
-  assert.equal(lines.at(-2), 'exit $LASTEXITCODE');
+  assert.equal(lines.at(-2), 'exit $code');
+  assert.ok(lines.includes('$code = $LASTEXITCODE') || lines.includes('  $code = $LASTEXITCODE'), 'the exit code of the dashboard is passed on');
 });
 
 test('Windows task XML: logon trigger for this user only, no admin, no time limit, escaped', () => {
@@ -179,5 +180,5 @@ test('service restart exists on Linux and macOS and asks only the service manage
 
 test('the usage names service restart', async () => {
   const r = await silent(() => systemdsvc.service('nope', { run: async () => ({ ok: true }) }));
-  assert.match(r.said, /install \| uninstall \| status \| restart/);
+  assert.match(r.said, /install \| uninstall \| status \| start \| stop \| restart/);
 });

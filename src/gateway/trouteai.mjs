@@ -85,7 +85,7 @@ export async function setupShippedGateway({ addon, onLine = () => {}, computer, 
   // 2. started
   say(`Starting ${title}…`);
   const started = await addon.start();
-  if (!started || !started.ok) return no(`${(started && started.error) || `${title} did not start.`} Next step: read the log under Health, Gateways, then press Set up again.`);
+  if (!started || !started.ok) return no(`${(started && started.error) || `${title} did not start.`} Next step: read the log under Providers → TRouteAI, then press Set up again.`);
   const port = Number(addon.gateway.port());
   const where = `http://${HOST}:${port}`;
   // 3. ready
@@ -104,7 +104,7 @@ export async function setupShippedGateway({ addon, onLine = () => {}, computer, 
     if (Date.now() >= end) break;
     await new Promise((r) => setTimeout(r, pollMs));
   }
-  if (!ready) return no(`${title} started but did not say ready within ${Math.round(waitMs / 1000)} seconds. Next step: wait a minute and press Set up again; if it repeats, read the log under Health, Gateways.`);
+  if (!ready) return no(`${title} started but did not say ready within ${Math.round(waitMs / 1000)} seconds. Next step: wait a minute and press Set up again; if it repeats, read the log under Providers → TRouteAI.`);
 
   // 4. no credential goes to a program of another user
   const base = deps.base || (await realBase());

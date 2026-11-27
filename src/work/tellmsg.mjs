@@ -27,7 +27,7 @@ const FAILED_WORD = { stopped: 'Stopped', limit: 'Hit a usage limit', failed: 'F
 /** One event as a message: { title, body }. ev: { what, title, project, state, reason, minutes }. */
 export function oneMessage(ev) {
   if (ev.what === 'finished' && ev.schedule) return { title: fit(`Done: ${ev.title}`, TITLE_MAX), body: 'Open Work → Activity to look at what it did.' };
-  if (ev.what === 'finished') return { title: fit(`Done: ${ev.title}`, TITLE_MAX), body: 'Open Work → Today to look at it and accept it.' };
+  if (ev.what === 'finished') return { title: fit(`Done: ${ev.title}`, TITLE_MAX), body: 'Open Work → Tasks to look at it and accept it.' };
   if (ev.what === 'live') return { title: fit(`Accepted: ${ev.title}`, TITLE_MAX), body: 'Nothing to do. It is in Work → Done lately.' };
   if (ev.what === 'failed') {
     const why = whyOf(ev.reason);
@@ -61,7 +61,7 @@ export function groupMessage(evs, { off = false } = {}) {
   const head = parts.join(', ');
   const title = off && `While it was off: ${head}`.length <= TITLE_MAX ? `While it was off: ${head}` : fit(head, TITLE_MAX);
   const today = evs.some((e) => (e.what === 'finished' && !e.schedule) || e.what === 'waits');
-  const todo = today ? 'Open Work → Today to look at them.' : n('finished') ? 'Open Work → Activity to look at them.' : n('failed') ? 'Open Work → Activity to see why.' : 'Nothing to do. Work → Done lately has them.';
+  const todo = today ? 'Open Work → Tasks to look at them.' : n('finished') ? 'Open Work → Activity to look at them.' : n('failed') ? 'Open Work → Activity to see why.' : 'Nothing to do. Work → Done lately has them.';
   // Each name once, in the order first told, with how often when it came more than once (a schedule that ran twice).
   const seen = new Map();
   for (const e of evs) {
@@ -100,14 +100,14 @@ function digestOf(d, shown) {
   if (!head.length && d.failed.length) head.push(`${v(d.failed.length)} failed`);
   const title = `Work: ${head.join(', ')}`;
   // The screen's name is a value too: a wording in his language must not rename a page the dashboard does not have.
-  const lines = [d.waiting.length ? `Open ${v('Work → Today')} to look at what waits for you.` : `Nothing waits for you. ${v('Work → Today')} has the rest.`];
+  const lines = [d.waiting.length ? `Open ${v('Work → Tasks')} to look at what waits for you.` : `Nothing waits for you. ${v('Work → Tasks')} has the rest.`];
   for (const u of d.running.slice(0, shown)) {
     const name = v(fit(u.title, 30));
     if (u.basis.count < 2) lines.push(`Running: ${name}, no estimate yet`);
     else if (u.eta.past) lines.push(`Running: ${name}, longer than any like it`);
     else lines.push(`Running: ${name}, done by about ${v(clockText(Date.parse(u.eta.doneFrom), d.tz))} to ${v(clockText(Date.parse(u.eta.doneTo), d.tz))} (from ${v(u.basis.count)} like it)`);
   }
-  if (d.running.length > shown) lines.push(shown ? `And ${v(d.running.length - shown)} more running` : `${v(d.running.length)} running: ${v('Work → Today')} names them`);
+  if (d.running.length > shown) lines.push(shown ? `And ${v(d.running.length - shown)} more running` : `${v(d.running.length)} running: ${v('Work → Tasks')} names them`);
   if (d.done.length) lines.push(`Done (${v(d.done.length)}): ${v(namesText(d.done.map((u) => u.title), 60))}`);
   if (d.failed.length) lines.push(`Failed or stopped (${v(d.failed.length)}): ${v(namesText(d.failed.map((u) => u.title), 50))}`);
   if (d.tokens !== null) lines.push(`Used: ${v(d.tokens.toLocaleString('en-US'))} tokens${d.unreported ? ` (${v(d.unreported)} did not report)` : ''}`);

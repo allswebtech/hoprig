@@ -104,7 +104,7 @@ test('the docs, the changelog and the README say what the code does, in the page
   // "every 15 seconds" in the docs is the engine's own look.
   assert.match(flat('src/mission/engine.mjs'), /const TICK_MS = 15_000;/);
   const work = flat('docs/WORK.md');
-  assert.match(work, /"Tia starts this project's ready tasks by herself", shown on Work → Team only under her switch for that project and off until you turn it on/);
+  assert.match(work, /"Tia starts this project's ready tasks by herself", shown in Settings → Tia → Limits and roles only under her switch for that project and off until you turn it on/);
   assert.match(work, /each look \(every 15 seconds\) takes at most one task/);
   assert.match(work, /"Started by Tia \(Auto\)"/);
   assert.match(work, /\*\*End\*\* where another has Stop: its session is stopped at once, and Tia never takes that task by herself again/);

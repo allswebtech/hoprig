@@ -34,8 +34,8 @@ export function splitWaiting(list, now = Date.now()) {
   return { recent, old };
 }
 
-/** The fold's line: "Finished more than 6 hours ago: 12". */
-export const foldLine = (n) => `Finished more than 6 hours ago: ${n}`;
+/** The fold's line: "Ready for more than 6 hours: 12" (the group is Ready). */
+export const foldLine = (n) => `Ready for more than 6 hours: ${n}`;
 
 /** How long it has waited, in the unit the card's "1 day ago" uses (lib.js span): "7 h", "1 day". */
 export function waitedFor(s, now = Date.now()) {

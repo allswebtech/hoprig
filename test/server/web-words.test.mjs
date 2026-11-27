@@ -109,7 +109,7 @@ test('New-session defaults: the coding tool\'s own default, the model Claude Cod
   assert.deepEqual(toolWords(false).dflt, ['', 'Claude Code\'s own default']);
   assert.doesNotMatch(toolWords(false).desc, /another coding tool/);
   assert.deepEqual(toolWords(true).dflt, ['', 'The coding tool\'s own default']);
-  assert.match(toolWords(true).desc, /another coding tool in the App takes the mode and the effort/);
+  assert.match(toolWords(true).desc, /The model is for Claude Code only/);
 });
 
 test('the starting pill names the coding tool that starts, by its own name', async () => {

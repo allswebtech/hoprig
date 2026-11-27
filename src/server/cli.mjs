@@ -10,7 +10,7 @@ import { isLoopback } from './security.mjs';
 import { notePassword, passwordProblem } from './strength.mjs';
 import { firstPassword, passwordFileFrom, publicUrlSettings, resolveListen } from './serveopts.mjs';
 import { APP_NAME } from './brand.mjs';
-import { service } from './service/index.mjs';
+import { service, serviceInstalled } from './service/index.mjs';
 import { listenTakingOver } from './takeover.mjs';
 
 const A = APP_NAME;
@@ -21,10 +21,37 @@ export const USAGE = `usage:
                                        --take-over ends this Hoprig's dashboard on that port first)
   ${A} passwd                          set the dashboard password (asked twice, not shown)
   ${A} passwd --generate <file>        write a random password to <file> (mode 600) and use it
-  ${A} service install|uninstall|status|restart
+  ${A} stop                            stop the dashboard; it stays stopped until you start it
+  ${A} service install|uninstall|status|start|stop|restart
                                        run the dashboard in the background from login
                                        (systemd on Linux, launchd on macOS, Task Scheduler on Windows)
 `;
+
+/**
+ * What the keeper left and what a start settles (src/keeper/keep.mjs): the owner's stop is over, the note of a mend or a
+ * rollback becomes one Activity line, and a new version that stays up for a minute has passed its start check.
+ */
+async function afterStart() {
+  try {
+    const keeper = await import('../keeper/keep.mjs');
+    const { createActivityLog } = await import('../automation/store.mjs');
+    const state = stateDir();
+    keeper.confirmStart({ state });
+    const { serviceFiles, serviceInstalled } = await import('./service/index.mjs');
+    if (serviceInstalled(process.platform)) {
+      const reload = process.platform === 'linux' ? () => service('reload') : null;
+      const written = await keeper.refreshFiles({ files: () => serviceFiles(process.platform), reload });
+      if (written.length) keeper.logLine(state, `wrote the service files again at a start (${written.length} of them differed)`);
+    }
+    keeper.announceNote({ state, activity: createActivityLog(path.join(state, 'automation.log')).add });
+    // The version this process loaded, not the one on disk now (an update may be replacing the files under it).
+    const { ownVersion } = await import('./dashboardfile.mjs');
+    const version = ownVersion();
+    setTimeout(() => keeper.confirmStart({ state, version, verify: true }), keeper.START_CHECK_MS).unref();
+  } catch {
+    /* the keeper's bookkeeping never stops a dashboard from starting */
+  }
+}
 
 /** Read a line from the terminal without echoing it. */
 function askHidden(prompt) {
@@ -193,6 +220,7 @@ async function serve(args) {
     console.error(`${A} serve: cannot listen on ${host}:${port}: ${e.message}`);
     return 1;
   }
+  if (!o.trial) await afterStart();
   const urls = [];
   if (host === '0.0.0.0' || host === '::') {
     for (const list of Object.values(os.networkInterfaces())) {
@@ -221,6 +249,22 @@ async function serve(args) {
   return null; // keep running
 }
 
+/**
+ * `hoprig stop`: the owner's stop. With the background service it is the service's own stop (so the service manager and
+ * the keeper leave it stopped); a dashboard started by hand in a terminal is ended as a start over it would end it.
+ */
+export async function stopDashboard({ installed = serviceInstalled, stopService = () => service('stop'), endOld = null } = {}) {
+  if (installed()) return stopService();
+  const { endOldDashboard } = await import('./takeover.mjs');
+  const r = await (endOld || endOldDashboard)();
+  if (r.ended) {
+    console.log(`The dashboard (process ${r.ended}) was stopped.`);
+    return 0;
+  }
+  console.error(r.why || r.left || 'No dashboard of this Hoprig is running.');
+  return r.why ? 1 : 0;
+}
+
 /** Entry point from the bin script. Returns an exit code, or null while the server runs. */
 export async function main(command, args = []) {
   // --help prints the usage (before, "serve --help" only said "unknown option" and showed none).
@@ -233,6 +277,8 @@ export async function main(command, args = []) {
       return serve(args);
     case 'passwd':
       return passwd(args);
+    case 'stop':
+      return stopDashboard();
     case 'service':
       // As root on a computer where Hoprig was never set up for root: the same making of the work user as set-up's.
       if (args[0] === 'install') {

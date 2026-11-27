@@ -1,10 +1,9 @@
 // The session list at the left of the App on a wide screen, as the Claude Code desktop app's sidebar: "+ New" at its
 // top, then the sessions of every computer the dashboard knows (App sessions and terminals), grouped by folder by
-// default, every row saying its state in words (Home's words), the ones that need the owner marked, the one open now marked as current. The Group and sort icon shows on
+// default, every row one line (the name; a dot for its state; a second line only for a session that needs the owner or failed), the one open now marked as current. The Group and sort icon shows on
 // hover over the list's heading (always on a touch screen): Group by Folder, State or Computer, Sort by Recent
 // activity or Name, Archived (this computer's archived App sessions, to continue one), Select to delete (several at once), Trash (Put
-// back) and View all (Home, which lists them all). A row's own menu (its ⋯ button on hover or focus, always on a touch screen; a right-click; the right arrow): Open in new window, Archive, Delete. Remembered in this browser. A row says the
-// session's name on a line of its own and, under it, smaller, its state in words and the time. Archive asks nothing (a toast with Undo), only for a session
+// back) and View all (Home, which lists them all). A row's own menu (its ⋯ button on hover or focus, always on a touch screen; a right-click; the right arrow): Open in new window, Archive, Delete. Remembered in this browser. A row's state and time are in its title. Over the chat (below SIDE_MIN_PX) the list has a head: Home and a close button. Archive asks nothing (a toast with Undo), only for a session
 // that is working. Below SIDE_MIN_PX the list is not beside the chat: the head's list button opens it over the chat (overlay()). It reads the dashboard's store (store.js), the same list Home draws.
 import { icon } from '../icons.js';
 import { ago, api, bgCommandNote, chooseSheet, confirmSheet, fill, h, link, needsYou, prefs, stateOf, toast, worktreeOf } from '../lib.js';
@@ -13,6 +12,7 @@ import { endPaneShells } from './termpane.js';
 import { deleteNow, notPickable, pickToDelete, trashSheet } from './deletes.js';
 import { closeMenuOf, openMenu } from '../desktop/menu.js';
 import { sessionHref } from '../sessionitem.js';
+import { oneCardPerKey } from '../onecard.js';
 
 export const SIDE_MIN_PX = 900; // the width from which the list shows (sidebar.css says the same)
 /** The screen is wide enough for the list (asked each time). */
@@ -21,7 +21,7 @@ export const sideFits = () => typeof matchMedia !== 'undefined' && matchMedia(`(
 export const GROUP_BY = [['folder', 'Folder'], ['state', 'State'], ['computer', 'Computer']];
 export const SORT_BY = [['recent', 'Recent activity'], ['name', 'Name']];
 // The state groups, in Home's order (home.js GROUPS): what needs the owner first.
-const STATES = [['needs', 'Needs you', ['attention', 'limit']], ['working', 'Working', ['working', 'starting']], ['waiting', 'Finished', ['waiting', 'ended']], ['terminals', 'Terminals', ['shell']]];
+const STATES = [['needs', 'Needs you', ['attention', 'limit']], ['working', 'Working', ['working', 'starting']], ['waiting', 'Ready', ['waiting', 'ended']], ['terminals', 'Terminals', ['shell']]];
 
 const base = (p) => String(p || '').split(/[\\/]/).filter(Boolean).pop() || String(p || '') || 'No folder';
 const when = (s) => s.statusAt || s.activity || s.created || 0;
@@ -73,7 +73,8 @@ export const deletable = (s) => s.kind === 'chat' && (s.machine ?? null) === nul
  * owner), sessions }]. A computer that cannot be reached adds nothing (Home says why).
  */
 export function sideGroups(machines, { group = 'folder', sort = 'recent', multi = false } = {}) {
-  const all = (machines || []).filter((m) => m && m.status === 'online').flatMap((m) => (m.sessions || []).map((s) => ({ ...s, machine: s.machine ?? m.machine ?? null, machineLabel: s.machineLabel || m.machineLabel || 'This computer' })));
+  // One row per conversation (onecard.js), as on Home.
+  const all = oneCardPerKey((machines || []).filter((m) => m && m.status === 'online').flatMap((m) => (m.sessions || []).map((s) => ({ ...s, machine: s.machine ?? m.machine ?? null, machineLabel: s.machineLabel || m.machineLabel || 'This computer' }))));
   const bySort = sort === 'name' ? (a, b) => nameOf(a).localeCompare(nameOf(b)) || when(b) - when(a) : (a, b) => when(b) - when(a) || nameOf(a).localeCompare(nameOf(b));
   const groups = new Map();
   const put = (key, made, s) => {
@@ -159,6 +160,10 @@ export function createSidebar(o) {
   }
   const sortBtn = h('button.btn.icon.ghost.chat-side-sort', { type: 'button', title: 'Group and sort', 'aria-label': 'Group and sort', 'aria-haspopup': 'menu', 'aria-expanded': 'false', onclick: () => sortMenu() }, icon('sort', { size: 15 }));
   const el = h('aside.chat-side', { 'aria-label': 'Session list' },
+    // Over the chat only (sidebar.css): the way Home and the way out, as the Claude apps' drawer has them.
+    h('div.chat-side-over-head',
+      h('a.btn.ghost.chat-side-home', { href: link('#/'), onclick: () => overlay(false) }, icon('home', { size: 18 }), h('span', 'Home')),
+      h('button.btn.icon.ghost.chat-side-close', { type: 'button', title: 'Close the list', 'aria-label': 'Close the list', onclick: () => overlay(false) }, icon('x', { size: 18 }))),
     h('div.chat-side-top', h('button.btn.secondary.chat-side-new', { type: 'button', onclick: () => o.newSession() }, icon('plus', { size: 16 }), h('span', 'New'))),
     h('div.chat-side-head', h('span', 'Sessions'), sortBtn),
     list);
@@ -238,6 +243,10 @@ export function createSidebar(o) {
   // The App sessions of this computer in the list, newest first: what Select to delete offers.
   const mineHere = () => deletableHere(o.store);
 
+  // The state, the time, the computer and the branch are in the row's title: the row itself is the name and a dot.
+  const rowTitle = (head, at, tail) => `${head}${Number(at) ? ` · ${ago(Number(at))}` : ''}${tail}`;
+  /** The second line: only for a session that needs the owner (an OK, a question, a limit) or failed. */
+  const secondLine = (s, st) => (needsYou(s) || s.endedInError ? { text: st.text, bad: !['attention', 'limit'].includes(st.key) } : null);
   let last = '';
   function paint() {
     const machines = o.store.all || [];
@@ -246,7 +255,7 @@ export function createSidebar(o) {
     // Drawn again only when something it shows changed (the store asks every few seconds); the times are kept fresh.
     const key = JSON.stringify([group, sort, multi, groups.map((g) => [g.key, g.label, g.sub, g.sessions.map((s) => [s.machine, s.name, nameOf(s), stateOf(s).key, s.chatId])])]);
     if (key === last) {
-      for (const t of list.querySelectorAll('[data-at]')) t.textContent = ago(Number(t.dataset.at));
+      for (const a of list.querySelectorAll('a[data-at]')) a.title = rowTitle(a.dataset.head, a.dataset.at, a.dataset.tail);
       return;
     }
     last = key;
@@ -261,19 +270,21 @@ export function createSidebar(o) {
         const cur = isCurrent(s, o.current);
         const needs = needsYou(s);
         const at = when(s);
+        const head = `${nameOf(s)}: ${st.text}`;
+        const tail = `${multi && group !== 'computer' && !g.sub ? ` · ${s.machineLabel}` : ''}${branchOf(s) ? ` · ${branchOf(s)}` : ''}`;
+        const second = secondLine(s, st);
         return h('li.chat-side-item', h(`a.chat-side-row.st-${st.key}${needs ? '.needs' : ''}${cur ? '.current' : ''}`, {
           href: sessionHref(s), ...(cur ? { 'aria-current': 'page' } : {}), oncontextmenu: (e) => rowMenu(e, s),
-          title: `${nameOf(s)}: ${st.text}${multi && group !== 'computer' && !g.sub ? ` · ${s.machineLabel}` : ''}`,
+          title: rowTitle(head, at, tail), dataset: { head, at: at || '', tail },
         },
         h('span.chat-side-dot', { 'aria-hidden': 'true' }),
-        // The name on a line of its own, and under it, smaller, the state in words and the time (as Claude Code's rows):
-        // always two lines, so the row does not jump when its state changes.
+        // One line: the name. Only what needs the owner or failed says so under it, in words (as Claude Code's rows
+        // are only the name and a status circle).
         h('span.chat-side-text',
           h('span.chat-side-name', nameOf(s)),
-          h('span.chat-side-meta', { 'aria-hidden': 'true' }, h('span.chat-side-state', st.text), at ? [' · ', h('span.chat-side-at', { dataset: { at } }, ago(at))] : null, branchOf(s) ? ` · ${branchOf(s)}` : null)),
+          second ? h(`span.chat-side-meta${second.bad ? '.bad' : ''}`, { 'aria-hidden': 'true' }, second.text) : null),
         h('span.chat-sr', `, ${st.text}${bgCommandNote(s) ? `. ${bgCommandNote(s)}` : ''}`), // the state the dot shows (and a background command, if any), for a screen reader
-        s.kind !== 'chat' ? h('span.chat-side-kind', { title: 'A terminal session' }, icon('terminal', { size: 12 })) : null,
-        needs ? h('span.chat-side-mark', { 'aria-hidden': 'true', title: 'Needs you' }, '!') : null),
+        s.kind !== 'chat' ? h('span.chat-side-kind', { title: 'A terminal session' }, icon('terminal', { size: 12 })) : null),
         h('button.btn.icon.ghost.chat-side-more', { type: 'button', tabindex: '-1', title: 'More', 'aria-label': `More for ${nameOf(s)}`, 'aria-haspopup': 'menu', onclick: (e) => rowMenu(e, s) }, icon('more', { size: 15 })));
       })))));
     rove();

@@ -3,9 +3,9 @@
 // site's own Markdown code (lib/markdown.mjs, whose raw-HTML rules hold here too). Its parts `<!-- install -->` and
 // `<!-- usecases -->` become the install line and the use-case cards.
 import type { ReactNode } from 'react';
-import { InstallLine } from '../../design';
+import { InstallLines } from '../../design';
 import { renderMarkdown } from '../../lib/markdown.mjs';
-import { INSTALL } from '../../lib/seo.mjs';
+import { INSTALLS } from '../../lib/seo.mjs';
 import { linkItems } from '../../lib/pages.mjs';
 import { useCases } from './content';
 
@@ -47,7 +47,7 @@ function bandBody(md: string, n: number): ReactNode[] {
   const html = raw.replace(/<div class="faq">([\s\S]*?)<\/div>/, (_, inner: string) => `<div class="faq">${inner.split(/(?=<h3\b)/).filter((q) => q.trim()).map((q) => `<div class="faq-item">${q}</div>`).join('')}</div>`);
   return html.split(/<p>@@(install|usecases)@@<\/p>/).map((part, i) => {
     if (i % 2 === 0) return <Html key={i} html={part} />;
-    return part === 'install' ? <InstallLine key={i} command={INSTALL} id={`install-${n}`} /> : <UseCaseCards key={i} />;
+    return part === 'install' ? <InstallLines key={i} systems={INSTALLS} id={`install-${n}`} /> : <UseCaseCards key={i} />;
   });
 }
 

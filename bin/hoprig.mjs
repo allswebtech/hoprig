@@ -30,6 +30,7 @@ Start work
 
 The dashboard
   hoprig serve                start the web dashboard (hoprig service install keeps it running)
+  hoprig stop                 stop the dashboard (it stays stopped until hoprig service start)
   hoprig link                 a one-time link and QR code that signs your phone in
   hoprig public on | off      open the dashboard from anywhere, no server of your own needed
   hoprig demo                 try the dashboard with sample data first
@@ -298,9 +299,21 @@ async function main() {
       const machines = await import('../src/machines/cli.mjs');
       return (await machines.main(cmd, rest)) ?? 0;
     }
+    case 'keep': {
+      // Started by the service manager while the dashboard is down (src/keeper/keep.mjs); a person never types it.
+      const { main: keep } = await import('../src/keeper/keep.mjs');
+      return keep(rest);
+    }
+    case '__service-restart': {
+      // The helper of a restart asked for on the dashboard's own page (src/server/selfrestart.mjs). Not through the
+      // dashboard's own modules: after an update that is missing one of them it must still run, to check the start and
+      // put the old version back.
+      const { restartAfterExit } = await import('../src/server/selfrestart.mjs');
+      return restartAfterExit(rest[0]);
+    }
     case 'serve':
+    case 'stop':
     case 'passwd':
-    case '__service-restart': // the helper of a restart asked for on the dashboard's own page (src/server/selfrestart.mjs)
     case 'service': {
       let server;
       try {

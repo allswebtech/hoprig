@@ -2,8 +2,8 @@
 // button, and one picture of the dashboard. All of it is plain HTML from the build: readable before any script runs,
 // and before the story's 3D code loads (that comes later, under it).
 import type { ReactNode } from 'react';
-import { InstallLine } from '../../design';
-import { INSTALL } from '../../lib/seo.mjs';
+import { InstallLines } from '../../design';
+import { INSTALLS } from '../../lib/seo.mjs';
 import type { Landing } from './content';
 import { WORDS } from './words';
 
@@ -29,7 +29,7 @@ export function Hero({ page }: { page: Landing }) {
         <h1 className="t-display">{headline(page.title)}</h1>
         <p className="t-lead hero-lead">{page.lead}</p>
         <p className="hero-paste">{WORDS.paste} <a href={WORDS.newHere.href}>{WORDS.newHere.text}</a></p>
-        <InstallLine command={INSTALL} />
+        <InstallLines systems={INSTALLS} />
         <p className="hero-phone">{WORDS.phone}</p>
         <p className="hero-cost">{WORDS.cost}</p>
         <p className="hero-under">{withCode(page.under)}</p>

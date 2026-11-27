@@ -12,17 +12,16 @@ import { navChanged, registerHeadTool, registerPage, registerSessionAction, regi
 import { fold, saveBar, tabBar, toggle } from './shell.js';
 import { modelPicker } from './modelpicker.js';
 import { leadSwitch } from './leadswitch.js';
-import { splitHelp } from './helpline.js';
 import { store } from './store.js';
 import { knownChatTools } from './chat/start.js';
 import { keepTabIn } from './tabwrap.js';
-import { micButton } from './voice.js';
+import { composerControls, micButton, speech, touchScreen } from './voice.js';
 import { byTiaList, tiaAloneFold } from './operator-tia.js';
 import { missionLimits } from './mission.js';
 import { activityRows, activityWords, continuesOf, sessionWords, stamp, workCardWords } from './tiaactivity.js';
 import { DID, TOOL_WORDS, doingLine, jobChip, wordFor } from './tiawords.js';
 import { cardElement, closeChoice, formFields } from './tiacards.js';
-import { messageView } from './tiamsg.js';
+import { messageView, turnVoice } from './tiamsg.js';
 
 const NAME = 'Tia';
 // The line a card carries when her text had characters nobody can see (src/assistant/fence.mjs HIDDEN_REMOVED, the same words).
@@ -332,6 +331,7 @@ function chatPanel(host, { scrollEl = null, fresh = false } = {}) {
     if (es) es.close();
     clearTimeout(pollTimer);
     mic.dispose(); // the microphone never listens for a panel that is gone
+    speech.stop();
   };
   const list = h('div.tia-chat', { 'aria-live': 'polite' });
   const cardsBox = h('div.tia-cards');
@@ -341,8 +341,19 @@ function chatPanel(host, { scrollEl = null, fresh = false } = {}) {
   const send = btn('primary icon tia-send', { icon: 'send', title: 'Send', type: 'submit' });
   // Speak instead of typing: the words go into the box, and he sends them (voice.js).
   // The line under it takes room from the chat: a card waiting for an OK is kept in sight (toBottom).
-  const mic = micButton(input, { noted: () => toBottom() });
+  // Here (and only here) a spoken message is sent by itself after a short pause, and her answer to it is read aloud.
+  let placed = false; // the controls exist: the microphone's first look comes before them
+  const mic = micButton(input, { noted: () => toBottom(), auto: () => submit(), speaks: true, onState: () => place() });
   const form = h('form.tia-composer', { onsubmit: (e) => { e.preventDefault(); submit(); } }, input, mic.el, send);
+  placed = true;
+  const voice = turnVoice();
+  // On a phone one control sits beside the box: the microphone while it is empty, Send once there is text.
+  function place() {
+    if (!placed) return;
+    const c = composerControls({ touch: touchScreen(), empty: !input.value.trim(), state: mic.state() });
+    mic.el.style.display = c.mic ? '' : 'none';
+    send.style.display = c.send ? '' : 'none';
+  }
   input.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && !e.shiftKey && innerWidth > 700) {
       e.preventDefault();
@@ -353,6 +364,7 @@ function chatPanel(host, { scrollEl = null, fresh = false } = {}) {
   input.addEventListener('input', () => {
     input.style.height = 'auto';
     input.style.height = `${Math.min(input.scrollHeight + 2, 180)}px`;
+    place();
   });
   // Cards sit right above the message box, where the eye is, also after the chat scrolled down.
   const newPill = h('button.tia-newpill', { type: 'button', hidden: true, onclick: () => { newPill.hidden = true; toBottom(); } }, icon('down', { size: 15 }), h('span', 'New messages'));
@@ -407,6 +419,8 @@ function chatPanel(host, { scrollEl = null, fresh = false } = {}) {
     h('div.tia-examples', EXAMPLES.map((x) => h('button.tia-example', { type: 'button', onclick: () => { input.value = x; submit(); } }, icon('send', { size: 15 }), h('span', x))))));
 
   function render(e) {
+    const aloud = voice.see(e);
+    if (aloud) speech.speak(aloud);
     if (e.kind !== 'notice') lastNotice = null;
     // A notice answered since (his next message, also the one "Use …" sent, or her words) has no "Use …" any more: the
     // same on a reload, where the history is drawn again, so his message is never sent twice from one notice.
@@ -623,16 +637,21 @@ function chatPanel(host, { scrollEl = null, fresh = false } = {}) {
       input.focus();
       return;
     }
+    // A message he spoke (the box still holds what was heard): her answer is read aloud and the server is told.
+    const spoken = again === null && mic.heard();
+    speech.stop();
+    voice.begin(spoken);
     mic.stop();
     if (newChatLine) newChatLine.remove();
     send.disabled = true;
     fill(err);
     busy('reading your message');
     try {
-      const r = await api(`${A}/chat`, { text, conversation: conv || undefined, context: pageContext(), ...(choice ? { choice } : {}), ...(Number.isInteger(noticeNo) ? { again: noticeNo } : {}) });
+      const r = await api(`${A}/chat`, { text, conversation: conv || undefined, context: pageContext(), ...(spoken ? { spoken: true } : {}), ...(choice ? { choice } : {}), ...(Number.isInteger(noticeNo) ? { again: noticeNo } : {}) });
       if (again === null) {
         input.value = '';
         input.style.height = '';
+        mic.forget();
       }
       if (r.conversation !== conv) {
         conv = r.conversation;
@@ -645,10 +664,12 @@ function chatPanel(host, { scrollEl = null, fresh = false } = {}) {
       }
     } catch (e) {
       busy(null);
+      voice.begin(false);
       fill(err, h('p.banner.error-box', icon('alert', { size: 18 }), h('span', `${NAME} did not get your message: ${e.message}. Your text is still in the box: press Send to try again.`)));
     } finally {
       send.disabled = false;
-      input.focus();
+      place();
+      if (!(spoken && touchScreen())) input.focus(); // a phone's keyboard does not open over a spoken message
     }
   }
 
@@ -659,7 +680,8 @@ function chatPanel(host, { scrollEl = null, fresh = false } = {}) {
   } else empty();
   if (said === 'toast') toast('New chat started');
   // The box is hidden (closed, or not shown on this page): listening stops, the conversation stays.
-  return { stop, quiet: () => mic.stop() };
+  place();
+  return { stop, quiet: () => { mic.stop(); speech.stop(); } };
 }
 
 // ---------- the chat box: Tia on every page ----------
@@ -670,7 +692,7 @@ function chatPanel(host, { scrollEl = null, fresh = false } = {}) {
 const box = { open: prefs.get('tia.box', false), forced: false, chat: null, root: null, body: null, count: null, head: null };
 // The page head's button: made with each page head (only the newest is on the page), shown on a phone only.
 registerHeadTool(() => {
-  const n = h('span.tia-launch-n.hidden');
+  const n = h('span.tia-launch-dot.hidden');
   box.head = h('button.icon-btn.tia-headbtn.hidden', { type: 'button', title: `Ask ${NAME}`, 'aria-label': `Ask ${NAME}`, onclick: () => setBox(!box.open) },
     icon('sparkle', { size: 16 }), n);
   box.head.count = n;
@@ -680,7 +702,7 @@ registerHeadTool(() => {
 function chatBox() {
   if (box.root) return box;
   box.body = h('div.tia-boxbody');
-  box.count = h('span.tia-launch-n.hidden');
+  box.count = h('span.tia-launch-dot.hidden');
   const restart = (fresh) => {
     box.chat?.stop();
     box.chat = chatPanel(box.body, { scrollEl: box.body, fresh });
@@ -737,7 +759,7 @@ function paintBox() {
   const n = (lastOverview.cards || []).length;
   if (box.head) {
     box.head.classList.toggle('hidden', !on || here);
-    box.head.count.textContent = String(n);
+    box.head.count.textContent = '';
     box.head.count.classList.toggle('hidden', !n);
     box.head.setAttribute('aria-expanded', String(box.open));
   }
@@ -755,7 +777,7 @@ function paintBox() {
   chatBox();
   box.root.classList.remove('hidden');
   box.root.classList.toggle('over-terminal', terminal);
-  box.count.textContent = String(n);
+  box.count.textContent = '';
   box.count.classList.toggle('hidden', !n);
   box.panel.classList.toggle('hidden', !box.open);
   box.launch.setAttribute('aria-expanded', String(box.open));
@@ -972,7 +994,7 @@ const convGet = () => prefs.get('tia.conversation', null);
 const convSet = (v) => prefs.set('tia.conversation', v);
 
 registerPage({
-  id: 'tia', title: NAME, icon: 'sparkle', navAs: 'settings', render: viewTia,
+  id: 'tia', title: NAME, icon: 'sparkle', navAs: 'home', render: viewTia,
   badge: () => (lastOverview && lastOverview.cards ? lastOverview.cards.length : 0),
 });
 
@@ -1130,6 +1152,10 @@ function tiaRights({ isAlive }) {
 }
 
 // ---------- Settings → Tia ----------
+/** The label and the one line of her switch, true for the state it shows (never "Tia is on" over a switch that is off). */
+export const onOffWords = (on) => (on
+  ? { label: `${NAME} is on`, line: 'Turn her off to hide her button and stop everything she watches.' }
+  : { label: `${NAME} is off`, line: 'Turn her on to let her do jobs for you. She is experimental.' });
 function tiaSettings({ isAlive }) {
   const box = h('div', h('p.hint', 'Loading…')); // her switch and the level
   const limitsBox = h('div.tia-limits-box'); // her providers, the daily limit and what she runs on
@@ -1146,7 +1172,7 @@ function tiaSettings({ isAlive }) {
     const s = v.settings;
     const st = { level: s.level, accounts: s.accounts ? [...s.accounts] : null, runsOn: s.runsOnSet || '', model: s.model || '', lead: s.lead === true, others: s.others || [], maxSteps: s.maxSteps, maxMinutes: s.maxMinutes, computers: Array.isArray(s.computers) ? s.computers.filter((n) => n !== 'this') : [], dailyCapUsd: s.dailyCapUsd ?? null };
     // On or off is kept at once (the page then shows or hides her settings); the rest with Save.
-    const onOff = toggle(`${NAME} is on`, s.enabled, async (on) => {
+    const onOff = toggle(onOffWords(s.enabled).label, s.enabled, async (on) => {
       try {
         await api(`${A}/settings`, { enabled: on });
         pollOverview();
@@ -1156,7 +1182,7 @@ function tiaSettings({ isAlive }) {
         paint();
         return false;
       }
-    }, splitHelp(v.help.enabled)); // the server's two sentences: the first under the switch, the rest under "More"
+    }, onOffWords(s.enabled).line); // one true line for the state the switch shows; nothing folded under it
     // "She answers the OKs of her Work runs" (assistant.answersHers, off at first): kept at once, as on or off is, so one
     // press stops it. Its sentence says what she then answers by herself and what stays his card.
     const answersHers = v.help.answersHers ? toggle('She answers the OKs of her Work runs', s.answersHers === true, async (on) => {

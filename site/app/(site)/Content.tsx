@@ -2,9 +2,9 @@
 // the frame: the text exactly as the content layer rendered it (lib/markdown.mjs, whose raw-HTML rules hold), with
 // what each kind of page adds around it, as the old generator did.
 import { Fragment } from 'react';
-import { InstallLine } from '../../design';
+import { InstallLines } from '../../design';
 import { SIDE_LABELS, docGroups, useCasesOf } from '../../lib/pages.mjs';
-import { INSTALL, PLATFORMS } from '../../lib/seo.mjs';
+import { INSTALLS, PLATFORMS } from '../../lib/seo.mjs';
 import { Frame } from './Frame';
 import { JsonLd, allPages, sized } from './site-pages';
 import type { Page } from './site-pages';
@@ -50,7 +50,7 @@ function UseCase({ page, pages }: { page: Page; pages: Page[] }) {
       {page.data.coming ? null : (
         <section className="page-cta" aria-labelledby="try-it">
           <h2 id="try-it">Try it</h2>
-          <InstallLine command={INSTALL} />
+          <InstallLines systems={INSTALLS} />
           <p className="cta-note">{PLATFORMS} After the install, <code>hoprig demo</code> opens the dashboard with sample data.</p>
         </section>
       )}

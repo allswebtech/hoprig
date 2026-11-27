@@ -1,8 +1,20 @@
 # Providers: how a stop is named
 
 When a provider stops the coding tool's work, Hoprig names how, from what Claude Code itself wrote, and shows it on
-the Operator page with the one step that recovers (see `docs/OPERATOR.md`). The names come from one closed table in
+Home, as a row of **Needs you** with the one step that recovers (see `docs/OPERATOR.md`). The names come from one closed table in
 `src/providers/table.mjs`. Only Claude Code's records are read; OpenCode's are not.
+
+## Where the providers are in the dashboard
+
+**Providers** (in the menu) is one list: a row for each provider with its state in one line (and its limits, when it
+reports them), **Add provider** at the top, a row for **TRouteAI** and a row **At a limit** that says what happens when a provider is used up.
+A press on a row opens it. **At a limit** opens a sheet with the two choices, **Stop and ask me** and **Carry on with the
+next provider**, the order of the providers and, under **Advanced**, the rest. **TRouteAI** opens its own page
+(`#/providers/trouteai`): is it running, open it, its accounts and combos, its public address, and everything to manage it.
+
+![Providers, At a limit: Stop and ask me or Carry on with the next provider, and the order of providers](screenshots/auto-mode-desktop-light.webp)
+
+![TRouteAI's own page on a computer where it is not set up yet: one button, Set up TRouteAI](screenshots/gateway-desktop-light.webp)
 
 ## What Claude Code writes
 
@@ -93,7 +105,7 @@ folder) goes only from this computer, only to a program that runs as your own us
 for that step and removed right after. If another user's program answers on its port, Set up and Start refuse and send it nothing.
 
 On Providers its panel lists the accounts it holds (state, last test, limit windows), and you can test, turn off and on,
-remove and add accounts, make and remove combos and remove the keys Hoprig made. Health → Gateways has Restart, Log,
+remove and add accounts, make and remove combos and remove the keys Hoprig made. Advanced → Service → Gateways has Restart, Log,
 Update, Remove (only its copy in Hoprig's folder; the data and the provider stay) and its own dashboard password. Until
 its next version lists its providers for Hoprig, adding a provider that its catalog should offer opens its own page.
 
@@ -120,7 +132,7 @@ with the switch on or off, so an Auto session gets no map here.
 
 ## Auto mode and providers billed by use
 
-Auto mode (on Providers, **Carry on with the next provider** under **When a provider reaches its limit**) uses a
+Auto mode (on Providers, **At a limit**, **Carry on with the next provider**) uses a
 provider billed by use only while **Also use pay-per-use providers** is on. Billed by use are an API key that is billed
 for every use and a Claude sign-in on a Console account: such a sign-in is named "Claude sign-in billed by use (Console
 account)", never a subscription. While the switch is off, such a provider can stay in the order, but Auto mode leaves

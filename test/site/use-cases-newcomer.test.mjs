@@ -24,7 +24,7 @@ test('the install line installs Node.js and Hoprig; Claude Code is set-up\'s own
   assert.match(setup, /includes\('claude'\) && \(ui\.interactive \|\| ui\.yes\)\) && !\(await ui\.confirm\('Install it now\?', true\)\)/);
   const page = flat(read(PAGE));
   assert.doesNotMatch(page, /asks you once|after asking you once: Node\.js \(the program that Hoprig and Claude Code run on\) and Claude Code itself/);
-  assert.match(page, /It lists what is missing and installs it, without asking: Node\.js \(the program that Hoprig and Claude Code run on\), and on Linux a few system programs, for which the computer may ask for your password\. Then it installs Hoprig\./);
+  assert.match(page, /It lists what is missing and installs it, without asking: Node\.js \(the program that Hoprig and Claude Code run on\), Git on Windows when it is missing, and on Linux a few system programs, for which the computer may ask for your password\. Then it installs Hoprig\./);
   assert.match(page, /When Claude Code is missing, it installs it for you\./);
 });
 
@@ -32,31 +32,34 @@ test('not signed in to Claude: set-up says so and goes on, and the sign-in is Ge
   // The press the guide names is the one Home's Get started shows (its label comes from the server).
   assert.match(read('src/setup/onboarding.mjs'), /\{ kind: 'claude-login', label: 'Sign in to Claude' \}/);
   assert.match(read('src/setup/setup.mjs'), /No Claude account logged in: sign in on the dashboard, Home → Get started → Sign in to Claude/);
-  assert.match(flat(read(PAGE)), /4\. If you are not signed in to Claude yet, it says so in one line and goes on: you sign in later on the dashboard, where Home's Get started list has \*\*Sign in to Claude\*\* \(it opens Claude's sign-in page in your browser\)\./);
+  assert.match(flat(read(PAGE)), /4\. Home says the next step\. If you are not signed in to Claude yet, it is \*\*Sign in to Claude\*\* \(it opens Claude's sign-in page in your browser\);/);
+  assert.match(read('web/firstrun.js'), /signIn: 'Sign in to Claude'/);
+  assert.match(read('web/firstrun.js'), /paid: 'No Claude plan\? Pay as you use'/);
 });
 
-test('step 1 points at the install line, which stands below the steps', () => {
+test('step 1 points at the install lines, which stand below the steps, one for each system', () => {
   const page = read(PAGE);
-  assert.match(flat(page), /paste the line below \(the one that starts with `curl`\), then press Enter\./);
-  assert.ok(page.indexOf('```sh\ncurl ') > page.indexOf('\n6. '), 'the install line stands after the six steps');
+  assert.match(flat(page), /paste the line below for your system, then press Enter\./);
+  assert.ok(page.indexOf('```powershell\nirm ') > page.indexOf('\n6. '), 'the Windows line stands after the six steps');
+  assert.ok(page.indexOf('```sh\ncurl ') > page.indexOf('```powershell'), 'then the Mac line');
+  assert.ok(page.indexOf('```sh\nwget ') > page.indexOf('```sh\ncurl '), 'then the Linux line');
 });
 
-test('the phone signs in through the QR code; the password is in the file set-up names under it', () => {
-  const setup = read('src/setup/setup.mjs');
-  assert.match(setup, /Scan with your phone's camera\$\{link \? ' to sign in \(the link works once, for 15 minutes\)' : ''\}/);
-  assert.match(setup, /if \(pw\) ui\.out\(`  Password, if asked: in \$\{tilde\(pw\)\}`\);/);
-  assert.match(setup, /not encrypted, so not for a shared or public Wi-Fi/);
+test('the first run ends with the browser open and signed in, and the phone is for later', () => {
+  const first = read('src/setup/firstrun.mjs');
+  assert.match(first, /ends by opening the browser signed in/);
+  assert.match(read('install.ps1'), /A Start menu entry Hoprig, which opens it again signed in\./);
   const page = flat(read(PAGE));
-  assert.doesNotMatch(page, /over plain http/);
-  assert.match(page, /the QR code at the end signs your phone in, and the dashboard's password, if it is ever asked, is in the file named under the QR code;/);
+  assert.match(page, /3\. At the end your browser opens on Hoprig, already signed in: there is no password to find\. On Windows the Start menu entry Hoprig opens it again\./);
+  assert.match(page, /6\. You do not need your phone at first\. To use Hoprig from your phone, turn that on later in Settings\./);
 });
 
 test('the checks: the guide names the Health page and its Fix, the command only as the other way', () => {
-  // The page's own names: Computers in the menu, a computer's Health tab, a check's Fix button.
+  // The page's own names: Computers in the menu, a computer's Setup tab, a check's Fix button.
   assert.match(read('web/computers.js'), /registerPage\(\{ id: 'computers', title: 'Computers',/);
-  assert.match(read('web/pc.js'), /\{ id: 'health', title: 'Health',/);
+  assert.match(read('web/pc.js'), /\{ id: 'setup', title: 'Setup',/);
   assert.match(read('web/health.js'), /btn\('small primary', \{ label: 'Fix',/);
-  assert.match(flat(read(PAGE)), /At any time, open \*\*Computers\*\*, then this computer, then its \*\*Health\*\* tab: it checks everything, and under a problem that one press can fix there is a \*\*Fix\*\* button, which asks before it changes anything\. \(Or, in a terminal, `hoprig doctor` shows the same checks\.\)/);
+  assert.match(flat(read(PAGE)), /At any time, open \*\*Computers\*\*, then this computer, then its \*\*Setup\*\* tab: it checks everything, and under a problem that one press can fix there is a \*\*Fix\*\* button, which asks before it changes anything\. \(Or, in a terminal, `hoprig doctor` shows the same checks\.\)/);
 });
 
 test('after the install line the guide sends no one to a terminal: no sign-in or check is a command to type', () => {
@@ -73,15 +76,11 @@ test('after the install line the guide sends no one to a terminal: no sign-in or
   assert.match(page, /You still need the terminal once, to paste the install line\./);
 });
 
-test('the questions the page names are the ones set-up asks', () => {
-  const setup = read('src/setup/setup.mjs');
+test('a first run asks nothing, as the page says', () => {
   const first = read('src/setup/firstrun.mjs');
-  const git = read('src/workspace/gitstep.mjs');
-  assert.match(setup, /ui\.choose\('Who should be able to open the dashboard\?'/);
-  assert.match(setup, /\['local', 'only this computer'\]/, 'choice 1 keeps it on this computer');
-  assert.match(git, /Sign in to GitHub now\?/);
-  assert.match(first, /A project to work on: .*\(Enter to skip\)/);
+  assert.match(first, /A first run is `hoprig setup` on a computer with no settings file yet and nothing chosen by hand\. It asks nothing,/);
+  assert.match(first, /keeps the dashboard to this computer/);
   const page = flat(read(PAGE));
-  assert.match(page, /who may open the dashboard \(pressing Enter lets your phone on the same Wi-Fi open it;/);
-  assert.match(page, /choose 1 to keep it on this computer only\), whether to sign in to GitHub, and the name of a first project\. Each one can be skipped and done later\./);
+  assert.match(page, /It asks nothing on a first run, and only this computer can open the dashboard\./);
+  assert.doesNotMatch(page, /who may open the dashboard \(pressing Enter/);
 });

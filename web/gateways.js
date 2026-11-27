@@ -1,12 +1,11 @@
-// Providers → "Gateways on your computers" (src/gateway): every AI gateway (the shipped ones first) on this computer and on
-// the computers linked to it, whether it runs, its version, and "Use here", which makes a provider on this computer
-// for it. Sharing this computer's gateway (off until turned on), the keys made for other computers, and "Add a
-// shared gateway" for a computer that is not linked. Shown on this dashboard's own page only: a key never travels
+// The gateway's pieces that the gateway's page (under Providers) and Add provider use (src/gateway): the gateways of
+// the other computers with "Use here", sharing this computer's gateway (off until turned on), the keys made for other
+// computers, "Add a shared gateway" for one a computer shares, and the one-press set-up. Shown on this dashboard's own page only: a key never travels
 // through another computer's page.
 import { APP_NAME } from './brand.js';
 import { icon } from './icons.js';
 import { ago, api, at, btn, confirmSheet, copyText, fill, h, insecure, link, machine, machinePill, openSheet, promptSheet, toast } from './lib.js';
-import { errorBox, field, fold, okBox, panel, skeletonRows, steps, toggle } from './shell.js';
+import { errorBox, field, fold, okBox, steps, toggle } from './shell.js';
 import { plainHost } from './health.js';
 
 const G = (p) => `~/api/gateways${p}`;
@@ -51,7 +50,7 @@ const LOOPBACK = ['localhost', '127.0.0.1', '[::1]', '::1'];
  */
 export function gatewayPageLink(page, { title = 'The gateway', pageHost = '', signedIn = [], other = false } = {}) {
   if (!page) return null;
-  if (other) return { text: `${title}'s own page opens only in a browser on that computer itself. For a computer added by SSH, Open its page under that computer's Health opens it in a browser on the computer this dashboard runs on.` };
+  if (other) return { text: `${title}'s own page opens only in a browser on that computer itself. For a computer added by SSH, Open its page under that computer's Advanced → Service opens it in a browser on the computer this dashboard runs on.` };
   const u = new URL(page);
   const own = String(pageHost).toLowerCase();
   if (!LOOPBACK.includes(own)) {
@@ -113,7 +112,7 @@ async function useRemote(c, g, done) {
   }
 }
 
-function row(c, g, { useLocal, done }) {
+function row(c, g, { useLocal = () => {}, done }) {
   const what = gatewayAction(c, g);
   const end = what === 'open'
     ? h('a.btn.small.secondary.gw-act', { href: link(`#/providers/${encodeURIComponent(g.usedAs.name)}`) }, 'Open')
@@ -126,6 +125,24 @@ function row(c, g, { useLocal, done }) {
       h('span.row-sub', gatewayLine(c, g)),
       !c.machine && g.running ? h('span.row-sub.mono', g.address) : null),
     end);
+}
+
+/**
+ * The gateways of the OTHER linked computers, as one closed fold of the gateway's page: what runs there and "Use here",
+ * which makes a provider on this computer for one. `all` is GET /api/gateways/all (null when it did not answer); null
+ * (nothing drawn) while no other computer is linked. `done()` draws the page again.
+ */
+export function otherComputers(all, done) {
+  const rows = [];
+  for (const c of (all && all.computers) || []) {
+    if (!c.machine) continue;
+    if (c.state !== 'online' && !c.gateways.length) {
+      rows.push(h('div.row.static.gw-row', h('span.row-icon', icon('cpu')),
+        h('span.row-main', h('span.row-title', machinePill(c.label, { state: 'offline' })), h('span.row-sub', c.state === 'unauthorised' ? ['It does not let this dashboard in any more. ', h('a', { href: link('#/computers') }, 'Link it again on the Computers page'), '.'] : AWAY[c.state] || AWAY.offline))));
+    }
+    for (const g of c.gateways) rows.push(row(c, g, { done }));
+  }
+  return rows.length ? fold('gw-others', 'Gateways on your computers', h('div.rows', { id: 'gateways' }, rows)) : null;
 }
 
 /** A key shown once, with the address, for a computer that is not linked. */
@@ -145,7 +162,7 @@ async function keySheet(g, done) {
     btn('secondary', { icon: 'copy', label: 'Copy', onclick: async () => toast((await copyText(value)) ? `${what} copied` : 'Copy did not work') }));
   await openSheet({ title: `${g.title} for ${name.trim()}`, subtitle: 'The key is shown only now' }, (close) => h('div.wizard',
     steps(
-      [h('p', 'On the other computer, open Providers and press "Add a shared gateway".')],
+      [h('p', 'On the other computer, open Providers, then the gateway, then Share with your other computers, and press "Add a shared gateway".')],
       [h('p', 'Paste this address:'), copyRow(address, 'Address')],
       [h('p', 'Paste this key:'), copyRow(r.key, 'Key')]),
     local ? h('div.banner.warn', icon('alert', { size: 18 }), h('span', local)) : null,
@@ -153,9 +170,10 @@ async function keySheet(g, done) {
     h('div.sheet-actions', h('button.btn.primary', { type: 'button', onclick: () => close() }, 'Done'))));
 }
 
-function sharing(g, reload) {
+/** The sharing fold of this computer's gateway `g` (a row of GET /api/gateways/all): the switch, the keys of other computers, a key for a computer that is not linked. `label`: the fold's own words. */
+export function sharing(g, reload, label = `Share ${g.title} with your other computers`) {
   const keys = g.keys || [];
-  return fold(`gw-share-${g.id}`, `Share ${g.title} with your other computers`,
+  return fold(`gw-share-${g.id}`, label,
     toggle(`Share ${g.title}`, g.shared, async (on) => {
       try {
         await api(G(`/${g.id}/share`), { on });
@@ -186,7 +204,9 @@ function sharing(g, reload) {
           } }))))
         : h('p.hint', 'No computer has a key yet.'),
       h('div.savebar.start', btn('secondary', { icon: 'key', label: 'Key for a computer that is not linked', onclick: () => keySheet(g, reload) })),
-    ] : null);
+    ] : null,
+    // The other side of sharing: a gateway that another computer shares with this one.
+    h('div.savebar.start', btn('secondary', { icon: 'plus', label: 'Add a shared gateway', onclick: () => addSheet(reload) })));
 }
 
 function addSheet(done) {
@@ -210,7 +230,7 @@ function addSheet(done) {
       }
     });
     return h('div.wizard',
-      h('p.sheet-text', 'On the computer that runs the gateway, open Providers → Gateways on your computers, turn sharing on and make a key for this computer. It shows the address and the key.'),
+      h('p.sheet-text', 'On the computer that runs the gateway, open Providers → the gateway → Share with your other computers, turn sharing on and make a key for this computer. It shows the address and the key.'),
       field('Address', url, 'It ends in /gateway/ and the gateway\'s name.'),
       insecure() ? h('div.banner.warn', icon('lock', { size: 18 }), h('span', 'This page is not encrypted: the key would travel over the network in plain text. Use it only on a network you trust.')) : null,
       field('Gateway key', key, 'Checked once, then kept only in this computer\'s provider file.'),
@@ -222,48 +242,13 @@ function addSheet(done) {
 }
 
 /**
- * The panel. `useLocal(g)` adds this computer's own gateway `g` as a provider (its steps in Add provider);
- * `changed()` draws the provider list again after a provider was added here.
- */
-export function gatewaysPanel({ useLocal, changed }) {
-  const box = h('div', skeletonRows(2));
-  const done = () => {
-    load();
-    changed();
-  };
-  async function load() {
-    let d;
-    try {
-      d = await api(G('/all'));
-    } catch (e) {
-      return fill(box, errorBox(e, load));
-    }
-    const rows = [];
-    for (const c of d.computers) {
-      if (c.state !== 'online' && !c.gateways.length) {
-        rows.push(h('div.row.static.gw-row', h('span.row-icon', icon('cpu')),
-          h('span.row-main', h('span.row-title', machinePill(c.label, { state: 'offline' })), h('span.row-sub', c.state === 'unauthorised' ? ['It does not let this dashboard in any more. ', h('a', { href: link('#/computers') }, 'Link it again on the Computers page'), '.'] : AWAY[c.state] || AWAY.offline))));
-      }
-      for (const g of c.gateways) rows.push(row(c, g, { useLocal, done }));
-    }
-    const mine = d.computers[0].gateways.filter((g) => g.ready);
-    fill(box,
-      rows.length ? h('div.rows', rows) : h('p.hint', 'No gateway is known on your computers.'),
-      mine.map((g) => sharing(g, load)),
-      h('div.savebar.start', btn('secondary', { icon: 'plus', label: 'Add a shared gateway', onclick: () => addSheet(done) })));
-  }
-  load();
-  return panel({ id: 'gateways', icon: 'swap', title: 'Gateways on your computers', desc: 'A gateway lets Claude Code use AI accounts of other companies. Use one on this computer or on another of yours.' }, box);
-}
-
-/**
  * Providers → Other providers → a gateway Hoprig sets up itself: one press ("Set up"). The confirmation names the
  * computer; Hoprig installs the gateway when it is missing, starts it, makes the key for the sessions and saves the
  * provider, and the lines of that job show here as they come (src/addons/gatewayhost.mjs POST …/setup). Every failure
  * ends in one sentence with the next step. `done()` draws the provider list again after it worked; `after`: what to
  * show under a success (the link to the gateway's own page, where its providers are added).
  */
-export function setupBlock(g, { done, after = null, secondary = null } = {}) {
+export function setupBlock(g, { done, after = null, secondary = null, label = null } = {}) {
   const out = h('pre.output.hidden', { 'aria-live': 'polite' });
   const msg = h('div');
   // The question is asked here, in the block: a second sheet would take this sheet (and the lines below) away.
@@ -293,7 +278,7 @@ export function setupBlock(g, { done, after = null, secondary = null } = {}) {
       fill(msg, errorBox(e));
     }
   };
-  const go = btn('primary block', { icon: 'play', label: `Set up ${g.title}`, onclick: async () => {
+  const go = btn('primary block', { icon: 'play', label: label || `Set up ${g.title}`, onclick: async () => {
     go.disabled = true;
     fill(msg);
     try {

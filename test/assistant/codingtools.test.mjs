@@ -43,8 +43,8 @@ const writes = (ops) => ops.calls.map((c) => c.op);
 // What she reads outside every fence: the words a computer must never reach.
 const outside = (t) => t.replace(/<untrusted_(\w+)[^>]*>[\s\S]*?<\/untrusted_\1>/g, '');
 
-test('the catalog stays at 25 tools: the coding tools came in as fields and actions of tools that exist', () => {
-  assert.equal(TOOLS.length, 25);
+test('the catalog stays at 24 tools: the coding tools came in as fields and actions of tools that exist', () => {
+  assert.equal(TOOLS.length, 24);
   assert.ok(byName.get('start_chat').input.json.properties.coding_tool);
   assert.ok(byName.get('start_session').input.json.properties.coding_tool);
   assert.deepEqual(byName.get('start_chat').input.json.properties.coding_tool.enum, ['claude', 'opencode'], 'only the coding tools this version offers');

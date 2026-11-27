@@ -134,9 +134,12 @@ test('the plain sentences: refused token, missing token, silence, an absent rout
     // The gateway runs but has no token file (a version before the one that writes it, or started before its files were updated).
     await assert.rejects(callGateway('GET', '/api/combos', { ...on(gw), folder: path.join(folder, 'nope') }), (e) => e.code === 'token' && /has no command token file/.test(e.message) && /Restart/.test(e.message) && /older than 1\.0\.11/.test(e.message) && !/once from Hoprig/.test(e.message));
     // A token file that others can read keeps its own sentence.
-    const open = fs.mkdtempSync(path.join(os.tmpdir(), 'tmanage-open-'));
-    fs.writeFileSync(path.join(open, 'cli-token'), `${CLI_TOKEN}\n`, { mode: 0o644 });
-    await assert.rejects(callGateway('GET', '/api/combos', { ...on(gw), folder: open }), (e) => e.code === 'token' && /others can read it/.test(e.message));
+    // (Windows has no file mode bits: a file others can read cannot be made there, and the product does not look.)
+    if (process.platform !== 'win32') {
+      const open = fs.mkdtempSync(path.join(os.tmpdir(), 'tmanage-open-'));
+      fs.writeFileSync(path.join(open, 'cli-token'), `${CLI_TOKEN}\n`, { mode: 0o644 });
+      await assert.rejects(callGateway('GET', '/api/combos', { ...on(gw), folder: open }), (e) => e.code === 'token' && /others can read it/.test(e.message));
+    }
     await assert.rejects(callGateway('GET', '/api/combos', { ...on(gw), deps: { ...own, timeoutMs: 80, fetch: (u, o) => new Promise((_, rej) => o.signal.addEventListener('abort', () => rej(Object.assign(new Error('t'), { name: 'TimeoutError' })))) } }), /did not answer in time/);
     await assert.rejects(callGateway('GET', '/api/combos', { ...on(gw), deps: { ...own, fetch: () => Promise.reject(new Error('ECONNREFUSED')) } }), /does not answer on port/);
   } finally {
@@ -196,4 +199,21 @@ test('a sign-in link keeps its long parts whole: the one-time code and the code 
   } finally {
     await gw.close();
   }
+});
+
+test('the sign-in state is asked with no token, keeps three yes-or-no answers and nothing else, and no other settings route is allowed', async () => {
+  const seen = [];
+  const fetch = async (url, init) => {
+    seen.push({ url, headers: init.headers });
+    return new Response(JSON.stringify({ requireLogin: true, hasPassword: true, oidcEnabled: false, adminPassword: SECRET, token: SECRET, other: 'x' }), { status: 200, headers: { 'content-type': 'application/json' } });
+  };
+  const r = await callGateway('GET', '/api/settings/require-login', { port: 20999, folder, deps: { sameUser: async () => 'own', fetch, token: () => assert.fail('a public route needs no command token') } });
+  assert.deepEqual(r, { requireLogin: true, signInSet: true, oidcEnabled: false });
+  assert.equal(seen[0].url, 'http://127.0.0.1:20999/api/settings/require-login');
+  assert.deepEqual(Object.keys(seen[0].headers), ['accept'], 'no token, no key, no cookie');
+  const empty = await callGateway('GET', '/api/settings/require-login', { port: 20999, folder, deps: { sameUser: async () => 'own', fetch: async () => new Response('{}', { status: 200 }) } });
+  assert.deepEqual(empty, { requireLogin: false, signInSet: false, oidcEnabled: false }, 'a missing answer is a no');
+  await fails(callGateway('GET', '/api/settings/other', on({ port: 20999 })), 'not-allowed');
+  await fails(callGateway('POST', '/api/settings/require-login', on({ port: 20999 })), 'not-allowed');
+  assert.equal(ALLOWED.filter((e) => /settings/.test(String(e.re))).length, 1);
 });

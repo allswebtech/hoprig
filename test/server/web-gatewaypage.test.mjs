@@ -57,7 +57,7 @@ test('another computer\'s gateway: no link, the sentence names Health\'s Open it
   for (const pageHost of ['localhost', 'box2.local']) {
     const r = gatewayPageLink(PAGE, { title: 'Alpha', pageHost, other: true });
     assert.equal(r.href, undefined);
-    assert.equal(r.text, 'Alpha\'s own page opens only in a browser on that computer itself. For a computer added by SSH, Open its page under that computer\'s Health opens it in a browser on the computer this dashboard runs on.');
+    assert.equal(r.text, 'Alpha\'s own page opens only in a browser on that computer itself. For a computer added by SSH, Open its page under that computer\'s Advanced → Service opens it in a browser on the computer this dashboard runs on.');
   }
   assert.equal(gatewayPageLink(null, { pageHost: 'localhost' }), null);
 });

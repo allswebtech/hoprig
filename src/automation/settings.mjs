@@ -8,8 +8,9 @@
 //   queue      { enabled }                               default on: it only acts on messages you queued
 //   schedules  { enabled, lateHours, atOnce, list }      default on: it only acts on schedules you made; atOnce:
 //                                                         how many runs that end by themselves at once (1 to 4)
-//   restore    { enabled }                               null = on (a restart of the computer ends tmux too; reopening types nothing)
-//   retry      { enabled, max, firstMinutes, prompt }    default off
+//   restore    { enabled }                               null = on (also with tmux: it reopens only, nothing is sent)
+//   retry      { enabled, max, firstMinutes, prompt }    default on: only after a passing error, never a 4xx, a limit
+//                                                         or a provider paid per use (./retry.mjs)
 //   (updates have their own top-level key "updates": ./updates.mjs, Settings → Version and updates)
 //   idle       { shells, shellHours, gateway, gatewayMinutes } default off
 //   workspace  { map, commitMap, memory, sync, push, pushBranches, everyHours }
@@ -38,9 +39,9 @@ export const DEFAULTS = Object.freeze({
   queue: { enabled: true },
   schedules: { enabled: true, lateHours: 2, atOnce: 1, list: [] },
   restore: { enabled: null },
-  retry: { enabled: false, max: 3, firstMinutes: 1, prompt: 'Continue from where you stopped.' },
+  retry: { enabled: true, max: 3, firstMinutes: 1, prompt: 'Continue from where you stopped.' },
   idle: { shells: false, shellHours: 12, gateway: false, gatewayMinutes: 30 },
-  workspace: { map: true, commitMap: null, memory: false, sync: false, push: false, pushBranches: {}, everyHours: 6, credentials: false, onlyHere: false, servers: false },
+  workspace: { map: true, commitMap: null, memory: false, sync: false, push: false, pushBranches: {}, everyHours: 6, credentials: false, onlyHere: false, servers: false, ffProjects: { projects: true } },
 });
 
 /**
@@ -104,6 +105,17 @@ const SECTIONS = {
     credentials: bool('committing and pushing a change of the credentials'),
     onlyHere: bool('looking once a day at what is only on this computer'),
     servers: bool('looking once a week at the git servers of the map'),
+    ffProjects: (v) => {
+      // One switch per place that holds projects: on for the projects folder, off for a group's own place unless set.
+      if (!isObj(v) || Object.keys(v).length > 50) throw new Error('moving projects that are only behind is set per place: { "<place>": true or false }');
+      const out = {};
+      for (const [k, on] of Object.entries(v)) {
+        if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,99}(\/[A-Za-z0-9][A-Za-z0-9._-]{0,99}){0,3}$/.test(k)) throw new Error(`"${k.slice(0, 40)}" is not a place of the workspace`);
+        if (typeof on !== 'boolean') throw new Error(`moving the projects of ${k} that are only behind must be on or off (true or false)`);
+        out[k] = on;
+      }
+      return out;
+    },
     pushBranches: (v) => {
       // One switch per place that holds projects: "projects" for the projects folder, else the place's folder.
       if (!isObj(v) || Object.keys(v).length > 50) throw new Error('pushing the other branches is set per place: { "<place>": true or false }');
@@ -174,7 +186,10 @@ export function readSettings(raw) {
   return out;
 }
 
-/** Whether restore is on: on by default everywhere (a choice of the person is kept). `backend` stays for the callers. */
+/**
+ * Whether restore is on: on by default on every backend (it only reopens and sends nothing; with tmux it matters after a
+ * reboot or when tmux itself died). `backend` is kept for the callers that pass it.
+ */
 export const restoreOn = (settings, _backend) => (settings.restore.enabled === null ? true : settings.restore.enabled);
 
 // ---- queued messages ----

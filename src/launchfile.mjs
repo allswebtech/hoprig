@@ -30,7 +30,7 @@ const windows = process.platform === 'win32';
  * (launch.mjs). Only the dashboard writes this file, in its own state folder, readable by this user alone, and the
  * launcher takes it once; so nothing a session or a request can say decides it. Returns its path.
  */
-export function writeLaunch({ cwd, argv, hand = null, hers = false }, now = Date.now()) {
+export function writeLaunch({ cwd, argv, hand = null, hers = false, all = false }, now = Date.now()) {
   const dir = launchDir();
   fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
   if (!windows) fs.chmodSync(dir, 0o700); // made earlier, or by an older version: owner only all the same
@@ -42,6 +42,7 @@ export function writeLaunch({ cwd, argv, hand = null, hers = false }, now = Date
     body.hand = hand;
   }
   if (hers) body.hers = true;
+  if (all) body.all = true; // "Allow everything" (bypassgate.mjs): the launcher sets the hook's mode from this alone, and marks the run (allmark.mjs)
   fs.writeFileSync(file, JSON.stringify(body), { mode: 0o600, flag: 'wx' });
   return file;
 }
@@ -114,6 +115,14 @@ export function takeHers() {
   return h;
 }
 
+let allTaken = false;
+/** True once when this launcher was started by the dashboard for a session in Allow everything (writeLaunch `all`). */
+export function takeAll() {
+  const h = allTaken;
+  allTaken = false;
+  return h;
+}
+
 /** Remove a launch file that will not be used (the terminal could not be made). */
 export const dropLaunch = (file) => file && fs.rmSync(file, { force: true });
 
@@ -179,9 +188,10 @@ export function takeLaunch(file) {
   const ok = o && o.v === 1 && typeof o.cwd === 'string' && o.cwd && path.isAbsolute(o.cwd)
     && Array.isArray(o.argv) && o.argv.every((a) => typeof a === 'string')
     && (o.hand === undefined || handOk(o.hand))
-    && (o.hers === undefined || o.hers === true);
+    && (o.hers === undefined || o.hers === true)
+    && (o.all === undefined || o.all === true);
   if (!ok) throw new LaunchError(USED);
-  return { cwd: o.cwd, argv: o.argv, ...(o.hand === undefined ? {} : { hand: o.hand }), ...(o.hers === true ? { hers: true } : {}) };
+  return { cwd: o.cwd, argv: o.argv, ...(o.hand === undefined ? {} : { hand: o.hand }), ...(o.hers === true ? { hers: true } : {}), ...(o.all === true ? { all: true } : {}) };
 }
 
 /**
@@ -212,5 +222,6 @@ export function applyLaunch(argv = process.argv) {
   for (const k of Object.keys(process.env)) if (/^HOPRIG_WORD_\d+$/.test(k)) delete process.env[k];
   taken = l.hand || null;
   hersTaken = l.hers === true;
+  allTaken = l.all === true;
   argv.splice(2, argv.length - 2, ...l.argv);
 }

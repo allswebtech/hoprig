@@ -34,14 +34,14 @@ export const ASSISTANT_NAME = 'Tia';
 export const LEVELS = ['ask', 'work', 'handsoff'];
 // Off until the owner turns her on: an assistant that drives sessions is the most powerful part of Hoprig, and
 // still experimental.
-export const DEFAULTS = Object.freeze({ enabled: false, level: 'work', accounts: null, runsOn: null, maxSteps: 20, maxMinutes: 240, model: null, dailyCapUsd: null, answersHers: false });
+export const DEFAULTS = Object.freeze({ enabled: false, level: 'work', accounts: null, runsOn: null, maxSteps: 20, maxMinutes: 240, model: null, dailyCapUsd: null, actAlone: false, decides: false, answersHers: false });
 const MODEL_RE = /^[A-Za-z0-9][A-Za-z0-9._:/@+\-[\]]{0,119}$/; // as src/server/endpoint.mjs
 const NAME_RE = /^[a-z0-9][a-z0-9_-]{0,31}$/;
 
 /** Plain sentences shown under every option in Settings → Tia. */
 export const HELP = {
   enabled: `Turn ${ASSISTANT_NAME} on or off (off at first; she is experimental). Off hides her tab and stops everything she watches.`,
-  level: `How far ${ASSISTANT_NAME} may go on her own: "Ask me" — you tap OK for everything she types into a session; "Do the work" — she runs the job herself; in a Claude Code chat she started she allows by herself only looking and running the project's own tests (a short list); changing files, everything else and every OK of another coding tool come to you; in a terminal session she started she still answers its ordinary permission prompts, judged only by the text on its screen against a list of risky things (best effort), and sends you the risky ones; "Hands off" — as "Do the work", and she may also use the paid API providers you allowed without asking, within the daily limit for paid use (none at first, so each of those still asks you); only at this level, and within the same limit, do the Operator's limit rule and "Tia decides" move a session onto such a provider, type into a session on one, or think on one. On the Work page she always asks you first, at every level: starting a session on a task, accepting or sending back its result, dropping and removing a task.`,
+  level: `How far ${ASSISTANT_NAME} may go on her own: "Ask me" — you tap OK for everything she types into a session; "Do the work" — she runs the job herself; in a Claude Code chat she started she allows by herself only looking and running the project's own tests (a short list); changing files, everything else and every OK of another coding tool come to you; in a terminal session she started she still answers its ordinary permission prompts, judged only by the text on its screen against a list of risky things (best effort), and sends you the risky ones; "Hands off" — as "Do the work", and she may also use the paid API providers you allowed without asking, within the daily limit for paid use (none at first, so each of those still asks you); only at this level, and within the same limit, do her limit rule and "Tia decides" move a session onto such a provider, type into a session on one, or think on one. On the Work page she always asks you first, at every level: starting a session on a task, accepting or sending back its result, dropping and removing a task.`,
   // One short line per level, shown above the full texts (those stay under "More").
   levelShort: {
     ask: 'She asks you before everything she types into a session.',
@@ -50,7 +50,7 @@ export const HELP = {
   },
   levelAsk: 'You tap OK for everything she types into a session.',
   levelWork: 'She runs the job herself: starts the session, picks the provider, answers its questions, checks the result. On the Work page she always asks you first, at every level: starting a session on a task, accepting or sending back its result, dropping and removing a task. In a Claude Code chat she started she allows by herself only looking and running the project\'s own tests (a short list); changing files, everything else and every OK of another coding tool come to you. In a terminal session she started she still answers its ordinary permission prompts, judged only by the text on its screen against a list of risky things (best effort), and sends you the risky ones.',
-  levelHandsoff: 'As "Do the work", and she may also start or move sessions on the paid API providers you allowed, without asking, within the daily limit for paid use (none at first: then each of those asks you). Only at this level, and within the same limit, do the Operator\'s limit rule and "Tia decides" move a session onto such a provider, type into a session on one, or think on one; each counts against the limit. On the Work page she always asks you first, at every level: starting a session on a task, accepting or sending back its result, dropping and removing a task.',
+  levelHandsoff: 'As "Do the work", and she may also start or move sessions on the paid API providers you allowed, without asking, within the daily limit for paid use (none at first: then each of those asks you). Only at this level, and within the same limit, do her limit rule and "Tia decides" move a session onto such a provider, type into a session on one, or think on one; each counts against the limit. On the Work page she always asks you first, at every level: starting a session on a task, accepting or sending back its result, dropping and removing a task.',
   answersHers: `When the session of a Work task that ${ASSISTANT_NAME} started for you asks for an OK, she answers it herself, as she does in the other sessions she runs for a job: only to let it look inside the project or run the project's own checks, and never at "Ask me". Each answer is a line in Activity. Every other OK stays your card: changing files, money, a sign-in, a push or merge into a main branch, a release, anything sent out, a delete outside the project and administrator rights. Off until you turn it on; turning it off stops it at once.`,
   accounts: `The providers ${ASSISTANT_NAME} may start or move sessions on. She never uses one that is not ticked.`,
   computers: `The computers ${ASSISTANT_NAME} may start new work on. When you do not name one, she starts it on this computer, and on a ticked one only while this computer is full and that one has room; she says where and why. None ticked: only where you name it, else on this computer.`,
@@ -107,6 +107,10 @@ export function cleanTiaPatch(p, knownAccounts = [], runsOnAccounts = knownAccou
       // cannot send it: door.mjs SETTINGS_KEYS has no assistant key).
       if (typeof v !== 'boolean') throw new Error('answersHers must be true or false');
       out.answersHers = v;
+    } else if (k === 'actAlone' || k === 'decides') {
+      // "She may act alone" and "Tia decides" (Settings → Tia, off at first): her own rights, so only his page sets them.
+      if (typeof v !== 'boolean') throw new Error(`${k} must be true or false`);
+      out[k] = v;
     } else if (k === 'lead') {
       // "Lead model" for the chats she starts (src/models/lead.mjs): off unless the owner turns it on.
       if (typeof v !== 'boolean') throw new Error('lead must be true or false');
@@ -195,7 +199,7 @@ export function resolveTia(raw, accounts) {
   // null: he chose no computers (as before this setting: where he names, else here); else the list, this one always in it.
   const computers = Array.isArray(r.computers) && r.computers.length ? [...new Set(['this', ...r.computers.filter((n) => typeof n === 'string')])] : null;
   const dailyCapUsd = typeof r.dailyCapUsd === 'number' && Number.isFinite(r.dailyCapUsd) && r.dailyCapUsd > 0 ? r.dailyCapUsd : null;
-  return { enabled: r.enabled !== false, level: r.level, allowed, computers, accountsDefault: !Array.isArray(r.accounts), runsOn, maxSteps: r.maxSteps, maxMinutes: r.maxMinutes, model, lead: r.lead === true, answersHers: r.answersHers === true, others: Array.isArray(r.others) ? r.others.filter((n) => allowed.includes(n)) : [], dailyCapUsd, subscription: firstFree ? firstFree.name : null, subsLimited, chosenLimited, noneAllowed };
+  return { enabled: r.enabled !== false, level: r.level, allowed, computers, accountsDefault: !Array.isArray(r.accounts), runsOn, maxSteps: r.maxSteps, maxMinutes: r.maxMinutes, model, lead: r.lead === true, answersHers: r.answersHers === true, actAlone: r.actAlone === true, decides: r.decides === true, others: Array.isArray(r.others) ? r.others.filter((n) => allowed.includes(n)) : [], dailyCapUsd, subscription: firstFree ? firstFree.name : null, subsLimited, chosenLimited, noneAllowed };
 }
 
 /**

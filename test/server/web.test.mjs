@@ -136,9 +136,9 @@ test('structure: the main pages, the second group, the Settings pages, and old a
   assert.deepEqual(group('main'), ['work', 'workspace', 'providers', 'computers'], 'Home is the router\'s own, then Work · Workspace · Providers · Computers');
   // Automations has no page of its own any more: Work → Schedules, Settings → Automations, Work → Activity.
   // The menu is Home, Work, Workspace, Providers, Computers and Settings last (shell.js menuItems); no More page.
-  // Skills and Memory are tabs of Projects (navAs: 'workspace'); Tia has no item of her own (her button and Settings -> Tia).
+  // Skills and Memory are tabs of Projects (navAs: 'workspace'); Tia has no item of her own (her button and Settings -> Tia); her page lights Home, as the App chat does.
   assert.deepEqual(group('more'), ['settings']);
-  assert.match(src('tia.js'), /registerPage\(\{\s*id: 'tia', title: NAME, icon: 'sparkle', navAs: 'settings'/);
+  assert.match(src('tia.js'), /registerPage\(\{\s*id: 'tia', title: NAME, icon: 'sparkle', navAs: 'home'/);
   // Every address in PAGE_ADDRESSES (what Tia's open_screen may open) leads to a page that exists.
   const ids = new Set([...pages.map((m) => m[1]), ...[...pageFiles().map(src).join('\n').matchAll(/registerPage\(\{\s*id: '([a-z-]+)'/g)].map((m) => m[1])]);
   const list = /export const PAGE_ADDRESSES = \[([\s\S]*?)\];/.exec(src('app.js'))[1];
@@ -267,7 +267,7 @@ test('AI brain: a file is shown as safe formatting, never as HTML; the list is g
     dailyLogs: { count: 1, items: [item('d1', { date: '2026-11-14' })] },
     projects: [{ name: 'shop', agents: item('agents'), decisions: null, learnings: null, activeContext: null, memory: { count: 0, items: [] } }],
   });
-  assert.deepEqual(g.map((x) => x.title), ['What your coding tools are told everywhere', 'What they remembered', 'Learnings and current context', 'Daily logs', 'Pending', 'shop']);
+  assert.deepEqual(g.map((x) => x.title), ['Rules for every tool', 'What they remembered', 'Learnings and current context', 'Daily logs', 'Pending', 'shop']);
   assert.deepEqual(g[1].rows[1], { item: g[1].rows[1].item, title: 'How I work', sub: 'Short answers', chip: 'about you' });
   assert.equal(g[4].rows.length, 0, 'nothing pending: the group says so instead of an empty box');
   // A coding tool's links to make: the count and the names agree (two to make, two named; the linked one is not).
@@ -336,7 +336,7 @@ test('session view: the header holds back, name and state, the account and one m
 // ---------- Home ----------
 test('Home: groups by what the session needs, plain terminals last, and one plain line about the providers', async () => {
   const { GROUPS, groupOf, accountsLine } = await import('../../web/home.js');
-  assert.deepEqual(GROUPS.map((g) => g[1]), ['Needs you', 'Working', 'Finished', 'Terminals']);
+  assert.deepEqual(GROUPS.map((g) => g[1]), ['Needs you', 'Working', 'Ready', 'Terminals']);
   assert.equal(groupOf({ status: 'attention' }), 'needs');
   assert.equal(groupOf({ status: 'waiting', limit: { text: 'x' } }), 'needs', 'a limit needs you');
   assert.equal(groupOf({ status: 'waiting' }), 'waiting', 'a finished turn only waits for the next message');
@@ -1056,16 +1056,13 @@ test('new session: what runs in a folder (a terminal session, or a chat at work)
   assert.doesNotMatch(fs.readFileSync(path.join(WEB, 'newsession-options.js'), 'utf8'), /plain terminal/i, 'a plain shell opens from the chat, the Projects page and the editor');
 });
 
-test('new session: repositories by their own name, and a path only where it says more than the name', async () => {
-  const { folderSub, repoWords } = await import('../../web/newsession.js');
-  assert.deepEqual(repoWords('code/bookshop-api', 'bookshop'), { name: 'bookshop-api', sub: 'in bookshop' });
-  assert.deepEqual(repoWords('.', 'bookshop'), { name: 'bookshop', sub: null }, 'a project\'s own folder: its name, no second line');
+test('new session: a path only where it says more than the name', async () => {
+  const { folderSub } = await import('../../web/newsession.js');
   assert.equal(folderSub({ name: 'shop', short: '~/Workspace/projects/shop' }, '~/Workspace/projects'), null, 'no "project" under every row');
   assert.equal(folderSub({ name: 'tool', short: '~/src/tool' }, '~/Workspace/projects'), '~/src/tool');
   assert.equal(folderSub({ name: 'x', short: '~/x' }, null), '~/x', 'projects folder not known: the path');
   const src = fs.readFileSync(path.join(WEB, 'newsession-popup.js'), 'utf8');
   assert.match(src, /sub \? h\('span\.row-sub', sub\) : null/, 'a row without a second line draws none');
-  assert.deepEqual(repoWords('code/tool', null), { name: 'tool', sub: null }, 'a repository of no project: no second line');
 });
 
 test('Home cards: the pill leaves out what the heading says; the folder only when it is not projects/<name>', async () => {
@@ -1427,7 +1424,7 @@ test('a sentence that sends him to a switch in Settings opens the page at that s
   const { BYPASS_SWITCH } = await import('../../web/home.js');
   assert.equal(BYPASS_SWITCH, '#/settings/new-sessions?show=bypass');
   assert.match(fs.readFileSync(path.join(WEB, 'home.js'), 'utf8'), /href: BYPASS_SWITCH, onclick: \(\) => seen\(\) \}, 'Open the switch'/);
-  assert.match(fs.readFileSync(path.join(WEB, 'settings.js'), 'utf8'), /const part = partFor\(sub, partOf\(query\), pages\);\n\s*if \(part\) showPart\(part, \{ alive: isAlive \}\);/);
+  assert.match(fs.readFileSync(path.join(WEB, 'settings.js'), 'utf8'), /const part = partFor\(sub, partOf\(query\), pages\);[\s\S]*if \(part\) showPart\(part, \{ alive: isAlive \}\);/);
 });
 
 test('the sign-in code\'s banner opens the switch it names', async () => {

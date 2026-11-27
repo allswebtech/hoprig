@@ -8,9 +8,9 @@ export const WORDS = {
   heroWindow: 'Hoprig · Home',
   // The first picture: the demo's Home (site/story/home-*.webp), described from what it shows.
   heroAlt: 'Hoprig\'s Home page in the built-in demo: the sessions of every computer on one page, the ones that need you first',
-  // Over the install line: where it goes, for someone who has never used a terminal, and the page that walks them
+  // Over the install lines: where they go, for someone who has never used a terminal, and the page that walks them
   // through it (site/content/use-cases/not-a-developer.md: "open the Terminal app ... and paste one line").
-  paste: 'Paste this line into the Terminal app and press Enter.',
+  paste: 'Paste the line of your computer into its terminal and press Enter.',
   newHere: { text: 'New to this? Start here', href: '/use-cases/not-a-developer/' },
   // Under the install line: Hoprig costs nothing, the AI it runs may (the FAQ "Is Hoprig free?": "What can cost money
   // is the provider you choose"; not-a-developer.md: "Hoprig is free; the AI is not").

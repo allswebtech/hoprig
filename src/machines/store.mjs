@@ -5,6 +5,7 @@
 //                                                    port, joinId     (via join: it connects by itself, join.mjs)
 //                                                    port, linkId, linkHash   (via link: the direct link, link.mjs)
 //                      token, tokenId, added, info: { hostname, platform, version },
+//                      own: false  (the owner said it is not his own: credentials one project at a time, credmove.mjs),
 //                      key: true   (via ssh, added with a key file: keys.mjs keeps it, never this file),
 //                      seenAt       (when its health was last read: hub.mjs health) } ] }
 //
@@ -50,8 +51,10 @@ export const getMachine = (name) => loadMachines().find((m) => m.name === name) 
 /** Add `m`, or replace the machine with the same name (pairing again after a token was revoked). */
 export function putMachine(m) {
   if (!valid(m)) throw new Error('not a valid machine entry');
+  const old = loadMachines().find((x) => x.name === m.name);
   const list = loadMachines().filter((x) => x.name !== m.name);
-  list.push(m);
+  // Adding a computer again (a new token) never makes it the owner's own: the mark stays until he removes it.
+  list.push(old && old.own === false && m.own === undefined ? { ...m, own: false } : m);
   saveMachines(list);
   return m;
 }
@@ -82,6 +85,20 @@ export function renameMachine(name, { name: next, label } = {}) {
   return m;
 }
 
+/**
+ * Mark a computer as the owner's own (the default) or not (`own: false`: a rented server, a friend's): a computer that is
+ * not his own gets credentials one project at a time only (src/workspace/credmove.mjs). → true, or false when unknown.
+ */
+export function setOwn(name, own) {
+  const list = loadMachines();
+  const m = list.find((x) => x.name === name);
+  if (!m) return false;
+  if (own === false) m.own = false;
+  else delete m.own;
+  saveMachines(list);
+  return true;
+}
+
 /** What the page and the CLI may see: never the token. */
 export const publicMachine = (m) => ({
   name: m.name,
@@ -91,5 +108,6 @@ export const publicMachine = (m) => ({
   url: m.via === 'url' ? m.url : null,
   added: m.added || null,
   info: m.info || null,
+  own: m.own !== false, // false: the owner said this computer is not his own (setOwn)
   key: m.key === true, // added with a key file this dashboard keeps (keys.mjs); never the key itself
 });

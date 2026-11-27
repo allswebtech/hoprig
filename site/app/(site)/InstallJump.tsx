@@ -9,7 +9,10 @@ import { useEffect } from 'react';
 let flashTimer: ReturnType<typeof setTimeout> | undefined;
 
 function focusCopy() {
-  const b = document.querySelector<HTMLButtonElement>('#install .copy');
+  // The first line is the visitor's own system where the page knows it (data-first), else the first in the group.
+  const box = document.getElementById('install');
+  const first = box?.dataset.first;
+  const b = box?.querySelector<HTMLButtonElement>(first ? `[data-system="${first}"] .copy` : '.copy');
   if (!b) return false;
   b.focus({ preventScroll: true });
   const line = document.getElementById('install');

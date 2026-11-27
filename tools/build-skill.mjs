@@ -70,6 +70,7 @@ export const PROBES = [
   ['hoprig machines', ['machines', '--help']],
   ['hoprig join', ['join', '--help']],
   ['hoprig serve', ['serve', '--help']],
+  ['hoprig stop', ['stop', '--help']],
   ['hoprig passwd', ['passwd', '--help']],
   ['hoprig service', ['service', '--help']],
   ['hoprig mcp', ['mcp', '--help']],
@@ -80,7 +81,7 @@ export const PROBES = [
 ];
 
 /** Commands of bin/hoprig.mjs that people do not type (Hoprig starts them itself, or keeps them switched off). */
-export const NOT_TYPED = ['hook', 'router', 'router-url', 'run', 'codex', 'version'];
+export const NOT_TYPED = ['hook', 'router', 'router-url', 'run', 'codex', 'version', 'keep'];
 
 /** The commands of bin/hoprig.mjs (its switch's case labels) that no probe or the top help covers. */
 export function uncovered(commands) {

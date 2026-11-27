@@ -13,11 +13,12 @@ const TOKEN = 'ab'.repeat(32);
 test('dataFolder follows the gateways rule', () => {
   const home = tmp();
   assert.equal(dataFolder({ DATA_DIR: '/x/y' }, home, 'linux'), '/x/y');
-  assert.equal(dataFolder({}, home, 'linux'), path.join(home, '.trouteai'));
+  // a Linux answer is joined the Linux way, whatever system the test runs on
+  assert.equal(dataFolder({}, home, 'linux'), path.posix.join(home, '.trouteai'));
   assert.equal(dataFolder({ XDG_CONFIG_HOME: '/cfg' }, home, 'linux'), '/cfg/trouteai');
   fs.mkdirSync(path.join(home, '.trouteai'));
-  assert.equal(dataFolder({ XDG_CONFIG_HOME: '/cfg' }, home, 'linux'), path.join(home, '.trouteai'), 'an existing ~/.trouteai wins');
-  assert.equal(dataFolder({ DATA_DIR: '  ', XDG_CONFIG_HOME: '/cfg' }, home, 'linux'), path.join(home, '.trouteai'));
+  assert.equal(dataFolder({ XDG_CONFIG_HOME: '/cfg' }, home, 'linux'), path.posix.join(home, '.trouteai'), 'an existing ~/.trouteai wins');
+  assert.equal(dataFolder({ DATA_DIR: '  ', XDG_CONFIG_HOME: '/cfg' }, home, 'linux'), path.posix.join(home, '.trouteai'));
   const h2 = tmp();
   assert.equal(dataFolder({ APPDATA: 'C:\\Users\\a\\AppData\\Roaming' }, h2, 'win32'), 'C:\\Users\\a\\AppData\\Roaming\\trouteai');
 });
@@ -28,9 +29,12 @@ test('commandToken is read only from a safe file', () => {
   const f = path.join(d, 'cli-token');
   fs.writeFileSync(f, `${TOKEN}\n`, { mode: 0o600 });
   assert.equal(commandToken(d), TOKEN);
-  fs.chmodSync(f, 0o644);
-  assert.equal(commandToken(d), null, 'readable by others');
-  fs.chmodSync(f, 0o600);
+  // Windows has no file mode bits (its rights are the folder's own), so a file others can read cannot be made there.
+  if (process.platform !== 'win32') {
+    fs.chmodSync(f, 0o644);
+    assert.equal(commandToken(d), null, 'readable by others');
+    fs.chmodSync(f, 0o600);
+  }
   fs.writeFileSync(f, 'not a token');
   assert.equal(commandToken(d), null, 'not a token');
   fs.writeFileSync(f, TOKEN);

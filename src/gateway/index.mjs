@@ -482,7 +482,7 @@ export function gatewayFeature(ctx, { hub = null, addons = null, now = Date.now,
       const g = gatewayOr404(m[1]);
       if (b.on === true) {
         const p = localProvider(g);
-        if (!p) throw fail(409, `First add ${g.title} as a provider on ${label()} (Providers → Gateways on your computers → Use here): sharing passes on the key of that provider.`, 'gateway-no-provider');
+        if (!p) throw fail(409, `First add ${g.title} as a provider on ${label()} (Providers → ${g.title} → Use it for my sessions): sharing passes on the key of that provider.`, 'gateway-no-provider');
         setShared(g.id, p.name);
       } else setShared(g.id, null);
       return localView(g, true);
@@ -492,7 +492,7 @@ export function gatewayFeature(ctx, { hub = null, addons = null, now = Date.now,
       const g = gatewayOr404(m[1]);
       const provider = sharedProvider(g.id);
       const p = provider ? readProfile(provider) : null;
-      if (!p || !upstreamAuth(p, g.port)) throw fail(409, `Sharing of ${g.title} is turned off on ${label()}. Turn it on there first: Providers → Gateways on your computers.`, 'gateway-not-shared');
+      if (!p || !upstreamAuth(p, g.port)) throw fail(409, `Sharing of ${g.title} is turned off on ${label()}. Turn it on there first: Providers → ${g.title}.`, 'gateway-not-shared');
       // Asked by a linked hub with its machine token: the key ends when that token is revoked. The owner's login: never.
       const { id, key } = createKey(g.id, typeof b.name === 'string' ? b.name : '', { token: tokenIdOf(req) });
       const cfg = loadConfig().server;

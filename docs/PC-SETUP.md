@@ -23,10 +23,10 @@ alone, never reinstalled or downgraded.
 | `--recipe <file or https address>` | set up like another computer (see Recipes) |
 | `--rules` / `--remove-rules` | add (or take out again) a good set of working rules for Claude Code: one file, `~/.claude/rules/hoprig-working-rules.md`, which Claude Code loads for every project; your own `CLAUDE.md` is never touched (an import line an earlier version added there is taken out). Nothing of your workspace map is ever written into it; the short text about your workspace is `hoprig workspace rules`, offered once at a terminal and written into a file of its own only on your yes |
 
-The same is on the dashboard: **Computers**, open the computer, **Setup** (one of its four parts: **Overview**,
-**Setup**, **Health** and **Advanced**). Setup also has a link to the workspace folders, which live in
-**Settings → Workspace**. It shows the status with a **Fix**
-button where a fix exists, and **Set up this computer** lets you tick kits. The installs run as a job on the
+The same is on the dashboard: **Computers**, open the computer, **Setup** (one of its three parts: **Overview**,
+**Setup** and **Advanced**). Setup also has a link to the workspace folders, which live in
+**Settings → Automations → Workspace**. It opens on the things to fix, red ones first, each with a **Fix**
+button where a fix exists, and what is fine is folded away under "things are fine" (**Git and GitHub** is one row of its own); and **Set up this computer** lets you tick kits. The installs run as a job on the
 Setup part itself: each step with ✓ or ✗, the output as it comes, the result and **Check again**. The job goes on
 when you leave the page and shows again when you come back. This works for another computer through the main computer too.
 
@@ -155,7 +155,7 @@ clone it looks at what the project needs — the lockfile decides the dependency
 uv, poetry, pip, bundler, composer, go, cargo), `.nvmrc`/`engines` the Node version, and `.env.example` is
 copied to `.env` when there is none — and asks before running the install. Nothing else of a project ever runs,
 and an existing folder is never overwritten. The dashboard's **Workspace** page lists what is in the projects
-folder, each project with its sessions under it (change the folder there: **Advanced**, **Projects folder**, **Change**), and **New session** offers those projects. `hoprig pc clone <repo>…` does the same for given repositories.
+folder, each project with its state and a **New session** button (change the folder there: **More**, **Projects folder**, **Change**), and **New session** offers those projects. `hoprig pc clone <repo>…` does the same for given repositories.
 
 ### Project workspaces
 
@@ -233,7 +233,7 @@ and a report.
 every project (the language you are answered in, your country, currency and time zone, your providers, where you
 deploy, your stack, your targets). The skill takes them without asking. Hoprig never writes that file.
 
-The dashboard does the same: **Workspace → New project** takes the brief, the kind and the scope, and "Start with
+The dashboard does the same: **Projects → Add project → New project** takes the brief, the kind and the scope, and "Start with
 AI" opens the session and goes to it (`POST /api/pcsetup/project/new`, then `POST /api/pcsetup/project/start`).
 
 Every command here that changes something takes `--dry-run` (`new`, `add`, `clone`/`get`, `setup`, `sync`, `link`):

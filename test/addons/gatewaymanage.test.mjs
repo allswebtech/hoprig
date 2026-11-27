@@ -27,7 +27,7 @@ async function setup(fakeOpts = {}, extra = {}) {
     const [pathname, query = ''] = p.split('?');
     for (const [m, re, fn] of feature.routes) {
       const hit = re.exec(pathname);
-      if (hit && m === method) return (body = {}, caller) => fn({ body, caller }, hit, new URLSearchParams(query));
+      if (hit && m === method) return (body = {}, caller, headers) => fn({ body, caller, headers }, hit, new URLSearchParams(query));
     }
     throw new Error(`no route ${method} ${p}`);
   };
@@ -237,25 +237,84 @@ test('keys: only the ones Hoprig made are listed and removed', async () => {
   }
 });
 
-test('Open: a one-time link only for this computer\'s TRouteAI, else nothing (the page uses the plain address)', async () => {
+const LOCAL = { where: 'local', host: 'localhost' };
+const OWNER = { cookie: 'hoprig=1' };
+const MARKED = { fixed: () => ({ mode: 'named', hostname: 'pc.example.com', extra: [{ hostname: 'tai-pc.example.com', port: 1, gateway: 'trouteai' }] }) };
+
+test('Open on this computer: a one-time link on its own name, else url null with the line about its password', async () => {
   const none = await setup();
   try {
-    assert.deepEqual(await none.ok('POST', `${T}/open`), { url: null });
+    assert.deepEqual(await none.ok('POST', `${T}/open`, LOCAL), { url: null, says: 'TRouteAI asks for the password you set for it.' });
+    fs.writeFileSync(path.join(folder, 'initial-admin-password.txt'), 'x\n');
+    const first = await none.ok('POST', `${T}/open`, LOCAL);
+    assert.equal(first.url, null);
+    assert.equal(first.says, `TRouteAI asks for its password. The first one is in the file ${path.join(folder, 'initial-admin-password.txt')} on box2.`);
+    fs.rmSync(path.join(folder, 'initial-admin-password.txt'));
+    for (const body of [{}, { where: 'local' }, { where: 'local', host: 'evil.example.com' }, { where: 'local', host: 'localhost:80' }]) {
+      await assert.rejects(none.route('POST', `${T}/open`)({ confirm: 'box2', ...body }), (e) => e.status === 400, JSON.stringify(body));
+    }
+    await assert.rejects(none.route('POST', `${T}/open`)({ where: 'local', host: 'localhost' }), (e) => e.status === 400 && /confirm/.test(e.message));
   } finally {
     await none.close();
   }
   const s = await setup({ authLink: true });
   try {
-    const r = await s.ok('POST', `${T}/open`);
-    assert.equal(r.url, `http://127.0.0.1:${s.gw.port}/login/link?code=${LINK_CODE}`);
+    assert.deepEqual(await s.ok('POST', `${T}/open`, LOCAL), { url: `http://localhost:${s.gw.port}/login/link?code=${LINK_CODE}`, says: null });
+    assert.equal((await s.ok('POST', `${T}/open`, { where: 'local', host: '127.0.0.1' })).url, `http://127.0.0.1:${s.gw.port}/login/link?code=${LINK_CODE}`);
   } finally {
     await s.close();
   }
-  const other = await setup({ authLink: true }, { call: async () => ({ url: 'https://evil.example/login?code=1' }) });
+});
+
+test('Open keeps only the path and the code of what the gateway says: its origin, a foreign path or an extra query never count', async () => {
+  const give = (url) => setup({ authLink: true }, { call: async () => ({ url }) });
+  const keep = await give('https://tai-pc.example.com/login/link?code=ABC_def-123');
   try {
-    assert.deepEqual(await other.ok('POST', `${T}/open`), { url: null });
+    assert.equal((await keep.ok('POST', `${T}/open`, LOCAL)).url, `http://localhost:${keep.gw.port}/login/link?code=ABC_def-123`, 'a public base the gateway was given does not break the local case');
   } finally {
-    await other.close();
+    await keep.close();
+  }
+  for (const bad of ['https://evil.example/login?code=1', 'http://127.0.0.1:1/login/link?code=a&next=/x', 'http://127.0.0.1:1/login/link?next=/x', 'http://127.0.0.1:1/login/link?code=has space', `http://127.0.0.1:1/login/link?code=${'a'.repeat(129)}`, 'http://127.0.0.1:1/login/linkx?code=a', 'nonsense']) {
+    const other = await give(bad);
+    try {
+      assert.equal((await other.ok('POST', `${T}/open`, LOCAL)).url, null, bad);
+    } finally {
+      await other.close();
+    }
+  }
+});
+
+test('Open on the public name: only the owner\'s own browser, only while the name is on; a token or no cookie gets url null', async () => {
+  const s = await setup({ authLink: true }, MARKED);
+  try {
+    const pub = { confirm: 'box2', where: 'public', host: 'tai-pc.example.com' };
+    assert.deepEqual(await s.route('POST', `${T}/open`)(pub, undefined, OWNER), { url: `https://tai-pc.example.com/login/link?code=${LINK_CODE}`, says: null });
+    assert.equal((await s.route('POST', `${T}/open`)(pub, undefined, {})).url, null, 'no sign-in cookie');
+    await assert.rejects(s.route('POST', `${T}/open`)(pub, 'self', OWNER), (e) => e.status === 403, 'Tia');
+  } finally {
+    await s.close();
+  }
+  const hub = await setup({ authLink: true }, { ...MARKED, tokenOf: () => 'tok1' });
+  try {
+    const r = await hub.route('POST', `${T}/open`)({ confirm: 'box2', where: 'public', host: 'x' }, undefined, OWNER);
+    assert.equal(r.url, null, 'a hub\'s machine token never gets a public code');
+    assert.equal(hub.gw.state.calls.some((c) => c.url === '/api/auth/link'), false, 'and no code was even made');
+  } finally {
+    await hub.close();
+  }
+  const off = await setup({ authLink: true }, { fixed: () => ({ mode: 'named', hostname: 'pc.example.com', extra: [] }) });
+  try {
+    const r = await off.route('POST', `${T}/open`)({ confirm: 'box2', where: 'public', host: 'x' }, undefined, OWNER);
+    assert.deepEqual(r, { url: null, says: 'TRouteAI opens here once its public address is on.' });
+  } finally {
+    await off.close();
+  }
+  const old = await setup({}, MARKED);
+  try {
+    const r = await old.route('POST', `${T}/open`)({ confirm: 'box2', where: 'public', host: 'x' }, undefined, OWNER);
+    assert.deepEqual(r, { url: null, says: 'TRouteAI asks for the password you set for it.' }, '1.0.11: its sign-in page asks for the password');
+  } finally {
+    await old.close();
   }
 });
 

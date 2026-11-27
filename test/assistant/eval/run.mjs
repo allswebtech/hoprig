@@ -36,6 +36,7 @@ import { fileURLToPath } from 'node:url';
 import { Engine } from '../../../src/assistant/engine.mjs';
 import { decideMode, wakeMessage } from '../../../src/assistant/jobs.mjs';
 import { systemPrompt } from '../../../src/assistant/prompt.mjs';
+import { AuditLog } from '../../../src/assistant/audit.mjs';
 import { startFakeDashboard, FakeOps } from '../fake-dashboard.mjs';
 import { CASES, setupState } from './cases.mjs';
 import { TOOL_NAMES } from '../../../src/assistant/tools.mjs';
@@ -82,7 +83,10 @@ async function runCase(c, o, i, attempt = 1, usd = CASE_USD) {
   // dashboard, so its "as of" and her clock agree. Kept per case: four run at once.
   const progressNow = Math.floor(Date.now() / 60_000) * 60_000;
   ops.s.work.progressNow = progressNow;
-  const dash = await startFakeDashboard({ ops, ...(o.prep.skills ? { skills: o.prep.skills() } : {}) });
+  // Her acts of an earlier day (a case's `audit`): in the log of this run, so that Undo can find them.
+  const audit = new AuditLog({ file: null });
+  for (const x of c.audit || []) audit.append(x.entry).at = Date.now() - x.agoMs;
+  const dash = await startFakeDashboard({ ops, audit, ...(o.prep.skills ? { skills: o.prep.skills() } : {}) });
   const conversation = `eval-${i}${attempt > 1 ? `r${attempt}` : ''}-${c.id}`.slice(0, 64);
   // The fake dashboard's token goes to a file, as the real dashboard does (the engine passes the file, not the token).
   const tokenDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tia-eval-'));
@@ -116,7 +120,7 @@ async function runCase(c, o, i, attempt = 1, usd = CASE_USD) {
     const mode = decideMode(ev);
     message = wakeMessage(ev, mode, screen);
     dash.core.beginTurn(conversation, { origin: 'job', job: job.id, mode });
-  } else dash.core.beginTurn(conversation, { origin: 'owner', text: message });
+  } else dash.core.beginTurn(conversation, { origin: 'owner', text: message, ...(c.spoken ? { spoken: true } : {}) });
   const started = Date.now();
   let res;
   try {

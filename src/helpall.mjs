@@ -94,8 +94,10 @@ export const HELP_ALL = `Hoprig — Claude Code and OpenCode under several provi
 
   hoprig serve                start the web dashboard
   hoprig passwd               set the dashboard password
-  hoprig service install      run the dashboard in the background
+  hoprig stop                 stop the dashboard (it stays stopped until hoprig service start)
+  hoprig service install      run the dashboard in the background, kept running by itself
   hoprig service restart      start the background dashboard again (after an update)
+  hoprig service start | stop start or stop it; hoprig stop is the same stop
 
   Profiles are files in ${profilesDir()}
 `;

@@ -137,6 +137,9 @@ const pickCatalog = (j) => {
     })).filter((e) => e.id && /^[a-z0-9][a-z0-9-]*$/.test(e.id) && e.name),
   };
 };
+// The gateway sign-in state (a public route of its own): only these three yes-or-no answers are kept. Its hasPassword is named
+// signInSet here: the filter above drops any field with "password" in its name.
+const pickSignIn = (j) => ({ requireLogin: rec(j).requireLogin === true, signInSet: rec(j).hasPassword === true, oidcEnabled: rec(j).oidcEnabled === true });
 const pickLink = (j) => ({ url: urlOf(rec(j).url || rec(j).link || rec(j).href, 600) });
 // For Hoprig's own use only (never returned to a page): what a sign-in act needs to go on.
 const pickDevice = (j) => ({ userCode: str(rec(j).user_code, 60), link: urlOf(rec(j).verification_uri_complete || rec(j).verification_uri, 500), deviceCode: typeof rec(j).device_code === 'string' ? j.device_code : null, codeVerifier: typeof rec(j).codeVerifier === 'string' ? j.codeVerifier : null, interval: Number.isFinite(rec(j).interval) ? j.interval : 5, expiresIn: Number.isFinite(rec(j).expires_in) ? j.expires_in : 600, extraData: rec(j).extraData ?? null });
@@ -149,6 +152,7 @@ const pickMadeKey = (j) => ({ id: idOf(rec(j).id, 120), key: typeof rec(j).key =
  * The list of what may be sent. `inner`: the answer is for Hoprig's own use and is never returned by a route (it holds
  * what a sign-in act needs). `secret`: the answer holds a credential: only `withManageKey` may send it.
  * `bearer`: the route refuses the command token (it takes a session or a key with the manage scope).
+ * `plain`: a public route of the gateway: it is asked with no token and no key at all.
  */
 export const ALLOWED = [
   { id: 'accounts', method: 'GET', re: /^\/api\/providers(\?limit=\d{1,4})?$/, pick: pickAccounts },
@@ -166,6 +170,7 @@ export const ALLOWED = [
   { id: 'keys', method: 'GET', re: /^\/api\/keys$/, pick: pickKeys },
   { id: 'key-remove', method: 'DELETE', re: new RegExp(`^/api/keys/${ID}$`), pick: pickMessage },
   { id: 'key-make', method: 'POST', re: /^\/api\/keys$/, pick: pickMadeKey, secret: true },
+  { id: 'sign-in-state', method: 'GET', re: /^\/api\/settings\/require-login$/, pick: pickSignIn, plain: true },
   { id: 'open-link', method: 'POST', re: /^\/api\/auth\/link$/, pick: pickLink },
   { id: 'device-code', method: 'GET', re: new RegExp(`^/api/oauth/${PROVIDER}/device-code$`), pick: pickDevice, inner: true, bearer: true, ms: 20_000 },
   { id: 'device-poll', method: 'POST', re: new RegExp(`^/api/oauth/${PROVIDER}/poll$`), pick: pickPoll, bearer: true, ms: 20_000 },
@@ -180,7 +185,7 @@ const sentenceFor = (entry, status, body, port) => {
   if (status === 401 || status === 403) {
     return entry.bearer
       ? 'TRouteAI refused the temporary sign-in key Hoprig made for this step. Try again; if it keeps refusing, use TRouteAI\'s own page.'
-      : 'TRouteAI did not accept Hoprig\'s command token. It accepts it only from the user who runs TRouteAI, with the same data folder: start TRouteAI from Hoprig (Health, Gateways) and try again.';
+      : 'TRouteAI did not accept Hoprig\'s command token. It accepts it only from the user who runs TRouteAI, with the same data folder: start TRouteAI from Hoprig (Providers → TRouteAI) and try again.';
   }
   if (status === 404) return said && !/^not found$/i.test(said) ? said : 'This TRouteAI has no such thing (an older version?).';
   if (status === 400 || status === 409 || status === 422) return said || 'TRouteAI did not accept that.';
@@ -200,19 +205,19 @@ export async function callGateway(method, path, opts = {}) {
   const port = Number(opts.port);
   if (!Number.isInteger(port) || port < 1024 || port > 65535) throw new ManageError('TRouteAI\'s port is not a usable number.', 500, 'port');
   const who = await (deps.sameUser || sameUserListener)(port);
-  if (who === 'none') throw new ManageError(`TRouteAI is not running on this computer (nothing answers on port ${port}). Start it first: Health, Gateways, Start.`, 409, 'down');
+  if (who === 'none') throw new ManageError(`TRouteAI is not running on this computer (nothing answers on port ${port}). Start it first: Providers → TRouteAI, Start.`, 409, 'down');
   if (who !== 'own') throw new ManageError(`A program that is not yours listens on port ${port}, so Hoprig sends it nothing. Stop it, or start TRouteAI on another port.`, 409, 'foreign');
   const headers = { accept: 'application/json' };
   if (entry.bearer) {
     if (typeof opts.bearer !== 'string' || !opts.bearer) throw new ManageError('This step needs a temporary sign-in key.', 500, 'internal');
     headers.authorization = `Bearer ${opts.bearer}`;
-  } else {
+  } else if (!entry.plain) {
     const token = (deps.token || commandToken)(opts.folder || dataFolder());
     if (!token) {
       const folder = opts.folder || dataFolder();
       if (!fs.existsSync(nodePath.join(folder, 'cli-token'))) {
         const { GATEWAY_PIN } = await import('../addons/gateways.mjs');
-        throw new ManageError(`TRouteAI runs, but it has no command token file: the program that runs is older than ${GATEWAY_PIN} (the first that writes it), or it was started before it was updated. Next step: if the copy on this computer is older than ${GATEWAY_PIN}, press Update (Health, Gateways), then press Restart there, so the copy on this computer runs.`, 409, 'token');
+        throw new ManageError(`TRouteAI runs, but it has no command token file: the program that runs is older than ${GATEWAY_PIN} (the first that writes it), or it was started before it was updated. Next step: if the copy on this computer is older than ${GATEWAY_PIN}, press Update (Providers → TRouteAI), then press Restart there, so the copy on this computer runs.`, 409, 'token');
       }
       throw new ManageError('Hoprig cannot read TRouteAI\'s command token (others can read its file, or it is not yours, or it is not a token). Start TRouteAI once from Hoprig as this user, then try again.', 409, 'token');
     }
@@ -230,7 +235,7 @@ export async function callGateway(method, path, opts = {}) {
     text = (await res.text()).slice(0, BODY_MAX);
   } catch (e) {
     if (e?.name === 'TimeoutError' || e?.name === 'AbortError') throw new ManageError(`TRouteAI did not answer in time (${Math.round((deps.timeoutMs || entry.ms || TIME_MS) / 1000)} seconds). Try again in a moment.`, 504, 'slow');
-    throw new ManageError(`TRouteAI does not answer on port ${port}. Start it first: Health, Gateways, Start.`, 409, 'down');
+    throw new ManageError(`TRouteAI does not answer on port ${port}. Start it first: Providers → TRouteAI, Start.`, 409, 'down');
   }
   let json = null;
   try {

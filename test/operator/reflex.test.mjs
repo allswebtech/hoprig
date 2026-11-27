@@ -64,6 +64,7 @@ function rig({ rules = {}, acts = true, tia = true, operator = {}, assistant = {
     session: {
       move: async (name, to) => {
         calls.push(['move', name, to]);
+        if (slow) await slow({});
         world.sessions = world.sessions.map((s) => (s.name === name ? { ...s, provider: to, limit: null, nextProvider: s.provider } : s));
       },
       stop: async (name) => calls.push(['stop', name]),
@@ -98,30 +99,35 @@ function rig({ rules = {}, acts = true, tia = true, operator = {}, assistant = {
 const limited = (over = {}) => session({ name: 'alpha', folder: path.join(projects, 'alpha', 'code'), limit: { at: ago(3), text: 'Usage limit reached', source: 'hook' }, ...over });
 const deadGateway = { name: 'gate', port: 8111, running: true, installed: true, usedBy: 1, live: 2, answers: false, since: ago(5) };
 
-test('everything is off after an install: no setting is the master switch off and every rule off; no round does anything', async () => {
-  assert.deepEqual(readOperator({}), { acts: false, tia: false, active: false, rules: Object.fromEntries(RULE_IDS.map((r) => [r, false])), budgets: readOperator({}).budgets, projectsOut: [] });
+test('after an install what spends usage is off and what costs nothing is on: no setting is the mends switch on, Tia and her master switch off, every rule of cost usage off', async () => {
+  const fresh = readOperator({});
+  assert.deepEqual({ ...fresh, rules: undefined, budgets: undefined }, { mends: true, acts: false, tia: false, active: false, rules: undefined, budgets: undefined, projectsOut: [] });
+  assert.deepEqual(fresh.rules, { limit: false, gateway: true, link: true, leftover: true, reopen: true, clean: true, elsewhere: false });
   for (const broken of [null, 'on', [], { acts: 'yes', rules: { limit: 1 } }, { acts: true, rules: 'all' }]) {
     const s = readOperator({ operator: broken, assistant: { enabled: true } });
-    // A broken part is off: the master switch is on only when it is exactly true, a rule only when it is exactly true.
+    // A broken part is the default: Tia's master switch is on only when it is exactly true, a rule of cost usage only when it is exactly true.
     assert.equal(s.active, broken?.acts === true, JSON.stringify(broken));
-    assert.ok(Object.values(s.rules).every((on) => on === false), JSON.stringify(broken));
+    assert.equal(s.rules.limit, false, JSON.stringify(broken));
+    assert.equal(s.rules.elsewhere, false, JSON.stringify(broken));
+    assert.equal(s.mends, true, JSON.stringify(broken));
   }
-  const r = rig({ acts: false, rules: {}, world: { sessions: [limited()], gateways: [deadGateway], leftovers: [oldTmux(4101)] } });
+  // Every rule of cost usage on but the master switch off, or Tia off: nothing. (The mends do not need either.)
+  const r = rig({ acts: false, rules: { limit: true }, world: { sessions: [limited()] } });
   assert.deepEqual(await r.round(), { acted: 0 });
-  // The master switch on but every rule off: nothing either; and every rule on but the master switch off.
-  saveConfig({ operator: { acts: true, rules: {} } });
-  assert.deepEqual(await r.round(), { acted: 0 });
-  saveConfig({ operator: { acts: false, rules: { limit: true, gateway: true, link: true, leftover: true } } });
+  saveConfig({ operator: { acts: true, rules: { limit: true } }, assistant: { enabled: false } });
   assert.deepEqual(await r.round(), { acted: 0 });
   assert.deepEqual(r.calls, []);
-  assert.equal(fs.existsSync(opDir), false, 'nothing is written');
+  assert.equal(fs.existsSync(recFile) || fs.existsSync(path.join(opDir, 'timeline.jsonl')), false, 'nothing is written');
 });
 
-test('while Tia herself is off, no rule acts', async () => {
-  const r = rig({ tia: false, rules: { leftover: true }, world: { leftovers: [oldTmux(4101)] } });
+test('while Tia herself is off, a rule that spends usage does not act; one that costs nothing does', async () => {
+  const r = rig({ tia: false, rules: { limit: true }, world: { sessions: [limited()] } });
   await r.round();
   assert.deepEqual(r.calls, []);
   assert.match(r.view().said, /Tia is turned off/);
+  const m = rig({ tia: false, rules: { leftover: true }, world: { leftovers: [oldTmux(4101)] } });
+  assert.deepEqual(await m.round(), { acted: 1 });
+  assert.deepEqual(m.calls, [['end', 4101]]);
 });
 
 test('the limit rule: continues the session on the item\'s next provider, writes its line with Undo, and Undo moves it back', async () => {
@@ -274,7 +280,7 @@ test('the gateway rule restarts a gateway open sessions go through; never the "n
   const r = rig({ rules: { gateway: true }, world: { gateways: [deadGateway, notStarted] } });
   await r.round();
   assert.deepEqual(r.calls, [['restart-gateway', 'gate']]);
-  assert.equal(lines()[0].noUndo, 'A restart cannot be undone.');
+  assert.equal(lines()[0].noUndo, 'A restart cannot be undone; Stop on its page ends it.');
 });
 
 test('the gateway rule never starts again a gateway the owner stopped himself; his stop is remembered by the add-on routes', async () => {
@@ -297,20 +303,20 @@ test('the gateway rule never starts again a gateway the owner stopped himself; h
   assert.equal(stoppedAt('gate'), null, 'a start ends it');
 });
 
-test('loop: a gateway that dies again a minute after each restart: a wait between tries, two tries, then it is his', async () => {
+test('loop: a gateway that dies again a minute and a half after each restart: a wait between tries, two tries, then it is his', async () => {
   const r = rig({ rules: { gateway: true }, world: { gateways: [deadGateway] } });
   const die = () => { r.world.gateways = [deadGateway]; };
-  for (const at of [0, 1, 5, 11, 12, 22, 40, 59]) {
+  for (const at of [0, 1.5, 5, 11, 12, 22, 40, 59]) {
     r.clock.t = NOW + at * MIN;
     if (at) die();
     await r.round();
   }
-  assert.deepEqual(r.calls, [['restart-gateway', 'gate'], ['restart-gateway', 'gate']], 'two tries, ten minutes apart');
+  assert.deepEqual(r.calls, [['restart-gateway', 'gate'], ['restart-gateway', 'gate']], 'two tries, the second after 2 minutes');
   const refused = lines().filter((l) => l.refused).map((l) => l.result);
-  assert.ok(refused.some((t) => /waits 10 min/.test(t)), refused.join(' | '));
-  assert.ok(refused.some((t) => /Tia tried twice/.test(t)), refused.join(' | '));
+  assert.ok(refused.some((t) => /waits 2 min/.test(t)), refused.join(' | '));
+  assert.ok(refused.some((t) => /Hoprig tried twice/.test(t)), refused.join(' | '));
   const it = (await r.call('GET', '/api/operator/attention')).items.find((i) => i.subject === 'gateway gate');
-  assert.match(r.view().his[it.id].words, /Tia tried twice/);
+  assert.match(r.view().his[it.id].words, /Hoprig tried twice/);
   // He taps it himself: the rule may try again later.
   await r.call('POST', '/api/operator/act', { item: it.id, act: 'restart-gateway', seen: it.rev });
   assert.equal(r.calls.length, 3);
@@ -482,10 +488,10 @@ test('his tap after a rule\'s act on the same item does the act: never the rule\
   assert.equal(r.calls.length, 4);
 });
 
-test('Tia OFF: no new act starts after the press; the act in flight ends and is written before the answer; the page says what is off', async () => {
+test('Tia OFF: no new act of hers starts after the press; the act in flight ends and is written before the answer; the page says what is off', async () => {
   let release;
   const gate = new Promise((res) => (release = res));
-  const r = rig({ rules: { leftover: true }, world: { leftovers: [oldTmux(4101), oldTmux(4102)] }, slow: () => gate });
+  const r = rig({ rules: { limit: true }, world: { sessions: [limited(), limited({ name: 'beta', folder: path.join(projects, 'alpha', 'code') })] }, slow: () => gate });
   const round = r.round();
   while (!r.calls.length) await new Promise((res) => setTimeout(res, 5));
   const off = r.call('POST', '/api/operator/off', {});
@@ -493,14 +499,21 @@ test('Tia OFF: no new act starts after the press; the act in flight ends and is 
   release();
   const o = await off;
   assert.equal(o.inFlight, true);
-  assert.equal(lines().filter((l) => l.act === 'end').length, 1, 'the act in flight is on the line when OFF answers');
+  assert.equal(lines().filter((l) => l.act === 'switch').length, 1, 'the act in flight is on the line when OFF answers');
   await round;
-  assert.deepEqual(r.calls, [['end', 4101]], 'the second one is not started');
+  assert.deepEqual(r.calls, [['move', 'alpha', 'plan-b']], 'the second one is not started');
   assert.equal(o.acts, false);
-  assert.equal(o.said, '"Tia acts by herself" is off: she follows none of the Operator\'s rules on her own and decides nothing by herself. Work you ask of her is not affected.');
+  assert.equal(o.said, '"Tia acts by herself" is off: she follows none of her rules on her own and decides nothing by herself. Work you ask of her is not affected.');
   await r.round();
-  assert.deepEqual(r.calls, [['end', 4101]]);
-  assert.equal(loadConfig().operator.rules.leftover, true, 'OFF keeps the rules as he set them');
+  assert.deepEqual(r.calls, [['move', 'alpha', 'plan-b']]);
+  assert.equal(loadConfig().operator.rules.limit, true, 'OFF keeps the rules as he set them');
+});
+
+test('Tia OFF does not stop what Hoprig mends by itself: a dead gateway is still restarted', async () => {
+  const r = rig({ acts: false, tia: false, rules: {}, world: { gateways: [deadGateway] } });
+  await r.call('POST', '/api/operator/off', {});
+  assert.deepEqual(await r.round(), { acted: 1 });
+  assert.deepEqual(r.calls, [['restart-gateway', 'gate']]);
 });
 
 test('Tia OFF pressed while a rule\'s checks still wait: that act does not start', async () => {

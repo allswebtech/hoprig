@@ -18,40 +18,38 @@ const { data, body } = frontMatter(raw);
 const flat = (s) => s.replace(/\s+/g, ' ');
 const section = (q) => flat(body.slice(body.indexOf(`### ${q}`), body.indexOf('\n### ', body.indexOf(`### ${q}`) + 4) >>> 0));
 
-test('the first screen and the site\'s platform sentence say the same short facts: Linux works, Mac not tried for real, Windows not ready', () => {
+test('the first screen and the site\'s platform sentence say the same short facts: it works on three systems, Windows is new', () => {
   assert.equal(data.under, seo.PLATFORMS, 'the line under the install is the site\'s one platform sentence');
-  assert.match(seo.PLATFORMS, /^Works on Linux\. /);
-  // A newcomer cannot place a version number: the newer parts are named instead.
-  assert.match(seo.PLATFORMS, /On a Mac the tests pass, but the install and the newer parts \(the chat, the editor, Work\) were not tried on a real Mac\./);
-  assert.match(seo.PLATFORMS, /Windows is not ready\.$/);
+  assert.match(seo.PLATFORMS, /^Works on Windows, macOS and Linux\. /);
+  assert.match(seo.PLATFORMS, /Windows is new: a real home Windows PC has seen less of it than a Linux computer has\.$/);
+  assert.doesNotMatch(seo.PLATFORMS, /not ready/);
   assert.ok(seo.PLATFORMS.length <= 160, `short on the first screen (${seo.PLATFORMS.length} characters)`);
 });
 
 test('every other place of the landing page that names the platforms says the same facts', () => {
   const card1 = flat(body.slice(body.indexOf('### 1. It sets up the computer'), body.indexOf('### 2.')));
-  assert.match(card1, /Works on Linux; on a Mac these installs were not tried yet\./);
+  assert.match(card1, /It asks nothing on a first run and leaves alone what is already there\. Works on Windows, macOS and Linux\./);
   const win = section('Does it work on Windows?');
-  assert.match(win, /Not yet\. Its code is written and its tests pass on GitHub's Windows runners, but it has not run on real Windows computers beyond one, so Windows support is experimental\./);
-  assert.match(win, /On a Mac the tests pass on every change/);
-  assert.match(win, /not been tried on a real Mac/);
-  assert.match(win, /On a Mac the tests pass on every change and switching providers was tried there, but the install itself and the newer parts \(the chat, the editor, the desktop, Work\) have not been tried on a real Mac\./);
+  assert.match(win, /Yes, and it is new\. The install line and the tests run on GitHub's Windows machines \(with Node\.js 24 and 26\), and the first run was walked on Windows four ways: a new PC with scripts off, scripts allowed, an administrator window, and Git missing\./);
+  assert.match(win, /A real home Windows PC has seen less of Hoprig than a Linux computer has\./);
+  assert.match(win, /on a Mac the newer parts \(the chat, the editor, the desktop, Work\) have not been tried by hand on a real Mac\./);
   // Words a newcomer cannot place: a version number, the setup's inner checks, the workspace's groups.
-  for (const old of [/since 0\.2/, /checked read-only/, /the workspace's groups/, /the providers and Auto mode were run there/]) assert.doesNotMatch(win, old);
-  assert.match(section('How ready is it?'), /The newer parts \(the chat, the editor, the desktop, Work\) were tried by hand on Linux only, not on a real Mac/);
+  for (const old of [/since 0\.2/, /checked read-only/, /the workspace's groups/, /the providers and Auto mode were run there/, /not ready/i]) assert.doesNotMatch(win, old);
+  assert.match(section('How ready is it?'), /Its tests run on Linux, macOS and Windows with Node\.js 24 and 26 on every change \(the Windows jobs are still allowed to fail\)\./);
+  assert.match(section('How ready is it?'), /The newer parts \(the chat, the editor, the desktop, Work\) were tried by hand on Linux and not on a real Mac/);
   assert.doesNotMatch(raw, /since 0\.2/, 'no version number a first-time visitor cannot place');
   assert.doesNotMatch(seo.NOT_DONE.join('\n'), /since 0\.2/, 'what search engines read says the same');
-  assert.match(body, /^\| Sets up a fresh computer for coding \| Yes on Linux; on a Mac not tried yet \|/m);
-  assert.match(body, /^\| Windows \| Not yet \|/m);
+  assert.match(body, /^\| Sets up a fresh computer for coding \| Yes, on Windows, macOS and Linux \|/m);
+  assert.match(body, /^\| Windows \| Yes, new \|/m);
   // The old words that said less, or the same facts another way.
-  assert.doesNotMatch(raw, /macOS partly|the tests run, but installs|checked, not run yet|Run on Linux;/);
-  // What search engines read: the systems the tests pass on, and Windows among what is not done.
+  assert.doesNotMatch(raw, /macOS partly|the tests run, but installs|checked, not run yet|Run on Linux;|Windows is not ready|Windows \| Not yet/);
+  // What search engines read: the Mac's newer parts among what is not done, and no Windows entry that says it is not ready.
   const NOT = seo.NOT_DONE.join('\n');
-  assert.match(NOT, /^macOS: .*not tried on a real Mac/m);
-  assert.match(NOT, /^Windows is not ready/m);
-  // The macOS entry says the first screen's facts (the install and the newer parts not tried on a real Mac), with
-  // a verb that fits its plural subject and none of the inner words the answer about Windows lost.
+  assert.match(NOT, /^macOS: .*not tried by hand on a real Mac/m);
+  assert.match(NOT, /^Windows is new: /m);
+  assert.doesNotMatch(NOT, /Windows is not ready/);
   const mac = seo.NOT_DONE.find((x) => x.startsWith('macOS: '));
-  assert.match(mac, /but the install and the newer parts \(.*\) were not tried on a real Mac;/);
+  assert.match(mac, /but the newer parts \(.*\) were not tried by hand on a real Mac;/);
   for (const old of [/was not tried/, /checked read-only/, /the workspace's groups/, /the setup's installs/]) assert.doesNotMatch(mac, old);
 });
 
@@ -97,7 +95,7 @@ test('the landing page has no row of screenshots: the story shows those screens,
   assert.doesNotMatch(raw, /^:::shots?$/m);
 });
 
-test('the story says what the demo\'s screens show today: one main button at a limit, the paid way marked, Get started one step at a time', async () => {
+test('the story says what the demo\'s screens show today: one main button at a limit, the paid way marked, the first run as one card', async () => {
   const { SHOTS, STEPS } = await import('../../site/app/(site)/story-data.mjs');
   const alt = (n) => SHOTS.find((s) => s.name === n).alt;
   // web/lib.js limitBox: one way in front, the others under "Other ways"; costWords: " · costs money per use".
@@ -107,8 +105,9 @@ test('the story says what the demo\'s screens show today: one main button at a l
   const limit = STEPS.find((s) => s.id === 'limit').text;
   assert.match(limit, /one tap continues the same conversation on another plan or account of yours/);
   assert.match(limit, /A way that costs money per use says so\./);
-  // web/getstarted.js on Home: "Get started · 5 of 7", the next step with its button, "Show all 7 steps".
-  assert.match(alt('get-started'), /how many steps are done, and the next one with its button/);
+  // web/firstrun.js on Home: one card, "Welcome to Hoprig", its steps and the three ways to a first chat.
+  assert.match(alt('first-run'), /one card, Welcome to Hoprig, with Signed in to Claude and Start your first chat, New project or My own folder/);
+  assert.match(read('web/firstrun.js'), /Welcome to /);
   for (const s of SHOTS) assert.doesNotMatch(s.alt, /providers as buttons|each with its button/, s.name);
 });
 

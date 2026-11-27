@@ -213,6 +213,8 @@ test('every route her tools use is in the table, and nothing else', async () => 
     ops.workMissions({ computer: c }), ops.workMission({ computer: c, id: 'm-20261118-abcdef' }), ops.workMissionStop({ computer: c, id: 'm-20261118-abcdef' }), ops.workFixIds({ computer: c }), ops.workTidyPlan({ computer: c }), ops.workTidy({ computer: c, hash: 'a'.repeat(32) }),
     ops.workMissionAdd({ computer: c, id: 'm-20261118-abcdef', task: 't' }), ops.workMissionTests({ computer: c, id: 'm-20261118-abcdef', task: 't' }),
     ops.workPlans({ computer: c }), ops.workPlanOne({ computer: c, id: 'launch-the-shop' }), ops.workTaskPlan({ computer: c, id: 'write-the-notes', at: 0, plan: 'launch-the-shop', milestone: 'ship', after: [] }),
+    ops.route({ computer: c, method: 'POST', path: '/api/gatewayhost/gw1/restart', body: { confirm: 'box2' } }),
+    ops.route({ computer: c, method: 'POST', path: '/api/work/plans', body: { title: 'Launch', goal: 'Ship it' } }), ops.route({ computer: c, method: 'POST', path: '/api/work/plans/launch-the-shop', body: { seen: 'a'.repeat(16), title: 'Launch two' } }),
     ops.workGoal({ computer: c, goal: 'Make the shop load fast on a phone', project: 'shop', dryRun: true }), ops.workGoal({ computer: c, goal: 'Make the shop load fast on a phone', project: 'shop' }),
   ];
   const results = await Promise.allSettled(runs);

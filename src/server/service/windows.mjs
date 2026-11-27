@@ -15,7 +15,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { binFile, stateDir } from '../../paths.mjs';
 import { APP_NAME } from '../brand.mjs';
-import { carried } from './env.mjs';
+import { carried, swapBetween } from './env.mjs';
+import { keeperDir } from '../../keeper/keep.mjs';
 import { endOldDashboard, insideWords, portBase, readRecord, refusedFromInside } from '../takeover.mjs';
 import { stateKey } from '../dashboardfile.mjs';
 import { clearPort, insideTree, readTree, tail, treeOf, waitForNew } from './wintree.mjs';
@@ -23,12 +24,15 @@ import { WHOAMI, parseWhoami } from '../platform/win32.mjs';
 import { whoamiBin } from '../../setup/winowner.mjs';
 
 export const TASK = APP_NAME;
+// The keeper's task: `hoprig keep` every minute (src/keeper/keep.mjs).
+export const KEEP_TASK = `${APP_NAME}-keeper`;
 
 // The native path module (path.win32 on Windows): on another system a test's state folder is a POSIX path, and
 // path.win32 would make a relative name of it in the working folder.
 export const serviceDir = () => path.join(stateDir(), 'service');
 export const scriptFile = () => path.join(serviceDir(), 'dashboard-service.ps1');
 export const logFile = () => path.join(stateDir(), 'dashboard.log');
+export const keepScriptFile = () => path.join(serviceDir(), 'keeper-service.ps1');
 
 /**
  * A PowerShell single-quoted string: only a quote needs doubling. PowerShell takes the typographic quotes
@@ -36,18 +40,54 @@ export const logFile = () => path.join(stateDir(), 'dashboard.log');
  */
 export const psQuote = (s) => `'${String(s).replace(/['‘-‛]/g, '$&$&')}'`;
 
-/** The startup script. Pure, so it can be tested. */
-export function scriptText({ node = process.execPath, bin = binFile(), env = process.env, home = os.homedir(), log = logFile() } = {}) {
+/**
+ * The startup script. Pure, so it can be tested. It starts the dashboard again 3 seconds after ANY exit, a clean one
+ * too, unless the owner stopped it himself (`hoprig stop` leaves the marker file `stopped`, src/keeper/keep.mjs).
+ */
+export function scriptText({ node = process.execPath, bin = binFile(), env = process.env, home = os.homedir(), log = logFile(), stopped = path.join(keeperDir(), 'stopped') } = {}) {
   return [
     `# Written by \`${APP_NAME} service install\`. Remove with \`${APP_NAME} service uninstall\`.`,
     ...carried(env).map(([k, v]) => `$env:${k} = ${psQuote(v)}`),
     // Redirection writes UTF-16 in Windows PowerShell 5.1 unless told otherwise.
     "$PSDefaultParameterValues['Out-File:Encoding'] = 'utf8'",
     `Set-Location -LiteralPath ${psQuote(home)}`,
-    `& ${psQuote(node)} ${psQuote(bin)} 'serve' *>> ${psQuote(log)}`,
+    '$code = 0',
+    'while ($true) {',
+    `  & ${psQuote(node)} ${psQuote(bin)} 'serve' *>> ${psQuote(log)}`,
+    '  $code = $LASTEXITCODE',
+    `  if (Test-Path -LiteralPath ${psQuote(stopped)}) { break }`,
+    '  Start-Sleep -Seconds 3',
+    '}',
+    'exit $code',
+    '',
+  ].join('\r\n');
+}
+
+/** The keeper's script: one run of `hoprig keep`. Pure. */
+export function keepScriptText({ node = process.execPath, bin = binFile(), env = process.env, home = os.homedir(), log = logFile() } = {}) {
+  return [
+    `# Written by \`${APP_NAME} service install\`. Remove with \`${APP_NAME} service uninstall\`.`,
+    ...carried(env).map(([k, v]) => `$env:${k} = ${psQuote(v)}`),
+    "$PSDefaultParameterValues['Out-File:Encoding'] = 'utf8'",
+    `Set-Location -LiteralPath ${psQuote(home)}`,
+    `& ${psQuote(node)} ${psQuote(bin)} 'keep' *>> ${psQuote(log)}`,
     'exit $LASTEXITCODE',
     '',
   ].join('\r\n');
+}
+
+/** The files install writes as scripts, as the product would write them now (the carried variables stay those there). */
+export function files({ home = os.homedir(), node, bin, env = process.env } = {}) {
+  const read = (f) => {
+    try {
+      return fs.readFileSync(f, 'utf8');
+    } catch {
+      return undefined;
+    }
+  };
+  const opts = { env, home, ...(node ? { node } : {}), ...(bin ? { bin } : {}) };
+  const bom = (f, text, to) => ({ file: f, text: swapBetween(read(f), '\ufeff' + text, '$env:', to) });
+  return [bom(scriptFile(), scriptText(opts), '$PSDefaultParameterValues'), bom(keepScriptFile(), keepScriptText(opts), '$PSDefaultParameterValues')];
 }
 
 const xml = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -109,6 +149,41 @@ export function taskXml({ user, script = scriptFile(), home = os.homedir() }) {
 /** schtasks reads XML task files as UTF-16; a BOM says which byte order. */
 export const utf16 = (text) => Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from(text, 'utf16le')]);
 
+/** The keeper's task: every minute, one run of the keeper's script. */
+export function keepTaskXml({ user, script = keepScriptFile(), home = os.homedir() }) {
+  return [
+    '<?xml version="1.0" encoding="UTF-16"?>',
+    '<Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">',
+    '  <RegistrationInfo>',
+    `    <Description>${xml(`${APP_NAME} keeper (looks after the dashboard when it is down). Written by \`${APP_NAME} service install\`.`)}</Description>`,
+    '  </RegistrationInfo>',
+    '  <Triggers>',
+    '    <TimeTrigger><Repetition><Interval>PT1M</Interval><StopAtDurationEnd>false</StopAtDurationEnd></Repetition><StartBoundary>2020-01-01T00:00:00</StartBoundary><Enabled>true</Enabled></TimeTrigger>',
+    '  </Triggers>',
+    '  <Principals>',
+    `    <Principal id="Author"><UserId>${xml(user)}</UserId><LogonType>InteractiveToken</LogonType><RunLevel>LeastPrivilege</RunLevel></Principal>`,
+    '  </Principals>',
+    '  <Settings>',
+    '    <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>',
+    '    <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>',
+    '    <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>',
+    '    <StartWhenAvailable>true</StartWhenAvailable>',
+    '    <Enabled>true</Enabled>',
+    '    <Hidden>false</Hidden>',
+    '    <ExecutionTimeLimit>PT5M</ExecutionTimeLimit>',
+    '  </Settings>',
+    '  <Actions Context="Author">',
+    '    <Exec>',
+    '      <Command>powershell.exe</Command>',
+    `      <Arguments>${xml(taskArguments(script))}</Arguments>`,
+    `      <WorkingDirectory>${xml(home)}</WorkingDirectory>`,
+    '    </Exec>',
+    '  </Actions>',
+    '</Task>',
+    '',
+  ].join('\r\n');
+}
+
 export { WHOAMI, parseWhoami };
 
 /**
@@ -127,6 +202,8 @@ export const schtasksArgs = {
   end: () => ['/End', '/TN', TASK],
   remove: () => ['/Delete', '/TN', TASK, '/F'],
   query: () => ['/Query', '/TN', TASK, '/V', '/FO', 'LIST'],
+  createKeeper: (xmlFile) => ['/Create', '/TN', KEEP_TASK, '/XML', xmlFile, '/F'],
+  removeKeeper: () => ['/Delete', '/TN', KEEP_TASK, '/F'],
 };
 
 /**
@@ -230,7 +307,7 @@ export async function service(sub, { run: runner = run, ...deps } = {}) {
   const run = runner;
   // Typed in a terminal of the dashboard itself: ending that dashboard would end this command before the task starts
   // again, and nothing would serve until the next sign-in. So nothing is changed.
-  if (['install', 'restart', 'uninstall'].includes(sub)) {
+  if (['install', 'restart', 'uninstall', 'stop'].includes(sub)) {
     const inside = await refusedFromInside({ platform: 'win32', run, ...deps });
     if (inside) {
       console.error(inside);
@@ -256,6 +333,7 @@ export async function service(sub, { run: runner = run, ...deps } = {}) {
       // UTF-8 with a BOM: Windows PowerShell 5.1 reads a script without one in the old ANSI code page, which would
       // garble any non-ASCII path in it.
       fs.writeFileSync(scriptFile(), '﻿' + scriptText());
+      fs.writeFileSync(keepScriptFile(), '﻿' + keepScriptText());
       const xmlFile = path.join(serviceDir(), 'task.xml');
       fs.writeFileSync(xmlFile, utf16(taskXml({ user: me.sid })));
       const r = await run('schtasks', schtasksArgs.create(xmlFile));
@@ -264,6 +342,12 @@ export async function service(sub, { run: runner = run, ...deps } = {}) {
         console.error(`schtasks /Create failed: ${r.err || r.out}`);
         return 1;
       }
+      // The keeper's task: a failure here is said and does not undo the dashboard's own task.
+      const keeperXml = path.join(serviceDir(), 'keeper-task.xml');
+      fs.writeFileSync(keeperXml, utf16(keepTaskXml({ user: me.sid })));
+      const kr = await run('schtasks', schtasksArgs.createKeeper(keeperXml));
+      fs.rmSync(keeperXml, { force: true });
+      if (!kr.ok) console.error(`The keeper task was not made (${kr.err || kr.out}); the dashboard task is installed and starts again by itself.`);
       const started = await run('schtasks', schtasksArgs.run());
       if (!started.ok) {
         console.error(`The task is installed but did not start now: ${started.err || started.out}`);
@@ -295,12 +379,44 @@ export async function service(sub, { run: runner = run, ...deps } = {}) {
       if (!(await answers(run, deps, b, 'The dashboard started again.'))) return 1;
       return 0;
     }
+    case 'start': {
+      const q = await run('schtasks', schtasksArgs.query());
+      if (!q.ok) {
+        console.error(`The service is not installed. Install it with: ${APP_NAME} service install`);
+        return 3;
+      }
+      const started = await run('schtasks', schtasksArgs.run());
+      if (!started.ok) {
+        console.error(`The task did not start: ${started.err || started.out}`);
+        return 1;
+      }
+      console.log('The dashboard task was started.');
+      return 0;
+    }
+    case 'stop': {
+      const q = await run('schtasks', schtasksArgs.query());
+      if (!q.ok) {
+        console.error(`The service is not installed. Install it with: ${APP_NAME} service install`);
+        return 3;
+      }
+      // The task's script starts the dashboard again after any exit unless the stop marker is there (index.mjs writes it
+      // before this runs), so the task is ended first, then the dashboard.
+      await run('schtasks', schtasksArgs.end());
+      if (!(await endOld(run, deps))) return 1;
+      console.log(`The dashboard was stopped. It stays stopped until: ${APP_NAME} service start`);
+      return 0;
+    }
+    // Hidden: the scripts are read at every start; nothing to load.
+    case 'reload':
+      return 0;
     case 'uninstall': {
       await run('schtasks', schtasksArgs.end());
       if (!(await endOld(run, deps))) {
         console.error(`Nothing was removed. ${AGAIN}`);
         return 1;
       }
+      await run('schtasks', schtasksArgs.removeKeeper());
+      fs.rmSync(keepScriptFile(), { force: true });
       const r = await run('schtasks', schtasksArgs.remove());
       fs.rmSync(scriptFile(), { force: true });
       console.log(r.ok ? `Scheduled task "${TASK}" removed.` : 'The service was not installed.');
@@ -312,7 +428,7 @@ export async function service(sub, { run: runner = run, ...deps } = {}) {
       return r.ok ? 0 : 3;
     }
     default:
-      console.error(`usage: ${APP_NAME} service install | uninstall | status | restart`);
+      console.error(`usage: ${APP_NAME} service install | uninstall | status | start | stop | restart`);
       return 2;
   }
 }

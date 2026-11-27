@@ -24,13 +24,13 @@ import {
   add, ago, api, at, btn, speedWords, confirmSheet, copyText, fill, h, insecure, isPaid, kindLabel, link, machine, openSheet, profileState, promptSheet,
   servesClaude, startOrder, subscriptionsNote, toast, toolsText, until,
 } from './lib.js';
-import { gatewayPageLink, gatewaysPanel, programFacts, setupBlock } from './gateways.js';
-import { trouteaiPanel } from './trouteai.js';
-import { ownBackupPanel, ownEndpointPanel, ownNote } from './ownendpoint.js';
+import { gatewayPageLink, programFacts, setupBlock } from './gateways.js';
+import { viewTrouteai } from './trouteai.js';
+import { ownBackupRow, ownEndpointRow, ownShort } from './ownendpoint.js';
 import { providerHealth } from './providerhealth.js';
 import { registerPage } from './registry.js';
 import { partOf, showPart } from './showpart.js';
-import { emptyState, errorBox, fold, groupHead, openLabel, panel, radioCards, saveBar, savedMark, steps, toggle } from './shell.js';
+import { emptyState, errorBox, fold, listRow, openLabel, panel, radioCards, saveBar, savedMark, steps, toggle } from './shell.js';
 import { store } from './store.js';
 
 const A = (p) => at(machine.current, `/api/accounts${p}`); // the accounts of the computer whose page is open
@@ -141,60 +141,75 @@ export const autoToast = (a, on, r = {}) =>
     : r && r.payPerUseTurnedOn ? `${a.label} is used in Auto mode. "Also use pay-per-use providers" is now on, so Auto mode can spend money here.`
     : `${a.label} is used in Auto mode`;
 
-/** "When an account reaches its limit": stop and ask (the default) or carry on with the next one (Auto mode). */
-function limitPanel(auto, accounts, refresh, flash) {
-  const rows = (auto.order || []).filter((n) => accounts.some((p) => p.name === n));
-  // Kept at once: "Saved" next to the title, also after the page is drawn again with the new choice.
+/** What the At a limit row says now. */
+export const limitChoiceText = (auto) => (auto && auto.enabled ? 'Carry on with the next provider' : 'Stop and ask me');
+
+/**
+ * "At a limit": stop and ask (the default) or carry on with the next one (Auto mode). It lives in a sheet behind one
+ * row of the Providers page: the two choices, how it works, the order, and Advanced. `onSaved(auto)` tells the row.
+ */
+function limitBody(start, accounts, onSaved) {
+  let auto = start;
+  const box = h('div.limitsheet');
   const mark = savedMark();
-  if (flash) setTimeout(() => mark.show(), 0);
   const save = async (patch) => {
     try {
       await api('/api/settings', { autoSwitch: patch });
-      refresh(true);
+      auto = (await api('/api/settings')).autoSwitch;
+      onSaved(auto);
+      draw(true);
     } catch (e) {
       toast(e, { kind: 'error' });
-      refresh();
+      draw();
     }
   };
-  const list = h('ol.orderlist');
-  const move = (i, d) => {
-    [rows[i + d], rows[i]] = [rows[i], rows[i + d]];
+  function draw(flash = false) {
+    const rows = (auto.order || []).filter((n) => accounts.some((p) => p.name === n));
+    const list = h('ol.orderlist');
+    const move = (i, d) => {
+      [rows[i + d], rows[i]] = [rows[i], rows[i + d]];
+      paint();
+      save({ order: rows });
+    };
+    const paint = () =>
+      fill(list, rows.map((name, i) => {
+        const p = accounts.find((x) => x.name === name);
+        return h(`li.orderrow.ps-${profileState(p).key}`,
+          h('span.order-n', String(i + 1)),
+          h('span.order-main',
+            h('span.row-title', p.label),
+            h('span.row-sub', orderRowSub(p, auto.payPerUse === true))),
+          btn('icon ghost', { icon: 'up', title: `Move ${p.label} up`, disabled: i === 0, onclick: () => move(i, -1) }),
+          btn('icon ghost', { icon: 'down', title: `Move ${p.label} down`, disabled: i === rows.length - 1, onclick: () => move(i, 1) }));
+      }));
     paint();
-    save({ order: rows });
-  };
-  const paint = () =>
-    fill(list, rows.map((name, i) => {
-      const p = accounts.find((x) => x.name === name);
-      return h(`li.orderrow.ps-${profileState(p).key}`,
-        h('span.order-n', String(i + 1)),
-        h('span.order-main',
-          h('span.row-title', p.label),
-          h('span.row-sub', orderRowSub(p, auto.payPerUse === true))),
-        btn('icon ghost', { icon: 'up', title: `Move ${p.label} up`, disabled: i === 0, onclick: () => move(i, -1) }),
-        btn('icon ghost', { icon: 'down', title: `Move ${p.label} down`, disabled: i === rows.length - 1, onclick: () => move(i, 1) }));
-    }));
-  paint();
-  const choice = auto.enabled ? 'carry' : 'stop';
-  return panel({ icon: 'zap', title: h('span', 'When a provider reaches its limit', mark) },
-    radioCards('at-limit', [
-      { value: 'stop', title: 'Stop and ask me', sub: 'The session waits at its limit. You pick another provider with one tap, or wait until the limit resets.' },
-      { value: 'carry', title: 'Carry on with the next provider', sub: 'Work continues on the next provider in the order below, without you doing anything. This is called Auto mode.' },
-    ], choice, (v) => save({ enabled: v === 'carry', ...(v === 'carry' && !rows.length ? { order: startOrder(accounts, auto.payPerUse === true) } : {}) })),
-    fold('auto-how', 'How it works',
-      h('ul.howlist',
-        h('li', 'On an API provider the session goes on without stopping.'),
-        h('li', 'On another subscription, Claude Code restarts on that provider and carries on with the same conversation.'),
-        h('li', 'Providers lower in the order are used only while the ones above are at their limit.'),
-        h('li', 'While Auto mode\'s provider is slow or refusing, a new session starts on another provider that is free of charge and signed in, also one not in this order.'),
-        h('li', 'An API key straight to Anthropic costs money for every use; Auto mode uses one only when you allow it below.'),
-        h('li', 'Auto mode and plan usage work with Claude Code only: an OpenCode session is never moved by itself. Tia starts an OpenCode session in the App when you name it, and every OK of one comes to you.')),
-      subscriptionsNote(rows.map((n) => accounts.find((p) => p.name === n)))),
-    choice === 'carry' ? [
-      h('div.field-label', 'Order of providers'),
-      rows.length ? list : h('p.muted', accounts.length ? 'No provider takes part yet: open a provider below and turn on "Use in Auto mode".' : 'Add a provider first.'),
-      toggle('Also use pay-per-use providers', auto.payPerUse === true, (v) => save({ payPerUse: v }),
-        PAY_PER_USE_HELP),
-    ] : null);
+    const choice = auto.enabled ? 'carry' : 'stop';
+    fill(box,
+      radioCards('at-limit', [
+        { value: 'stop', title: 'Stop and ask me', sub: 'The session waits at its limit. You pick another provider with one tap, or wait until the limit resets.' },
+        { value: 'carry', title: 'Carry on with the next provider', sub: 'Work continues on the next provider in the order below, without you doing anything. This is called Auto mode.' },
+      ], choice, (v) => save({ enabled: v === 'carry', ...(v === 'carry' && !rows.length ? { order: startOrder(accounts, auto.payPerUse === true) } : {}) })),
+      flash ? mark : null,
+      choice === 'carry' ? [
+        h('div.field-label', 'Order of providers'),
+        rows.length ? list : h('p.muted', accounts.length ? 'No provider takes part yet: open a provider and turn on "Use in Auto mode".' : 'Add a provider first.'),
+        toggle('Also use pay-per-use providers', auto.payPerUse === true, (v) => save({ payPerUse: v }),
+          PAY_PER_USE_HELP),
+      ] : null,
+      fold('auto-how', 'How it works',
+        h('ul.howlist',
+          h('li', 'On an API provider the session goes on without stopping.'),
+          h('li', 'On another subscription, Claude Code restarts on that provider and carries on with the same conversation.'),
+          h('li', 'Providers lower in the order are used only while the ones above are at their limit.'),
+          h('li', 'While Auto mode\'s provider is slow or refusing, a new session starts on another provider that is free of charge and signed in, also one not in this order.'),
+          h('li', 'An API key straight to Anthropic costs money for every use; Auto mode uses one only when you allow it.'),
+          h('li', 'Auto mode and plan usage work with Claude Code only: an OpenCode session is never moved by itself. Tia starts an OpenCode session in the App when you name it, and every OK of one comes to you.')),
+        subscriptionsNote(rows.map((n) => accounts.find((p) => p.name === n)))),
+      fold('accounts', 'Advanced', fixedPanel(auto)));
+    if (flash) setTimeout(() => mark.show(), 0);
+  }
+  draw();
+  return box;
 }
 
 /** Advanced: sessions started on one fixed account while Auto mode is on. */
@@ -228,9 +243,7 @@ function accountRow(a, place, autoOn, signIn, another, own = null, payPerUse = f
     // A provider Auto mode leaves out while pay-per-use is off has no place in the order it uses: no place badge.
     h('span.row-title', a.label, autoOn && place && !off ? h('span.badge.soft', `${ORDINAL(place)} in the order`) : null),
     h('span.row-sub.state', listRowSub(a, !off, remoteText(a))),
-    worksWith(a) ? h('span.row-sub.acct-tools', worksWith(a)) : null,
-    speedWords(a.speed) ? h('span.row-sub.acct-speed', speedWords(a.speed)) : null,
-    own && servesClaude(a) ? h('span.row-sub.own-note', icon('alert', { size: 14 }), h('span', ownNote(own))) : null,
+    own && servesClaude(a) ? h('span.row-sub.own-note', icon('alert', { size: 14 }), h('span', ownShort)) : null,
     ps.key === 'signin' ? null : usageBars(a.usage, a.usageReported, a.inUse > 0),
     // Under the figures, not beside them: its words would squeeze the row on a phone.
     ps.key === 'limit' && another && usesStoredLogin(a)
@@ -240,10 +253,28 @@ function accountRow(a, place, autoOn, signIn, another, own = null, payPerUse = f
   h('span.row-end', icon('chevronRight', { size: 18 })));
 }
 
+// The addresses of what used to be parts of this page: the gateway's cards moved to the TRouteAI page, the limit rule's
+// Advanced fold into the sheet of its row.
+export const GATEWAY_PARTS = ['gateways', 'trouteai'];
+export const LIMIT_PARTS = ['accounts', 'auto-how', 'at-limit'];
+
+/** The gateway as one row among the providers: its name, one word of status, and a page of its own. */
+export const gatewayWords = (host) => {
+  if (!host) return '';
+  const g = (host.gateways || []).find((x) => x.id === 'trouteai' && !x.defined);
+  return !g || !g.installed ? 'Not installed' : g.problem ? 'Needs attention' : g.running ? 'Running' : 'Stopped';
+};
+
 function viewAccounts({ frame, sub, query }) {
   store.viewing = null;
+  if (sub === 'trouteai') return viewTrouteai({ frame, sub, query });
   if (sub) return viewAccount(frame, decodeURIComponent(sub));
   const here = !machine.current;
+  // An old address of the gateway's cards lands on its page.
+  if (GATEWAY_PARTS.includes(partOf(query))) {
+    location.replace(link('#/providers/trouteai'));
+    return () => {};
+  }
   const body = h('div', h('div.empty', h('div.spinner', { 'aria-hidden': 'true' }), h('p', 'Loading providers…')));
   let data = null;
   const refresh = (flash = false) => {
@@ -253,7 +284,6 @@ function viewAccounts({ frame, sub, query }) {
   frame({
     title: 'Providers',
     page: 'providers',
-    intro: 'The subscriptions, sign-ins and API keys this computer\'s coding tools use, and what happens when one reaches its limit.',
     primary: here ? { label: 'Add provider', icon: 'plus', onclick: () => data && addWizard(data, refresh) } : null,
     // On a phone in the page head: a floating button sat on the last provider's lines (its sessions, its usage).
     primaryInHead: true,
@@ -262,8 +292,9 @@ function viewAccounts({ frame, sub, query }) {
   let alive = true;
   async function load(flash = false) {
     let settings;
+    let host = null;
     try {
-      [data, settings] = await Promise.all([loadAccounts(), api('/api/settings')]);
+      [data, settings, host] = await Promise.all([loadAccounts(), api('/api/settings'), here ? api('~/api/gatewayhost').catch(() => null) : null]);
     } catch (e) {
       return fill(body, errorBox(e, load));
     }
@@ -271,23 +302,24 @@ function viewAccounts({ frame, sub, query }) {
     const auto = settings.autoSwitch;
     const order = (auto.order || []).filter((n) => data.accounts.some((a) => a.name === n));
     const accounts = inOrder(data.accounts, order);
+    const limitRow = listRow({ onclick: () => openLimit(), icon: 'zap', title: 'At a limit', sub: limitChoiceText(auto) });
+    const openLimit = () => openSheet({ title: 'At a limit', subtitle: 'What happens when a provider has used up its limit' }, () => limitBody(auto, data.accounts.filter(servesClaude), (x) => {
+      store.refresh();
+      fill(limitRow.querySelector('.row-sub'), limitChoiceText(x));
+    }));
     fill(body,
-      here ? ownEndpointPanel(data.ownEndpoint, () => refresh()) : null,
-      here ? ownBackupPanel(data.ownBackup, () => refresh()) : null,
-      limitPanel(auto, data.accounts.filter(servesClaude), refresh, flash),
-      groupHead('Providers', accounts.length),
-      accounts.length
-        ? h('div.rows', accounts.map((a) => accountRow(a, order.indexOf(a.name) + 1, auto.enabled, here ? (x) => signInAgain(x, data, refresh) : null, here ? () => switchAccount({ done: refresh }) : null, data.ownEndpoint || null, auto.payPerUse === true)))
-        : emptyState('user', here ? 'No providers yet. Add the subscription, sign-in or API key your coding tools should use.' : `No providers on ${openLabel()} yet. Add one on that computer's own page.`,
-          here ? btn('primary', { icon: 'plus', label: 'Add provider', onclick: () => addWizard(data, refresh) }) : null),
-      here ? null : h('p.hint', `Providers of ${openLabel()} are added on that computer's own page: a key or a sign-in never travels through this one.`),
-      here ? gatewaysPanel({ useLocal: (g) => addWizard(data, refresh, { start: g.id }), changed: () => refresh() }) : null,
-      here ? trouteaiPanel({ changed: () => refresh() }) : null, // the shipped gateway's accounts, limits, combos and keys, once it is installed
-      fold('accounts', 'Advanced', fixedPanel(settings.autoSwitch)));
-    // "?show=<part>" (e.g. the gateways panel an error names): brought into view once, on the first draw.
+      here ? ownEndpointRow(data.ownEndpoint, () => refresh()) : null,
+      here ? ownBackupRow(data.ownBackup, () => refresh()) : null,
+      h('div.rows',
+        accounts.map((a) => accountRow(a, order.indexOf(a.name) + 1, auto.enabled, here ? (x) => signInAgain(x, data, refresh) : null, here ? () => switchAccount({ done: refresh }) : null, data.ownEndpoint || null, auto.payPerUse === true)),
+        here ? listRow({ href: link('#/providers/trouteai'), icon: 'swap', title: 'TRouteAI', sub: gatewayWords(host) }) : null,
+        accounts.length ? limitRow : null),
+      accounts.length ? null : emptyState('user', here ? 'No providers yet. Add the subscription, sign-in or API key your coding tools should use.' : `No providers on ${openLabel()} yet. Add one on that computer's own page.`),
+      here ? null : h('p.hint', `Providers of ${openLabel()} are added on that computer's own page: a key or a sign-in never travels through this one.`));
+    // The old "?show=<part>" of the limit rule's fold: its sheet, once, on the first draw.
     const part = shownOnce ? null : partOf(query);
     shownOnce = true;
-    if (part) showPart(part, { alive: () => alive });
+    if (LIMIT_PARTS.includes(part)) openLimit();
   }
   let shownOnce = false;
   load();
@@ -437,6 +469,7 @@ function viewAccount(frame, name) {
             btn('small primary', { icon: 'user', label: 'Sign in with another Claude account', onclick: () => switchAccount({ done: refresh }) }))
           : null,
         worksWith(a) ? h('p.acct-works', icon('check', { size: 15 }), h('span', worksWith(a))) : null,
+        speedWords(a.speed) ? h('p.hint.acct-speed', speedWords(a.speed)) : null,
         testResult(a),
         a.kind === 'chatgpt' && !a.unusable ? h('p.hint', 'Codex uses the ChatGPT account it is signed in to on this computer. In a terminal, the same is ', h('code', `${COMMAND} codex login --device-auth`), '.') : null,
         signinHint(a) ? h('p.hint', signinHint(a)) : null,

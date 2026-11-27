@@ -67,7 +67,7 @@ export function viewCode({ query }, onCurrent) {
   named(label);
   pageNotify.setTitleBase(label); // the tab's (and a desktop window's) name: the folder
   // In a window of the desktop with nowhere to go back to, no way back: the window has its own close.
-  const way = wayBack() || (BARE ? null : { hash: link('#/workspace'), label: 'Workspace' });
+  const way = wayBack() || (BARE ? null : { hash: link('#/workspace'), label: 'Projects' });
   const here = machine.current;
 
   let view = VIEWS.some((v) => v.id === query.get('view')) ? query.get('view') : 'explorer';

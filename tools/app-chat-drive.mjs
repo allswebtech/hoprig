@@ -180,6 +180,43 @@ async function checks(projects) {
   check('a task that ends leaves the Background tasks part', had === 1 && gone, `${had} row, gone ${gone}`);
 }
 
+/** The title bar of a phone: three things in 56 px, each press target 44 by 44 and round, the title on one line; the
+ *  list opens over the chat with Home and a close button; the title and the dots open the same one sheet. */
+async function bar(name) {
+  const m = await ev(`(() => { const vis = (e) => e.getClientRects().length > 0 && getComputedStyle(e).display !== 'none';
+    const q = (s) => [...document.querySelectorAll(s)].filter(vis);
+    const box = (e) => { const b = e.getBoundingClientRect(); return { w: Math.round(b.width * 10) / 10, h: Math.round(b.height * 10) / 10, round: getComputedStyle(e).borderTopLeftRadius }; };
+    const t = document.querySelector('.chat-title-text');
+    return { bar: document.querySelector('.chat-bar').getBoundingClientRect().height, controls: q('.chat-bar button, .chat-bar a').map((e) => ({ name: e.getAttribute('aria-label') || e.title, ...box(e) })),
+      titleLines: t ? Math.round(t.getBoundingClientRect().height / (parseFloat(getComputedStyle(t).lineHeight) || 20)) : 0, back: q('.chatback').length, sub: (document.querySelector('.chat-title-sub') || {}).innerText }; })()`);
+  console.log(`phone ${name} bar: ${J(m)}`);
+  check(`phone ${name}: the title bar is 56 px with three controls: Sessions, the title, the menu dots`, m.bar <= 57 && m.controls.length === 3 && !m.back, `${m.bar}px, ${m.controls.map((c) => c.name).join(' | ')}`);
+  check(`phone ${name}: every control of the title bar is 44 by 44 or more, the round ones circles`, m.controls.every((c) => c.h >= 43.5 && (c.round !== '50%' || Math.abs(c.w - c.h) < 1)), J(m.controls));
+  check(`phone ${name}: the title is on one line`, m.titleLines === 1, `${m.titleLines}`);
+  // The list over the chat: Home and the close button at its head.
+  await click('.chat-sidebtn');
+  await sleep(600);
+  const l = await ev(`(() => { const r = (s) => { const e = document.querySelector(s); if (!e || !e.getClientRects().length) return null; const b = e.getBoundingClientRect(); return { w: Math.round(b.width), h: Math.round(b.height), x: Math.round(b.x) }; }; return { side: r('.chat-side'), home: r('.chat-side-home'), close: r('.chat-side-close'), neu: r('.chat-side-new'), vw: innerWidth }; })()`);
+  await shot(`p3-${name}-list-over-chat`);
+  check(`phone ${name}: Sessions opens the list over the chat, 86 percent wide, with Home, a close button of 44 by 44 and New`, !!(l.side && l.home && l.close && l.neu) && l.close.w >= 44 && l.close.h >= 44 && Math.abs(l.side.w - Math.min(l.vw * 0.86, 360)) < 2, J(l));
+  await click('.chat-side-close');
+  await sleep(400);
+  check(`phone ${name}: the close button shuts the list`, (await count('.chat-side-over .chat-side')) === 0 && (await ev(`!document.querySelector('.chat-wrap').classList.contains('chat-side-over')`)));
+  // One sheet for the title and for the dots.
+  const sheetOf = async (sel) => {
+    await click(sel);
+    await sleep(600);
+    const r = await ev(`(() => { const d = document.querySelector('dialog[open]'); return d ? { title: (d.querySelector('.sheet-title') || {}).innerText, groups: [...d.querySelectorAll('.chat-menu-gh')].map((e) => e.innerText), rows: d.querySelectorAll('.choice').length } : null; })()`);
+    if (r) await shot(`p4-${name}-menu-sheet-${sel.includes('title') ? 'title' : 'dots'}`);
+    await ev(`(() => { const d = document.querySelector('dialog[open]'); if (d) d.close(); })()`);
+    await sleep(300);
+    return r;
+  };
+  const a = await sheetOf('.chat-title');
+  const b = await sheetOf('.chat-morebtn');
+  check(`phone ${name}: the title and the dots open the same one sheet, in groups`, !!a && !!b && J(a) === J(b) && a.groups.length >= 3 && a.groups.includes('This session'), J([a, b]));
+}
+
 /** The phone's own pictures and checks (--phone): a turn that runs under a long message, the box focused in the short
  *  view (the keyboard open), the chat ready. Run at 393x852 with --width 393 --height 852. */
 async function phone(projects, story) {
@@ -191,8 +228,8 @@ async function phone(projects, story) {
     const chips = [...document.querySelectorAll('.chat-chips > *')].filter((e) => e.getClientRects().length && e.getBoundingClientRect().width > 8).map((e) => Math.round(e.getBoundingClientRect().top));
     return { vw: innerWidth, vh: innerHeight, scrollW: document.documentElement.scrollWidth, bodyW: document.body.scrollWidth, vvScale: visualViewport && visualViewport.scale, vvLeft: visualViewport && visualViewport.offsetLeft,
       bar: r('.chat-bar'), list: r('.chat-scroll'), composer: r('.chat-composer'), chips: r('.chat-chips'), chipTops: [...new Set(chips)], status: r('.chat-status'), wrap: r('.chat-wrap'), dock: r('.chat-dock'),
-      rewind: r('.chat-rewindbtn'), bubble: r('.chat-user'), placeholder: (document.querySelector('textarea.chat-input') || {}).placeholder, statusFs: parseFloat(getComputedStyle(document.querySelector('.chat-status')).fontSize),
-      chipFs: parseFloat(getComputedStyle(document.querySelector('.chat-chip')).fontSize),
+      rewind: r('.chat-rewindbtn'), bubble: r('.chat-user'), placeholder: (document.querySelector('textarea.chat-input') || {}).placeholder, 
+      
       fields: [...document.querySelectorAll('input, textarea, select')].filter((e) => e.getClientRects().length && !['checkbox', 'radio', 'file'].includes(e.type)).map((e) => parseFloat(getComputedStyle(e).fontSize)) }; })()`);
   for (const [name, id] of [['turn', run], ['ready', idle]]) {
     await view(`#/chat/${id}`, 3000);
@@ -201,12 +238,10 @@ async function phone(projects, story) {
     console.log(`phone ${name}: ${J(a)}`);
     check(`phone ${name}: the page is not wider than the screen`, a.scrollW <= a.vw && a.bodyW <= a.vw, `${a.scrollW}/${a.bodyW} of ${a.vw}`);
     check(`phone ${name}: every field has a text size of 16 px or more`, a.fields.length > 0 && a.fields.every((f) => f >= 16), J(a.fields));
-    check(`phone ${name}: the chips are in one row, inside the screen`, a.chipTops.length === 1 && a.chips.r <= a.vw, J(a.chipTops));
     check(`phone ${name}: the placeholder is one short line`, a.placeholder && a.placeholder.length < 50 && !/Esc/.test(a.placeholder), J(a.placeholder));
-    check(`phone ${name}: the box is one line high (the placeholder does not wrap)`, a.composer.h <= 52, `${a.composer.h}px`);
     if (name === 'turn') check('phone turn: the placeholder says the message is read after its step', /after its step/.test(a.placeholder || ''), J(a.placeholder));
     if (a.rewind && a.bubble) check(`phone ${name}: Rewind to here is not beside the bubble`, a.rewind.y >= a.bubble.b - 2 && a.rewind.w < a.vw / 2, J([a.rewind, a.bubble]));
-    check(`phone ${name}: the status text is not smaller than the chips text`, a.statusFs >= a.chipFs, `${a.statusFs}/${a.chipFs}`);
+    await bar(name);
   }
   // The keyboard: the visible height shrinks (393x450), the box is focused.
   await chrome.viewport(W, 450, { mobile: true, touch: true, theme: THEME });
@@ -216,7 +251,7 @@ async function phone(projects, story) {
   const k = await look();
   console.log(`phone keyboard: ${J(k)}`);
   check('phone keyboard: the page is not wider than the screen', k.scrollW <= k.vw && k.bodyW <= k.vw, `${k.scrollW}/${k.bodyW} of ${k.vw}`);
-  check('phone keyboard: the title bar is at the top, the box above the bottom', k.bar && k.bar.y === 0 && k.composer && k.composer.b <= k.vh && k.chips.x >= 0 && k.chips.r <= k.vw, J([k.bar, k.composer]));
+  check('phone keyboard: the title bar is at the top, the box above the bottom', k.bar && k.bar.y === 0 && k.composer && k.composer.b <= k.vh, J([k.bar, k.composer]));
   check('phone keyboard: the conversation keeps room', k.list && k.list.h >= 80, J(k.list));
   await chrome.viewport(W, H, { mobile: true, touch: true, theme: THEME });
 }
@@ -248,12 +283,22 @@ async function guard(projects, story) {
   add('wide-task-and-queue', wide, openTasks);
   add('long-names-and-reply', reply);
   add('background-only', bg, openTasks);
+  // The list over the chat (a width under 900 draws it so; wider, the list stands beside the chat and nothing is pressed)
+  // and the one menu sheet of the title bar: floating parts the guard marks as overlays.
+  add('list-over-chat', t1, async () => {
+    if (await ev('innerWidth < 900')) await click('.chat-sidebtn');
+    await sleep(400);
+  });
+  add('menu-sheet', t1, async () => {
+    await click(await ev('innerWidth < 600') ? '.chat-title' : '.chat-morebtn');
+    await sleep(500);
+  });
   const t0 = Date.now();
   let looked = 0;
   for (const st of states.filter((x) => !ONLY.length || ONLY.includes(x.name))) {
     console.log(`guard state ${st.name} at ${Math.round((Date.now() - t0) / 1000)}s`);
     for (const { w, h, name } of VIEWS) {
-      for (const rail of ['on', 'off']) {
+      for (const rail of w < 1100 ? ['on'] : ['on', 'off']) { // under 1100 px there is no panel to show or hide
         await chrome.viewport(w, h, { mobile: w < 600, touch: w < 600, theme: THEME });
         await ev(`localStorage.setItem('chat.rail', ${J(rail)})`).catch(() => {});
         await chrome.goto(`${url}/?guard=${++loads}${st.hash.startsWith('#/chat') ? st.hash : '#/'}`, 700);
