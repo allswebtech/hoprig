@@ -254,7 +254,7 @@ export function toolCard(ev, o = {}) {
   el.answered = (allowed, fold = null) => {
     if (fold) {
       quiet = false;
-      fill(okd, fold === 'allowed-always' ? 'allowed for this session' : allowed ? 'allowed by you' : '');
+      fill(okd, fold === 'allowed-always' ? 'allowed for this session' : fold === 'allowed-all' ? 'allowed by Allow everything' : allowed ? 'allowed by you' : '');
       if (allowed && now === 'asking') {
         fill(input, inputView(last, o.cwd));
         if (wantsOpen(last) && !el.dataset.touched) el.open = true;

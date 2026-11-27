@@ -6,11 +6,14 @@
 // gateway's /v1/models, then its /v1/messages with the provider keys it holds). So the usual API paths are asked
 // too, with no credential at all; one that answers 2xx always means a question to the owner.
 
+import { OWN_PAGE, gatewayPort } from './trouteaipublic.mjs';
+
 /** The port typed in the page: { port } or { error }. The dashboard's own port is not "another" service. */
-export function checkPort(v, dashboardPort) {
+export function checkPort(v, dashboardPort, { own = false } = {}) {
   const n = Number(v);
   if (!Number.isInteger(n) || n < 1 || n > 65535) return { error: 'The port is a number from 1 to 65535.' };
   if (n === Number(dashboardPort)) return { error: 'That port is this dashboard itself.' };
+  if (n === gatewayPort() && !own) return { error: OWN_PAGE };
   return { port: n };
 }
 

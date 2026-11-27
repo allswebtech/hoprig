@@ -493,6 +493,7 @@ dialog.sheet.sheet-tall { height: 100dvh; max-height: 100dvh; border-radius: 0; 
 .choice:disabled { cursor: default; }
 .choice.current { border-color: var(--accent); background: var(--accent-soft); }
 .choice.danger { color: var(--danger); }
+.choice.danger .choice-sub { -webkit-line-clamp: 3; } /* Allow everything says in its line that nothing is held: all of it is read before the choice */
 .choice-icon { width: 34px; height: 34px; border-radius: var(--r); display: grid; place-items: center; background: var(--surface-3); color: var(--text-2); flex: none; }
 .choice.current .choice-icon { background: var(--surface); color: var(--accent); }
 .choice-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }

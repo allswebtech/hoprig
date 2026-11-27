@@ -5,7 +5,7 @@ import { providerEnv } from '../assistant/engine.mjs';
 import { startAsHers } from '../assistant/hersignin.mjs';
 import { loadConfig } from '../config.mjs';
 import { credsDir } from '../workspace/credlinks.mjs';
-import { cancelAsks } from './asks.mjs';
+import { cancelAsks, syncAllMark } from './asks.mjs';
 import { createChatRun, heldBefore, removeChatLeftovers, removeRun, updateRun } from '../runs.mjs';
 import { hear, lostWork, processGone } from './hear.mjs';
 import { leadPlan, withOthers } from '../models/lead.mjs';
@@ -94,6 +94,7 @@ async function open(chat, gen, hold) {
   const budgetOf = chat.o.engineOpts ? chat.o.engineOpts.maxBudgetUsd : undefined;
   const budget = typeof budgetOf === 'function' ? budgetOf() : undefined;
   let session = null;
+  syncAllMark(chat, hold.file); // "Allow everything": the floor's pre-check reads it (asks.mjs syncAllMark)
   session = chat.engine.open({
     extras,
     cwd: chat.cwd, env, profile: chat.profile, sessionId: chat.conversationId, resume, fork, model: chat.model, effort: chat.effort, ultracode: chat.ultracode,

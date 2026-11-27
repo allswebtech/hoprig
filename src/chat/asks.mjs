@@ -32,10 +32,14 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { BYPASS, SHELL_TOOL, bypassAllows, mayDelete, plainDelete, projectFolders } from '../asking.mjs';
+import { markAll, unmarkAll } from '../allmark.mjs';
+import { ALL } from '../bypassgate.mjs';
+import { sdkMode } from './engines/claude-lines.mjs';
 import { configDir, hookFile, stateDir } from '../paths.mjs';
 import { askedWhat } from '../hook.mjs';
+import { floorLine, wallHeld, wipesWhole } from '../wall.mjs';
 import { readRun } from '../runs.mjs';
-import { chatCard, handsOffAsk } from './handsoff.mjs';
+import { chatCard, chatSwitch, handsOffAsk } from './handsoff.mjs';
 import { mcpContent } from './mcpask.mjs';
 
 import { rememberAllowed } from './turns.mjs';
@@ -121,6 +125,83 @@ const hookMayAnswer = (chat, ev, mode) => isClaude(chat) && !!(chat.session && c
 
 const fail = (status, message) => Object.assign(new Error(message), { status });
 
+/**
+ * "Allow everything" (bypassgate.mjs ALL) in this chat: a permission is answered Allow at once, whatever the coding tool's
+ * own stop is (a delete it cannot judge, a line it cannot parse, an ask rule, a hook that asks). → { ok: true } to answer,
+ * { floor } when the one removal that stays held was read (the card shows with the floor line), else null (as before).
+ * Only for a chat of the owner whose process runs in bypass (`mode`), after he accepted the mode on this computer; never a
+ * question, a plan or an MCP question (ev.type), and never a chat of Tia's. Nothing of Hoprig's wall is held in the mode,
+ * not even while Hands-off is on: the mode is his own choice for this chat.
+ */
+export function allAllows(chat, ev, mode) {
+  if (chat.permissionMode !== ALL || !chat.bypass || mode !== BYPASS || !isClaude(chat) || ev.type !== 'permission') return null;
+  if (chat.byTia || chat.hers || chat.restoredMark) return null;
+  if (!(chat.o && typeof chat.o.allEverything === 'function' && chat.o.allEverything())) return null;
+  const at = places(chat, true);
+  const command = ev.tool === SHELL_TOOL && ev.full && typeof ev.full.command === 'string' ? ev.full.command : null;
+  const floor = command ? wipesWhole({ command, places: at }) : null;
+  if (floor) return { floor };
+  return { ok: true };
+}
+
+/** Is this chat in "Allow everything" for real now: his own chat, the process in bypass, the mode accepted on this computer? */
+function inAll(chat, mode = chat.bypass ? BYPASS : null) {
+  if (chat.permissionMode !== ALL || !chat.bypass || mode !== BYPASS || !isClaude(chat)) return false;
+  if (chat.byTia || chat.hers || chat.restoredMark) return false;
+  return !!(chat.o && typeof chat.o.allEverything === 'function' && chat.o.allEverything());
+}
+
+/**
+ * The mark beside the chat's run record while it is in the mode (allmark.mjs): the PreToolUse hook of its process reads
+ * it to check the floor BEFORE a shell command runs, also when nothing asks (launch.mjs wallGate, hook.mjs floorOn). Made
+ * again at every start and every change of mode; it goes with the record. `file`: the record (default: the live one).
+ */
+export function syncAllMark(chat, file = chat.session && chat.session.hold) {
+  if (!file) return;
+  const on = chat.permissionMode === ALL && isClaude(chat) && !(chat.byTia || chat.hers || chat.restoredMark) && !!(chat.o && typeof chat.o.allEverything === 'function' && chat.o.allEverything());
+  try {
+    if (on) markAll(file);
+    else unmarkAll(file);
+  } catch {
+    /* the pre-check is lost for this process only; the answers do not depend on it */
+  }
+}
+
+/**
+ * A tool call the process runs in this mode that Hands-off's wall would have held in a session that is not in it (the
+ * switch on, the wall reads it): it runs, and one quiet line says so, as it does for an ask answered here. The floor never
+ * gets here: its hook asks before the call, and the card is the ask's. Called for each live call (hear.mjs).
+ */
+export function allToolSeen(chat, ev) {
+  const mode = chat.bypass && (!chat.liveMode || chat.liveMode === BYPASS) ? BYPASS : chat.liveMode;
+  if (!inAll(chat, mode) || ev.kind !== 'tool' || !chat.o) return;
+  if (!chatSwitch(chat).on) return;
+  const at = places(chat, true);
+  const command = ev.name === SHELL_TOOL && ev.full && typeof ev.full.command === 'string' ? ev.full.command : null;
+  if (command && wipesWhole({ command, places: at })) return;
+  let held = null;
+  try {
+    held = wallHeld({ tool: ev.name, input: ev.full, cwd: chat.cwd, places: at });
+  } catch {
+    return;
+  }
+  if (held) allowedByAll(chat, { tool: ev.name, full: ev.full, toolId: ev.id });
+}
+
+// The quiet line for what Allow everything allowed, kept with the tool call like the hook's (turns.mjs).
+function allowedByAll(chat, ev) {
+  // One line for one call: the tool's own stop (an ask) and the wall's reading (allToolSeen) may both come for it.
+  if (ev.toolId) {
+    chat.allLined = chat.allLined || new Set();
+    if (chat.allLined.has(ev.toolId)) return;
+    chat.allLined.add(ev.toolId);
+    if (chat.allLined.size > 500) chat.allLined.delete(chat.allLined.values().next().value);
+  }
+  const line = { tool: String(ev.tool || '').slice(0, 80), what: String(askedWhat({ tool_name: ev.tool, tool_input: ev.full }) || ev.subject || '').slice(0, 200), at: Date.now(), by: 'all' };
+  chat.push({ kind: 'allowed', ...line });
+  if (chat.o && chat.o.turnsDir) rememberAllowed(chat.o.turnsDir, chat.conversationId, ev.toolId, line);
+}
+
 export const keepGrants = (list) => new Set((Array.isArray(list) ? list : []).filter((g) => typeof g === 'string').slice(-GRANTS_MAX));
 
 /** An ask came: answered by the chat where the mode or a remembered grant settles it, else a card for the owner. */
@@ -138,6 +219,16 @@ export function askArrived(chat, ev) {
   // process is new (it gets the rule again with the answer).
   const allowedBefore = !ev.owner && !!grant && ev.settled && grant.atoms.every((a) => chat.grants.has(a));
   const mode = chat.bypass && (!chat.liveMode || chat.liveMode === BYPASS) ? BYPASS : chat.liveMode;
+  const all = allAllows(chat, ev, mode);
+  if (all && all.ok && chat.session) {
+    chat.session.answer(ev.request, { allow: true, input: ev.full, permissions: null });
+    allowedByAll(chat, ev);
+    return;
+  }
+  if (all && all.floor) {
+    ev.why = floorLine(all.floor);
+    ev.floor = true; // the card says the floor and nothing of Hands-off's wall (handsoff.mjs chatCard)
+  }
   const byMode = byBypass(chat, ev, mode);
   if ((byMode || allowedBefore) && chat.session) {
     chat.session.answer(ev.request, { allow: true, input: ev.full, permissions: byMode ? null : grant.updates });
@@ -161,7 +252,7 @@ function show(chat, ev) {
   ev.card = chatCard(chat, ev);
   chat.pending.set(ev.request, ev);
   // The page gets the input to show and what "allow in this chat" covers; the rest stays here.
-  const { full, interactive, reasonType, reason, ruleForced, manualOnly, noAlways, settled, owner, subjectCut, judged, shell, grant: g, ...shown } = ev;
+  const { full, interactive, floor, reasonType, reason, ruleForced, manualOnly, noAlways, settled, owner, subjectCut, judged, shell, grant: g, ...shown } = ev;
   chat.push({ ...shown, canAlways: !!grant, always: grant ? (grant.edits ? 'edits' : 'rule') : null, alwaysText: grant && !grant.edits ? grant.text : '', canProject: !!(grant && grant.project), projectText: grant && grant.project ? grant.projectText : '' });
   chat.changed();
   // Hands-off (chat/handsoff.mjs): where it is on and has an answer, it answers now, through answerAsk.
@@ -193,9 +284,10 @@ export function answerAsk(chat, request, a) {
     const grant = a.always && !project ? ask.grant : null;
     let permissions = project || (grant ? grant.updates : null);
     if (ask.type === 'plan' && a.mode) {
-      permissions = [{ type: 'setMode', mode: a.mode === 'manual' ? 'default' : a.mode, destination: 'session' }];
+      permissions = [{ type: 'setMode', mode: sdkMode(a.mode), destination: 'session' }];
       chat.permissionMode = a.mode;
-      chat.bypass = a.mode === 'bypassPermissions';
+      syncAllMark(chat);
+      chat.bypass = sdkMode(a.mode) === 'bypassPermissions';
       chat.emit('record');
     }
     chat.session.answer(request, { allow: true, input, permissions });
@@ -234,10 +326,13 @@ function answerMcp(chat, request, ask, a) {
 /** Switched to bypass: what waits for an OK that is not the owner's own word is allowed now. */
 export function allowPending(chat) {
   for (const [r, ask] of [...chat.pending]) {
-    if (ask.type === 'mcp' || !byBypass(chat, ask, BYPASS)) continue; // an MCP server's question stays his
+    if (ask.type === 'mcp') continue; // an MCP server's question stays his
+    const all = allAllows(chat, ask, BYPASS);
+    if (!(all && all.ok) && !byBypass(chat, ask, BYPASS)) continue;
     chat.session.answer(r, { allow: true, input: ask.full, permissions: null });
+    if (all && all.ok) allowedByAll(chat, ask);
     chat.pending.delete(r);
-    chat.push({ kind: 'ask-closed', request: r, outcome: 'allowed' });
+    chat.push({ kind: 'ask-closed', request: r, outcome: all && all.ok ? 'allowed-all' : 'allowed' });
   }
   chat.changed();
 }

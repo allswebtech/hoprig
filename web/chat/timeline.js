@@ -22,6 +22,47 @@ const copyDone = async (text) => toast((await copyText(text)) ? 'Copied' : 'Sele
 const codeBlock = (code) => h('div.chat-codewrap', h('pre.md-code', code),
   h('button.btn.icon.ghost.chat-codecopy', { type: 'button', title: 'Copy', 'aria-label': 'Copy this code', onclick: () => copyDone(code) }, icon('copy', { size: 14 })));
 
+const FOLD_LINES = 8;
+/** The words of a sent message; one that runs past 8 lines is folded, with Show more (and Show less) under it. */
+function userBubble(text, files) {
+  const body = h('div.chat-usertext', text);
+  const bubble = h('div.chat-user', body);
+  const lines = String(text).replace(/\s+$/, '').split('\n').length;
+  let more = null;
+  const set = (open) => {
+    body.dataset.fold = open ? 'open' : 'closed';
+    more.setAttribute('aria-expanded', open ? 'true' : 'false');
+    fill(more, open ? 'Show less' : 'Show more');
+  };
+  const need = () => {
+    if (more) return;
+    more = h('button.chat-more', { type: 'button', 'aria-expanded': 'false', onclick: () => set(body.dataset.fold !== 'open') });
+    bubble.insertBefore(more, body.nextSibling);
+    set(false);
+  };
+  if (lines > FOLD_LINES) need();
+  else if (String(text).length > 120 && typeof requestAnimationFrame === 'function') {
+    // Lines that wrap: measured once the bubble is on the page, again when its width changes.
+    let width = -1;
+    const measure = () => {
+      if (more || !body.clientWidth || body.clientWidth === width) return;
+      width = body.clientWidth;
+      body.dataset.fold = 'closed';
+      if (body.scrollHeight > body.clientHeight + 1) need();
+      else delete body.dataset.fold;
+    };
+    requestAnimationFrame(measure);
+    if (typeof ResizeObserver === 'function') new ResizeObserver(measure).observe(body);
+  }
+  if (files) add(bubble, files);
+  return bubble;
+}
+/** Hoprig's own set-up message: the same bubble, its full text one press away. */
+function setupBubble(fold, name, files) {
+  return h('div.chat-user.chat-startfold', h('p.chat-startsaid', `Hoprig asked the AI to set up ${name} from your brief`),
+    h('details.chat-startfull', h('summary', 'Show the full message'), h('div.chat-startfulltext', fold.full)),
+    fold.brief ? h('div.chat-startbrief', fold.brief) : null, files);
+}
 /**
  * o: { scroll (the scrolling element), A (the chat's API path), cwd(), stopTask(id), after(), canRewind(), rewind({ messageId, text }),
  *      who() (the coding tool as a sentence names it: "Claude", "OpenCode"), canStopTask(), modes() (the chat's
@@ -64,6 +105,24 @@ export function createTimeline(o) {
   let stick = true;
   let asked = false; // a card that waits for the owner came while the view was scrolled up
   let view = null; // the transcript view (transcript.js), made with the root below
+  // On a touch screen the row of actions shows under the newest sent message and under one that was tapped.
+  let marking = false;
+  function markNewest() {
+    if (marking) return;
+    marking = true;
+    queueMicrotask(() => {
+      marking = false;
+      const rows = o.scroll.querySelectorAll ? [...o.scroll.querySelectorAll('.chat-userrow')] : [];
+      rows.forEach((r, i) => r.classList.toggle('chat-newest', i === rows.length - 1));
+    });
+  }
+  list.addEventListener('click', (e) => {
+    const t = e.target;
+    const row = t && t.closest ? t.closest('.chat-userrow') : null;
+    const keep = row && t.closest('.chat-user') && !t.closest('button, a, summary') ? row : null;
+    for (const r of list.querySelectorAll('.chat-userrow.chat-acts-on')) if (r !== keep) r.classList.remove('chat-acts-on');
+    if (keep) keep.classList.toggle('chat-acts-on');
+  });
   const cardOpts = () => ({ cwd: o.cwd(), stopTask: canStop() ? o.stopTask : null, view: view.now });
 
   // ---------- where an event goes ----------
@@ -145,21 +204,22 @@ export function createTimeline(o) {
       case 'user': {
         const g = group(at);
         const { text, files } = ownMessageView(ev.text, Array.isArray(ev.attachments) ? ev.attachments : []);
-        // Rewind (the files, the conversation or both, to before this message): beside the message.
-        // "Rewind to here", in words, as Claude Code on the web names it: on every device (a phone too).
-        const back = ev.messageId && o.canRewind() ? h('button.btn.ghost.chat-rewindbtn', {
-          type: 'button', title: 'Go back to before this message: the code, the conversation or both',
-          onclick: () => o.rewind({ messageId: ev.messageId, text: ev.text }),
-        }, icon('undo', { size: 13 }), h('span', 'Rewind to here')) : null;
         const fold = startFold(text);
         const name = (fold && fold.name) || String(o.cwd() || '').split('/').filter(Boolean).pop() || 'the project';
-        const bubble = fold
-          ? h('div.chat-user.chat-startfold', h('p.chat-startsaid', `Hoprig asked the AI to set up ${name} from your brief`),
-            h('details.chat-startfull', h('summary', 'Show the full message'), h('div.chat-startfulltext', fold.full)),
-            fold.brief ? h('div.chat-startbrief', fold.brief) : null, messageFiles(files, o.A))
-          : h('div.chat-user', text, messageFiles(files, o.A));
-        const row = h('div.chat-item.chat-userrow', { dataset: { message: ev.messageId || '' } }, back, bubble);
+        const shown = messageFiles(files, o.A);
+        const bubble = fold ? setupBubble(fold, name, shown) : userBubble(text, shown);
+        const acts = h('div.chat-useracts',
+          h('button.btn.ghost.chat-copybtn', { type: 'button', title: 'Copy', 'aria-label': 'Copy this message', onclick: () => copyDone(text) },
+            icon('copy', { size: 16 }), h('span.chat-actword', 'Copy')),
+          // Rewind (the files, the conversation or both, to before this message). It puts the message back in the box, so it
+          // is also the way to edit it: no third button.
+          ev.messageId && o.canRewind() ? h('button.btn.ghost.chat-rewindbtn', {
+            type: 'button', title: 'Rewind to here: go back to before this message', 'aria-label': 'Rewind to here',
+            onclick: () => o.rewind({ messageId: ev.messageId, text: ev.text }),
+          }, icon('undo', { size: 16 }), h('span.chat-actword', 'Rewind to here')) : null);
+        const row = h('div.chat-item.chat-userrow', { dataset: { message: ev.messageId || '' } }, bubble, acts);
         row.said = text;
+        markNewest();
         return add(g, row);
       }
       case 'turn-start':
@@ -270,7 +330,7 @@ export function createTimeline(o) {
       case 'allowed':
         // Allowed by Hoprig itself in bypass mode (a plain delete: src/chat/asks.mjs), in the words of a terminal's page.
         // The command itself for the shell (no tool name), and where it ran when not in the chat's folder; read out.
-        return add(groupOf(at), h('p.chat-item.chat-note.chat-allowed', { role: 'status' }, h('strong', 'Allowed by Hoprig in bypass mode: '),
+        return add(groupOf(at), h('p.chat-item.chat-note.chat-allowed', { role: 'status' }, h('strong', ev.by === 'all' ? 'Allowed without asking (Allow everything): ' : 'Allowed by Hoprig in bypass mode: '),
           `${ev.tool && ev.tool !== 'Bash' ? `${ev.tool}: ` : ''}${ev.what || ev.tool}${ev.folder ? ` · in ${ev.folder}` : ''}`));
       case 'session-changed':
         at.group = null;

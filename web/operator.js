@@ -10,7 +10,6 @@ import { ago, api, confirmSheet, fill, h, link, stateOf, toast } from './lib.js'
 import { store } from './store.js';
 import * as registry from './registry.js';
 import { navChanged, registerPage } from './registry.js';
-import { groupHead } from './shell.js';
 import { findingPart } from './operator-look.js';
 import { placeLinks } from './operator-ways.js';
 
@@ -24,7 +23,7 @@ let count = 0;
 async function pollCount() {
   try {
     const r = await api(`${A}/attention`);
-    setCount(r.needs ?? r.count);
+    setCount(rowsOf(r));
   } catch {
     /* logged out, offline or an older computer: keep the last */
   }
@@ -35,6 +34,8 @@ function setCount(n) {
     navChanged();
   }
 }
+/** The rows of Home's Needs you that are the Operator's: the cards that ask, without those a session card already shows. */
+const rowsOf = (r) => (r.items || []).filter((i) => asksYou(i) && !sameAsCard(i)).length;
 /** The number on Home's badge: the cards that ask the owner to act (the rows of Needs you). */
 export const homeCount = () => count;
 // The menu lane gives the badge of Home a hook; without it (this lane alone) the count only lives here.
@@ -147,7 +148,7 @@ export function itemRow(it, catalog, tap, { changed = false, finding = null, don
  * Home's Needs you rows: draws the cards that ask the owner to act into `box` and keeps them up to date. Nothing is
  * drawn (the box stays empty) while none asks. Returns the function that stops it.
  */
-export function needsYouRows(box) {
+export function needsYouRows(box, onCount = () => {}) {
   let alive = true;
   let drawn = null;
   let changedId = null; // the item a tap was refused on because it changed
@@ -175,13 +176,14 @@ export function needsYouRows(box) {
       return; // older computer, offline or logged out: what is drawn stays
     }
     if (!alive) return;
-    setCount(r.needs ?? r.count);
     const items = r.items.filter((i) => asksYou(i) && !sameAsCard(i));
+    setCount(items.length);
     const key = `${JSON.stringify(items.map((i) => [i.id, i.rev, i.since, i.facts]))}|${changedId || ''}|${JSON.stringify(r.findings || {})}`;
     if (key === drawn) return;
     drawn = key;
-    fill(box, items.length ? h('section.home-group.g-needs-op', { 'aria-label': 'Needs you' }, groupHead('Needs you'),
-      h('div.cards.op-rows', items.map((it) => itemRow(it, r.acts, tap, { changed: it.id === changedId, finding: r.findings?.[it.id] || null, done: () => alive && load(), opened })))) : null);
+    // Only the cards: the heading and the count are Home's group, which holds this box above its sessions.
+    fill(box, items.length ? h('div.cards.op-rows', items.map((it) => itemRow(it, r.acts, tap, { changed: it.id === changedId, finding: r.findings?.[it.id] || null, done: () => alive && load(), opened }))) : null);
+    onCount(items.length);
   }
   load();
   const every = setInterval(() => alive && !document.hidden && load(), 15_000);
@@ -196,7 +198,7 @@ function viewOperator() {
   location.replace('#/');
   let tries = 0;
   const look = setInterval(() => {
-    const at = document.querySelector('.g-needs-op, .g-needs');
+    const at = document.querySelector('.g-needs');
     if (at || ++tries > 20) {
       clearInterval(look);
       at?.scrollIntoView({ block: 'start' });

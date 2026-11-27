@@ -120,7 +120,7 @@ with the switch on or off, so an Auto session gets no map here.
 
 ## Auto mode and providers billed by use
 
-Auto mode (on Providers, **Carry on with the next provider** under **When a provider reaches its limit**) uses a
+Auto mode (on Providers, **At a limit**, **Carry on with the next provider**) uses a
 provider billed by use only while **Also use pay-per-use providers** is on. Billed by use are an API key that is billed
 for every use and a Claude sign-in on a Console account: such a sign-in is named "Claude sign-in billed by use (Console
 account)", never a subscription. While the switch is off, such a provider can stay in the order, but Auto mode leaves

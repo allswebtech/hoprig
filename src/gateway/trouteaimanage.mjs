@@ -137,6 +137,9 @@ const pickCatalog = (j) => {
     })).filter((e) => e.id && /^[a-z0-9][a-z0-9-]*$/.test(e.id) && e.name),
   };
 };
+// The gateway sign-in state (a public route of its own): only these three yes-or-no answers are kept. Its hasPassword is named
+// signInSet here: the filter above drops any field with "password" in its name.
+const pickSignIn = (j) => ({ requireLogin: rec(j).requireLogin === true, signInSet: rec(j).hasPassword === true, oidcEnabled: rec(j).oidcEnabled === true });
 const pickLink = (j) => ({ url: urlOf(rec(j).url || rec(j).link || rec(j).href, 600) });
 // For Hoprig's own use only (never returned to a page): what a sign-in act needs to go on.
 const pickDevice = (j) => ({ userCode: str(rec(j).user_code, 60), link: urlOf(rec(j).verification_uri_complete || rec(j).verification_uri, 500), deviceCode: typeof rec(j).device_code === 'string' ? j.device_code : null, codeVerifier: typeof rec(j).codeVerifier === 'string' ? j.codeVerifier : null, interval: Number.isFinite(rec(j).interval) ? j.interval : 5, expiresIn: Number.isFinite(rec(j).expires_in) ? j.expires_in : 600, extraData: rec(j).extraData ?? null });
@@ -149,6 +152,7 @@ const pickMadeKey = (j) => ({ id: idOf(rec(j).id, 120), key: typeof rec(j).key =
  * The list of what may be sent. `inner`: the answer is for Hoprig's own use and is never returned by a route (it holds
  * what a sign-in act needs). `secret`: the answer holds a credential: only `withManageKey` may send it.
  * `bearer`: the route refuses the command token (it takes a session or a key with the manage scope).
+ * `plain`: a public route of the gateway: it is asked with no token and no key at all.
  */
 export const ALLOWED = [
   { id: 'accounts', method: 'GET', re: /^\/api\/providers(\?limit=\d{1,4})?$/, pick: pickAccounts },
@@ -166,6 +170,7 @@ export const ALLOWED = [
   { id: 'keys', method: 'GET', re: /^\/api\/keys$/, pick: pickKeys },
   { id: 'key-remove', method: 'DELETE', re: new RegExp(`^/api/keys/${ID}$`), pick: pickMessage },
   { id: 'key-make', method: 'POST', re: /^\/api\/keys$/, pick: pickMadeKey, secret: true },
+  { id: 'sign-in-state', method: 'GET', re: /^\/api\/settings\/require-login$/, pick: pickSignIn, plain: true },
   { id: 'open-link', method: 'POST', re: /^\/api\/auth\/link$/, pick: pickLink },
   { id: 'device-code', method: 'GET', re: new RegExp(`^/api/oauth/${PROVIDER}/device-code$`), pick: pickDevice, inner: true, bearer: true, ms: 20_000 },
   { id: 'device-poll', method: 'POST', re: new RegExp(`^/api/oauth/${PROVIDER}/poll$`), pick: pickPoll, bearer: true, ms: 20_000 },
@@ -206,7 +211,7 @@ export async function callGateway(method, path, opts = {}) {
   if (entry.bearer) {
     if (typeof opts.bearer !== 'string' || !opts.bearer) throw new ManageError('This step needs a temporary sign-in key.', 500, 'internal');
     headers.authorization = `Bearer ${opts.bearer}`;
-  } else {
+  } else if (!entry.plain) {
     const token = (deps.token || commandToken)(opts.folder || dataFolder());
     if (!token) {
       const folder = opts.folder || dataFolder();

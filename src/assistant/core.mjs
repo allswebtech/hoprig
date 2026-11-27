@@ -47,6 +47,7 @@ import { herRightsLevel } from './herrights.mjs';
 import { hoprigOwnDirs } from '../paths.mjs';
 import { errorDetail, errorText, failedText, toolName } from './toolkit.mjs';
 import { wakeMessage, workOf } from './jobs.mjs';
+import { maskValues } from './maskvalues.mjs';
 import { placedByRoom, startWhere } from './where-start.mjs';
 
 // A card line is cut here: long enough for the longest value a card shows whole (a Work brief, 4000) with its label.
@@ -324,7 +325,7 @@ export function createAssistantCore({
       // the request itself (deterministically, not by the model).
       if (f.session && f.session.status === 'needs_ok' && c.kind !== 'chat') {
         try {
-          f.session.screen = String(await ops.capture({ computer: args.computer || LOCAL, session: args.session, lines: 15 })).split('\n').slice(-15).join('\n');
+          f.session.screen = await maskValues(String(await ops.capture({ computer: args.computer || LOCAL, session: args.session, lines: 15 })).split('\n').slice(-15).join('\n'));
         } catch {
           /* gone meanwhile */
         }
@@ -915,7 +916,7 @@ export function createAssistantCore({
       let screen = '';
       if (ev.entry && ev.reason !== 'ended') {
         try {
-          screen = await screenOf(ev.entry);
+          screen = await maskValues(await screenOf(ev.entry)); // the wake goes to her model: no credential value in it
         } catch {
           /* gone meanwhile */
         }

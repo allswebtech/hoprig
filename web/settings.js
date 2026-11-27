@@ -1,10 +1,11 @@
-// Settings (#/settings, #/settings/<page>): a list with one row per page — its title and one line with the current
-// state — and the chosen page. Desktop: the list on the left, the page on the right; a phone shows one at a time.
-// The pages, in the order of registry.js SETTINGS_ORDER: New sessions (sessiondefaults.js) · Notifications ·
-// Appearance · Security and sign-in · Public link · Workspace · While you are away · Tia · Version and updates ·
-// Add-ons, and the ones that apply only sometimes. Features add theirs with registerSettingsPage. The foot of the list
-// says the version and brings "Get started" back. Old page names (SETTINGS_ALIASES, MOVED_PARTS) lead to where their
-// content is now.
+// Settings (#/settings, #/settings/<page>): a list of seven rows — its title and one line with the current state — and
+// the chosen page. Desktop: the list on the left, the page on the right; a phone shows one at a time. The rows:
+// New sessions (Hands-off is a fold in it) · Notifications · Appearance · Security and sign-in (the Public link is a
+// fold in it) · Tia · Automations (the Workspace is a fold in it) · Version and updates, and Runs as root where it
+// applies. Add-ons is no row (Security and sign-in and Providers lead to it). Every page is still registered with
+// registerSettingsPage; MERGED_INTO says which row draws it, so an old address (#/settings/public-link) opens the row
+// with that part in view. The foot of the list says the version and brings "Get started" back. Old page names
+// (SETTINGS_ALIASES, MOVED_PARTS) lead to where their content is now.
 // Settings stored on the computer are saved with POST /api/settings (checked there); look and in-page alerts are per
 // device (localStorage). With several computers the switcher picks whose settings these are (#/m/<computer>/settings).
 import { APP_NAME, COMMAND } from './brand.js';
@@ -275,7 +276,7 @@ function securityPage(ctx) {
     ctx.here ? passwordPanel() : h('p.banner.muted', icon('lock', { size: 18 }), h('span', `The password of ${openLabel()} is changed on that computer.`)),
     foldersPanel(ctx.settings),
     ctx.here ? thisDevicePanel() : null,
-    fold('settings-security', 'Advanced', networkPanel(ctx.settings)),
+    fold('settings-security', 'Advanced', networkPanel(ctx.settings), h('p.hint', 'Add-on gateways are under ', h('a', { href: link('#/settings/addons') }, 'Add-ons'), '.')),
   ];
 }
 
@@ -317,11 +318,63 @@ export function chooseSettingsPage(pages, sub, part = null) {
   const own = pages.find((p) => p.id === sub) || null;
   const id = moved || (own ? sub : Object.hasOwn(SETTINGS_ALIASES, sub) ? SETTINGS_ALIASES[sub] : sub);
   const page = pages.find((p) => p.id === id) || null;
-  return { chosen: page || pages[0], missing: !!sub && !page };
+  // A page drawn inside another row: the address opens that row.
+  const host = page && Object.hasOwn(MERGED_INTO, page.id) ? pages.find((p) => p.id === MERGED_INTO[page.id]) || page : page;
+  return { chosen: host || pages[0], missing: !!sub && !page };
+}
+
+/** The pages drawn inside another row, as a closed fold: old id → the row that holds it. */
+export const MERGED_INTO = Object.freeze({ handsoff: 'new-sessions', 'public-link': 'security', workspace: 'automations' });
+/** The rows of the list, in order. Add-ons has no row: it opens only at its own address. */
+const ROW_ORDER = ['new-sessions', 'root', 'notifications', 'appearance', 'security', 'tia', 'automations', 'updates'];
+const NO_ROW = new Set(['addons']);
+
+/** The rows of the list out of every page shown: the merged ones and Add-ons left out; a page a feature adds comes last. */
+export function settingsRows(pages) {
+  const rank = (p) => (ROW_ORDER.includes(p.id) ? ROW_ORDER.indexOf(p.id) : ROW_ORDER.length + p.order / 1000);
+  return pages.filter((p) => !Object.hasOwn(MERGED_INTO, p.id) && !NO_ROW.has(p.id)).sort((a, b) => rank(a) - rank(b));
+}
+
+/** A closed fold with the old page's name and its content, drawn when first opened (at once when `now`, open when `openIt`). */
+function mergedFold(p, ctx, now, openIt) {
+  const body = h('div.fold-body');
+  const draw = () => {
+    let content;
+    try {
+      content = p.render(ctx);
+    } catch (e) {
+      content = h('p.form-error', e.message);
+    }
+    fill(body, content);
+  };
+  const d = h('details.fold', { id: p.id }, h('summary.fold-summary', h('span', p.title), icon('chevronDown', { size: 18 })), body);
+  let drawn = false;
+  const once = () => {
+    if (drawn) return;
+    drawn = true;
+    draw();
+  };
+  if (now) {
+    if (openIt) d.open = true;
+    once();
+  } else d.addEventListener('toggle', () => d.open && once());
+  return d;
+}
+
+/** What a row shows: its own page, then the pages merged into it as closed folds. `open`: the merged page to open now; `part`: any part an address names (every merged page is then drawn, so the part is there to find). */
+export function pageBody(chosen, pages, ctx, { open = null, part = null } = {}) {
+  let own;
+  try {
+    own = chosen.render(ctx);
+  } catch (e) {
+    own = h('p.form-error', e.message);
+  }
+  const merged = pages.filter((p) => MERGED_INTO[p.id] === chosen.id);
+  return [own, ...merged.map((p) => mergedFold(p, ctx, !!part || open === p.id, open === p.id))];
 }
 
 /** The part to open for an address: the one it names, else the card a moved page became. */
-export const partFor = (sub, part, pages) => part || (!pages.some((p) => p.id === sub) && Object.hasOwn(MOVED_PART, sub) ? MOVED_PART[sub] : null);
+export const partFor = (sub, part, pages) => part || (Object.hasOwn(MERGED_INTO, sub) && pages.some((p) => p.id === sub) ? sub : !pages.some((p) => p.id === sub) && Object.hasOwn(MOVED_PART, sub) ? MOVED_PART[sub] : null);
 
 /** The foot of the list: the version, and "Show Get started again" while Home's Get started is closed. */
 function settingsFoot({ settings, state, here }) {
@@ -348,11 +401,10 @@ function viewSettings({ frame, sub, query }) {
   frame({
     title: 'Settings',
     page: 'settings',
-    intro: here ? 'How this dashboard and its sessions behave. Each page says what it changes.' : `The settings of ${openLabel()}.`,
+    intro: here ? null : `The settings of ${openLabel()}.`,
     back: sub ? link('#/settings') : null,
     backLabel: 'Settings',
     backOnPhoneOnly: true, // the list stays on the left on a desktop
-    introOnPhone: !sub, // a phone shows one page: its own title and sentence say it
     wide: true,
     body: [split],
   });
@@ -390,7 +442,7 @@ function viewSettings({ frame, sub, query }) {
       }
       for (const [p, line] of lines) Promise.resolve().then(() => p.summary(ctx)).then((t) => (line.textContent = t || ''), () => {});
     };
-    fill(list, h('div.rows', pages.map((p) => {
+    fill(list, h('div.rows', settingsRows(pages).map((p) => {
       const line = h('span.row-sub', '');
       lines.set(p, line);
       Promise.resolve().then(() => p.summary(ctx)).then((t) => (line.textContent = t || ''), () => {});
@@ -404,17 +456,13 @@ function viewSettings({ frame, sub, query }) {
       return fill(pane, h('div.empty', icon('alert', { size: 32 }), h('p', 'This settings page does not exist.'),
         h('a.btn.secondary', { href: link('#/settings') }, 'See all settings')));
     }
-    let content;
-    try {
-      content = chosen.render(ctx);
-    } catch (e) {
-      content = h('p.form-error', e.message);
-    }
+    // The part to open for an address: the one it names, else the page that was merged into this row.
+    const part = partFor(sub, partOf(query), pages);
+    const content = pageBody(chosen, pages, ctx, { open: part, part });
     fill(pane,
       h('header.split-head', h('h2.split-title', chosen.title, chosen.tag ? h('span.badge.soft.tag', chosen.tag) : null), chosen.desc ? h('p.page-intro', chosen.desc) : null),
       h('div.split-body', content));
     // "?show=<part>": a sentence elsewhere that sends him here opens the page at the switch or field it names.
-    const part = partFor(sub, partOf(query), pages);
     if (part) showPart(part, { alive: isAlive });
   }
   load();

@@ -193,6 +193,9 @@ function backButton(s, profiles, after) {
     : null;
 }
 
+/** A card's last line: its last message, never its title again (that told nothing). null: no line. */
+export const lastLine = (s) => (s.lastMessage && String(s.lastMessage).trim() !== String(nameOf(s)).trim() ? s.lastMessage : null);
+
 /**
  * Home: a session as a card, with the computer's name when there are several. `heading`: the state key its group's
  * heading already names ("Working", "Finished"): its pill then shows only the time.
@@ -212,7 +215,7 @@ export function sessionCard(s, profiles, refresh, multi, { heading = null } = {}
       extrasLine(s),
       liveBasic(s),
       registeredCardBadges().map((b) => b(s))),
-    s.lastMessage ? h('p.card-msg', s.lastMessage) : s.title && s.kind !== 'chat' ? h('p.card-msg.title', s.title) : null,
+    lastLine(s) ? h('p.card-msg', lastLine(s)) : null,
     // A held act: show what the wall held (web/handsoff.js) in place of the short note, so the owner sees the whole
     // act before Allow, here on Home too and not only on the session page.
     st.key === 'attention' && s.held ? heldActCard(s.held) : st.key === 'attention' && s.note ? h('p.card-note', askNote(s.note)) : st.key === 'failed' && s.note ? h('p.card-note', s.note) : null,

@@ -855,10 +855,11 @@ export function openSession(app, name) {
     if (!list.length) return null;
     const at = (ms) => new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     // The command itself for the shell (no tool name), and where it ran when not in the session's folder.
+    const named = (a) => (a.by === 'all' ? 'Allowed without asking (Allow everything): ' : 'Allowed by Hoprig in bypass mode: ');
     const line = (a) => `${a.tool && a.tool !== 'Bash' ? `${a.tool}: ` : ''}${a.what || a.tool}${a.folder ? ` · in ${a.folder}` : ''} · ${at(a.at)}`;
     const newest = list[list.length - 1];
     const earlier = list.slice(0, -1).reverse();
-    const head = h('span', h('strong', 'Allowed by Hoprig in bypass mode: '), line(newest));
+    const head = h('span', h('strong', named(newest)), line(newest));
     if (!earlier.length) return h('p.sess-allowed', { role: 'status' }, head);
     return h('details.sess-allowed', { role: 'status', ontoggle: () => refit() }, h('summary', head), h('ul', earlier.map((a) => h('li', line(a)))));
   }

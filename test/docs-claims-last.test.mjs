@@ -344,7 +344,7 @@ test('OPERATOR: a Console sign-in is billed by use, and with the switch off Auto
 
 test('PROVIDERS: Auto mode and providers billed by use, the row, and the message when nothing is left', () => {
   const own = flat(part('docs/PROVIDERS.md', 'Auto mode and providers billed by use'));
-  assert.ok(own.includes('Auto mode (on Providers, **Carry on with the next provider** under **When a provider reaches its limit**) uses a provider billed by use only while **Also use pay-per-use providers** is on.'));
+  assert.ok(own.includes('Auto mode (on Providers, **At a limit**, **Carry on with the next provider**) uses a provider billed by use only while **Also use pay-per-use providers** is on.'));
   assert.ok(own.includes('such a sign-in is named "Claude sign-in billed by use (Console account)", never a subscription. While the switch is off, such a provider can stay in the order, but Auto mode leaves it out and its row says so.'));
   assert.ok(own.includes('When that leaves Auto mode nothing it may use, no session starts under Auto mode and nothing is spent; the same holds when the providers of the order are gone or do not serve Claude Code. A start from a terminal (`hoprig auto`), a request of a session that runs under it, a chat of the App and a run of Work then say why: each provider that is left out, with its reason, and the way out. With a provider billed by use that is turning that switch on, or putting a subscription into the order; else putting a provider that serves Claude Code into the order. A chat says that Claude Code could not start, and a run of Work that it did not start. Tia does not choose Auto mode then: she starts or moves the session on the next provider she may use, and with none she says why in the same words. A session that already runs under Auto mode on a provider billed by use gets nothing more while the switch is off: its message says to turn that switch on, or to start the session again under Auto mode.'));
   assert.ok(!own.includes('get a message that names the providers billed by use and the two ways out'), 'the old sentence of two starts only is gone');
@@ -352,7 +352,7 @@ test('PROVIDERS: Auto mode and providers billed by use, the row, and the message
   assert.match(read('bin/hoprig.mjs'), /case 'auto':[\s\S]{0,300}return start\('auto', rest\);/, '`hoprig auto` starts a session in Auto mode');
   const acc = read('web/accounts.js');
   assert.match(acc, /title: 'Carry on with the next provider'/);
-  assert.match(acc, /'When a provider reaches its limit'/);
+  assert.match(acc, /title: 'At a limit'/);
   assert.match(acc, /toggle\('Also use pay-per-use providers',/);
   assert.match(acc, /const BILLED_SIGNIN = 'Claude sign-in billed by use \(Console account\)';/);
   assert.match(acc, /PAY_PER_USE_HELP = 'API keys billed for every use, and a Claude sign-in on a Console account \(billed by use too\), take part in Auto mode only while this is on\./);
@@ -620,7 +620,7 @@ test('README: a terminal session is ended with End session, never Close, and its
   const s = read('web/session.js');
   assert.match(s, /\{ value: 'kill', label: 'End session', sub: 'Stops everything running in it'/);
   assert.match(s, /ok: 'End session',/);
-  assert.match(read('src/server/backends/tmux.mjs'), /async kill\(name\) \{\s+await this\.#endPrograms\(/);
+  assert.match(read('src/server/backends/tmux.mjs'), /async kill\(name(, \{ hold = null \} = \{\})?\) \{\s+await this\.#endPrograms\(/);
 });
 
 test('README: one name for Tia\'s limit, the label Settings → Tia draws, and no cap left', () => {
@@ -644,7 +644,7 @@ test('README: the "Not built" list says a terminal session ends, never that it c
   assert.match(page, /the ending of a terminal's programs before the session ends, the safe git reads\./);
   assert.doesNotMatch(page, /programs before it closes/);
   assert.match(read('web/session.js'), /\{ value: 'kill', label: 'End session',/);
-  assert.match(read('src/server/backends/tmux.mjs'), /async kill\(name\) \{\s+await this\.#endPrograms\(/);
+  assert.match(read('src/server/backends/tmux.mjs'), /async kill\(name(, \{ hold = null \} = \{\})?\) \{\s+await this\.#endPrograms\(/);
 });
 
 test('README: a direct call to GitHub or GitLab that can change something stays yours at Full in her session', () => {

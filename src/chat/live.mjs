@@ -91,7 +91,7 @@ export function stateOf(c) {
  * still the open chat of its id: its process ends at a restart, not the chat) } from feature.mjs. The feature emits
  * 'gone' on a chat that left the list for good, and 'kept' on one whose hand-off to a terminal failed.
  */
-export function liveRoutes(ctx, { chatOr404, toolStillOn = () => {}, save, remember, bad, choices, pickModel, folderOf, uploadsDir, openChatOf, about, terminalOf, shutOf = () => null, openNow = () => true, handed = () => [] }) {
+export function liveRoutes(ctx, { chatOr404, toolStillOn = () => {}, save, remember, bad, choices, modeCheck = () => {}, pickModel, folderOf, uploadsDir, openChatOf, about, terminalOf, shutOf = () => null, openNow = () => true, handed = () => [] }) {
   const { HttpError } = ctx;
   const pick = (val, list, what) => {
     if (val === undefined) return undefined;
@@ -278,6 +278,7 @@ export function liveRoutes(ctx, { chatOr404, toolStillOn = () => {}, save, remem
       const b = await ctx.readJson(req);
       const mode = pick(b.mode, choices(c).modes, 'permission mode');
       if (!mode) throw bad('say which mode');
+      modeCheck(req, c, mode);
       const r = await c.setSettings({ mode });
       save();
       remember(c, req);

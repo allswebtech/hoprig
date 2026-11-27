@@ -48,7 +48,7 @@ import { BECAUSE, HOUR_MAX, LOOP_MAX, answerText, decide, handsOffOffered, hopri
 import { configDir, defaultWorkspaceDir, hookFile, hoprigOwnDirs, stateDir } from './paths.mjs';
 import { applyRecord, askedWhat, readHoprigSettings, recordPatch } from './hookrecord.mjs';
 import { readRun } from './runfile.mjs';
-import { wallHeld } from './wall.mjs';
+import { floorLine, wallHeld, wipesWhole } from './wall.mjs';
 
 // The record's part of the hook (hookrecord.mjs), named here as well, for the files and tests that import it from here.
 export { askedWhat, hookMain, wantsToolNews } from './hookrecord.mjs';
@@ -60,7 +60,7 @@ const CARD_PARTS = Object.freeze({ askType, cardFor, hourMax: HOUR_MAX });
 export const hookPatch = (run, ev, now = Date.now(), o = {}) => recordPatch(run, ev, now, { ...o, cardParts: CARD_PARTS });
 
 /** Apply `ev` to the run file under its lock (hookrecord.mjs applyRecord), with the card a PermissionRequest needs. */
-export const applyHook = (file, ev, now = Date.now(), answer = null, hands = null, held = null, continuePrompt = null) => applyRecord(file, ev, now, answer, hands, held, continuePrompt, CARD_PARTS);
+export const applyHook = (file, ev, now = Date.now(), answer = null, hands = null, held = null, continuePrompt = null, by = null) => applyRecord(file, ev, now, answer, hands, held, continuePrompt, CARD_PARTS, by);
 
 /**
  * The exact card of what `ev` asks (askcard.mjs): from the hook's own data, the tool's input as it came. A plan's text
@@ -236,6 +236,39 @@ function stillOn(file, version, keys) {
 }
 
 const ALLOW = Object.freeze({ hookSpecificOutput: Object.freeze({ hookEventName: 'PermissionRequest', decision: Object.freeze({ behavior: 'allow' }) }) });
+// The same answer, given by "Allow everything": its own object, so the record can say who allowed it (answerEvent).
+const ALLOW_ALL = Object.freeze({ hookSpecificOutput: Object.freeze({ hookEventName: 'PermissionRequest', decision: Object.freeze({ behavior: 'allow' }) }) });
+
+/**
+ * "Allow everything": every permission of a session in bypassPermissions whose process carries the mode (facts.allOn)
+ * is allowed at once, also a command line the wall cannot read and what Bypass leaves to the owner, and also what
+ * Hands-off's wall holds in every other session: the mode is his own choice for this session, so nothing of the wall is
+ * held in it. Never a question or a plan (the coding tool's own, to him), never a session of Tia's (facts.hers: her
+ * level holds whatever the mode says; such a session never carries the mode), and never the one removal read for certain
+ * as wiping the whole home, workspace, projects folder or disk (wipesWhole). Anything else falls through to the rule of
+ * Bypass, which allows less.
+ */
+function allAnswer(ev, facts) {
+  if (askType(ev.tool_name) !== 'permission') return null;
+  if (ev.tool_name === 'Bash' && ev.tool_input && typeof ev.tool_input.command === 'string' && wipesWhole({ command: ev.tool_input.command, places: facts.places() })) return null;
+  if (facts.hers && facts.hers()) return null;
+  return ALLOW_ALL;
+}
+
+/**
+ * "Allow everything" for a PreToolUse event (facts.floorOn: the process carries the mode, or the dashboard marked this
+ * session's chat in it): BEFORE a shell command runs, the one removal read for certain as wiping the whole home,
+ * workspace, projects folder or disk is answered "ask" with the floor line, whether or not anything else would ask.
+ * Everything else the wall holds for Hands-off (`hold`, from preToolHold) is NOT held: it is noted as allowed by the mode
+ * ({ note: true }) and runs. → { output, floor } | { note: true } | null (nothing to say).
+ */
+export function allPre(ev, facts, hold = null) {
+  if (!ev || ev.hook_event_name !== 'PreToolUse' || !facts.floorOn || !facts.floorOn()) return null;
+  const command = ev.tool_name === 'Bash' && ev.tool_input && typeof ev.tool_input.command === 'string' ? ev.tool_input.command : null;
+  const floor = command ? wipesWhole({ command, places: facts.places() }) : null;
+  if (floor) return { output: { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'ask', permissionDecisionReason: floorLine(floor) } }, floor };
+  return hold ? { note: true } : null;
+}
 
 /**
  * What the hook needs to know about the session beyond the event, read when asked (only for a PermissionRequest in
@@ -256,6 +289,11 @@ function startedIn(file) {
 
 export function sessionFacts(ev, env = process.env) {
   const file = env.HOPRIG_RUN_FILE;
+  const allBase = () => {
+    if (process.platform !== 'win32' && typeof process.getuid === 'function' && process.getuid() === 0) return false;
+    const cfg = hoprigSettings();
+    return cfg.allowBypass === true && Number.isFinite(cfg.allowEverythingAt);
+  };
   const handed = file ? path.join(path.dirname(path.dirname(file)), 'hook-settings', path.basename(file)) : null;
   return {
     // The session's extra folders (workspace/needs.mjs: a need, --with, "Also open"), from the settings Hoprig handed it.
@@ -265,6 +303,24 @@ export function sessionFacts(ev, env = process.env) {
       configDir: env.CLAUDE_CONFIG_DIR || null,
       extra: file ? path.join(path.dirname(path.dirname(file)), 'hook-settings', path.basename(file)) : null,
     }),
+    // "Allow everything" (bypassgate.mjs ALL), for this event: the launcher put HOPRIG_ALLOW_EVERYTHING=1 into this
+    // process's environment from the dashboard's launch file (a command of the session cannot set it on its coding
+    // tool), the config now has Bypass allowed and the acknowledgement made, and this is no root (Claude Code refuses
+    // bypass there). Inline, so the hook stays small; test/hook-allowall.test.mjs holds it equal to allAllowed.
+    allOn: () => env.HOPRIG_ALLOW_EVERYTHING === '1' && allBase(),
+    // The floor's pre-check (PreToolUse): the same, or the mark the dashboard wrote beside this session's handed settings
+    // while its chat is in the mode (a chat's mode changes while it runs, so no variable can carry it). Never Tia's.
+    floorOn: () => {
+      if (!allBase() || !file || sessionByTia(file)) return false;
+      if (env.HOPRIG_ALLOW_EVERYTHING === '1') return true;
+      try {
+        return fs.existsSync(path.join(path.dirname(path.dirname(file)), 'hook-settings', `${path.basename(file)}.all`));
+      } catch {
+        return false;
+      }
+    },
+    // A session Tia started (her mark, written by the dashboard): her level holds in whatever mode.
+    hers: () => !file || sessionByTia(file),
     places: () => {
       const cfg = hoprigSettings();
       const workspace = workspaceDir(env, cfg);
@@ -367,6 +423,10 @@ export function leadAnswer(ev) {
 
 export function hookAnswer(ev, facts = sessionFacts(ev), wall = wallHeld) {
   if (!ev || typeof ev !== 'object' || ev.hook_event_name !== 'PermissionRequest' || ev.permission_mode !== BYPASS) return null;
+  if (facts.allOn && facts.allOn()) {
+    const all = allAnswer(ev, facts);
+    if (all) return all;
+  }
   // Never for an act in or around an extra folder: it is read-only for this session, and only its owner answers there.
   if (inExtra(ev.cwd, facts.extras ? facts.extras() : [])) return null;
   const places = facts.places();
@@ -390,6 +450,7 @@ export function answerEvent(file, ev) {
   let answer = null;
   let hands = null;
   let held = null; // what the wall held, as the run record keeps it (askcard.mjs heldRecord)
+  let quiet = false; // "Allow everything" let a call through that the wall would have held: only a line says so
   try {
     // The answer does not wait on the record: a run file that could not be written must not leave a question open.
     answer = hookAnswer(ev);
@@ -398,8 +459,14 @@ export function answerEvent(file, ev) {
       // config is read with its failure flag, and whether this session carries the hold, so the wall holds on even if
       // its settings file has gone (it is not lost with a file the session might take away).
       const { cfg, readFailed } = readHoprigSettings();
-      const hold = preToolHold(ev, readRun(file), { cfg, cfgReadFailed: readFailed, handed: sessionCanHold(file), byTia: sessionByTia(file), places: () => sessionFacts(ev).places(), ...handsOffKeys(file) });
-      if (hold) {
+      const facts = sessionFacts(ev);
+      const hold = preToolHold(ev, readRun(file), { cfg, cfgReadFailed: readFailed, handed: sessionCanHold(file), byTia: sessionByTia(file), places: () => facts.places(), ...handsOffKeys(file) });
+      // In "Allow everything" (his own choice for this session) nothing of the wall is held but the removal of the whole
+      // home, workspace, projects folder or disk; what it would have held runs, with one quiet line (allPre).
+      const all = allPre(ev, facts, hold);
+      if (all && all.output) answer = all.output;
+      else if (all && all.note) quiet = true;
+      else if (!all && hold) {
         answer = hold.output;
         held = heldRecord(hold.held, ev.tool_name);
       }
@@ -419,7 +486,7 @@ export function answerEvent(file, ev) {
     /* an event of a shape we do not know: no answer, Claude Code asks as usual */
   }
   try {
-    const run = applyHook(file, ev, Date.now(), answer, hands, held);
+    const run = applyHook(file, ev, Date.now(), quiet ? ALLOW_ALL : answer, hands, held, null, quiet || answer === ALLOW_ALL ? 'all' : null);
     if (hands && hands.output) handsOffActivity(run, hands.line);
   } catch {
     /* never disturb the session */

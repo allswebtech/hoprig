@@ -354,10 +354,12 @@ export const MODE = {
   plan: { chip: 'Plan', sub: 'Explores, then proposes a plan without editing your code' },
   auto: { chip: 'Auto', sub: 'Runs without routine prompts; a background check reviews risky actions' },
   dontAsk: { chip: 'Don\'t ask', sub: 'Anything not already allowed is refused' },
-  bypassPermissions: { chip: 'Bypass permissions', sub: 'Runs without permission prompts (riskiest)', danger: true },
+  bypassPermissions: { chip: 'Bypass permissions', sub: 'Runs without permission prompts; still stops before a risky delete or a command Hoprig cannot read', danger: true },
+  // Hoprig's own mode beyond Bypass (src/bypassgate.mjs ALL): drawn stronger than Bypass (`strong`).
+  allowEverything: { chip: 'Allow everything', sub: 'Nothing is held, also not what Hands-off holds, except a delete of your whole home, workspace or disk. It is for work you watch or trust.', danger: true, strong: true },
 };
 /** The mode menu in the desktop app's order; what it does not offer (don't ask) waits under "More modes". */
-export const MODE_MENU = ['manual', 'acceptEdits', 'plan', 'auto', 'bypassPermissions'];
+export const MODE_MENU = ['manual', 'acceptEdits', 'plan', 'auto', 'bypassPermissions', 'allowEverything'];
 export const MODE_RARE = ['dontAsk'];
 /**
  * The menu's two parts for the modes the chat offers (`modes`, the server's list in any order): { main, rare }. A mode
@@ -412,7 +414,8 @@ export function nextMode(now, modes = Object.keys(MODE)) {
  * The mode the chat runs in: what the running process says, else what is set (null: Claude Code's default, Manual).
  * A mode set that the process takes only at its next start (modeLater) is shown at once, so Shift+Tab goes on from it.
  */
-export const modeOf = (v) => (v.modeLater ? v.modeLater : v.liveMode ? (v.liveMode === 'default' ? 'manual' : v.liveMode) : v.permissionMode || 'manual');
+// Allow everything runs in Claude Code's bypassPermissions (the process says that): the chip keeps what the owner chose.
+export const modeOf = (v) => (v.modeLater ? v.modeLater : v.liveMode ? (v.liveMode === 'default' ? 'manual' : v.liveMode === 'bypassPermissions' && v.permissionMode === 'allowEverything' ? 'allowEverything' : v.liveMode) : v.permissionMode || 'manual');
 export const modeChip = (m) => (MODE[m] ? MODE[m].chip : m ? m : MODE.manual.chip);
 /**
  * A mode as the chip and menu say it: Claude Code's name (one word for one mode, in every coding tool's chat), and

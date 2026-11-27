@@ -200,3 +200,20 @@ test('a sign-in link keeps its long parts whole: the one-time code and the code 
     await gw.close();
   }
 });
+
+test('the sign-in state is asked with no token, keeps three yes-or-no answers and nothing else, and no other settings route is allowed', async () => {
+  const seen = [];
+  const fetch = async (url, init) => {
+    seen.push({ url, headers: init.headers });
+    return new Response(JSON.stringify({ requireLogin: true, hasPassword: true, oidcEnabled: false, adminPassword: SECRET, token: SECRET, other: 'x' }), { status: 200, headers: { 'content-type': 'application/json' } });
+  };
+  const r = await callGateway('GET', '/api/settings/require-login', { port: 20999, folder, deps: { sameUser: async () => 'own', fetch, token: () => assert.fail('a public route needs no command token') } });
+  assert.deepEqual(r, { requireLogin: true, signInSet: true, oidcEnabled: false });
+  assert.equal(seen[0].url, 'http://127.0.0.1:20999/api/settings/require-login');
+  assert.deepEqual(Object.keys(seen[0].headers), ['accept'], 'no token, no key, no cookie');
+  const empty = await callGateway('GET', '/api/settings/require-login', { port: 20999, folder, deps: { sameUser: async () => 'own', fetch: async () => new Response('{}', { status: 200 }) } });
+  assert.deepEqual(empty, { requireLogin: false, signInSet: false, oidcEnabled: false }, 'a missing answer is a no');
+  await fails(callGateway('GET', '/api/settings/other', on({ port: 20999 })), 'not-allowed');
+  await fails(callGateway('POST', '/api/settings/require-login', on({ port: 20999 })), 'not-allowed');
+  assert.equal(ALLOWED.filter((e) => /settings/.test(String(e.re))).length, 1);
+});

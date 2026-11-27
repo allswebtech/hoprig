@@ -125,11 +125,11 @@ test('the dock lays out so a long queued message cannot widen it, and the queue 
   assert.match(c, /\.chat-queued-bubble \{[^}]*dashed/);
 });
 
-test('"Rewind to here" shows on hover or focus, always on a touch screen', () => {
+test('the actions under a sent message show on hover or focus, and on a touch screen under the newest', () => {
   const c = css('chat-input.css');
-  assert.match(c, /\.chat-rewindbtn \{[^}]*opacity: 0/);
-  assert.match(c, /\.chat-userrow:hover \.chat-rewindbtn, \.chat-userrow:focus-within \.chat-rewindbtn, \.chat-rewindbtn:focus-visible \{ opacity: 1; \}/);
-  assert.match(c, /@media \(hover: none\) \{ \.chat-rewindbtn \{ opacity: 1; \} \}/);
+  assert.match(c, /\.chat-useracts \{[^}]*opacity: 0/);
+  assert.match(c, /\.chat-userrow:hover \.chat-useracts, \.chat-userrow:focus-within \.chat-useracts \{ opacity: 1; \}/);
+  assert.match(c, /@media \(hover: none\) and \(pointer: coarse\) \{[^@]*\.chat-newest \.chat-useracts/);
 });
 
 test('a task opens to its output: the row\'s name is a button named for a screen reader; the whole tree has an Output button', () => {

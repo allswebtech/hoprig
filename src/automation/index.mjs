@@ -155,6 +155,7 @@ export function createAutomation(ctx) {
   const deck = {
     ...ctx.deck,
     async has(name) {
+      if (ctx.deck.has) return ctx.deck.has(name); // the server's: every chat too, also one the page's list folds away
       return (await ctx.deck.list()).some((c) => c.name === name);
     },
   };

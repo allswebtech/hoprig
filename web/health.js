@@ -332,7 +332,7 @@ export function healthSection(ctx) {
     const say = where.exists
       ? `${g.title}'s first password is in the file ${where.file} on ${d.computer}. Open that file there to read it. Until its next release its own page still asks for it.`
       : `${g.title}'s first password file (${where.file}) is not there any more: you have set your own, or it was removed.`;
-    const pw = await promptSheet({ title: `Set a new password for ${g.title}?`, text: `${say} Type a new password (at least 8 characters) to replace it; every browser signed in to ${g.title} is signed out. Hoprig does not keep it.`, ok: 'Set a new password', type: 'password', check: (v) => (v.length >= 8 && v.length <= 200 ? '' : 'At least 8 characters') });
+    const pw = await promptSheet({ title: `Set a new password for ${g.title}?`, text: `${say} Type a new password (at least 12 characters) to replace it; every browser signed in to ${g.title} is signed out. Hoprig does not keep it.`, ok: 'Set a new password', type: 'password', check: (v) => (v.length >= 12 && v.length <= 200 ? '' : 'At least 12 characters') });
     if (!pw) return;
     try {
       const r = await api(`/api/gatewayhost/${g.id}/password`, { password: pw, confirm: d.computer });

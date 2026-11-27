@@ -14,6 +14,7 @@ import { recall } from './keys.js';
 import { closeMenu, openMenu } from './menu.js';
 import { createMenus, ownSlash } from './popovers.js';
 import { micButton } from '../voice.js';
+import { askOnce } from '../allowall.js';
 import { MODE, backWords, boxWords, canCompact, modeMenu, caps, contextPercent, effortName, failText, hasPlan, kilo, modeChip, modeInfo, modeOf, modelName, modelWords, nextMode, planWindows, ringOf, toolWord, touchScreen, turnRuns, modelSub } from './words.js';
 
 // Enter sends unless the screen is touched (a phone's Enter makes a new line; its Send button sends).
@@ -293,6 +294,7 @@ export function createComposer(o) {
       toast(failText(e), { from: e, kind: 'error' });
     }
   }
+  const allState = {};
   async function chooseMode() {
     if (!v) return;
     const now = modeOf(v);
@@ -307,7 +309,8 @@ export function createComposer(o) {
       subtitle: v.modeLater ? `${modeChip(v.modeLater)} starts with the next message.` : `Changes at once, also while ${toolWord(v)} works.`,
       sections: [{ items: main.map(item) }, { label: 'More modes', items: rare.map(item) }],
     });
-    if (pick && pick !== now) setMode(pick);
+    // Allow everything: the first time on this computer he is asked once (web/allowall.js), then it is a mode like the others.
+    if (pick && pick !== now && (pick !== 'allowEverything' || (await askOnce(allState)))) setMode(pick);
   }
   /**
    * /model <id> and /effort <level>, typed: the same route as the chip's menu. "auto" (or "default") is Auto; a name the
@@ -533,6 +536,7 @@ export function createComposer(o) {
       const mw = modeInfo(v, mode);
       const chip = mw ? mw.chip : modeChip(mode);
       modeBtn.classList.toggle('chat-is-danger', !!(mw && mw.danger));
+      modeBtn.classList.toggle('chat-is-all', !!(mw && mw.strong));
       fill(modeBtn, icon(mw && mw.danger ? 'alert' : 'lock', { size: 13 }), h('span', chip));
       modeBtn.setAttribute('aria-label', `Permission mode: ${chip}. Change it`);
       // The model and its effort in one control ("Sonnet · High"), as the desktop app's model picker.

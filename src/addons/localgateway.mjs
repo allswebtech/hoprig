@@ -32,6 +32,7 @@ import { workspaceDir } from '../workspace/layout.mjs';
 import { belongsTo, groupOf, parentOf } from './proctree.mjs';
 import { capture, npmArgv, ownNodeBin, showCommand, stream, which } from '../setup/system.mjs';
 import { dataFolder, sameUserListener } from '../gateway/trouteaibase.mjs';
+import { baseEnv } from './trouteaipublic.mjs';
 import { atLeast, dataProblem, entryProblem, ownCopyOf, packageJsonOf, packageVersion, spawnReason } from './owncopy.mjs';
 import { windowsSpawnPlan } from '../winspawn.mjs';
 import { forGateway, forInstalls } from '../secretenv.mjs';
@@ -247,7 +248,9 @@ export function keepsLocal({ host = dashboardHost(), reason = null, tailscale = 
  */
 export function listenRule(def, opts = {}) {
   const o = { host: opts.host ?? dashboardHost(), reason: opts.reason ?? null, tailscale: opts.tailscale ?? viaTailscale() };
-  return keepsLocal(o) ? { args: hostArgs(def, o), env: { HOST: '127.0.0.1' } } : { args: [], env: {} };
+  const local = keepsLocal(o) ? { args: hostArgs(def, o), env: { HOST: '127.0.0.1' } } : { args: [], env: {} };
+  // The shipped gateway also learns its own public base address while the owner has turned its public address on (trouteaipublic.mjs).
+  return opts.shipped === true && def.id === 'trouteai' ? { args: local.args, env: { ...local.env, ...baseEnv() } } : local;
 }
 const ARG_SAFE = /^[A-Za-z0-9._=:,@/+-]{1,200}$/;
 
@@ -606,7 +609,7 @@ export function localGateway(def, { shipped = false, reason = () => serverReason
    * listens is the rule of listenRule, for every caller.
    */
   async function start() {
-    const listen = listenRule(def, { reason: reason() });
+    const listen = listenRule(def, { reason: reason(), shipped });
     const now = await runs();
     if (now.mine) return { ok: true, url: url(), already: true };
     // An install or update of the own copy is working in its folder (maybe in another process): a start now would run
@@ -900,9 +903,9 @@ export function localGateway(def, { shipped = false, reason = () => serverReason
     /** Its own page as this computer reaches it, or null when it has none. */
     page,
     /** What `hoprig gateways` shows and the page's confirmation names: the exact program and arguments it runs. */
-    command: () => (own ? lineOf(copy(), listenRule(def, { reason: reason() }).args) : [def.bin, ...startArgs(def, port(), listenRule(def, { reason: reason() }).args)]),
+    command: () => (own ? lineOf(copy(), listenRule(def, { reason: reason(), shipped }).args) : [def.bin, ...startArgs(def, port(), listenRule(def, { reason: reason(), shipped }).args)]),
     /** How a start listens now (listenRule): its service is written with the same. */
-    listen: () => listenRule(def, { reason: reason() }),
+    listen: () => listenRule(def, { reason: reason(), shipped }),
     /** On a server: true when Hoprig keeps it on this computer (its localOnly words), false when it cannot; null elsewhere. */
     keptLocal: () => (reason() ? hostArgs(def, { reason: reason() }).length > 0 : null),
     installHint: () => (def.npm ? showCommand(own ? ['npm', 'install', '--prefix', own.dir(), '--save-exact', ...ownFlags(), `${def.npm}@${def.own.pin}`] : ['npm', 'install', '-g', ...(installFlags(def) || []), def.npm]) : `${def.bin} was not found on this computer`),

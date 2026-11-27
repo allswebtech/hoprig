@@ -284,7 +284,7 @@ test('the automations have the dashboard\'s own names: the queue switch, and no 
   const oldName = /\bRestore\b(?! code| conversation)/;
   for (const f of ['site/content/use-cases/always-on-coding-machine.md', SLEEP]) assert.doesNotMatch(read(f), oldName, f);
   assert.doesNotMatch(section('Not built, or not proven yet'), oldName);
-  assert.match(flat(read('site/content/use-cases/always-on-coding-machine.md')), /\*\*Reopen sessions after a restart\*\* \(Settings → While you are away\)/);
+  assert.match(flat(read('site/content/use-cases/always-on-coding-machine.md')), /\*\*Reopen sessions after a restart\*\* \(Settings → Automations\)/);
 });
 
 test('the commands table: a row with subcommands lists all of them, and the table says it is a short list', async () => {
@@ -787,7 +787,7 @@ test('the README says a terminal a chat took over stays closed after a restart, 
   assert.equal(decide({ cards: [], data, now: 2, boot: true, enabled: true }).actions.length, 1, 'without a take-over: reopened');
   const r = decide({ cards: [], data, now: 2, boot: true, enabled: true, taken: [{ tool: 'claude', conversation: 'c1', runId: 'r1' }] });
   assert.equal(r.actions.length, 0, 'taken over: not reopened');
-  assert.match(read('src/chat/handoff.mjs'), /takeBack = noteTaken\(\{ tool, conversation: c\.conversationId, runId: term\.run && term\.run\.runId \}\);\n\s+try \{\n\s+await ctx\.deck\.respawn\(/);
+  assert.match(read('src/chat/handoff.mjs'), /takeBack = noteTaken\(\{ tool, conversation: c\.conversationId, runId: term\.run && term\.run\.runId \}\);\n\s+try \{\n(\s+\/\/.*\n)*\s+if \(term\.name && \(await ctx\.deck\.madeAlone\?\.\(term\.name\)\)\) await ctx\.deck\.end\(term\.name, \{ hold \}\);\n\s+else \{\n\s+await ctx\.deck\.respawn\(/);
   assert.match(read('web/chat/page.js'), /'Continue here'\)/);
 });
 

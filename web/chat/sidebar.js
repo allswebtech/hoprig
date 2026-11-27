@@ -13,6 +13,7 @@ import { endPaneShells } from './termpane.js';
 import { deleteNow, notPickable, pickToDelete, trashSheet } from './deletes.js';
 import { closeMenuOf, openMenu } from '../desktop/menu.js';
 import { sessionHref } from '../sessionitem.js';
+import { oneCardPerKey } from '../onecard.js';
 
 export const SIDE_MIN_PX = 900; // the width from which the list shows (sidebar.css says the same)
 /** The screen is wide enough for the list (asked each time). */
@@ -21,7 +22,7 @@ export const sideFits = () => typeof matchMedia !== 'undefined' && matchMedia(`(
 export const GROUP_BY = [['folder', 'Folder'], ['state', 'State'], ['computer', 'Computer']];
 export const SORT_BY = [['recent', 'Recent activity'], ['name', 'Name']];
 // The state groups, in Home's order (home.js GROUPS): what needs the owner first.
-const STATES = [['needs', 'Needs you', ['attention', 'limit']], ['working', 'Working', ['working', 'starting']], ['waiting', 'Finished', ['waiting', 'ended']], ['terminals', 'Terminals', ['shell']]];
+const STATES = [['needs', 'Needs you', ['attention', 'limit']], ['working', 'Working', ['working', 'starting']], ['waiting', 'Ready', ['waiting', 'ended']], ['terminals', 'Terminals', ['shell']]];
 
 const base = (p) => String(p || '').split(/[\\/]/).filter(Boolean).pop() || String(p || '') || 'No folder';
 const when = (s) => s.statusAt || s.activity || s.created || 0;
@@ -73,7 +74,8 @@ export const deletable = (s) => s.kind === 'chat' && (s.machine ?? null) === nul
  * owner), sessions }]. A computer that cannot be reached adds nothing (Home says why).
  */
 export function sideGroups(machines, { group = 'folder', sort = 'recent', multi = false } = {}) {
-  const all = (machines || []).filter((m) => m && m.status === 'online').flatMap((m) => (m.sessions || []).map((s) => ({ ...s, machine: s.machine ?? m.machine ?? null, machineLabel: s.machineLabel || m.machineLabel || 'This computer' })));
+  // One row per conversation (onecard.js), as on Home.
+  const all = oneCardPerKey((machines || []).filter((m) => m && m.status === 'online').flatMap((m) => (m.sessions || []).map((s) => ({ ...s, machine: s.machine ?? m.machine ?? null, machineLabel: s.machineLabel || m.machineLabel || 'This computer' }))));
   const bySort = sort === 'name' ? (a, b) => nameOf(a).localeCompare(nameOf(b)) || when(b) - when(a) : (a, b) => when(b) - when(a) || nameOf(a).localeCompare(nameOf(b));
   const groups = new Map();
   const put = (key, made, s) => {

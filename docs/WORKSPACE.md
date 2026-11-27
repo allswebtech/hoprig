@@ -103,7 +103,7 @@ A computer that held projects before Hoprig came keeps them where they were: `~/
 project with its repositories and notes beside them. Three steps bring each into the layout above, and none of them
 moves, changes or deletes what was there. The commands do the mechanical part; the bundled skill `adopt-projects`
 does the reading and the asking in a coding session you start (as `new-project` stands over `project new`). In the
-dashboard: **Workspace → Projects found on this computer**, the same three steps without a terminal.
+dashboard: **Projects → Add project → Found on this computer**, the same three steps without a terminal.
 
 ```sh
 hoprig adopt scan                          # looks at nothing: names the usual folders that are there

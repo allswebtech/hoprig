@@ -16,7 +16,10 @@ const NAME = /t[\s._-]*route[\s._-]*a[\s._-]*i/i;
 const ALLOWED = {
   'src/addons/localgateway.mjs': 'the import of the base file',
   'src/addons/cli.mjs': 'imports its set-up',
+  'src/addons/fixedlink.mjs': 'its public name is made only by its own page: the generic steps refuse it (trouteaipublic.mjs)',
   'src/addons/gatewayhost.mjs': 'imports its set-up and its data folder rule',
+  'src/addons/localservice.mjs': 'the one port check refuses its port for every other way to make a public name',
+  'src/addons/trouteaipublic.mjs': 'its public address: the name, every refusal and what the gateway is told',
   'src/addons/gatewaymanage.mjs': 'the import of its management client',
   'src/addons/gateways.mjs': 'its entry in SHIPPED',
   'src/gateway/trouteai.mjs': 'its set-up, log and first password',
@@ -25,8 +28,12 @@ const ALLOWED = {
   'src/setup/movegateway.mjs': 'the import of the base file',
   'src/server/accounts.mjs': 'imports its set-up',
   'web/accounts.js': 'the import of its panel',
+  'web/gatewayacts.js': 'its manage presses on its own page',
+  'web/page-gatewaymanage.css': 'the look of its own page',
+  'web/publiclink.js': 'the name of its public address in Settings, Public link, with its page as the place to change it',
   'web/providerhealth.js': 'the import of its combo sheet',
   'web/trouteai.js': 'its panel on Providers',
+  'web/trouteaipage.js': 'its own page',
 };
 
 function files(dir) {

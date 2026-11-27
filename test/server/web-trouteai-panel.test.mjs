@@ -1,4 +1,4 @@
-// The TRouteAI panel on Providers (web/trouteai.js): window names read plainly; a key typed there is a password field that
+// The TRouteAI parts (web/trouteai.js), drawn by its page (web/trouteaipage.js): window names read plainly; a key typed there is a password field that
 // is emptied after it is sent and kept nowhere; the sign-in code's poll runs only while its sheet is open; the page of
 // TRouteAI opens without a referrer; the provider check's combo sentence becomes a press only where the check says so.
 import assert from 'node:assert/strict';
@@ -46,11 +46,13 @@ test('the sign-in code is polled only while its sheet is open, never by a timer 
   assert.doesNotMatch(src, /setInterval/);
 });
 
-test('TRouteAI\'s own page opens with no referrer, and the one-time link only on the computer itself', () => {
-  assert.equal((src.match(/window\.open\(/g) || []).length, 2);
-  assert.ok((src.match(/'noopener,noreferrer'/g) || []).length === 2);
-  assert.match(src, /const onThatComputer = LOOPBACK\.includes\(location\.hostname\);\s*if \(onThatComputer\)/);
+test('TRouteAI\'s own page opens in a tab made at once, cut loose from this page, then sent where Hoprig says', () => {
+  assert.equal((src.match(/window\.open\(/g) || []).length, 1);
+  assert.match(src, /const tab = window\.open\('about:blank', '_blank'\);\s*if \(tab\) tab\.opener = null;/);
+  assert.match(src, /tab\.location\.replace\(u\)/);
   assert.match(src, /rel: 'noopener noreferrer'/);
+  // The address is worked out on the server: where is 'local' or 'public', never a link the page builds from the gateway's answer.
+  assert.match(src, /where: onThatComputer \? 'local' : 'public'/);
 });
 
 test('a removal names the computer in its confirmation, and every press carries the computer\'s name', () => {
@@ -64,7 +66,13 @@ test('the provider check makes the press for a managed TRouteAI, and copies the 
   assert.match(ph, /label: 'Make the combo'/);
 });
 
-test('the Providers page draws the panel on this computer\'s own page only', () => {
-  assert.match(read('accounts.js'), /here \? trouteaiPanel\(\{ changed: \(\) => refresh\(\) \}\) : null/);
+test('the Providers page holds no gateway cards: TRouteAI is one row and a page of its own, on this computer only', () => {
+  const acc = read('accounts.js');
+  assert.match(acc, /here \? listRow\(\{ href: link\('#\/providers\/trouteai'\), icon: 'swap', title: 'TRouteAI'/);
+  assert.doesNotMatch(acc.slice(acc.indexOf('function viewAccounts')), /gatewaysPanel|trouteaiPanel/, 'the page itself draws neither card');
+  assert.match(acc, /import \{ viewTrouteai \} from '\.\/trouteai\.js'/);
+  assert.match(acc, /if \(sub === 'trouteai'\) return viewTrouteai\(\{ frame, sub, query \}\);/, 'its address draws the page of its own');
+  assert.doesNotMatch(src, /export function trouteaiPanel/, 'the old panel is gone: the page holds what it held');
+  assert.doesNotMatch(read('gateways.js'), /export function gatewaysPanel/, 'the old gateways card is gone');
   assert.match(read('index.html'), /page-gatewaymanage\.css/);
 });

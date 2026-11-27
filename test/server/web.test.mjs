@@ -336,7 +336,7 @@ test('session view: the header holds back, name and state, the account and one m
 // ---------- Home ----------
 test('Home: groups by what the session needs, plain terminals last, and one plain line about the providers', async () => {
   const { GROUPS, groupOf, accountsLine } = await import('../../web/home.js');
-  assert.deepEqual(GROUPS.map((g) => g[1]), ['Needs you', 'Working', 'Finished', 'Terminals']);
+  assert.deepEqual(GROUPS.map((g) => g[1]), ['Needs you', 'Working', 'Ready', 'Terminals']);
   assert.equal(groupOf({ status: 'attention' }), 'needs');
   assert.equal(groupOf({ status: 'waiting', limit: { text: 'x' } }), 'needs', 'a limit needs you');
   assert.equal(groupOf({ status: 'waiting' }), 'waiting', 'a finished turn only waits for the next message');
@@ -1427,7 +1427,7 @@ test('a sentence that sends him to a switch in Settings opens the page at that s
   const { BYPASS_SWITCH } = await import('../../web/home.js');
   assert.equal(BYPASS_SWITCH, '#/settings/new-sessions?show=bypass');
   assert.match(fs.readFileSync(path.join(WEB, 'home.js'), 'utf8'), /href: BYPASS_SWITCH, onclick: \(\) => seen\(\) \}, 'Open the switch'/);
-  assert.match(fs.readFileSync(path.join(WEB, 'settings.js'), 'utf8'), /const part = partFor\(sub, partOf\(query\), pages\);\n\s*if \(part\) showPart\(part, \{ alive: isAlive \}\);/);
+  assert.match(fs.readFileSync(path.join(WEB, 'settings.js'), 'utf8'), /const part = partFor\(sub, partOf\(query\), pages\);[\s\S]*if \(part\) showPart\(part, \{ alive: isAlive \}\);/);
 });
 
 test('the sign-in code\'s banner opens the switch it names', async () => {

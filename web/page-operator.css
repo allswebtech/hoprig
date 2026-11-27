@@ -104,6 +104,5 @@
 .op-row .op-subject { order: 0; margin: 0; font-size: var(--fs); }
 .op-row-fact { margin: 2px 0 0; font-size: var(--fs-sm); color: var(--text-2); overflow-wrap: anywhere; }
 .op-row .op-acts { margin-top: 8px; }
-/* The sessions of Needs you follow the rows under one heading. */
-.home-op:has(.g-needs-op) + .home-groups .g-needs > .group-head { display: none; }
-.home-op .home-group { margin-top: 0; }
+/* The rows stand inside Home's Needs you group, above its sessions. */
+.home-op .op-rows { margin-bottom: 8px; }

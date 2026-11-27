@@ -28,6 +28,8 @@ import { handsOffOffered } from '../handsoff.mjs';
 import { assertServes, readProfile } from '../profiles.mjs';
 import { chatToolList } from '../chat/tools.mjs';
 import { listRuns } from '../runs.mjs';
+import { isMarkedAll } from '../allmark.mjs';
+import { allAllowed } from '../bypassgate.mjs';
 import { isMarkedHers } from '../hermark.mjs';
 import { runsDir } from '../paths.mjs';
 import { launchArgv } from '../server/deck.mjs';
@@ -73,10 +75,16 @@ export function serverAdapter(sctx, { log = console.log, chat = null } = {}) {
           const r = c.runId ? runs.get(c.runId) : null;
           if (!r) return c;
           // `hers`: the dashboard marked this run Tia's (hermark.mjs), so a restore after a reboot brings it back as hers.
-          return { ...c, stopAt: r.stopAt || null, failure: r.failure || null, attentionKind: r.attentionKind || null, carryArgs: Array.isArray(r.carryArgs) ? r.carryArgs : [], ...(isMarkedHers(path.join(runsDir(), `${path.basename(r.runId)}.json`)) ? { hers: true } : {}) };
+          return { ...c, stopAt: r.stopAt || null, failure: r.failure || null, attentionKind: r.attentionKind || null, carryArgs: Array.isArray(r.carryArgs) ? r.carryArgs : [], ...(isMarkedHers(path.join(runsDir(), `${path.basename(r.runId)}.json`)) ? { hers: true } : isMarkedAll(path.join(runsDir(), `${path.basename(r.runId)}.json`)) && allAllowed(sctx.config?.() || {}, sctx.root) ? { all: true } : {}) };
         });
       },
-      async start({ tool = 'claude', dir, profile, mode = 'new', sessionId = null, carryArgs = [], name = null, fresh = false, hers = false }) {
+      // /api/state lists one card per conversation (server/onecard.mjs): a chat whose conversation a terminal runs or
+      // starts is folded into the terminal's card there, yet it is still a session a schedule may name.
+      async has(name) {
+        if (chat && chat.cards().some((c) => c.name === name)) return true;
+        return (await sctx.state()).sessions.some((c) => c.name === name);
+      },
+      async start({ tool = 'claude', dir, profile, mode = 'new', sessionId = null, carryArgs = [], name = null, fresh = false, hers = false, all = false }) {
         // "Start nothing new" (a hold of Tia's while the computer was overloaded) holds a schedule's start too. A
         // restore after a reboot (mode "move") brings back what ran before, so it is not held.
         const held = mode === 'move' ? null : heldUntil();
@@ -97,7 +105,7 @@ export function serverAdapter(sctx, { log = console.log, chat = null } = {}) {
         // scheduled session (no conversation) is not reset — the project's switch covers it as always.
         const reset = (mode === 'move' || mode === 'resume') && !!sessionId && handsOffOffered(sctx.config?.() || {});
         // `hers`: a restore of a session of Tia's (restore.mjs), or a schedule she added (schedules.mjs).
-        const go = async () => ({ name: await sctx.deck.create({ base: name || path.basename(dir), dir, argv, conversation: sessionId, ...(tool !== 'claude' ? { tool } : {}), ...(reset ? { hand: { reset: true } } : {}), ...(hers === true ? { hers: true } : {}) }) });
+        const go = async () => ({ name: await sctx.deck.create({ base: name || path.basename(dir), dir, argv, conversation: sessionId, ...(tool !== 'claude' ? { tool } : {}), ...(reset ? { hand: { reset: true } } : {}), ...(hers === true ? { hers: true } : {}), ...(all === true && hers !== true && allAllowed(sctx.config?.() || {}, sctx.root) ? { all: true } : {}) }) });
         if (!sessionId || !chat) return (await go()).name;
         // One conversation, one process: a conversation that a chat or a terminal runs already is not started again
         // (a message sent right after a restart, before this terminal reports it, must find it too). A fresh start

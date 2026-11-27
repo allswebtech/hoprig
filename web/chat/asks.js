@@ -248,6 +248,7 @@ export const OUTCOME = {
   denied: ['You said no', false],
   cancelled: ['No longer waiting', false],
   hoprig: ['Allowed by Hoprig in bypass mode', true], // the hook allowed it after the card showed (src/chat/asks.mjs)
+  'allowed-all': ['Allowed without asking (Allow everything)', true], // released when the chat was put in Allow everything
   handsoff: ['Answered by Hoprig (Hands-off)', true], // src/chat/handsoff.mjs: the line under it says what and why
   'mcp-accepted': ['You answered the MCP server', true],
   'mcp-declined': ['You declined the MCP server\'s question', false],

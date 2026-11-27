@@ -298,7 +298,7 @@ provider, model and effort chosen, and a **time limit** (default 30 minutes, 1 t
 
 What was the Automations page is split by where it belongs: the schedules switch and how many runs by themselves at
 once are at the top of **Work → Schedules**; trying again after a server error, reopening sessions after a restart,
-the housekeeping, and (under Advanced) pausing all of them are in **Settings → While you are away**. Sending the next
+the housekeeping, and (under Advanced) pausing all of them are in **Settings → Automations**. Sending the next
 queued message has no switch any more (a queue always sends; an old switch that was off is still honoured, and the
 queue's banner then has a Turn it on button). The old addresses (`#/automations…`) land on the
 new places.

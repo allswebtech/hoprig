@@ -155,7 +155,7 @@ clone it looks at what the project needs — the lockfile decides the dependency
 uv, poetry, pip, bundler, composer, go, cargo), `.nvmrc`/`engines` the Node version, and `.env.example` is
 copied to `.env` when there is none — and asks before running the install. Nothing else of a project ever runs,
 and an existing folder is never overwritten. The dashboard's **Workspace** page lists what is in the projects
-folder, each project with its sessions under it (change the folder there: **Advanced**, **Projects folder**, **Change**), and **New session** offers those projects. `hoprig pc clone <repo>…` does the same for given repositories.
+folder, each project with its state and a **New session** button (change the folder there: **More**, **Projects folder**, **Change**), and **New session** offers those projects. `hoprig pc clone <repo>…` does the same for given repositories.
 
 ### Project workspaces
 

@@ -1,6 +1,7 @@
-// Home (#/): the sessions of every computer and nothing else that stays. "Get started" above them until it is done
-// or closed; one line about the accounts (a warning only when one is at its limit); then the sessions in three
-// groups: Needs you, Working, Idle. With several computers, chips filter by computer.
+// Home (#/): the sessions of every computer and nothing else that stays. "Get started" above them while set-up is
+// unfinished; then the sessions in groups: Needs you (with the providers line only when something is wrong), Working,
+// Ready (what has been ready for more than 6 hours folded), Terminals. A group with nothing in it is not drawn. With
+// several computers, chips filter by computer. One card per conversation (onecard.js).
 import { APP_NAME } from './brand.js';
 import { limitStripAction } from './claudeaccount.js';
 import { getStartedArea } from './getstarted.js';
@@ -11,7 +12,9 @@ import { icon } from './icons.js';
 import { MACHINE_STATE, WINDOW, api, ago, answeredNow, btn, costWords, fill, h, insecure, isPaid, link, nearLimit, needsYouFirst, prefs, stateOf, until, waysOn } from './lib.js';
 import { isStarting } from './newsession.js';
 import { openNewSession } from './newsession-popup.js';
+import { oneCardPerKey } from './onecard.js';
 import { needsYouRows } from './operator.js';
+import { navChanged, registerHomeCount } from './registry.js';
 import { sessionCard } from './sessionitem.js';
 import { connectionBanner, emptyState, frame, groupHead } from './shell.js';
 import { pageNotify, store } from './store.js';
@@ -23,14 +26,48 @@ export const BYPASS_SWITCH = '#/settings/new-sessions?show=bypass';
 export const GROUPS = [
   ['needs', 'Needs you', ['attention', 'limit', 'failed']],
   ['working', 'Working', ['working', 'starting']],
-  ['waiting', 'Finished', ['waiting', 'ended']],
+  ['waiting', 'Ready', ['waiting', 'ended']],
   // A plain terminal is not Claude: it waits for nobody's message and never needs anyone, so it comes last.
   ['terminals', 'Terminals', ['shell']],
 ];
 // The state a group's heading already names: its cards' pills show only the time. "Needs you" holds two states
-// (Needs your OK, Limit reached) and Finished also holds Ended (and Ready), so those keep their words.
+// (Needs your OK, Limit reached) and Ready also holds Finished and Ended, so those keep their words.
 const SAID_BY_HEADING = { working: 'working', waiting: 'waiting', terminals: 'shell' };
 export const groupOf = (s) => (isStarting(s) ? 'working' : (GROUPS.find(([, , keys]) => keys.includes(stateOf(s).key)) || GROUPS[2])[0]);
+
+/**
+ * The groups Home draws, in order, each { id, title, count, rows, recent, old }: only those with something in them.
+ * `needsRows`: what stands at the top of Needs you besides its sessions (the providers line when something is
+ * wrong); Ready splits off what has waited for more than 6 hours (homefold.js).
+ */
+export function homeGroups(sessions, { needsRows = [], lead = null, now = Date.now() } = {}) {
+  const ahead = lead && lead.n > 0 ? lead : null;
+  return GROUPS.map(([id, title]) => {
+    const rows = id === 'needs' ? [...(ahead ? [ahead.el] : []), ...needsRows.filter(Boolean)] : [];
+    const mine = sessions.filter((s) => groupOf(s) === id);
+    const { recent, old } = id === 'waiting' ? splitWaiting(mine, now) : { recent: mine, old: [] };
+    return { id, title, count: (id === 'needs' && ahead ? ahead.n : 0) + needsRowsCount(id, needsRows) + mine.length, rows, recent, old };
+  }).filter((g) => g.count > 0);
+}
+const needsRowsCount = (id, needsRows) => (id === 'needs' ? needsRows.filter(Boolean).length : 0);
+
+// The one number badge of the menu is Home's: the rows of Needs you. The Operator's rows are counted by operator.js
+// (registerHomeCount there); the rest of the group (its sessions and the providers row) is counted here.
+let ownNeeds = 0;
+registerHomeCount(() => ownNeeds);
+/** The rows of the Needs you group that are not the Operator's: the group's count less the `lead` rows. */
+export const ownNeedsCount = (groups, leadN = 0) => Math.max(0, ((groups.find((g) => g.id === 'needs') || {}).count || 0) - Math.max(0, leadN));
+export function setOwnNeeds(n) {
+  if (n === ownNeeds) return;
+  ownNeeds = n;
+  navChanged();
+}
+
+/** The Set up card stays only while set-up is unfinished (getstarted.js planGetStarted: mode "open"). */
+export const setupShown = (plan) => !!plan && plan.mode === 'open';
+
+/** A card names its computer only while several are shown at once: with one chosen in the filter it says nothing. */
+export const showsComputer = (multi, only) => !!multi && only === 'all';
 
 /**
  * Home's line for a computer that does not answer: what it means and where to look, in plain words. The system's
@@ -107,9 +144,10 @@ export function viewHome() {
   const top = h('div');
   const bypassNote = h('div');
   const filters = h('div');
-  const accountsRow = h('div');
   const list = h('div.home-groups', skeleton());
-  const opRows = h('div.home-op'); // the cards that ask you to act, above the sessions of Needs you (operator.js)
+  const opRows = h('div.home-op'); // the cards that ask you to act, the first rows inside Needs you (operator.js)
+  let opN = 0;
+  let again = () => {};
   // "Get started" (getstarted.js): above everything while a step is missing.
   let noSessions = false;
   let paintEmpty = () => {};
@@ -118,18 +156,21 @@ export function viewHome() {
   const fixed = WINDOW && WINDOW.only;
   const gs = fixed
     ? { el: null, plan: () => ({ mode: 'hidden', claudeReady: true }), repaint() {}, stop() {} }
-    : getStartedArea({ firstRun: () => noSessions, onChange: () => paintEmpty() });
+    : getStartedArea({ firstRun: () => noSessions, onChange: () => {
+      // Done (or closed): no card at all, not a line that says it is done.
+      if (gs && gs.el) gs.el.hidden = !setupShown(gs.plan());
+      paintEmpty();
+    } });
   frame({
     title: fixed && WINDOW.label ? WINDOW.label : 'Home',
     page: 'home',
-    intro: fixed ? 'The coding sessions of this computer, the ones that need you first.' : 'Your coding sessions on every computer, the ones that need you first.',
     // In the Sessions app of another computer a new session starts on that computer.
     primary: { label: 'New session', icon: 'plus', onclick: () => openNewSession(fixed && fixed !== '~' ? { m: fixed } : fixed === '~' ? { m: null } : {}) },
     // On a phone in the page head, not floating: a floating button sat on the first card's "Claude wants to run: …".
     primaryInHead: true,
     body: [
       insecure() ? h('div.banner.muted', icon('lock', { size: 18 }), h('span', 'Not encrypted. Use only on a network you trust, or put it behind HTTPS.')) : null,
-      top, bypassNote, fixed ? null : fieldLines(), gs.el, filters, accountsRow, opRows, list,
+      top, bypassNote, fixed ? null : fieldLines(), gs.el, filters, list,
     ],
   });
   // Said once: the update kept "Allow bypass permissions mode" on, because this dashboard used bypass (src/bypassgate.mjs).
@@ -174,7 +215,11 @@ export function viewHome() {
   // The filter: 'all', or one computer ('~' is this one). Per device.
   let only = fixed || prefs.get('home.machine', 'all');
   const keyOf = (m) => (m === null ? '~' : m);
-  const unsubscribe = store.subscribe((d, err) => {
+  const paint = (d, err) => {
+    again = () => {
+      last = '';
+      paint(d, err);
+    };
     fill(top, connectionBanner(err));
     const all = store.all;
     if (!all.length) {
@@ -213,16 +258,19 @@ export function viewHome() {
             h('span', ...offlineWords(m)), icon('chevronRight', { size: 18 }))),
       ]
       : null);
+    // The providers line only when something is wrong, and then as a row of Needs you; "all available" is not shown.
     const line = accountsLine(shown.filter((m) => m.status === 'online'), multi);
-    fill(accountsRow, h(`a.accountsline${line.warn ? '.warn' : ''}`, { href: '#/providers' },
-      icon(line.warn ? 'alert' : 'user', { size: 18 }),
-      // One line per provider when several are near a limit (a phone then reads them one by one).
-      h('span.accountsline-text', line.lines.length > 1 ? line.lines.map((l) => h('span.accountsline-one', l)) : line.text),
-      icon('chevronRight', { size: 18 })),
-    // The stored Claude sign-in of this computer is at its limit: go on with another account (claudeaccount.js).
-    limitStripAction(shown));
+    const providerRows = line.warn
+      ? [h('div.home-needs-row', h('a.accountsline.warn', { href: '#/providers' },
+        icon('alert', { size: 18 }),
+        // One line per provider when several are near a limit (a phone then reads them one by one).
+        h('span.accountsline-text', line.lines.length > 1 ? line.lines.map((l) => h('span.accountsline-one', l)) : line.text),
+        icon('chevronRight', { size: 18 })),
+      // The stored Claude sign-in of this computer is at its limit: go on with another account (claudeaccount.js).
+      limitStripAction(shown))]
+      : [];
     const profilesOf = new Map(all.map((m) => [m.machine, m.profiles]));
-    const sessions = shown.flatMap((m) => m.sessions).sort(needsYouFirst);
+    const sessions = oneCardPerKey(shown.flatMap((m) => m.sessions)).sort(needsYouFirst);
     noSessions = !sessions.length;
     if (!sessions.length) {
       paintEmpty = () => {
@@ -239,22 +287,35 @@ export function viewHome() {
       };
       gs.repaint();
       paintEmpty();
+      // Something wrong with a provider is said even with no session: as Needs you, above the empty words.
+      setOwnNeeds(providerRows.length);
+      if (providerRows.length || opN) list.prepend(h('section.home-group.g-needs', { 'aria-label': 'Needs you' }, groupHead('Needs you', providerRows.length + opN), opN ? opRows : null, providerRows));
       return;
     }
     paintEmpty = () => {};
     const after = () => store.refresh();
-    fill(list, GROUPS.map(([id, title]) => {
-      const mine = sessions.filter((s) => groupOf(s) === id);
-      if (!mine.length) return null;
-      const card = (s) => sessionCard(s, profilesOf.get(s.machine) || [], after, multi, { heading: SAID_BY_HEADING[id] });
-      // Finished: what has waited for more than 6 hours stands folded under one line.
-      const { recent, old } = id === 'waiting' ? splitWaiting(mine) : { recent: mine, old: [] };
-      return h(`section.home-group.g-${id}`, { 'aria-label': title }, groupHead(title, mine.length),
+    // The rows at the top of Needs you, before its sessions: the Operator's cards first (`lead`, drawn by
+    // needsYouRows into opRows), then the providers row. A group with no rows is not drawn.
+    const needsRows = [...providerRows];
+    // A card names its computer only while every computer is shown (one chosen in the filter: it is that one).
+    const named = showsComputer(multi, only);
+    const groups = homeGroups(sessions, { needsRows, lead: { el: opRows, n: opN } });
+    setOwnNeeds(ownNeedsCount(groups, opN));
+    fill(list, groups.map(({ id, title, count, rows, recent, old }) => {
+      const card = (s) => sessionCard(s, profilesOf.get(s.machine) || [], after, named, { heading: SAID_BY_HEADING[id] });
+      // Ready: what has waited for more than 6 hours stands folded under one line.
+      return h(`section.home-group.g-${id}`, { 'aria-label': title }, groupHead(title, count),
+        rows.length ? rows : null,
         recent.length ? h('div.cards', recent.map(card)) : null,
         old.length ? waitedFold(old, card) : null);
     }));
+  };
+  const unsubscribe = store.subscribe(paint);
+  const stopOp = needsYouRows(opRows, (n) => {
+    if (n === opN) return;
+    opN = n;
+    again();
   });
-  const stopOp = needsYouRows(opRows);
   return () => {
     unsubscribe();
     gs.stop();

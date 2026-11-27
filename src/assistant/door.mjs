@@ -16,6 +16,7 @@
 // (src/machines/index.mjs TOKEN_FORBIDDEN).
 
 import { NAME_RE } from '../profiles.mjs';
+import { SECRET_START_MSG, isSecretFolder } from '../server/folders.mjs';
 import { cardComputer, confirmedCard } from './confirmed.mjs';
 
 const SEG = '[^/]+';
@@ -94,6 +95,13 @@ const learnedBody = (b, ctx, computer) => learnedHere(b, ctx, computer) || onlyK
 /** A Work item is named by its place in the list with its id (src/work/feature.mjs). */
 const atOk = (b) => (Number.isInteger(b.at) && b.at >= 0 ? null : 'say the place of the item in the list ("at")');
 
+/**
+ * A session or a chat in the credentials folder or any other place that holds a sign-in is the owner's own step: refused
+ * here for this computer (another computer's own route refuses it again, for her relay and for every caller that is not
+ * the owner's page: folders.mjs refuseSecretStart).
+ */
+const notInSecret = (b, ctx, computer) => (!computer && isObj(b) && isSecretFolder(b.dir) ? SECRET_START_MSG : null);
+
 /** Every route her tools use: method, route, the tool (or tools) behind it. */
 export const ALLOW = [
   r('GET', '/api/state', 'list_sessions, get_computer_status (providers)'),
@@ -101,7 +109,7 @@ export const ALLOW = [
   r('GET', '/api/operator/rooms', 'start_session, start_chat (where there is room)'),
   r('GET', '/api/machines/sessions', 'list_sessions (every computer)'),
   r('GET', `/api/sessions/${SEG}/history`, 'read_session'),
-  r('POST', '/api/sessions', 'start_session'),
+  r('POST', '/api/sessions', 'start_session', notInSecret),
   // Only the text: `owner: true` marks the owner's own typing (types into whatever runs there); hers is typed only for the coding tool.
   r('POST', `/api/sessions/${SEG}/send`, 'send_to_session', onlyKeys(['text'])),
   // Only the key, as for /send: `owner: true` is the page's own buttons; her keys go only to the coding tool in front.
@@ -116,7 +124,7 @@ export const ALLOW = [
   // and is marked hers (byTia: the chat it creates, see src/chat/feature.mjs openChat).
   // "Lead model" and its ticks as Settings → Tia has them (src/assistant/chats.mjs); the part door checks her allowed
   // providers again for every part (src/models/others.mjs partGate).
-  r('POST', '/api/chats', 'start_chat', (b) => onlyKeys(['dir', 'tool', 'profile', 'sessionId', 'text', 'defaults', 'byTia', 'lead', 'others'])(b) || (b.defaults !== true ? 'a chat Tia starts takes Settings\' defaults (defaults: true)' : null)
+  r('POST', '/api/chats', 'start_chat', (b, ctx, computer) => notInSecret(b, ctx, computer) || onlyKeys(['dir', 'tool', 'profile', 'sessionId', 'text', 'defaults', 'byTia', 'lead', 'others'])(b) || (b.defaults !== true ? 'a chat Tia starts takes Settings\' defaults (defaults: true)' : null)
     || ('lead' in b && typeof b.lead !== 'boolean' ? 'lead is true or false' : null)
     || ('others' in b && !(Array.isArray(b.others) && b.others.length <= 10 && b.others.every((n) => typeof n === 'string' && NAME_RE.test(n))) ? 'others is a list of provider names' : null)),
   // Her message says it is hers (byTia: true): a message from anyone else takes her mark off the chat.
@@ -265,6 +273,7 @@ export const ALLOW = [
 export const NEVER = [
   /^\/api\/workspace\/(drop|group\/remove|rules)$/, // the owner's own presses on the Workspace page (src/workspace/whomay.mjs)
   /^\/api\/settings\/password$/,
+  /^\/api\/settings\/bypass(\/|$)/, // Allow bypass permissions mode and Allow everything (its one acknowledgement): the owner's own choices on his page
   /^\/api\/herrights$/, // the level of Tia's administrator rights: the owner's own choice on his page, never through her door
   /^\/api\/hersignin(\/|$)/, // the git sign-in her sessions use, and its check: the owner's own choice on his page, never through her door
   /^\/api\/(login|logout|me)(\/|$)/,

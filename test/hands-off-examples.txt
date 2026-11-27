@@ -244,3 +244,11 @@ word | - | env -C
 # An interpreter running a script that writes release notes is not a deploy
 not held | plain | node scripts/release-notes.mjs
 not held | plain | python3 scripts/release_notes.py
+
+# Allow everything still holds a delete of a whole home, workspace, projects folder or disk (wall.mjs wipesWhole); Hands-off's wall holds these as a delete outside
+held | plain | rm -rf ~
+held | plain | rm -rf $HOME
+held | plain | sudo rm -rf /
+held | plain | cd ~/Workspace && rm -rf projects
+word | - | rm
+word | - | find -delete

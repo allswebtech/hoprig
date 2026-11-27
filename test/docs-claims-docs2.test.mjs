@@ -39,12 +39,12 @@ test('PC-SETUP: pc status names the coding tools Hoprig installs, as the status 
   assert.ok(doc.includes(`the other coding tools Hoprig installs into its own tools folder (${managed.map((t) => t.name).join(', ')})`), 'the status list names them');
 });
 
-test('PC-SETUP: the projects folder is changed in the Workspace page\'s Advanced part', () => {
+test('PC-SETUP: the projects folder is changed in the Projects page\'s More part', () => {
   const page = read('web/projects.js');
-  assert.match(page, /fold\('projects', 'Advanced', advanced\)/, 'the Workspace page has an Advanced part');
-  assert.match(page, /fill\(advanced, folderLine\(data, load\)\)/, 'the folder line is in it');
+  assert.match(page, /fold\('projects-more', 'More', strip\.el, rest\)/, 'the Projects page has a More part');
+  assert.match(page, /fill\(rest,[\s\S]{0,400}folderLine\(data, load\)/, 'the folder line is in it');
   assert.match(page, /'Projects folder: '[\s\S]{0,200}label: 'Change'/, 'with its Change button');
-  assert.ok(flat(read('docs/PC-SETUP.md')).includes('change the folder there: **Advanced**, **Projects folder**, **Change**'));
+  assert.ok(flat(read('docs/PC-SETUP.md')).includes('change the folder there: **More**, **Projects folder**, **Change**'));
 });
 
 test('PROVIDERS: an endpoint that does not answer offers a gateway restart only where a gateway runs the provider', async () => {

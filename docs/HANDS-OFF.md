@@ -245,6 +245,35 @@ path word is followed (narrower than the follow for Hoprig's own folders above);
 or glob target, `cd -`, a `cd` with an option, and `pushd`/`popd` or an `env -C` leave the folder unknown, so a
 delete after them stays held.
 
+## The permission modes, and Allow everything
+
+How much the coding tool asks you first is its permission mode, set where you start a session, in the App's mode menu
+or in **Settings → New sessions**. **Bypass permissions** (offered once **Allow bypass permissions mode** is on, never as
+root) makes Claude Code ask nothing except a question, a plan, what your own settings insist on and a few deletes or
+command lines it cannot judge; Hoprig still stops a command line it cannot read with certainty. **Allow everything**
+goes one step further and is Claude Code only. In a session or chat that you yourself put into it, on your own page,
+nothing of Hoprig's wall is held and nothing asks, also while Hands-off is on: a command Hoprig cannot read, a delete
+inside or outside the session's folder, a push, a merge, a release, a publish, a command with sudo. Each one runs. When
+Hoprig would have held it (or the coding tool asked for it), one quiet line says so in the session: "Allowed without
+asking (Allow everything)" with the command, so you can read afterwards what ran. It is for work you watch or trust.
+Hands-off's holds stay exactly as they are for every session that is not in this mode. In the mode only this is held:
+
+- a delete Hoprig reads **for certain** as removing your whole home folder, your workspace, a folder that holds
+  your projects, or the root of the disk (`rm -rf ~`, `rm -rf $HOME`, `sudo rm -rf /`, `cd ~/Workspace && rm -rf projects`); its card says "Held even in Allow everything". It is checked before a shell command runs, whether or not anything asks, in a terminal session and in a chat, with Hands-off on or off. Only `rm` is read (not `find -delete`), and only a target that can be
+  told from the line: a variable, a command substitution or a delete inside a script is not read, so it
+  is not held;
+- a question the coding tool puts to you, a plan it wants approved, a sign-in and a usage limit: they are your answers, not permissions;
+- every session that is not your own choice: one Tia started or that carries her mark, a schedule, Work, a part of a split session, a start by a token or by another computer. They never get the mode and keep their holds.
+
+It is off by default, offered where Allow bypass permissions mode is on, and the first time on a computer it asks once in
+plain words. Only you choose it, on your own dashboard page, never Tia, a schedule, Work, a part of a split session, a
+token or another computer: whatever takes the default of new sessions without your page starts in Bypass permissions, and
+Shift+Tab never lands on it. As root it is not offered (Claude Code refuses bypass there, and this runs on top of it).
+Turning the switch off puts its App sessions back to Manual and clears a default of it. A terminal session that was started
+in it comes back in it after a move or a restart only while the switch is on and the mode was accepted, as Bypass does. A
+session that runs as your user can run any program, so a command inside such a session could write Hoprig's own files:
+nothing on your disk is a wall against that, and Hoprig's own routes are closed to it.
+
 ## Seen and stopped
 
 - Every answer is shown where it was given, with its time: "Answered by Hoprig 12 min ago: npm (Recommended),

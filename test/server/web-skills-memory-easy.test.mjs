@@ -190,3 +190,21 @@ test('Memory: a file opens on its address, and the fold that holds it is open', 
   assert.ok(memory.open, 'the fold of the open file is open');
   assert.match(say(body[1]), /Hello/);
 });
+
+test('joined: Skills and Memory are reached from the menu through the tabs the Projects page draws first', async () => {
+  await import('../../web/projects.js');
+  const { navPages } = await import('../../web/registry.js');
+  stub();
+  const { body } = await open('workspace');
+  assert.equal(body[0].className, 'tabs', 'the Projects page draws its tabs first');
+  const tabs = all(body[0], (n) => n.tag === 'a');
+  assert.deepEqual(tabs.map(say), ['Projects', 'Skills', 'Memory']);
+  const menu = navPages('main').map((p) => p.id);
+  assert.ok(menu.includes('workspace'), 'Projects is in the menu');
+  assert.ok(!menu.includes('skills') && !menu.includes('brain'), 'Skills and Memory are not menu items of their own');
+  const byTab = Object.fromEntries(tabs.map((a) => [say(a), a.attrs.href.replace('#/', '')]));
+  assert.equal(pageById(byTab.Skills).render, pageById('skills').render, 'the Skills tab is the Skills page');
+  assert.equal(pageById(byTab.Memory).title, 'Memory', 'the Memory tab is the Memory page');
+  assert.equal(pageById('skills').navAs, 'workspace');
+  assert.equal(pageById('brain').navAs, 'workspace');
+});

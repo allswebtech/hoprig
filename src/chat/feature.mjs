@@ -48,7 +48,7 @@ import { deleteRoutes } from './deletes.mjs';
 import { listProfiles, publicProfile, readProfile } from '../profiles.mjs';
 import { removeSettingsLeftovers } from '../runs.mjs';
 import { isSessionId } from '../sessions.mjs';
-import { insideRoots, resolveRoots } from '../server/folders.mjs';
+import { insideRoots, refuseSecretStart, resolveRoots } from '../server/folders.mjs';
 import { DEFAULT_UPLOADS_DIR, DEFAULT_UPLOAD_MAX_MB, saveUpload, uploadsDirName } from '../server/uploads.mjs';
 import { fromHerDoor } from '../server/herdoor.mjs';
 import * as v from '../server/validate.mjs';
@@ -63,7 +63,8 @@ import { handoffRoutes, terminals } from './handoff.mjs';
 import { liveRoutes, stateOf } from './live.mjs';
 import { limitMark } from './providerlimit.mjs';
 import { readTitles } from '../titles.mjs';
-import { BYPASS, bypassAllowed, gateModes, ROOT_BYPASS_LINE, runsAsRoot } from '../bypassgate.mjs';
+import { ALL, ALL_ROOT_LINE, BYPASS, allAllowed, bypassAllowed, gateModes, ownerModes, ROOT_BYPASS_LINE, runsAsRoot } from '../bypassgate.mjs';
+import { allError, allRefusal } from '../allguard.mjs';
 import { assertHerToolBound } from '../codetools/start.mjs';
 import { chatTool, chatToolList, choicesOf, conversationIdOk, modeFor, modelOk, modelRefusal, providerOk, serves, toolOffWords } from './tools.mjs';
 import { replaceFile } from '../replacefile.mjs';
@@ -196,7 +197,9 @@ export function chatFeature(ctx, o = {}) {
     const engineOpts = paid ? { ...(o.engineOpts || {}), maxBudgetUsd: partBudget(rec.maxBudgetUsd, () => c) } : o.engineOpts;
     // Its process ended (hear.mjs exited, run.mjs stop): its budget hold is settled, so what it cost counts, no more.
     const ended = paid ? { processEnded: ({ cut = false } = {}) => settleChat(c, { cut }) } : {};
-    const c = new Chat({ ...rec, ...ended, handsOffConfig: () => cfg(), allowBypass: () => bypassAllowed(cfg(), asRoot), titles: () => cfg().sessionTitles !== false, turnsDir: path.join(path.dirname(file()), 'chat-turns'), command: o.command, resolveEnv: o.resolveEnv, spawnImpl: o.spawnImpl, engineOpts, idleMs: o.idleMs, stopGraceMs: o.stopGraceMs, owedMs: o.owedMs , partsConfig: (x) => (partsConfig ? partsConfig(x) : null) });
+    const c = new Chat({ ...rec, ...ended, handsOffConfig: () => cfg(), allowBypass: () => bypassAllowed(cfg(), asRoot), allEverything: () => allAllowed(cfg(), asRoot), titles: () => cfg().sessionTitles !== false, turnsDir: path.join(path.dirname(file()), 'chat-turns'), command: o.command, resolveEnv: o.resolveEnv, spawnImpl: o.spawnImpl, engineOpts, idleMs: o.idleMs, stopGraceMs: o.stopGraceMs, owedMs: o.owedMs , partsConfig: (x) => (partsConfig ? partsConfig(x) : null) });
+    // Tia's, or one that came back as hers, never holds Allow everything (its saved mode, a dashboard that started again).
+    if (c.permissionMode === ALL && (c.byTia || c.hers || c.restoredMark)) c.permissionMode = BYPASS;
     c.setMaxListeners(200); // one per page that waits for news
     c.on('status', () => ctx.poke?.()); // Home and the notifications see a new state at once
     c.on('turn', save);
@@ -276,9 +279,18 @@ export function chatFeature(ctx, o = {}) {
   };
   /** The chips' choices of chat `c` (its coding tool's, on its provider); a list that comes later is sent then. */
   // Bypass permissions only where the owner allowed it (bypassgate.mjs): not in a chat's modes, its menu or Shift+Tab.
-  const gated = (ch) => ({ ...ch, modes: gateModes(ch.modes, cfg(), asRoot) });
+  // Allow everything (bypassgate.mjs ALL) is Claude Code's only, and comes right after Bypass in the owner's lists.
+  const gated = (ch, tool = 'claude') => ({ ...ch, modes: (tool === 'claude' ? ownerModes : gateModes)(ch.modes, cfg(), asRoot) });
   // The chat's own saved model counts as saved too: shown (marked when its provider's list left it), never replaced.
-  const choices = (c) => gated(choicesOf(c.engine.id, c.profile, () => [...models(), ...(c.model ? [c.model] : [])], () => c.emit('state')));
+  const choices = (c) => gated(choicesOf(c.engine.id, c.profile, () => [...models(), ...(c.model ? [c.model] : [])], () => c.emit('state')), c.engine.id);
+  // Choosing Allow everything for chat `c` (the mode route, a plan's answer): only the owner's own page, never for a chat of
+  // Tia's, after the acknowledgement. Any other mode is not asked here.
+  const modeCheck = (req, c, mode) => {
+    if (mode !== ALL) return;
+    const hers = !!(c.byTia || c.hers || c.restoredMark);
+    const why = allRefusal({ cfg: cfg(), root: asRoot, page: ctx.caller(req) === 'page' && !fromTia(req), hers });
+    if (why) throw allError(HttpError, why);
+  };
   const pickModel = (val, tool, ch) => {
     if (val === undefined) return undefined;
     if (val === null || val === '') return null;
@@ -488,7 +500,14 @@ export function chatFeature(ctx, o = {}) {
     if (b.title !== undefined && b.title !== null && typeof b.title !== 'string') throw bad('the title is text');
     const title = typeof b.title === 'string' ? v.chatTitle(b.title) : '';
     const d = cfg().sessionDefaults || {};
-    const ch = gated(choicesOf(tool, profile, models));
+    const ch = gated(choicesOf(tool, profile, models), tool);
+    // Allow everything: only a start on the owner's own page (`run.page`, from POST /api/chats), never the body's word. A start
+    // that asks for it by name and is not that is refused; one that only takes it from the defaults or the folder's last
+    // chat (a schedule, Work, Tia's door, a plan) starts in Bypass permissions.
+    if (tool === 'claude' && b.permissionMode === ALL) {
+      const why = allRefusal({ cfg: cfg(), root: asRoot, page: run.page === true && !hers && b.byTia !== true, hers: hers || b.byTia === true });
+      if (why) throw allError(HttpError, why);
+    }
     // Left out: as the last chat in this folder; never chosen there: Settings → New sessions (Claude Code's
     // words: another tool takes what it has of them).
     const kept = (k, chosen, fallback) => (chosen !== undefined ? chosen : k in last ? last[k] : fallback);
@@ -498,8 +517,12 @@ export function chatFeature(ctx, o = {}) {
     // open: the answer says why. A person who opens one gets the mode that asks (the page says why).
     if (asRoot && b.permissionMode === BYPASS) throw Object.assign(new HttpError(409, ROOT_BYPASS_LINE), { details: { code: 'root-bypass' } });
     if (asRoot && tool === 'claude' && (!owners || b.byTia === true) && b.permissionMode === undefined && d.permissionMode === BYPASS) throw Object.assign(new HttpError(409, ROOT_BYPASS_LINE), { details: { code: 'root-bypass' } });
-    const permissionMode = kept('permissionMode', pick(b.permissionMode, ch.modes, 'permission mode'), d.permissionMode || null);
-    const ultracode = kept('ultracode', b.ultracode ?? undefined, false) === true;
+    if (asRoot && tool === 'claude' && (!owners || b.byTia === true) && b.permissionMode === undefined && d.permissionMode === ALL) throw Object.assign(new HttpError(409, ALL_ROOT_LINE), { details: { code: 'root-bypass' } });
+    let permissionMode = kept('permissionMode', pick(b.permissionMode, ch.modes, 'permission mode'), d.permissionMode || null);
+    // Not chosen by name: the default's or the last chat's Allow everything counts only for a start on his own page.
+    if (permissionMode === ALL && b.permissionMode !== ALL && !(run.page === true && !hers && b.byTia !== true && allAllowed(cfg(), asRoot))) permissionMode = bypassAllowed(cfg(), asRoot) ? BYPASS : null;
+    // Never from the folder's last chat: the chip costs thousands of tokens in every request, so a new chat has it on only when chosen.
+    const ultracode = b.ultracode === true;
     const { lead, others } = leadOf({ tool, last, profile, chose, owners }, b, d);
     let id = crypto.randomUUID();
     let conversationId = null;
@@ -583,11 +606,13 @@ export function chatFeature(ctx, o = {}) {
     }],
     ['POST', /^\/api\/chats$/, async (req) => {
       const b = await ctx.readJson(req);
+      const page = ctx.caller(req) === 'page' && !fromTia(req);
       if (b && b.byTia === true && !fromTia(req)) b.byTia = false;
       // Every chat her door opens is hers for her safety (the mark, her git sign-in), also one on an existing
       // conversation whose OKs stay the owner's; never from the body.
       if (b && typeof b === 'object') b.hers = fromTia(req);
-      return openChat(b);
+      if (b && typeof b === 'object') await refuseSecretStart(ctx, req, v.absPath(b.dir)); // only his own page starts a chat in a secret place
+      return openChat(b, { page });
     }],
     // What a start of the owner's in a folder would take for "Lead model" and its ticks when he leaves them as they are
     // (the new-session sheet draws its switch from it): the folder's last chat, else Settings, for the provider given
@@ -601,7 +626,7 @@ export function chatFeature(ctx, o = {}) {
       return { profile: base.profile, ...leadOf({ ...base, owners: true }, b, cfg().sessionDefaults || {}) };
     }],
     ['GET', /^\/api\/chats\/archived$/, async () => ({ list: archived.list() })],
-    ['GET', /^\/api\/chats\/tools$/, async () => ({ tools: chatToolList(cfg()).map((t) => (t.modes ? { ...t, modes: gateModes(t.modes, cfg(), asRoot) } : t)) })],
+    ['GET', /^\/api\/chats\/tools$/, async () => ({ tools: chatToolList(cfg()).map((t) => (t.modes ? { ...t, modes: (t.id === 'claude' ? ownerModes : gateModes)(t.modes, cfg(), asRoot) } : t)) })],
     ['GET', new RegExp(`^/api/chats/${ID}$`), async (req, m, q, res) => {
       const c = chatOr404(m[1]);
       if (c.loading) await c.loading; // its first read, in pieces at the start: the page draws what it read
@@ -668,6 +693,7 @@ export function chatFeature(ctx, o = {}) {
       }
       const message = typeof b.message === 'string' ? b.message.slice(0, 1000) : '';
       const mode = b.mode === undefined || b.mode === null ? null : pick(b.mode, choices(c).modes, 'permission mode');
+      modeCheck(req, c, mode);
       if (b.always !== undefined && b.always !== null && typeof b.always !== 'boolean' && b.always !== 'project') throw bad('always is true, false or "project"');
       if (b.key !== undefined && (typeof b.key !== 'string' || b.key.length > 64)) throw bad('bad key');
       c.answer(b.request, { allow: b.allow, always: b.always === 'project' ? 'project' : b.always === true, answers, mode, message, key: b.key ?? null });
@@ -767,7 +793,7 @@ export function chatFeature(ctx, o = {}) {
   // A chat's own id for conversation `id`: the same where it is free (its link reads as the conversation), else new.
   const freeId = (id) => (chats.has(id) ? crypto.randomUUID() : id);
   routes.push(...handoffRoutes(ctx, { chats, make, save, load, chatOr404, memory, models, openChatOf, freeId, terminalOf, claim, serial, forget, auto: { name: AUTO.name, on: autoOn }, handedFile: () => path.join(path.dirname(file()), 'chat-handed.json'), handedTo: (id, name) => shut.has(id) && typeof name === 'string' && (shut.get(id).terminal = name) }));
-  const live = liveRoutes(ctx, { chatOr404, toolStillOn, save, remember, bad, choices, pickModel, folderOf: (c) => uploadsOf(c).cwd, uploadsDir: (c) => uploadsOf(c).dir, openChatOf, about, terminalOf: terminalView, shutOf: (id) => shut.get(id) || null, openNow: (c) => chats.get(c.id) === c,
+  const live = liveRoutes(ctx, { chatOr404, toolStillOn, save, remember, bad, choices, modeCheck, pickModel, folderOf: (c) => uploadsOf(c).cwd, uploadsDir: (c) => uploadsOf(c).dir, openChatOf, about, terminalOf: terminalView, shutOf: (id) => shut.get(id) || null, openNow: (c) => chats.get(c.id) === c,
     // Who did what: the parts this chat handed to other providers, each with its own session's folder and conversation.
     handed: (c) => (handedOf ? handedOf(c.id) : []).map((p) => {
       const x = chats.get(p.id);
@@ -820,7 +846,7 @@ export function chatFeature(ctx, o = {}) {
       load();
       let n = 0;
       for (const c of chats.values()) {
-        if (c.permissionMode !== 'bypassPermissions') continue;
+        if (c.permissionMode !== 'bypassPermissions' && c.permissionMode !== ALL) continue;
         n++;
         await c.setSettings({ mode: 'manual' });
         if (c.session) {

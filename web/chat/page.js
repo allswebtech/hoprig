@@ -10,7 +10,8 @@ import { icon } from '../icons.js';
 import { BARE, add, api, closeWindow, confirmSheet, fill, goTo, h, link, machine, prefs, toast } from '../lib.js';
 import { registerPage, registerSessionAction } from '../registry.js';
 import { pageNotify, store } from '../store.js';
-import { forgetHere, named, wayBack, windowWay } from '../trail.js';
+import { forgetHere, handOver, named, wayBack, windowWay } from '../trail.js';
+import { askFirst, terminalWrites } from './handover.js';
 import { agentsStrip } from './agents.js';
 import { createComposer } from './composer.js';
 import { createHeader, openEditor } from './header.js';
@@ -140,18 +141,21 @@ function viewChat({ sub }) {
     termPane: () => termPane.toggle(),
     async terminal() {
       // A terminal runs the conversation already: that is where it goes on (the server never starts a second one).
+      // Its terminal takes the place of the chat (trail.js handOver): Back goes where he was before the conversation.
+      const toTerm = (name) => (BARE ? goTo(`#/s/${encodeURIComponent(name)}`) : handOver(`#/s/${encodeURIComponent(name)}`));
       if (v && v.terminal) {
-        if (v.terminal.name) goTo(`#/s/${encodeURIComponent(v.terminal.name)}`);
+        if (v.terminal.name) toTerm(v.terminal.name);
         else toast('This conversation runs in a terminal outside the dashboard.', { kind: 'error' });
         return;
       }
       const tool = v && v.engine && v.engine.id !== 'claude' ? v.engine.label : 'Claude Code';
-      if (!(await confirmSheet({ title: 'Open in the Terminal?', text: `The same conversation continues in a terminal session, with ${tool} as you know it. The App closes it here; you can open the session in the App again from its menu.`, ok: 'Open in Terminal' }))) return;
+      // Asked only while a reply is being written: else nothing can be lost, and one press does it.
+      if (!(await askFirst(turnRuns(v), { title: 'Open in the Terminal?', text: `The same conversation continues in a terminal session, with ${tool} as you know it. The App closes it here; you can open the session in the App again from its menu.`, ok: 'Open in Terminal' }, confirmSheet))) return;
       try {
         const { name, existing } = await api(`${A}/terminal`, {});
         store.refresh();
         if (!existing) forgetHere(); // the chat closes: the terminal goes back to where the chat would have
-        goTo(`#/s/${encodeURIComponent(name)}`);
+        toTerm(name);
       } catch (e) {
         toast(failText(e), { from: e, kind: 'error' });
       }
@@ -186,7 +190,9 @@ function viewChat({ sub }) {
     shortcuts: () => shortcutsSheet(),
     tasks: () => strip.open(), // the more menu's Background tasks (the strip is made below; called after)
     async take() {
-      if (!(await confirmSheet({ title: 'Continue here?', text: `${toolWord(v)} stops in the terminal (the terminal stays, as a plain shell) and the conversation goes on here in the App. A reply the terminal is writing right now is cut off.`, ok: 'Continue here' }))) return;
+      // Asked only while the terminal writes a reply (its card says Working): else one press does it.
+      const term = v && v.terminal ? { name: v.terminal.name, chatId: id } : null;
+      if (!(await askFirst(terminalWrites(store.data && store.data.sessions, term), { title: 'Continue here?', text: `${toolWord(v)} stops in the terminal and the conversation goes on here in the App. A reply the terminal is writing right now is cut off.`, ok: 'Continue here' }, confirmSheet))) return;
       try {
         await api(`${A}/take`, {});
         toast('The conversation continues here');
@@ -520,7 +526,9 @@ registerSessionAction({
   run: async (me) => {
     try {
       const { id } = await api('/api/chats/from-session', { session: me.name });
-      location.hash = link(`#/chat/${id}`, me.machine);
+      // The chat takes the place of the terminal (trail.js handOver): Back goes where he was before the conversation.
+      if (BARE) location.hash = link(`#/chat/${id}`, me.machine);
+      else handOver(`#/chat/${id}`, me.machine);
     } catch (e) {
       toast(failText(e), { from: e, kind: 'error' });
     }

@@ -24,21 +24,29 @@
 //   POST /api/gatewayhost/<id>/combos/<id>/remove { confirm }
 //   GET  /api/gatewayhost/<id>/keys                { keys: [{ id, name }] }   only the keys Hoprig made
 //   POST /api/gatewayhost/<id>/keys/<id>/remove { confirm }
-//   POST /api/gatewayhost/<id>/open { confirm }    { url } (a one-time sign-in link) or { url: null }
+//   POST /api/gatewayhost/<id>/open { confirm, where, host }   { url, says }: a one-time sign-in link built here on this computer's own
+//                                                      name (where local) or its public name (where public: the owner's own browser only,
+//                                                      while that name is on); or url null with the line about its password
 //
 // `confirm` is this computer's name, as in gatewayhost.mjs. Nothing runs by itself: a look happens when a page opens or
 // a person presses, and a sign-in code's poll is the page's, while its sheet is open. What Add keeps between two steps
 // (a code's device code, a link's verifier) is kept here in memory under a ticket and never sent to a page.
 import { randomBytes } from 'node:crypto';
+import fs from 'node:fs';
+import path from 'node:path';
 import { callGateway, ManageError, plain, withManageKey } from '../gateway/trouteaimanage.mjs';
 import { dataFolder } from '../gateway/trouteaibase.mjs';
 import { defaultHubLabel } from '../machines/hub.mjs';
+import { tokenIdOf } from '../machines/index.mjs';
+import { readFixed } from './cloudflared.mjs';
 import { gatewayAddons } from './gateways.mjs';
+import { entryOf } from './trouteaipublic.mjs';
 
 const OWN_PAGE = 'This gateway cannot list its providers for Hoprig yet (an older version), so Add opens the gateway\'s own page.';
 const KEY_NAME = /^Hoprig\b/;
 const REDIRECT = 'http://localhost:8080/callback';
 const TICKETS_MAX = 4;
+const CODE = /^[A-Za-z0-9_-]{1,128}$/; // a one-time sign-in code, as the gateway makes it (base64url)
 
 /** The words for an account's last error, in plain terms. */
 export function errorWords(text, code) {
@@ -294,23 +302,37 @@ export function gatewayManageFeature(ctx, opts = {}) {
         await run(() => call('DELETE', `/api/keys/${m[2]}`, o));
         return { ok: true };
       }],
+      // Open its own page signed in. Only the path /login/link and its code are kept from what the gateway answers; the address
+      // is built here: this computer's own (where 'local', host localhost or 127.0.0.1) or its public name (where 'public', for
+      // the owner's own browser, while that name is on). A gateway that has no such link (404) gets url null and a line.
       ['POST', new RegExp(`^/api/gatewayhost/(${URLS})/open$`), async (req, m) => {
-        const { opts: o } = await post(req, m[1]);
+        const { b, addon, opts: o } = await post(req, m[1]);
+        const where = b.where === 'public' ? 'public' : 'local';
+        let base = null;
+        if (where === 'local') {
+          if (!['localhost', '127.0.0.1'].includes(b.host)) throw fail(400, 'Say which of this computer\'s own names the page is opened under: localhost or 127.0.0.1.');
+          base = `http://${b.host}:${o.port}`;
+        } else if ((opts.tokenOf || tokenIdOf)(req) === null && req.headers && req.headers.cookie) {
+          const e = entryOf((opts.fixed || readFixed)());
+          base = e ? `https://${e.hostname}` : null;
+        }
+        if (!base) return { url: null, says: where === 'public' ? `${addon.title} opens here once its public address is on.` : null };
         let r = null;
         try {
           r = await call('POST', '/api/auth/link', { ...o, body: {} });
         } catch (e) {
           if (!(e instanceof ManageError) || e.code !== 'absent') throw e instanceof ManageError ? fail(e.status >= 500 ? 502 : 409, e.message, { details: { code: e.code } }) : e;
         }
-        // Only a link to this computer's own gateway: its address and port, over http.
-        let url = null;
+        let code = null;
         try {
           const u = new URL(r?.url || '');
-          if (u.protocol === 'http:' && ['127.0.0.1', 'localhost'].includes(u.hostname) && Number(u.port) === o.port) url = u.href;
+          if (u.pathname === '/login/link' && [...u.searchParams.keys()].join() === 'code' && CODE.test(u.searchParams.get('code') || '')) code = u.searchParams.get('code');
         } catch {
-          url = null;
+          code = null;
         }
-        return { url };
+        if (code) return { url: `${base}/login/link?code=${code}`, says: null };
+        const file = path.join(o.folder, 'initial-admin-password.txt');
+        return { url: null, says: fs.existsSync(file) ? `${addon.title} asks for its password. The first one is in the file ${file} on ${name()}.` : `${addon.title} asks for the password you set for it.` };
       }],
     ],
   };

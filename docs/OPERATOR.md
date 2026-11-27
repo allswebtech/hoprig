@@ -93,7 +93,7 @@ nothing those say can switch a rule on or change what it does. There are five ru
 
 | Rule | What it does | Undo |
 |---|---|---|
-| limit | When a session stops at a usage limit, continue it on the next provider of my order (the **Order of providers** under **When a provider reaches its limit** on Providers). Only when Claude Code itself reported the limit (a limit line that only shows on the screen stays yours), only to a provider Tia may use (Settings → Tia), to a provider billed by use only when her level is Hands off, never while Auto mode is on (Auto mode does it then), never back to a provider the session left within the hour, whoever moved it then (your tap, Auto mode, the rule, or you by hand in a terminal). | Move it back with one tap under Done by Tia, once the old provider is free again; refused in plain words when the session ended, moved since, or the old provider is still at its limit. |
+| limit | When a session stops at a usage limit, continue it on the next provider of my order (the **Order of providers** under **At a limit** on Providers). Only when Claude Code itself reported the limit (a limit line that only shows on the screen stays yours), only to a provider Tia may use (Settings → Tia), to a provider billed by use only when her level is Hands off, never while Auto mode is on (Auto mode does it then), never back to a provider the session left within the hour, whoever moved it then (your tap, Auto mode, the rule, or you by hand in a terminal). | Move it back with one tap under Done by Tia, once the old provider is free again; refused in plain words when the session ended, moved since, or the old provider is still at its limit. |
 | gateway | When a gateway that open sessions go through does not answer, restart it. Not a gateway that is only not started yet, and never one you stopped yourself (Settings → Add-ons → Stop, or `hoprig addons stop`) until it is started again. | none |
 | link | When the public link is on and does not answer, restart it. | none |
 | leftover | End a test's left-over processes: only what this page calls left over, once older than an hour, and only a test's: an idle tmux server that a test or a try of Hoprig started (its state folder is in the temporary folder), or a test's dashboard. Your own tmux servers stay yours, also one started in the temporary folder. | none: an ended process cannot be undone |
@@ -398,7 +398,7 @@ page on GitHub.
 
 ## What Tia can do, and what she cannot
 
-Every act of Hoprig is one row of `src/assistant/inventory.json`: 356 in all (43 commands, 306 changes in the dashboard, 7 skills). Tia does 101 of them with a tool of hers, 7 more by another route of the same effect, and 248 are not hers. A test holds the file to the code: a new command or route without a row fails it.
+Every act of Hoprig is one row of `src/assistant/inventory.json`: 358 in all (43 commands, 308 changes in the dashboard, 7 skills). Tia does 101 of them with a tool of hers, 7 more by another route of the same effect, and 250 are not hers. A test holds the file to the code: a new command or route without a row fails it.
 
 ### What she does
 
@@ -637,12 +637,13 @@ Every act of Hoprig is one row of `src/assistant/inventory.json`: 356 in all (43
 - `POST /api/ship/p/<id>/auto`: Going live by itself is a switch you turn on with the project's name typed.
 - `POST /api/ship/limiter`: The limiter's words, run before every check and go-live, are your yes as you were shown them.
 
-**Anything sent out of the computer or opened to the internet** (6):
+**Anything sent out of the computer or opened to the internet** (7):
 
 - `hoprig field`: Field reports leave the computer only by your choice.
 - `POST /api/notify/test`: A test notification is sent out of the computer to your push channel.
 - `POST /api/addons/<id>/do/<id>`: An add-on's own actions set up the public link's addresses and sign-in, which open the computer to the internet.
 - `POST /api/public-link/(custom|temporary)/<id>`: The Custom and temporary public links open services of this computer to the internet.
+- `POST /api/gatewayhost/<id>/public`: Turning on a gateway's public address opens it to the internet: only your own press, in your browser, on its own page.
 - `POST /api/field/settings`: A field report may be sent out of the computer, only by your choice.
 - `POST /api/field/report/<id>/(send|dont-send)`: A field report may be sent out of the computer, only by your choice.
 
@@ -689,10 +690,11 @@ Every act of Hoprig is one row of `src/assistant/inventory.json`: 356 in all (43
 - `POST /api/machines/install`: Installing Hoprig on another computer runs a program there with your rights.
 - `POST /api/machines/<id>/move`: Moving Hoprig from root to an ordinary user on another computer stops its dashboard and changes the main computer's login there.
 
-**Switching a safety rule off (permission modes, Hands-off, bypass, what installs by itself)** (9):
+**Switching a safety rule off (permission modes, Hands-off, bypass, what installs by itself)** (10):
 
 - `POST /api/settings/bypass`: Allowing the mode that skips every permission prompt switches a safety rule off.
 - `POST /api/settings/bypass/seen`: Allowing the mode that skips every permission prompt switches a safety rule off.
+- `POST /api/settings/bypass/everything`: Accepting the mode that allows every permission, also what Hoprig would hold, switches a safety rule off.
 - `POST /api/handsoff/project`: Hands-off lets a session go on without asking you, which switches a safety rule off.
 - `POST /api/handsoff/session`: Hands-off lets a session go on without asking you, which switches a safety rule off.
 - `POST /api/updates/settings`: Whether updates install by themselves is a safety rule of yours.

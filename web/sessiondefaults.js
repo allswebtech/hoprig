@@ -8,13 +8,14 @@ import { registerSettingsPage } from './registry.js';
 import { fold, panel, savedMark } from './shell.js';
 import { codingToolsPanel } from './codingtools.js';
 import { MODE } from './chat/words.js';
+import { ALL_DEFAULT_NOTE, ALL_MEANS, askOnce } from './allowall.js';
 import { helpParts } from './helpline.js';
 import { modelPicker } from './modelpicker.js';
 import { leadSwitch } from './leadswitch.js';
 import { store } from './store.js';
 
 // The modes in the App's words (its chip, then what it does), so this page names Bypass permissions as its switch does.
-export const MODES = Object.fromEntries(['manual', 'acceptEdits', 'plan', 'auto', 'dontAsk', 'bypassPermissions'].map((m) => [m, `${MODE[m].chip}: ${MODE[m].sub}`]));
+export const MODES = Object.fromEntries(['manual', 'acceptEdits', 'plan', 'auto', 'dontAsk', 'bypassPermissions', 'allowEverything'].map((m) => [m, `${MODE[m].chip}: ${MODE[m].sub}`]));
 // What that last mode means, said wherever it is chosen: the one rule of src/asking.mjs, the same for a terminal and
 // for a chat (App).
 export const BYPASS_MEANS = 'Claude Code runs commands and changes files without asking. Use it only for folders you could lose. It still asks you: a question, a plan, a tool your settings say "ask" for, and before some deletes. Where it stops before a delete, Hoprig allows it by itself only when the delete is plainly inside the folder the command runs in (never your home, workspace or projects folder).';
@@ -42,6 +43,9 @@ function defaultsPanel(settings, cur, others = false) {
   const choices = settings.sessionChoices || { permissionModes: Object.keys(MODES), efforts: Object.keys(EFFORT) };
   const warn = h('p.banner.muted', BYPASS_MEANS);
   const showWarn = () => warn.classList.toggle('hidden', cur.permissionMode !== 'bypassPermissions');
+  const allWarn = h('p.banner.muted', ALL_MEANS, ' ', ALL_DEFAULT_NOTE);
+  const showAll = () => allWarn.classList.toggle('hidden', cur.permissionMode !== 'allowEverything');
+  const ack = {}; // the acknowledgement, asked once (web/allowall.js)
   // A choice is kept at once: one "Saved" line under the card.
   const mark = savedMark();
   const keep = async () => {
@@ -53,12 +57,20 @@ function defaultsPanel(settings, cur, others = false) {
     }
   };
   const sel = (key, label, options, hint) =>
-    h('label.fieldrow', h('span.field-label', label), h('select.field', { 'data-key': key, onchange: (e) => { cur[key] = e.target.value; showWarn(); keep(); } },
+    h('label.fieldrow', h('span.field-label', label), h('select.field', { 'data-key': key, onchange: async (e) => {
+        // Allow everything: the first time on this computer he is asked once; a no puts the choice back.
+        if (key === 'permissionMode' && e.target.value === 'allowEverything' && !(await askOnce(ack))) {
+          e.target.value = cur[key] || '';
+          return;
+        }
+        cur[key] = e.target.value; showWarn(); showAll(); keep();
+      } },
       options.map(([v, t]) => h('option', { value: v, selected: v === cur[key] }, t))), hint ? h('span.hint', hint) : null);
   // The models of the provider new sessions start on here (src/defaultprovider.mjs), asked when this is drawn; a name
   // saved earlier that its list leaves out stays, marked.
   const here = store.all.find((x) => !x.machine) || {};
   showWarn();
+  showAll();
   // As root (settings.rootBypass): Bypass is not offered, and the line says why. A default that names it already is
   // shown as it is and kept (never changed silently); a start that would use it is refused with the same line.
   const kept = settings.rootBypass && cur.permissionMode === 'bypassPermissions' ? [['bypassPermissions', `${MODES.bypassPermissions} (kept from before; refused as root)`]] : [];
@@ -67,6 +79,7 @@ function defaultsPanel(settings, cur, others = false) {
       'How often it stops to ask for your OK.'),
     settings.rootBypass ? h('p.banner.warn.root-bypass', settings.rootBypass) : null,
     warn,
+    allWarn,
     sel('effort', 'How hard it thinks', [DEFAULT, ...choices.efforts.map((e) => [e, EFFORT[e] || e])],
       'More thinking: better on hard problems, slower, uses more of your plan.'),
     modelPicker({ provider: here.recommended || null, tool: 'claude', value: cur.model, key: 'model', emptyLabel: CLAUDE_DEFAULT[1], quiet: true, at: (p) => `~${p}`,

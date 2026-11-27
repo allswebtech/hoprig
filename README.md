@@ -236,12 +236,17 @@ From a terminal on that computer, `hop chat [folder]` prints the chat's address 
   **Auto-fix** (when checks fail) and **Merge when ready**, which asks you first because others will see it.
   A session's state reads as **Finished** (its turn is over), **Ready** (nothing written to it yet), **Ended**
   (closed), **Working**, **Working in the background**, **Needs your OK** or **Limit reached**, the same on Home
-  (whose group is **Finished**), in the list and in notifications.
+  (whose group is **Ready**), in the list and in notifications.
 - **As in the Claude Code desktop app**: the modes are Manual, Accept edits, Plan, Auto and Bypass permissions
   (Bypass only once **Allow bypass permissions mode** is on in **Settings → New sessions**, which asks
   first; the desktop app has the same switch under **Settings > Code**; off, a terminal session started in bypass
   starts again without it after a move or a restart, and Settings counts the ones still running; New sessions names the modes with
-  the same words; a dashboard that already used bypass keeps it on after the update and says so once on Home); the caret
+  the same words; a dashboard that already used bypass keeps it on after the update and says so once on Home). Right after
+  Bypass the menu has **Allow everything** (Claude Code only, offered where Bypass is, never as root, and the first time on a
+  computer it asks once): in a session you put into it yourself, nothing of Hoprig's wall is held and nothing asks, also
+  while Hands-off is on (a command Hoprig cannot read, a delete, a push, a release, sudo), and one quiet line says what it
+  would have held; it is for work you watch or trust; only a delete read for certain as
+  removing your whole home folder, workspace, projects folder or disk still waits for you, checked before the command runs; the caret
   beside the title opens the session menu (**Transcript view** Normal, Thinking or Verbose, **Open in** with **Continue in
   Terminal** (the same conversation in a terminal session), **Files** and **Source control**, **Archive**, **Copy branch
   name**, **Fork**: a new session on a copy of the conversation, which you switch into,
@@ -292,7 +297,10 @@ From a terminal on that computer, `hop chat [folder]` prints the chat's address 
   Bypass permissions Claude Code asks nothing except before some deletes; Hoprig answers for it only when the delete
   is plainly inside the session's folder. A question to you, a plan to approve, what your own settings insist on
   and any other delete Claude Code stops for still come to you, and a "deny" rule of your settings stays denied in
-  every mode.
+  every mode. In Allow everything (Bypass and more, chosen only by you on your own
+  page) Hoprig answers Allow to every permission, also what it cannot read, and holds only a delete it reads for certain as
+  removing your whole home folder, workspace, projects folder or disk; a question, a plan, a sign-in and a usage limit still
+  come to you. Tia's sessions, schedules and Work never run in it.
 - **One place at a time**: **Open in** → **Terminal** in the session menu takes the conversation to a real
   terminal, and **Open as chat** in a terminal session's menu brings it back. A conversation runs in one process
   only: a chat, a terminal session, or `hop` typed by hand in any terminal of that computer. The second one is
@@ -469,7 +477,7 @@ hop auto on                 # off at first: an API key costs money
 hop auto                    # start a session in Auto mode
 ```
 
-In the dashboard: **Providers**, then under **When a provider reaches its limit** choose **Carry on with the next
+In the dashboard: **Providers**, then **At a limit**, and choose **Carry on with the next
 provider** and put the providers in order. A chat or a session on the provider "Auto" then talks to a small
 router on your own computer: your subscription answers as long as it can, and the moment it reaches its limit
 the same request is answered by the next provider, with no error on screen and nothing to type. When the
@@ -566,7 +574,7 @@ Every other computer keeps one connection out to the main one, so nothing has to
 small: about 80 MB of memory, measured with 20 computers and 20 open terminals. Guides:
 [docs/COMPUTERS.md](docs/COMPUTERS.md), [docs/HUB.md](docs/HUB.md).
 
-**One gateway for every computer.** **Providers → Gateways on your computers** lists every gateway (such as
+**One gateway for every computer.** **Providers → TRouteAI → Gateways on your computers** lists every gateway (such as
 TRouteAI) on every linked computer. **Use here** makes it a provider of this computer in one step. A gateway can
 be shared through its computer's dashboard: the other computer gets a key of its own, the gateway keeps its own
 key and stays on 127.0.0.1, and a key a linked computer made ends when that computer's token is revoked.
@@ -621,7 +629,7 @@ nothing else (not Tia, not an automation, not another computer) types into that 
   what it changes before the one yes.
 
 <p align="center">
-  <img src="docs/screenshots/projects-desktop-light.webp" alt="The Workspace page: every project, each with its sessions under it" width="760">
+  <img src="docs/screenshots/projects-desktop-light.webp" alt="The Projects page: every project with its state and a New session button" width="760">
 </p>
 
 ### The workspace and the AI brain
@@ -671,7 +679,7 @@ leads out of it is not followed, unless you name it as yours on that computer wi
 
 The rules that start things are fixed, with no AI deciding: a schedule starts at its time, the queue sends at the end
 of a reply. What they start can be an AI session. The schedules and the queue are in **Work → Schedules**, what they
-did is in **Work → Activity**, and the switches are at the top of **Work → Schedules** and in **Settings → While you are away**:
+did is in **Work → Activity**, and the switches are at the top of **Work → Schedules** and in **Settings → Automations**:
 
 - **Queue** (always on: it acts only on messages you queued; its list is **Queued messages** in Work →
   Schedules): give a session its next messages; each goes in when a reply ends, and only while the
@@ -690,7 +698,7 @@ did is in **Work → Activity**, and the switches are at the top of **Work → S
 - **Try again after a server error** (off at first): in a Claude Code session, after a server error that is not a
   limit, wait and continue, three times.
 
-**Pause all automations** is under **Settings → While you are away → Advanced**; while they are paused, that page and
+**Pause all automations** is under **Settings → Automations → Advanced**; while they are paused, that page and
 Work → Schedules say so with a Resume button.
 
 ## Updates
@@ -857,10 +865,11 @@ Her administrator rights (Off, Ask each time, Full) and the git sign-in of the s
 ## The menu and the settings
 
 **Home** (every chat and session, the ones that need you first), **Work**, **Workspace**, **Providers**,
-**Computers**, then under **More**: Skills, AI brain, Tia and Settings. **Settings** is a short list of
-pages: New sessions (with the coding tools), Notifications, Appearance (with the code editor), Security and sign-in
-(with the folders Hoprig may open and Log out), Public link, Workspace, While you are away, Tia, Version and updates
-(with the field reports) and Add-ons; Hands-off and Runs as root appear only when they apply. Work's own settings are
+**Computers**, then under **More**: Skills, AI brain, Tia and Settings. **Settings** is a list of seven
+rows: New sessions (with the coding tools and Hands-off), Notifications, Appearance (with the code editor), Security
+and sign-in (with the folders Hoprig may open, Log out and the Public link), Tia, Automations (with the Workspace)
+and Version and updates (with the field reports); Add-ons is reached from Security and sign-in, and Runs as root
+appears only when it applies. Work's own settings are
 at the foot of **Work → Tasks**, the schedules' two at the top of **Work → Schedules**. Each
 option has one plain sentence under it. **Notifications**:
 a push to your phone when a session waits for you, needs your OK or reaches a limit.

@@ -1,9 +1,16 @@
 name: pack-smoke
 
-# The package as a user gets it (npm pack, npm install -g), on the three systems and both Node.js versions: it says its
-# version, doctor and profiles answer in JSON, and the demo dashboard answers its sign-in page. Everything with a home of
-# its own. On the work branch only; never part of a release.
+# The repository's own check that the package as a user gets it (npm pack, then npm install -g) starts on Ubuntu, macOS
+# and Windows with Node.js 24 and 26: it says its version under both names, doctor and profiles answer in JSON, and the
+# demo dashboard answers its sign-in page. Everything with a home of its own. Not a step of a release (release.yml).
+#
+# The installer jobs below run the real install line (install.sh, install.ps1) from the packed build to a running
+# dashboard (tools/installer-smoke.sh): on the three systems' own runners, on arm64 Linux, and in Debian, Fedora, Alpine
+# and Ubuntu containers. They use the computer's own home and service, so they are not given the smoke home above.
+# Each prints one SMOKE line per step (also in the run's summary), so a red job says which step and why.
 on:
+  push:
+    branches: [main]
   pull_request:
 
 permissions:
@@ -17,7 +24,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        os: [ubuntu-latest, ubuntu-24.04-arm, macos-latest, windows-latest]
         node: [24, 26]
     defaults:
       run:
@@ -48,7 +55,9 @@ jobs:
         working-directory: ${{ runner.temp }}
         run: |
           cd smoke
-          hoprig doctor --offline --json > doctor.json 2> doctor.err || echo "SMOKE doctor exit $? (things are missing on a runner: expected)"
+          # Only a shape check: Claude Code is absent on a fresh runner, so doctor ends non-zero here. The installer jobs
+          # below run doctor after a real set-up and fail on a non-zero exit.
+          hoprig doctor --offline --json > doctor.json 2> doctor.err || echo "SMOKE doctor exit $? (Claude Code is absent here: expected)"
           node -e "const j = JSON.parse(require('fs').readFileSync('doctor.json', 'utf8')); console.log('SMOKE doctor json:', Object.keys(j).join(','))"
           hoprig profiles --json > profiles.json
           node -e "const j = JSON.parse(require('fs').readFileSync('profiles.json', 'utf8')); if (!Array.isArray(j)) process.exit(1); console.log('SMOKE profiles json:', j.length)"
@@ -72,3 +81,51 @@ jobs:
           head -20 demo.log
           kill $P 2>/dev/null || true
           [ "$C" = 200 ]
+
+  # The install line on a computer's own system: Windows (install.ps1, Task Scheduler), macOS (install.sh, launchd) with
+  # the service, its sign-in page, a restart and its sign-in page again; arm64 Linux with `hoprig serve`.
+  installer:
+    name: install line · ${{ matrix.os }} · node ${{ matrix.node }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest, ubuntu-24.04-arm]
+        node: [24, 26]
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      - name: Pack, then install with the install line and look at the dashboard
+        run: |
+          WANT=$(node -p "require('./package.json').version")
+          npm pack --silent
+          case "${{ matrix.os }}" in ubuntu-*) MODE=serve ;; *) MODE=service ;; esac
+          sh tools/installer-smoke.sh "$PWD/hoprig-$WANT.tgz" "$MODE"
+
+  # The install line in a plain container of each family, as a plain user with sudo: it installs Node.js and the build
+  # tools itself (Node.js is the installer's own LTS here, not the runner's), then set-up and `hoprig serve`.
+  installer-linux:
+    name: install line · ${{ matrix.image }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        image: [debian:12, fedora:latest, alpine:latest, ubuntu:24.04]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Pack, then run the install line in the container
+        run: |
+          set -o pipefail
+          WANT=$(node -p "require('./package.json').version")
+          npm pack --silent
+          docker run --rm -e GITHUB_STEP_SUMMARY= -v "$PWD:/repo:ro" ${{ matrix.image }} sh /repo/tools/installer-smoke.sh "/repo/hoprig-$WANT.tgz" serve 2>&1 | tee -a "$GITHUB_STEP_SUMMARY"

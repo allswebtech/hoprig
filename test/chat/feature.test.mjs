@@ -197,8 +197,8 @@ test('the coding chat in the dashboard', { timeout: 120_000, skip: process.platf
   assert.equal((await view()).running, false, 'the menu started no process');
   assert.equal((await owner('POST', `/api/chats/${id}/take`, {})).status, 200);
   assert.equal((await view()).terminal, null, 'the terminal stopped Claude');
-  const shell = await until('the terminal to be a plain shell', async () => (await owner('GET', '/api/state')).json.sessions.find((s) => s.name === term.json.name && s.kind === 'shell'));
-  assert.ok(shell, 'the terminal itself stays');
+  // A terminal the dashboard made for the conversation ends with it: no plain shell left as a second card.
+  await until('the terminal to end', async () => !(await owner('GET', '/api/state')).json.sessions.some((s) => s.name === term.json.name));
   assert.equal((await owner('POST', `/api/chats/${id}/send`, { text: 'back in the chat' })).status, 200);
   await until('the answer', async () => (await view()).events.some((e) => e.kind === 'text' && e.text === 'echo: back in the chat'));
   await until('the turn to end', async () => (await view()).status === 'waiting');

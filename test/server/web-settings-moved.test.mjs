@@ -1,5 +1,5 @@
 // Settings that moved to where their work is (lane "settings-b" of the easier-settings list): Work's settings at the foot of
-// Work > Tasks, the schedules switch on top of Work > Schedules, Automations as "While you are away", the Workspace
+// Work > Tasks, the schedules switch on top of Work > Schedules, Automations (While you are away, now one row with the Workspace), the Workspace
 // page shorter, the Hands-off and Tia pages with their long paragraphs folded. An old settings file keeps working.
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -94,9 +94,9 @@ test('Schedules: the master switch and "at most this many at once" are on top of
   assert.ok(w.indexOf('Run schedules') < w.indexOf('No schedules yet'), 'above the list');
 });
 
-test('While you are away: the page is renamed, has no queue switch and no schedule switch', async () => {
+test('Automations: the page is renamed, has no queue switch and no schedule switch', async () => {
   const p = page('automations');
-  assert.equal(p.title, 'While you are away');
+  assert.equal(p.title, 'Automations');
   const box = new FakeElement('div');
   box.append(...[].concat(p.render()));
   await settle();
