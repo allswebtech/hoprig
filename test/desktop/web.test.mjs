@@ -50,7 +50,7 @@ test('where it sits: one page beside the dashboard, opened from a page head and 
   assert.match(idx, /WIDE = '\(min-width: 1024px\) and \(min-height: 600px\)'/);
   assert.match(idx, /prefs\.get\('desktop\.style', 'taskbar'\)/, 'Taskbar is the default style');
   for (const f of ['desktop/index.js', 'desktop/bar.js', 'settings.js']) assert.doesNotMatch(src(f), /desktop\.start|Start view|startView/, `${f}: no Start view`);
-  assert.match(src('settings.js'), /lookPanel\(\), editorPanel\(\), desktopSettings\(\)/);
+  assert.match(src('settings.js'), /lookPanel\(\), fold\([^\n]*editorPanel\(\), desktopSettings\(\)/, 'the desktop settings sit in the fold of Appearance');
   assert.match(src('pc.js'), /link\('#\/desktop'\).*'Open desktop'/);
 });
 
