@@ -32,6 +32,8 @@ function sys(over = {}) {
   const made = K.sysInfo({ env, has, pm: null, root: false, serviceSupported: false, publicIps: [], dmi: {}, localDisplay: false, savedServer: null, run: windowsFacts(env), ...rest });
   // Nothing listens for these tests, whatever really runs on this machine's dashboard port.
   made.probe = over.probe || (async () => 0);
+  // A gateway program on this computer's PATH is not a copy for doctor to ask the default port about.
+  made.ownGateways = false;
   return made;
 }
 
@@ -102,6 +104,7 @@ test('the --yes and --dry-run question rules', async () => {
 });
 
 test('setup --dry-run changes nothing and says what it would do', async () => {
+  fs.rmSync(process.env.HOPRIG_CONFIG_DIR, { recursive: true, force: true }); // a computer with no settings at all
   const before = stateDirs();
   const { ui: u, rec } = ui({ dryRun: true });
   assert.equal(await SU.setup(['--dry-run'], { ui: u, sys: sys({ serviceSupported: true }), parts: NOPARTS }), 0);
@@ -115,13 +118,30 @@ test('setup --dry-run changes nothing and says what it would do', async () => {
   assert.doesNotMatch(rec.text, /A new terminal|open a new terminal/, 'nothing was added to PATH, so no new terminal is needed');
 });
 
-test('setup --dry-run with Claude Code missing: one install question, nothing installed', async () => {
+test('setup --dry-run with Claude Code missing: says it would install it, asks nothing, installs nothing', async () => {
   const empty = fakeBin(path.join(s.tmp, 'bin-empty'), {});
   const { ui: u, rec } = ui({ dryRun: true });
   await SU.setup(['--dry-run'], { ui: u, sys: sys({ PATH: pathWith(s.tmp, empty), platform: 'linux' }), parts: NOPARTS }); // seal: only the test's own folders, in an environment that keeps the runner's variables
   assert.match(rec.text, /Claude Code is not installed\./);
-  assert.match(rec.text, /would ask: Install it now\?/);
+  assert.match(rec.text, /Would install Claude Code with the official installer/);
+  assert.doesNotMatch(rec.text, /Install it now/);
   assert.equal(fs.existsSync(path.join(process.env.HOME, '.local')), false);
+});
+
+test('Claude Code missing, switched off in Coding tools, no terminal: it is not installed and nothing restarts', async () => {
+  const { saveConfig } = await import('../../src/config.mjs');
+  const empty = fakeBin(path.join(s.tmp, 'bin-empty-off'), {});
+  saveConfig({ codingTools: ['opencode'] });
+  try {
+    const { ui: u, rec } = ui({});
+    const state = { changed: false };
+    assert.equal(await SU.stepClaude(u, sys({ PATH: pathWith(s.tmp, empty), platform: 'linux' }), state), false); // seal: only the test's own folders
+    assert.doesNotMatch(rec.text, /Installing with the official installer/);
+    assert.match(rec.text, /Install it now\? .*skipped: no terminal/);
+    assert.equal(state.changed, false);
+  } finally {
+    saveConfig({ codingTools: ['claude'] });
+  }
 });
 
 test('setup --yes: profile, password file, network access, no questions; a second run changes nothing', SHELL_STANDINS, async () => {

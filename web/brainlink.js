@@ -4,8 +4,20 @@
 // each link, grouped by coding tool, then "Link" does it and says what was done; nothing is overwritten (a conflict is
 // left alone with its reason). toolsPart() is the AI brain page's "Coding tools": the state per tool, one button.
 import { icon } from './icons.js';
-import { TOOL_NAMES, api, btn, fill, h, openSheet } from './lib.js';
-import { errorBox, fold, groupHead, okBox } from './shell.js';
+import { TOOL_NAMES, api, btn, fill, h, link, openSheet } from './lib.js';
+import { errorBox, fold, groupHead, okBox, tabBar } from './shell.js';
+
+/**
+ * The three tabs of Projects: Projects, Skills, Memory. Every one of the three pages puts this first in its body, with
+ * nothing above it. `current`: 'projects' | 'skills' | 'memory'. Plain links: each tab is a page of its own.
+ */
+export function projectsTabs(current) {
+  return tabBar('Projects', [
+    { id: 'projects', label: 'Projects', href: link('#/workspace') },
+    { id: 'skills', label: 'Skills', href: link('#/skills') },
+    { id: 'memory', label: 'Memory', href: link('#/brain') },
+  ], current);
+}
 
 const LEFT = ['already', 'conflict'];
 const mark = (e) => (e.error ? 'alert' : e.action === 'conflict' ? 'minus' : 'check');

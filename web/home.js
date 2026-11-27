@@ -11,23 +11,24 @@ import { icon } from './icons.js';
 import { MACHINE_STATE, WINDOW, api, ago, answeredNow, btn, costWords, fill, h, insecure, isPaid, link, nearLimit, needsYouFirst, prefs, stateOf, until, waysOn } from './lib.js';
 import { isStarting } from './newsession.js';
 import { openNewSession } from './newsession-popup.js';
+import { needsYouRows } from './operator.js';
 import { sessionCard } from './sessionitem.js';
 import { connectionBanner, emptyState, frame, groupHead } from './shell.js';
 import { pageNotify, store } from './store.js';
 
-// Where Home's note about bypass leads: New-session defaults, opened at the switch itself (showpart.js).
+// Where Home's note about bypass leads: New sessions, opened at the switch itself (showpart.js).
 export const BYPASS_SWITCH = '#/settings/new-sessions?show=bypass';
 
 /** The three groups, by the state of a session (lib.js stateOf). "Needs you" is only what cannot go on without you. */
 export const GROUPS = [
   ['needs', 'Needs you', ['attention', 'limit', 'failed']],
   ['working', 'Working', ['working', 'starting']],
-  ['waiting', 'Waiting for your next message', ['waiting', 'ended']],
+  ['waiting', 'Finished', ['waiting', 'ended']],
   // A plain terminal is not Claude: it waits for nobody's message and never needs anyone, so it comes last.
   ['terminals', 'Terminals', ['shell']],
 ];
 // The state a group's heading already names: its cards' pills show only the time. "Needs you" holds two states
-// (Needs your OK, Limit reached) and Waiting also holds Finished, so those keep their words.
+// (Needs your OK, Limit reached) and Finished also holds Ended (and Ready), so those keep their words.
 const SAID_BY_HEADING = { working: 'working', waiting: 'waiting', terminals: 'shell' };
 export const groupOf = (s) => (isStarting(s) ? 'working' : (GROUPS.find(([, , keys]) => keys.includes(stateOf(s).key)) || GROUPS[2])[0]);
 
@@ -108,6 +109,7 @@ export function viewHome() {
   const filters = h('div');
   const accountsRow = h('div');
   const list = h('div.home-groups', skeleton());
+  const opRows = h('div.home-op'); // the cards that ask you to act, above the sessions of Needs you (operator.js)
   // "Get started" (getstarted.js): above everything while a step is missing.
   let noSessions = false;
   let paintEmpty = () => {};
@@ -127,7 +129,7 @@ export function viewHome() {
     primaryInHead: true,
     body: [
       insecure() ? h('div.banner.muted', icon('lock', { size: 18 }), h('span', 'Not encrypted. Use only on a network you trust, or put it behind HTTPS.')) : null,
-      top, bypassNote, fixed ? null : fieldLines(), gs.el, filters, accountsRow, list,
+      top, bypassNote, fixed ? null : fieldLines(), gs.el, filters, accountsRow, opRows, list,
     ],
   });
   // Said once: the update kept "Allow bypass permissions mode" on, because this dashboard used bypass (src/bypassgate.mjs).
@@ -143,7 +145,7 @@ export function viewHome() {
         }
       });
       fill(bypassNote, h('div.banner.muted.bypass-note', { role: 'status' }, icon('info', { size: 18 }),
-        h('span', 'Bypass permissions mode stays allowed: this dashboard used it before the switch "Allow bypass permissions mode" existed. You can turn it off in Settings → New-session defaults.'),
+        h('span', 'Bypass permissions mode stays allowed: this dashboard used it before the switch "Allow bypass permissions mode" existed. You can turn it off in Settings → New sessions.'),
         h('span.banner-actions', h('a.btn.small.secondary', { href: BYPASS_SWITCH, onclick: () => seen() }, 'Open the switch'), h('button.btn.small.primary', { type: 'button', onclick: () => seen() }, 'OK'))));
     }, () => {}); // an older computer: no such switch
   }
@@ -245,15 +247,17 @@ export function viewHome() {
       const mine = sessions.filter((s) => groupOf(s) === id);
       if (!mine.length) return null;
       const card = (s) => sessionCard(s, profilesOf.get(s.machine) || [], after, multi, { heading: SAID_BY_HEADING[id] });
-      // Waiting for your next message: what has waited for more than 6 hours stands folded under one line.
+      // Finished: what has waited for more than 6 hours stands folded under one line.
       const { recent, old } = id === 'waiting' ? splitWaiting(mine) : { recent: mine, old: [] };
       return h(`section.home-group.g-${id}`, { 'aria-label': title }, groupHead(title, mine.length),
         recent.length ? h('div.cards', recent.map(card)) : null,
         old.length ? waitedFold(old, card) : null);
     }));
   });
+  const stopOp = needsYouRows(opRows);
   return () => {
     unsubscribe();
     gs.stop();
+    stopOp();
   };
 }

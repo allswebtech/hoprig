@@ -428,11 +428,13 @@ export const modeInfo = (v, m) => {
  * The box's placeholder: what to do, with nothing a person in a browser does not have (no key of a terminal: the keys
  * are in the shortcut sheet). While Claude works a message is sent, as in the desktop app: read after the current step.
  */
-export function boxWords(v, { readOnly = false } = {}) {
+export function boxWords(v, { readOnly = false, touch = false } = {}) {
   const who = toolWord(v);
   if (v.toolOff) return `${who} is off on this computer`;
   if (readOnly) return 'Read only while the terminal runs this conversation';
-  if (turnRuns(v)) return `Send ${who} a message: read after its current step`;
+  // A touch screen has no Esc key and little width: one short line.
+  if (touch) return turnRuns(v) ? `Message ${who}: after its step` : `Message ${who}`;
+  if (turnRuns(v)) return `Send ${who} a message: read after its current step · Esc stops`;
   return `Message ${who} · / for commands · @ for files`;
 }
 /** How the page names the chat's coding tool in a sentence: "Claude" for Claude Code, else the tool's name. */

@@ -1,6 +1,6 @@
 // "Allow bypass permissions mode", as the Claude Code desktop app has it under Settings: until the owner turns it on
 // (with a confirmation), Bypass permissions is not offered anywhere in the dashboard (the App's mode menu and its
-// Shift+Tab, a new session's options, New-session defaults), a request for it is refused, and the App starts Claude
+// Shift+Tab, a new session's options, New sessions), a request for it is refused, and the App starts Claude
 // Code without --allow-dangerously-skip-permissions. Config key "allowBypass" (true / false).
 // Nobody who used bypass before this switch existed loses it by the update: the first time a dashboard starts without
 // the key (firstLook), it is set ON where the session defaults name bypass, an open App session runs in it, or a

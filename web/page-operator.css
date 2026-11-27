@@ -93,3 +93,17 @@
 .op-look-said p { margin: 2px 0; }
 .op-look .btn { align-self: flex-start; }
 .op-corrected { margin: 2px 0 0; }
+
+/* Home's Needs you rows (operator.js needsYouRows): a row is a subject, one fact and one button. */
+.op-rows { display: flex; flex-direction: column; gap: 8px; }
+.op-row { background: var(--surface); border: 1px solid var(--border); border-left: 4px solid var(--border-strong); border-radius: var(--r); padding: 10px 14px; box-shadow: var(--shadow-1); min-width: 0; }
+.op-row.op-harm { border-left-color: var(--danger); }
+.op-row.op-stopped { border-left-color: var(--warn); }
+.op-row.op-waits { border-left-color: var(--accent); }
+.op-row.op-machine { border-left-color: var(--info); }
+.op-row .op-subject { order: 0; margin: 0; font-size: var(--fs); }
+.op-row-fact { margin: 2px 0 0; font-size: var(--fs-sm); color: var(--text-2); overflow-wrap: anywhere; }
+.op-row .op-acts { margin-top: 8px; }
+/* The sessions of Needs you follow the rows under one heading. */
+.home-op:has(.g-needs-op) + .home-groups .g-needs > .group-head { display: none; }
+.home-op .home-group { margin-top: 0; }

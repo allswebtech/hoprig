@@ -269,12 +269,26 @@ export class TmuxBackend {
    */
   async respawn(id, dir, argv, { mark = null, hold = null } = {}) {
     const start = shellLine(argv, { mark });
+    const shell = await this.#shellCommand(id);
     await this.#endPrograms(['display-message', '-p', '-t', id, SHELL_FORMAT], hold);
-    await this.run(['respawn-pane', '-k', '-t', id, '-c', tmuxDir(dir), ...paneEnv(start)]);
+    await this.run(['respawn-pane', '-k', '-t', id, '-c', tmuxDir(dir), ...paneEnv(start), ...shell]);
     // The old program's lines (a usage-limit message among them) would otherwise stay in the history and keep
     // the card in "limit hit". The conversation itself is in Claude's transcript, which --resume shows again.
     await this.run(['clear-history', '-t', id]);
     await this.#type(id, start.line);
+  }
+
+  /**
+   * What a respawn starts in pane `id`: what a new pane of its session starts, its default-command, else its
+   * default-shell as a login shell. Always named: respawn-pane without a command runs again the command the pane was
+   * CREATED with, and a session made outside the dashboard (`tmux new-session '<launcher line>'`) then started its
+   * launcher anew, with its first message, on a new conversation. A shell tmux does not name as a full path: /bin/sh.
+   */
+  async #shellCommand(id) {
+    const out = String(await this.run(['display-message', '-p', '-t', id, '#{default-shell}\t#{default-command}']).catch(() => ''));
+    const [shell = '', command = ''] = out.replace(/\r?\n$/, '').split('\t');
+    if (command.trim()) return [command];
+    return [/^\/\S+$/.test(shell.trim()) ? shell.trim() : '/bin/sh', '-l'];
   }
 
   /**

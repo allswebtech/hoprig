@@ -39,7 +39,7 @@ test('things to do once: the bypass switch, and a daily cap for Tia on a provide
   write(path.join(cfgDir, 'profiles/api.env'), 'ANTHROPIC_API_KEY=made-up\n');
   const lines = A.onceLines(cfgDir);
   assert.equal(lines.length, 2);
-  assert.match(lines[0], /turn it on once in Settings → New-session defaults/);
+  assert.match(lines[0], /turn it on once in Settings → New sessions/);
   assert.match(lines[1], /Tia thinks on api, a provider billed by use, and has no daily limit for paid use/);
   assert.doesNotMatch(lines.join('\n'), /made-up/);
   write(path.join(cfgDir, 'config.json'), JSON.stringify({ allowBypass: true, sessionDefaults: { permissionMode: 'bypassPermissions' }, assistant: { enabled: true, runsOn: 'api', dailyCapUsd: 5 } }));

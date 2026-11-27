@@ -54,13 +54,16 @@ export function computerLine(s, m, update) {
 
 function computerRow(s, m, update) {
   const l = computerLine(s, m, update);
-  return h(`a.row.cp-row${l.online ? '' : '.cp-off'}`, { href: link('#/computer', s.machine) },
-    h('span.row-icon', icon('cpu')),
-    h('span.row-main',
-      h('span.row-title', s.machineLabel, s.machine === null ? h('span.badge.soft', 'This computer') : null),
-      h('span.row-sub', h(`span.cp-dot${l.online ? '.on' : ''}`, { 'aria-hidden': 'true' }), l.first),
-      h('span.row-sub.cp-claude', l.claude)),
-    h('span.row-end', icon('chevronRight', { size: 18 })));
+  // The row opens the computer; "Health" beside it goes straight to its checks (two presses from the list, not three).
+  return h(`div.row.cp-row.cp-rowwrap${l.online ? '' : '.cp-off'}`,
+    h('a.cp-rowlink', { href: link('#/computer', s.machine) },
+      h('span.row-icon', icon('cpu')),
+      h('span.row-main',
+        h('span.row-title', s.machineLabel, s.machine === null ? h('span.badge.soft', 'This computer') : null),
+        h('span.row-sub', h(`span.cp-dot${l.online ? '.on' : ''}`, { 'aria-hidden': 'true' }), l.first),
+        h('span.row-sub.cp-claude', l.claude)),
+      h('span.row-end', icon('chevronRight', { size: 18 }))),
+    h('a.btn.small.ghost.cp-health', { href: link('#/computer/health', s.machine), 'aria-label': `Health of ${s.machineLabel}` }, 'Health'));
 }
 
 // ======================= the list =======================

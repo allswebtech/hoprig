@@ -26,14 +26,26 @@ const port = await new Promise((r) => { const sv = net.createServer().listen(0, 
 (await import('../../src/config.mjs')).saveConfig({ addons: { trouteai: { port } } });
 
 const { SHIPPED } = await import('../../src/addons/gateways.mjs');
+const { toolsDir } = await import('../../src/paths.mjs');
 const { buildsLine, installArgv, installFlags, localGateway } = await import('../../src/addons/localgateway.mjs');
 const { runsLines } = await import('../../src/addons/gatewaycli.mjs');
 const { listAddons } = await import('../../src/addons/index.mjs');
 const def = SHIPPED.find((d) => d.npm);
 
-test('install and update pass the README\'s options, from the definition', async () => {
+test('install and update pass the README\'s options, from the definition, into the own folder', async () => {
   assert.deepEqual(def.allowScripts, ['tls-client-node', 'koffi']);
   const g = localGateway(def, { shipped: true });
+  await g.install();
+  await g.update();
+  const prefix = path.join(toolsDir(), def.id);
+  const own = `install --prefix ${prefix} --save-exact --no-audit --no-fund --update-notifier=false --loglevel=error`;
+  assert.deepEqual(fs.readFileSync(calls, 'utf8').trim().split(/\r?\n/), [`${own} ${def.npm}@${def.own.pin}`, `${own} ${def.npm}@latest`]);
+});
+
+test('a gateway defined without a copy of its own is still installed and updated with npm -g, and its options', async () => {
+  fs.rmSync(calls, { force: true });
+  const { own, ...plain } = def; // eslint-disable-line no-unused-vars
+  const g = localGateway(plain, { shipped: true });
   await g.install();
   await g.update();
   assert.deepEqual(fs.readFileSync(calls, 'utf8').trim().split(/\r?\n/), [
@@ -62,10 +74,12 @@ test('the Install confirmation says in one line that two parts build a helper: t
   assert.equal(buildsLine({ npm: 'x' }), null);
   const a = (await listAddons()).find((x) => x.id === def.id);
   assert.equal(a.builds, line);
-  assert.equal(a.installCommand, `npm install -g --allow-scripts=tls-client-node,koffi --loglevel=error ${def.npm}`);
+  const into = `npm install --prefix ${path.join(toolsDir(), def.id)} --save-exact --loglevel=error ${def.npm}@${def.own.pin}`;
+  assert.equal(a.installCommand, into);
   const lines = runsLines({ ...def, args: def.args });
-  assert.equal(lines[0], `Hoprig installs and updates it with: npm install -g --allow-scripts=tls-client-node,koffi --loglevel=error ${def.npm}`);
-  assert.equal(lines[1], line);
+  assert.equal(lines[0], `Hoprig installs and updates it with: ${into}`);
+  assert.match(lines[1], /^That is a copy in Hoprig's own folder/);
+  assert.equal(lines[2], line);
   const page = fs.readFileSync(new URL('../../web/addons.js', import.meta.url), 'utf8');
   // A gateway's Install asks naming the computer, with the same line and the command (the server checks that name).
   assert.match(page, /if \(a\.gateway && !\(await confirmSheet\(\{ title: `Install \$\{a\.title\} on \$\{computer\}\?`, text: `\$\{a\.builds \? `\$\{a\.builds\} ` : ''\}\$\{a\.installCommand \? `This runs on \$\{computer\}: \$\{a\.installCommand\}`/);

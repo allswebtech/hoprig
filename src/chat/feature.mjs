@@ -4,8 +4,9 @@
 //
 //   GET  /api/chats                           the open chats, as cards
 //   GET  /api/chats/tools                     the coding tools a chat can run here: [{ id, name }] (on and installed)
-//   POST /api/chats                           { dir, tool?, profile?, model?, effort?, permissionMode?, ultracode?, lead?, sessionId?, text? }
-//                                             → { id }   what is left out: as the last chat in that folder ran
+//   POST /api/chats                           { dir, tool?, profile?, model?, effort?, permissionMode?, ultracode?, lead?, worktree?, sessionId?, text? }
+//                                             → { id, worktree? }   (worktree: { branch } or { why }, when it was asked for)
+//                                             what is left out: as the last chat in that folder ran
 //                                             (folders.mjs), else the folder's default provider for that coding tool
 //                                             and Settings. tool: the coding tool (absent: Claude Code); the chat
 //                                             stays in it (tools.mjs)
@@ -20,7 +21,8 @@
 //                                             → { stopped, back: [{ text, files }] }  (the queued messages, taken back)
 //   POST /api/chats/<id>/provider             { profile }   continue on another provider
 //   POST /api/chats/<id>/upload               raw bytes, X-File-Name → { path }   (the uploads folder, as for sessions)
-//   POST /api/chats/<id>/close               Archive: it leaves the list; its conversation goes to archived.mjs's list
+//   POST /api/chats/<id>/close               Archive: it leaves the list; its conversation goes to archived.mjs's list;
+//                                            → { ok, restore } (the body that opens it again, or null)
 //   GET  /api/chats/archived                  the archived sessions, to continue one (archived.mjs)
 // and the routes of live.mjs (the event stream, mode, settings, queue, task stop, rewind, files, commands, usage) and
 // of handoff.mjs (from a terminal session to a chat and back: one conversation never runs in two places at once).
@@ -40,6 +42,7 @@ import { getAutoSwitch } from '../autoswitch.mjs';
 import { rememberFolderProvider } from '../defaultprovider.mjs';
 import { stateDir, tilde } from '../paths.mjs';
 import { archivedSessions } from './archived.mjs';
+import { chatShells } from './chatshells.mjs';
 import { cleanOthers, ticksOf } from '../models/others.mjs';
 import { deleteRoutes } from './deletes.mjs';
 import { listProfiles, publicProfile, readProfile } from '../profiles.mjs';
@@ -50,6 +53,7 @@ import { DEFAULT_UPLOADS_DIR, DEFAULT_UPLOAD_MAX_MB, saveUpload, uploadsDirName 
 import { fromHerDoor } from '../server/herdoor.mjs';
 import * as v from '../server/validate.mjs';
 import { Chat } from './chat.mjs';
+import { makeWorktree } from './worktree.mjs';
 import { engineOf } from './engines/index.mjs';
 import { askNote, previewText } from './events.mjs';
 import { readTurns } from './turns.mjs';
@@ -110,6 +114,9 @@ export function chatFeature(ctx, o = {}) {
   let partsConfig = null; // "Use other providers": the lead's one tool at its start (src/models/partdoor.mjs)
   let handedOf = null; // and the parts a lead handed to other providers (for who did what)
   const shut = new Map(); // the chats closed since the start (the last 100): id → { cwd, conversationId, title, tool, terminal? }
+  const shells = chatShells({ file: () => path.join(path.dirname(file()), 'chat-shells.json') });
+  // The shells made for chat `id` end with it (the pane's own ending of them, in the page, may come first or after: harmless).
+  const endShells = (id) => Promise.all(shells.take(id).map((n) => Promise.resolve(ctx.backend.kill(n)).catch(() => {})));
   const archived = archivedSessions({ file: () => path.join(path.dirname(file()), 'chat-archived.json'), openChatOf: (id) => openChatOf(id) });
   let loaded = false;
   let stopPurge = () => {};
@@ -255,7 +262,7 @@ export function chatFeature(ctx, o = {}) {
     // ownFolder (publicProfile): the page's Sign in again signs in only the default folder, so it is not offered then.
     return p ? publicProfile(p) : { name, label: name, kind: 'unknown' };
   }
-  // The saved values a check keeps accepting (the default of Settings → New-session defaults); the provider's own list
+  // The saved values a check keeps accepting (the default of Settings → New sessions); the provider's own list
   // comes from src/models/catalog.mjs (chat/tools.mjs choicesOf).
   const models = () => {
     const saved = (cfg().sessionDefaults || {}).model;
@@ -327,6 +334,7 @@ export function chatFeature(ctx, o = {}) {
       cwd: c.cwd, short: tilde(c.cwd), profile: profileView(c.profile), status, statusAt: c.statusAt, activity: c.statusAt,
       byTia: c.byTia, // Tia started this chat: her rules let her answer its OKs (src/assistant/core.mjs facts)
       created: c.openedAt, attached: false, panes: 0, sessionId: c.conversationId, canSwitch: false,
+      endedInError: c.lastEnd === 'error', // the list says the same as the line under the chips: an error end is no Finished
       lastMessage: previewText(c.lastText), // plain words: a card shows no Markdown marks
       running: !!c.session, // its process runs on the provider now (idle care keeps that provider's gateway up)
       costTotal: Number.isFinite(c.costTotal) ? c.costTotal : null, // what its coding tool reported it has cost so far (Tia's daily limit for paid use reads it)
@@ -395,7 +403,7 @@ export function chatFeature(ctx, o = {}) {
   /**
    * Open a chat (POST /api/chats; the schedules too). b: { dir, profile?, model?, effort?, permissionMode?, ultracode?,
    * sessionId?, text?, defaults?, byTia? }. What is left out: as the last chat in that folder ran, else the folder's
-   * default provider (ctx.defaultProvider) and Settings. defaults: true (Tia, a schedule) takes Settings → New-session
+   * default provider (ctx.defaultProvider) and Settings. defaults: true (Tia, a schedule) takes Settings → New sessions
    * defaults and not the folder's last chat, as a terminal session they start does: a mode the owner chose for himself
    * (bypass) is not carried into a chat nobody watches. A conversation an open chat already runs gives that chat, as it is.
    * byTia: true (Tia's start_chat, from her door only) marks the chat this call creates as hers, and no other: not an
@@ -472,6 +480,7 @@ export function chatFeature(ctx, o = {}) {
     if (b.ultracode !== undefined && b.ultracode !== null && typeof b.ultracode !== 'boolean') throw bad('ultracode is true or false');
     if (b.byTia !== undefined && typeof b.byTia !== 'boolean') throw bad('byTia is true or false');
     if (b.lead !== undefined && b.lead !== null && typeof b.lead !== 'boolean') throw bad('lead is true or false');
+    if (b.worktree !== undefined && b.worktree !== null && typeof b.worktree !== 'boolean') throw bad('worktree is true or false');
     // "Also open": checked here (server.mjs checkWith), and again at every start. A context without the check takes none.
     const withs = ctx.checkWith ? await ctx.checkWith(b.with, dir) : [];
     if (!ctx.checkWith && b.with !== undefined && b.with !== null) throw bad('"with" is not taken here');
@@ -480,7 +489,7 @@ export function chatFeature(ctx, o = {}) {
     const title = typeof b.title === 'string' ? v.chatTitle(b.title) : '';
     const d = cfg().sessionDefaults || {};
     const ch = gated(choicesOf(tool, profile, models));
-    // Left out: as the last chat in this folder; never chosen there: Settings → New-session defaults (Claude Code's
+    // Left out: as the last chat in this folder; never chosen there: Settings → New sessions (Claude Code's
     // words: another tool takes what it has of them).
     const kept = (k, chosen, fallback) => (chosen !== undefined ? chosen : k in last ? last[k] : fallback);
     const model = kept('model', pickModel(b.model, tool, ch), tool === 'claude' ? d.model || null : null);
@@ -520,10 +529,12 @@ export function chatFeature(ctx, o = {}) {
       old.close();
       old.emit('gone'); // its page shows it as not open (live.mjs)
     }
+    // Worktree: a new conversation of Claude Code on a branch of its own (worktree.mjs); where git cannot, it starts as usual and says so.
+    const wt = b.worktree === true && tool === 'claude' && !conversationId ? await makeWorktree(dir) : null;
     const budget = run && Number.isFinite(run.maxBudgetUsd) && run.maxBudgetUsd > 0 ? run.maxBudgetUsd : null;
     const c = make({
       ...(budget ? { maxBudgetUsd: budget, paidBudget: true } : {}),
-      id, ...(conversationId && conversationId !== id ? { conversationId } : {}), engine: tool, cwd: dir, profile,
+      id, ...(conversationId && conversationId !== id ? { conversationId } : {}), engine: tool, cwd: wt && wt.dir ? wt.dir : dir, profile,
       // a model the computer stopped offering is not forced on a new chat
       model: model && modelOk(tool, model, ch) ? model : null, effort: ch.efforts.includes(effort) ? effort : null,
       // A chat on an existing conversation is never hers, whoever asks: its history holds the owner's own instructions
@@ -534,19 +545,23 @@ export function chatFeature(ctx, o = {}) {
       ...(hers ? { hers: true } : {}),
       ...(title ? { title, named: true } : {}), ...(withs.length ? { withs } : {}),
     });
+    if (wt && wt.why) c.push({ kind: 'notice', level: 'warning', text: wt.why });
+    else if (wt) c.push({ kind: 'notice', level: 'info', text: `This chat works on its own copy of the project, on the branch ${wt.branch}. Its changes stay there until you merge them.${wt.note ? ` ${wt.note}` : ''}` });
+    // Asked for, the answer says what came of it (an older computer answers without it, and the page tells the owner).
+    const wtSaid = b.worktree === true ? { worktree: wt ? (wt.why ? { why: wt.why } : { branch: wt.branch }) : { why: 'only a new chat of Claude Code can work on a branch of its own' } } : {};
     save();
     if (owners) remember(c); // the folder's last chat is the owner's own choice, not Tia's or a schedule's
-    if (!text) return { id };
+    if (!text) return { id, ...wtSaid };
     let first;
     try {
       first = await sendOne(c, () => c.send(text));
     } catch (e) {
       // The chat is open all the same (it reads along): a caller is told the message did not go, not that nothing opened.
-      if (e.code === 'in-terminal') return { id, sent: false, why: 'a terminal session runs this conversation' };
-      if (e.code === 'in-chat') return { id, sent: false, why: 'another chat runs this conversation right now' };
+      if (e.code === 'in-terminal') return { id, ...wtSaid, sent: false, why: 'a terminal session runs this conversation' };
+      if (e.code === 'in-chat') return { id, ...wtSaid, sent: false, why: 'another chat runs this conversation right now' };
       throw e;
     }
-    return { id, sent: true, ...(first && typeof first.id === 'string' ? { messageId: first.id } : {}) };
+    return { id, ...wtSaid, sent: true, ...(first && typeof first.id === 'string' ? { messageId: first.id } : {}) };
   }
 
   /** A message to an open chat from the dashboard itself (a schedule): queued by the chat while Claude works. */
@@ -735,12 +750,14 @@ export function chatFeature(ctx, o = {}) {
       chats.delete(c.id);
       save();
       const ended = c.close();
+      const shellsEnded = endShells(c.id);
       c.emit('gone'); // closed for good: its page shows it as not open, without asking again (live.mjs)
-      await ended;
+      await Promise.all([ended, shellsEnded]);
       const kept = shut.get(c.id); // what 'closed' found of its conversation
       archived.add({ id: c.id, cwd: c.cwd, conversationId: kept ? kept.conversationId : null, title: c.currentTitle(), tool: c.engine.id, profile: c.profile });
       ctx.poke?.();
-      return { ok: true };
+      // What opens it again (POST /api/chats): the page's Undo. Null when nothing was said yet: there is nothing to put back.
+      return { ok: true, restore: kept && kept.conversationId ? { dir: c.cwd, tool: c.engine.id, profile: c.profile, sessionId: kept.conversationId } : null };
     }],
   ];
 
@@ -762,7 +779,7 @@ export function chatFeature(ctx, o = {}) {
   const closeChat = async (c) => {
     chats.delete(c.id);
     save();
-    const ended = c.close();
+    const ended = Promise.all([c.close(), endShells(c.id)]);
     // Its page learns it was deleted (in the trash), and offers no Continue of a conversation that is not there.
     const kept = shut.get(c.id);
     if (kept) Object.assign(kept, { conversationId: null, deleted: true });
@@ -864,6 +881,10 @@ export function chatFeature(ctx, o = {}) {
      * Start a terminal on conversation `id` (server.mjs: New session, Tia) with `start()` → { name }, unless something
      * runs it already: → { name } of the new one, or { existing: { terminal: { name } } | { chat } } (handoff.mjs claim).
      */
+    /** Shell `name` was made for chat `id` (the terminal pane): archiving the chat ends it. */
+    madeShell(id, name) {
+      shells.add(id, name);
+    },
     async startTerminal(id, start, tool = 'claude') {
       load();
       const r = await claim(id, start, { tool });

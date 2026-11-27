@@ -1,6 +1,6 @@
 // The demo's made-up versions agree everywhere: src/demo/versions.mjs holds them, and every demo answer that names a
 // version names that one. The Overview's Claude Code line ("The newest version" or "Version … is out") follows the
-// same answer as Settings → Updates, so the Overview never calls a version the newest while Updates offers a newer one.
+// same answer as Settings → Version and updates, so the Overview never calls a version the newest while Updates offers a newer one.
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
@@ -85,7 +85,7 @@ test('demo: every answer that names a version names the one in versions.mjs', { 
       return r.json();
     };
 
-    // Settings → Updates: each row's installed and newest version, and whether an update is offered.
+    // Settings → Version and updates: each row's installed and newest version, and whether an update is offered.
     const updates = await get('/api/updates');
     const rows = Object.fromEntries(updates.items.map((i) => [i.id, i]));
     assert.ok(rows.hoprig && rows.claude && rows.opencode && rows.cloudflared, Object.keys(rows).join(', '));

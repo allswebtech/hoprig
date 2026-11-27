@@ -115,8 +115,9 @@ test('agents: the strip counts what runs, a task line names its model and effort
     { taskId: 'b', type: 'shell', status: 'running', background: true, title: 'npm test' },
     { taskId: 'c', type: 'agent', status: 'completed', title: 'done one', summary: 'its whole report …' },
   ];
-  assert.equal(Ag.runningWords(tasks), '1 agent · 1 shell running');
-  assert.equal(Ag.runningWords([tasks[2]]), '');
+  assert.equal(Ag.taskCounts(tasks), '2 background tasks · 1 agent · 1 shell');
+  assert.equal(Ag.taskCounts([tasks[2]]), '');
+  assert.equal(Ag.taskCounts([tasks[1]]), '1 background task · 1 shell');
   assert.equal(Ag.taskLine(tasks[0]), 'running · Reading src · Sonnet · effort low · 3 tools · 12k tokens · 41 s');
   assert.equal(Ag.taskLine(tasks[2]), 'done', 'an ended task does not repeat its report');
   const wf = Ag.workflowView({ phases: [{ index: 0, title: 'Ask' }], agents: [{ phase: 0, label: 'one', state: 'done', model: 'claude-sonnet-5-5', tokens: 6500 }, { phase: 3, label: 'stray', state: 'running' }] });
@@ -135,7 +136,8 @@ test('status line: what Claude does now (the tool that runs, for how long), then
   assert.equal(St.stateWords({ ...base, activity: 'requesting', live: [{ kind: 'tool', written: true, title: 'mock bash', command: 'sleep 6', runAt }] }), 'Running: sleep 6 · 4 s');
   assert.equal(St.stateWords({ ...base, live: [{ kind: 'tool', written: true, title: 'npm test', runAt, agent: 'x' }] }), 'Working…', 'a subagent\'s tool is in its card');
   assert.equal(St.stateWords({ ...base, live: [{ kind: 'text', text: 'Hel' }] }), 'Claude is writing…');
-  assert.equal(St.stateWords({ ...base, turn: false, tasks: [{ status: 'running', background: true }] }), 'Working in the background: 1 task');
+  assert.equal(St.stateWords({ ...base, turn: false, tasks: [{ status: 'running', background: true }] }), 'Working in the background', 'the state in words; how many is the Background tasks part\'s head');
+  assert.equal(St.stateWords({ ...base, turn: false, tasks: [{ status: 'running', background: true }, { status: 'running', background: true }] }), 'Working in the background', 'no count');
   assert.equal(St.stateWords({ ...base, status: 'attention' }), 'Needs your OK');
   assert.equal(St.stateWords({ ...base, status: 'attention', asking: 'question' }), 'Claude asks you a question');
   assert.equal(St.stateWords({ ...base, status: 'waiting', terminal: { name: 'x' } }), 'Runs in a terminal');
@@ -209,7 +211,7 @@ test('a failed action says the dashboard\'s sentence, never a script\'s own mess
   assert.equal(W.failText(new TypeError("Cannot read properties of null (reading 'cwd')")), 'That did not work. Reload the page and try again.');
   assert.equal(W.failText(null), 'That did not work. Reload the page and try again.');
   // The tool-off words (src/chat/tools.mjs) end with a full stop in the toast, as in the chat's banner; once only.
-  const off = 'OpenCode is off on this computer: turn it on under Settings → Coding tools to go on with this chat';
+  const off = 'OpenCode is off on this computer: turn it on under Settings → New sessions → Coding tools to go on with this chat';
   assert.equal(W.failText(new ApiError(off, 409, { code: 'tool-off' })), `${off}.`);
   assert.equal(W.failText(new ApiError(`${off}.`, 409, { code: 'tool-off' })), `${off}.`);
 });
@@ -350,8 +352,8 @@ test('a message read for its files takes a moment, whatever "@" text it holds', 
 test('a queued message reads as its bubble will: its words and its files by name, never a raw "@.uploads/…" path', async () => {
   const { queuedLine } = await import('../../web/chat/attach.js');
   const m = { id: 'q1', state: 'sent', text: 'look at this\n\n@.uploads/20301117-164344-753d-notes.txt', attachments: [{ type: 'image', name: '20301117-164344-a1b2-screen.png', mime: 'image/png' }] };
-  assert.deepEqual(queuedLine(m), { text: 'look at this', names: ['screen.png', 'notes.txt'], label: 'look at this (screen.png, notes.txt)' });
-  assert.deepEqual(queuedLine({ text: 'plain' }), { text: 'plain', names: [], label: 'plain' }, 'an older computer sends no attachments');
+  assert.deepEqual(queuedLine(m), { text: 'look at this', names: ['screen.png', 'notes.txt'], files: queuedLine(m).files, label: 'look at this (screen.png, notes.txt)' });
+  assert.deepEqual(queuedLine({ text: 'plain' }), { text: 'plain', names: [], files: [], label: 'plain' }, 'an older computer sends no attachments');
   assert.equal(queuedLine({ text: '\n\n@.uploads/20301117-164344-0f0f-x.log', attachments: [] }).label, 'x.log', 'only a file: its name');
 });
 
@@ -365,12 +367,23 @@ test('a plan\'s first answer with the server\'s real mode list: auto mode only o
   assert.equal(W.planModes(null), null, 'before the first state');
 });
 
+test('on a touch screen the placeholder is one short line with no Esc, the wide screen keeps its words', async () => {
+  const W = await import('../../web/chat/words.js');
+  const v = { engine: { id: 'claude' } };
+  assert.equal(W.boxWords(v, { touch: true }), 'Message Claude');
+  assert.equal(W.boxWords({ ...v, turn: true }, { touch: true }), 'Message Claude: after its step');
+  assert.doesNotMatch(W.boxWords({ ...v, turn: true }, { touch: true }), /Esc/);
+  assert.equal(W.boxWords({ ...v, turn: true }), 'Send Claude a message: read after its current step · Esc stops');
+  assert.equal(W.boxWords({ engine: { id: 'opencode', label: 'OpenCode' } }, { touch: true }), 'Message OpenCode');
+  assert.equal(W.boxWords(v, { touch: true, readOnly: true }), 'Read only while the terminal runs this conversation');
+});
+
 test('the message box\'s placeholder names no key a browser user lacks, and says send (not queue) while Claude works', async () => {
   const W = await import('../../web/chat/words.js');
   const v = { engine: { id: 'claude' } };
   assert.equal(W.boxWords(v), 'Message Claude · / for commands · @ for files');
   assert.doesNotMatch(W.boxWords(v), /Shift\+Tab|\/help|Ctrl|Cmd|Esc/, 'no terminal key: the keys are in the shortcut sheet');
-  assert.equal(W.boxWords({ ...v, turn: true }), 'Send Claude a message: read after its current step', 'steering, as the desktop app: the message is sent');
+  assert.equal(W.boxWords({ ...v, turn: true }), 'Send Claude a message: read after its current step · Esc stops', 'steering, as the desktop app: the message is sent; Esc (a browser key) stops');
   assert.doesNotMatch(W.boxWords({ ...v, turn: true }), /[Qq]ueue/);
   assert.equal(W.boxWords({ engine: { id: 'opencode', label: 'OpenCode' } }), 'Message OpenCode · / for commands · @ for files');
   assert.equal(W.boxWords(v, { readOnly: true }), 'Read only while the terminal runs this conversation');

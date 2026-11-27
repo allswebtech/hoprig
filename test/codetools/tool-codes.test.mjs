@@ -1,5 +1,5 @@
 // The refusals about a coding tool or a provider send a code beside the error, so the page adds one button to the
-// place the sentence names (web/errorways.js): Providers, or Settings → Coding tools.
+// place the sentence names (web/errorways.js): Providers, or Settings → New sessions → Coding tools.
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -38,11 +38,11 @@ test('Codex sign-in while Codex is not installed: tool-not-installed (Coding too
 });
 
 test('an OpenCode chat while OpenCode is off: tool-off; its server did not start: tool-not-started (Coding tools)', async () => {
-  await assert.rejects(opencode.history('/tmp', { enabled: () => false }), (e) => e.status === 409 && codeOf(e) === 'tool-off' && e.message === 'OpenCode is off on this computer: turn it on under Settings → Coding tools to go on with this chat.');
-  const ensure = async () => ({ ok: false, code: 'tool-not-started', why: 'OpenCode\'s server did not start. Check under Settings → Coding tools that it is installed and up to date' });
+  await assert.rejects(opencode.history('/tmp', { enabled: () => false }), (e) => e.status === 409 && codeOf(e) === 'tool-off' && e.message === 'OpenCode is off on this computer: turn it on under Settings → New sessions → Coding tools to go on with this chat.');
+  const ensure = async () => ({ ok: false, code: 'tool-not-started', why: 'OpenCode\'s server did not start. Check under Settings → New sessions → Coding tools that it is installed and up to date' });
   await assert.rejects(opencode.history('/tmp', { enabled: () => true, ensure }), (e) => e.status === 409 && codeOf(e) === 'tool-not-started');
   // ensureServer's own answer when the server never answered carries that code (read from its source: starting a real
   // server process is not done in a test).
   const src = fs.readFileSync(new URL('../../src/codetools/servers.mjs', import.meta.url), 'utf8');
-  assert.match(src, /return \{ ok: false, code: 'tool-not-started', why: `\$\{DESCRIPTOR\[tool\]\.name\}'s server did not start\. Check under Settings → Coding tools/);
+  assert.match(src, /return \{ ok: false, code: 'tool-not-started', why: `\$\{DESCRIPTOR\[tool\]\.name\}'s server did not start\. Check under Settings → New sessions → Coding tools/);
 });

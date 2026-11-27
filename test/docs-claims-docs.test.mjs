@@ -50,11 +50,11 @@ test('Operator: the rules table and its count are the code\'s list of rules, the
   const rules = part(OPERATOR, 'What Tia does by herself (her rules)');
   assert.deepEqual(firstCells(rules), [...RULE_IDS], 'one row per rule, in the code\'s order');
   assert.match(flat(rules), new RegExp(`There are ${NUMBERS[RULE_IDS.length]} rules, and only these:`));
-  assert.match(flat(part(OPERATOR, 'The page')), new RegExp(`her ${NUMBERS[RULE_IDS.length]} rules \\(below\\)`));
+  assert.match(flat(part(OPERATOR, 'Where it is')), new RegExp(`her ${NUMBERS[RULE_IDS.length]} rules \\(below\\)`));
   assert.deepEqual(firstCells(part(OPERATOR, 'What it watches')).sort(), [...KINDS].sort(), 'one row per kind of item');
 });
 
-test('Operator: the page names its Computers part, its room words and its switch, off at first', async () => {
+test('Operator: the Operator doc names its Computers part, its room words and its switch, off at first', async () => {
   // The page's modules look at the document when they load: the least of one, as test/operator/rooms-page.test.mjs gives it.
   globalThis.Node ??= class {};
   const el = () => ({ style: {}, dataset: {}, children: [], classList: { add() {}, remove() {}, toggle() {} }, setAttribute() {}, removeAttribute() {}, addEventListener() {}, append() {}, appendChild() {}, replaceChildren() {}, querySelector: () => null, querySelectorAll: () => [] });
@@ -62,7 +62,7 @@ test('Operator: the page names its Computers part, its room words and its switch
   const { ROOM_WORDS, LOOK_SENTENCE } = await import('../web/operator-rooms.js');
   const { lookOthersOn } = await import('../src/operator/rooms.mjs');
   assert.equal(lookOthersOn({}), false, 'Look at my other computers too is off at first');
-  const page = flat(part(OPERATOR, 'The page'));
+  const page = flat(part(OPERATOR, 'Where it is'));
   assert.match(page, /\*\*Computers\*\*: /);
   for (const w of Object.values(ROOM_WORDS)) assert.ok(page.includes(`**${w}**`), `the room word "${w}"`);
   assert.ok(page.includes(`The switch **${LOOK_SENTENCE}** is off at first`));
@@ -218,7 +218,7 @@ test('Workspace: the route list names every route of the workspace feature, and 
     assert.match(page, named, `${method} ${p} is named`);
   }
   // The workspace folders panel is drawn by Settings → Workspace; the Setup part of a computer's page only links there.
-  assert.match(read('web/workspace.js'), /fill\(box, placesPanel\(st, draw\), computerPanel\(\), workspaceFolders\(\)/);
+  assert.match(read('web/workspace.js'), /fill\(box, placesPanel\(st, draw\), workspaceFolders\(\)/);
   assert.match(read('web/pcsetup.js'), /h\('a\.row', \{ href: link\('#\/settings\/workspace'\) \}/);
   assert.match(page, /The workspace folders themselves are in \*\*Settings → Workspace\*\* \(the \*\*Setup\*\* part of a computer's page links there\)\./);
 });

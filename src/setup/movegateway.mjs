@@ -6,12 +6,15 @@
 //   to the user and checked (the same count of entries); started as the user with the user's Hoprig, which keeps a
 //   gateway on a server to this computer only (localgateway.mjs listenRule); its listener checked to be the user's;
 //   each provider's PRERUN in the user's copy pointed at the user's Hoprig. If the user's does not come up, root's is
-//   started again as it was. The lines say where it listened before and where it listens now. No gateway is named
+//   started again as it was. A gateway with a copy of its own in Hoprig's folder (`own`, owncopy.mjs): its data folder
+//   is the one the gateway's own rule picks (trouteaibase.mjs dataFolder), and its program is installed again as the user,
+//   in the user's own folder, before it starts (a failed install undoes the move like a failed start). The lines say where it listened before and where it listens now. No gateway is named
 //   here: everything comes from the definitions. Every program is reached through `sys` (tests hand in stand-ins).
 import { replaceIn } from './movesafe.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
 import { prerunAddonId } from '../addons/gateways.mjs';
+import { dataFolder } from '../gateway/trouteaibase.mjs';
 
 /** "every address (0.0.0.0), open to the network" or "this computer only (127.0.0.1)", from a listening address. */
 export function whereListens(addr) {
@@ -52,8 +55,8 @@ export async function moveGateways(plan, gateways, { sys, say = () => {} } = {})
       say(`${g.title}: it does not run as root here: left as it is.`);
       continue;
     }
-    const from = path.posix.join(oldHome, g.dataDir);
-    const to = path.posix.join(user.home, g.dataDir);
+    const from = g.own ? dataFolder({}, oldHome, 'linux') : path.posix.join(oldHome, g.dataDir);
+    const to = g.own ? dataFolder({}, user.home, 'linux') : path.posix.join(user.home, g.dataDir);
     say(`${g.title} listens on ${whereListens(before.addr)} as root. Stopping it by its own listening process (pid ${before.pid})…`);
     await sys.stop(before.pid);
     let gone = false;
@@ -77,7 +80,7 @@ export async function moveGateways(plan, gateways, { sys, say = () => {} } = {})
       continue;
     }
     say(`${g.title}: its data copied to ${to} (${c.entries[1]} entries, the same as root's).`);
-    await sys.startAsUser(g.id);
+    await sys.startAsUser(g.id, g.own ? { own: true } : undefined);
     let now = null;
     for (let i = 0; i < 30 && !now; i += 1) {
       now = await sys.listener(g.port);
@@ -109,6 +112,7 @@ export async function moveGateways(plan, gateways, { sys, say = () => {} } = {})
         }
       }
     }
+    if (g.own) say(`${g.title}: its program is installed for ${user.name} in ${user.name}'s own Hoprig folder.`);
     say(`${g.title} runs as ${user.name}. Before it listened on ${whereListens(before.addr)}; now on ${whereListens(now.addr)}.`);
     if (pointed) say(`${pointed} provider file(s) now start it with ${user.name}'s Hoprig.`);
     moved.push({ id: g.id, ok: true, before: before.addr, now: now.addr, pointed });

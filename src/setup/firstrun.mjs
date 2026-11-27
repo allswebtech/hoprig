@@ -35,7 +35,7 @@ const real = {
 };
 
 /** The skills meant for the user (the bundled `hoprig` skill): added when there is no project to suggest for. */
-export async function userSkills({ ui, yes = false, dryRun = false }) {
+export async function userSkills({ ui, dryRun = false }) {
   const hub = await import('../skillhub/hub.mjs');
   const st = await hub.skillsStatus({ check: false });
   const todo = st.user.suggested;
@@ -45,18 +45,27 @@ export async function userSkills({ ui, yes = false, dryRun = false }) {
     ui.say('Skills: the ones that come with Hoprig are installed.');
     return { ok: true, added, skipped };
   }
+  // Without a question only on a first run (none of Hoprig's skills is there yet). On a computer that has some, a missing
+  // one may have been refused or removed on purpose: asked at a terminal, skipped without one.
+  const { loadCatalog } = await import('../skillhub/catalog.mjs');
+  const first = todo.length === loadCatalog().entries.filter((e) => e.scope === 'user').length;
   for (const x of todo) {
     ui.say(`  ${x.id} (for you): ${x.for}`);
     if (dryRun) {
       skipped.push({ id: x.id, why: 'dry run' });
       continue;
     }
+    if (!first && !(await ui.confirm(`Add "${x.id}" for you?`))) {
+      skipped.push({ id: x.id, why: 'not asked for' });
+      continue;
+    }
     try {
       const review = await hub.prepare(x.id, {});
-      const go = !review.counts.block && review.pinned && (yes || (await ui.confirm(`Add "${review.name}" for you?`)));
+      // Hoprig's own skills come pinned and reviewed: added without a question; one with a blocking finding never is.
+      const go = !review.counts.block && review.pinned;
       if (!go) {
         hub.cancel(review.id);
-        skipped.push({ id: x.id, why: review.counts.block ? 'the review found a blocking problem' : 'not approved' });
+        skipped.push({ id: x.id, why: review.counts.block ? 'the review found a blocking problem' : 'not pinned' });
         continue;
       }
       added.push(hub.approve(review.id).name);
@@ -96,8 +105,9 @@ export async function partGit(ui, opts, p = real) {
 export async function partPc(ui, opts, p = real) {
   // runPcSetup prints its own heading ("This computer" and the OS).
   try {
-    // --yes: the default kits, no working rules (they are an opt-in, asked for in a terminal).
-    const r = await p.pc({ ui, yes: opts.yes, dryRun: opts.dryRun, rules: opts.yes ? false : null, projects: false, extraSteps: opts.extraSteps || [], facts: opts.pcFacts });
+    // The working rules are not asked here: Get started offers them as one press. The commit name and the GitHub
+    // sign-in are the Git part's, asked once there (not when that part does not run: --only pc).
+    const r = await p.pc({ ui, yes: opts.yes, dryRun: opts.dryRun, rules: false, signInLater: !opts.only, projects: false, extraSteps: opts.extraSteps || [], facts: opts.pcFacts });
     opts.extraRan = true; // the computer step listed them (setup.mjs then only says what came of them)
     if (opts.afterPc) await opts.afterPc();
     return { part: 'pc', ok: r.ok, note: r.ok ? (r.missing && r.missing.length ? `still missing: ${r.missing.join(', ')}` : '') : 'an install failed: its retry command is above' };
@@ -195,4 +205,65 @@ export function reportParts(ui, results) {
   if (!failed.length) return;
   ui.out();
   for (const r of failed) ui.line('warn', `${{ git: 'Git and GitHub', workspace: 'Workspace', pc: 'This computer for coding', project: 'A project', skills: 'Skills' }[r.part]}: not finished${r.note ? ` (${r.note})` : ''}${r.retry ? dim(`  retry: ${r.retry}`) : ''}`);
+}
+
+// ---- the quiet first run -------------------------------------------------------------------------------------------
+// A first run is `hoprig setup` on a computer with no settings file yet and nothing chosen by hand. It asks nothing,
+// installs only what the first chat needs (Claude Code, the terminal module, a password nobody needs to see, the
+// service), keeps the dashboard to this computer, and ends by opening the browser signed in. A later `hoprig setup`
+// (the settings file is there) is the full run with its questions: the way for an expert and for a second computer.
+
+/** True when this run is a first run. `file`: the settings file's path (tests give their own). */
+export function isFirstRun(opts, file) {
+  if (opts.hub || opts.only || opts.dryRun || opts.stayRoot || opts.noDashboard || opts.access) return false;
+  try {
+    return !fs.existsSync(file);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The first run's way of talking: a tick per part and nothing else that went well. A step that failed, a warning and
+ * a plain fact the person must know (info) still print.
+ */
+export function quietUi(ui) {
+  const line = ui.line;
+  ui.quiet = true;
+  ui.line = (status, text) => (status === 'ok' ? undefined : line(status, text));
+  ui.note = () => {};
+  ui.tick = (text) => line('ok', text);
+  return ui;
+}
+
+/**
+ * The end of a first run: on a desktop the default browser opens at a one-time link, so the person is signed in; the
+ * link is printed too, for a browser that did not open. A server (ssh, no desktop) opens nothing: its own end text.
+ * `h`: { open, link(baseUrl), forward(port), ways(port) } (the callers' own, and tests').
+ */
+export async function openFirstRun(ui, state, sys, h) {
+  const { loadConfig } = await import('../config.mjs');
+  const cfg = loadConfig();
+  const port = cfg.server.port || 7433;
+  const local = `http://127.0.0.1:${port}`;
+  const made = await h.link(local);
+  if (state.server) {
+    // A server: nobody can open a browser here. The ssh forward from the person's own computer, then this link.
+    ui.out('  How to open the dashboard:');
+    for (const w of h.ways(port)) ui.out(`    · ${w}`);
+    ui.out(`        ${h.forward(port)}`);
+    if (made) ui.out(`  Then open this link in your browser (it works once, for 15 minutes):\n  ${made.url}`);
+    return;
+  }
+  ui.out();
+  const { browserAtHand } = await import('../chat/cli.mjs');
+  const { openBrowser, openedLines } = await import('../openbrowser.mjs');
+  if (!made) {
+    ui.out(`  Open ${local} in your browser.`);
+    return;
+  }
+  const opened = browserAtHand(sys.env, sys.platform, true) && (h.open || openBrowser)(made.url);
+  if (opened) for (const l of openedLines(made.url)) ui.out(`  ${l}`);
+  else ui.out(`  Open this link in your browser (it works once, for 15 minutes):\n  ${made.url}`);
+  ui.out('  You can close this window.');
 }

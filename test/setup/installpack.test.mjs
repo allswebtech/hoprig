@@ -153,7 +153,7 @@ esac`,
   t.diagnostic(`install.sh: exit ${inst.code}, ${((Date.now() - t1) / 1000).toFixed(1)} s\n${inst.out}`);
   const calls = fs.existsSync(rec) ? fs.readFileSync(rec, 'utf8') : '';
   t.diagnostic(`stand-ins asked:\n${calls}`);
-  assert.match(inst.out, new RegExp(`✓ hoprig ${pkg.version.replace(/\./g, '\\.')}\\b`), inst.out);
+  assert.match(inst.out, /^✓ Hoprig$/m, inst.out);
   assert.equal(inst.code, 0, inst.out);
   assert.ok(fs.existsSync(path.join(prefix, 'lib', 'node_modules', 'hoprig', 'package.json')), 'installed into the home');
   assert.ok(fs.existsSync(path.join(prefix, 'lib', 'node_modules', 'hoprig', 'node_modules', 'ws')), 'with its bundled dependencies');

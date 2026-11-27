@@ -130,18 +130,61 @@ test('Send: a message on its way is sent once, even when a state update of the c
   assert.equal(send.disabled, false);
 });
 
-test('a queued message\'s row says its words and its files by name, never a raw "@.uploads/…" path, also in its Remove label', () => {
-  const c = createComposer({ A: '/api/chats/c1', id: 'c1', stop() {}, compact() {}, own: () => [] });
-  const q = { id: 'q1', state: 'waiting', text: 'look at this\n\n@.uploads/20301117-164344-753d-notes.txt', attachments: [{ type: 'image', name: '20301117-164344-a1b2-screen.png', mime: 'image/png' }] };
-  c.paint({ ...idle, queue: [q] });
-  const row = byClass(c.el, 'chat-queued')[0];
-  assert.ok(row, 'the queued row');
-  const said = (n) => (n instanceof FakeText ? [n.text] : n.children.flatMap(said));
-  const text = said(byClass(row, 'chat-queued-text')[0]).join('|');
-  assert.equal(text, 'look at this|screen.png|notes.txt', 'its words, then its files by name');
-  const label = byClass(row, 'chat-unqueue')[0].attrs['aria-label'];
-  assert.equal(label, 'Take back the message: look at this (screen.png, notes.txt)', 'the desktop app\'s words: a message sent while Claude works, taken back before it is read');
-  assert.doesNotMatch(`${text} ${label}`, /\.uploads|@/, 'no upload path anywhere');
+test('a queued message is a faded bubble: its words and files, "Not read yet", Edit and Remove; never a raw "@.uploads/…" path', async () => {
+  const calls = [];
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (u, init) => {
+    if (String(u).endsWith('/unqueue')) calls.push([String(u), init.body]);
+    return { ok: true, status: 200, json: async () => ({ ok: true }) };
+  };
+  try {
+    const c = createComposer({ A: '/api/chats/c1', id: 'c1', stop() {}, compact() {}, own: () => [] });
+    const q = { id: 'q1', state: 'waiting', text: 'look at this\n\n@.uploads/20301117-164344-753d-notes.txt', attachments: [{ type: 'image', name: '20301117-164344-a1b2-screen.png', mime: 'image/png' }] };
+    c.paint({ ...idle, queue: [q] });
+    const row = byClass(c.el, 'chat-queued')[0];
+    assert.ok(row, 'the queued row');
+    const said = (n) => (n instanceof FakeText ? [n.text] : n.children.flatMap(said));
+    assert.equal(said(byClass(row, 'chat-queued-text')[0]).join('|'), 'look at this', 'its words');
+    assert.equal(byClass(row, 'chat-thumb').length + byClass(row, 'chip').length, 2, 'its two files, as the sent bubble draws them');
+    assert.equal(said(byClass(row, 'chat-queued-state')[0]).join(''), 'Not read yet · Claude reads it after its current step');
+    const label = byClass(row, 'chat-unqueue')[0].attrs['aria-label'];
+    assert.equal(label, 'Take back the message: look at this (screen.png, notes.txt)');
+    assert.equal(byClass(row, 'chat-edit-queued')[0].attrs['aria-label'], 'Edit the message: look at this (screen.png, notes.txt)');
+    assert.doesNotMatch(`${said(row).join(' ')} ${label}`, /\.uploads|@|sent: read|sent next/, 'no upload path, no "sent"');
+    // The same queue painted again (every state update) draws nothing again: a focused button stays.
+    c.paint({ ...idle, queue: [{ ...q }] });
+    assert.equal(byClass(c.el, 'chat-queued')[0], row);
+    // Edit: taken back with /unqueue, its words in the box, its files said (they are attached again).
+    byClass(row, 'chat-edit-queued')[0].fire('click');
+    await new Promise((r) => setTimeout(r));
+    assert.deepEqual(calls.map((x) => [x[0], JSON.parse(x[1])]), [['/api/chats/c1/unqueue', { id: 'q1' }]]);
+    assert.equal(c.textarea.value, 'look at this');
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
+test('Up in an empty box edits the last queued message; with words in the box it does not', async () => {
+  const calls = [];
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (u, init) => {
+    calls.push(JSON.parse(init.body).id);
+    return { ok: true, status: 200, json: async () => ({ ok: true }) };
+  };
+  try {
+    const c = createComposer({ A: '/api/chats/c1', id: 'c1', stop() {}, compact() {}, own: () => [] });
+    c.paint({ ...idle, queue: [{ id: 'a', state: 'waiting', text: 'first' }, { id: 'b', state: 'waiting', text: 'second' }] });
+    const ta = c.textarea;
+    ta.value = 'typing';
+    ta.fire('keydown', { key: 'ArrowUp', selectionStart: 0 });
+    assert.deepEqual(calls, [], 'words in the box: Up is the history');
+    ta.value = '';
+    ta.fire('keydown', { key: 'ArrowUp' });
+    await new Promise((r) => setTimeout(r));
+    assert.deepEqual(calls, ['b'], 'the last one comes back');
+  } finally {
+    globalThis.fetch = realFetch;
+  }
 });
 
 test('the page is left while the microphone listens: the composer\'s destroy stops it, so no word reaches the box or its draft', () => {
@@ -416,13 +459,13 @@ test('Slash commands from the + menu, a filter typed, then Escape: the words put
   assert.equal(draft(), 'keep this\n\n/review the tax ', 'a reload loses neither');
 });
 
-test('the chip row in the desktop app\'s order: ultracode, Lead and the mode at the left, the model picker toward the right with the ring next to it', () => {
+test('the chip row in the desktop app\'s order: the mode at the left; Ultracode, Lead, the model picker and the ring at the right', () => {
   const c = createComposer({ A: '/api/chats/c7', id: 'c7', stop() {}, compact() {}, own: () => [] });
   c.paint(idle);
   const row = byClass(c.el, 'chat-chips')[0];
-  const kind = (n) => ['chat-ultra', 'chat-lead', 'chat-modechip', 'chat-chips-gap', 'chat-modelchip', 'chat-ring'].find((k) => n.className.split(' ').includes(k));
-  // Ultracode and Lead model are Hoprig's own chips: they go first, so they break none of the desktop app's order.
-  assert.deepEqual(row.children.map(kind), ['chat-ultra', 'chat-lead', 'chat-modechip', 'chat-chips-gap', 'chat-modelchip', 'chat-ring'], 'the gap before the model, none between it and the ring');
+  const kind = (n) => ['chat-modechip', 'chat-chips-gap', 'chat-ultra', 'chat-lead', 'chat-modelchip', 'chat-ring'].find((k) => n.className.split(' ').includes(k));
+  // Ultracode and Lead model are Hoprig's own chips: they sit just left of the model chip, the desktop app's order otherwise.
+  assert.deepEqual(row.children.map(kind), ['chat-modechip', 'chat-chips-gap', 'chat-ultra', 'chat-lead', 'chat-modelchip', 'chat-ring'], 'the gap after the mode, none between the rest');
 });
 
 test('Esc Esc with words in the box (the composer\'s clearDraft) clears them, and Up brings them back, as in the terminal', () => {
@@ -597,5 +640,25 @@ test('a start the server refuses after the message arrived (POST /send answers O
     assert.equal(c.textarea.value, 'run the nightly report', 'the words are not lost: Up brings them back to send again');
   } finally {
     globalThis.fetch = before;
+  }
+});
+
+test('"Attach as context" (the chat-attach-path event) puts @path in the box, and the listener goes when the page is left', () => {
+  const on = new Map();
+  const [add, remove] = [document.addEventListener, document.removeEventListener];
+  document.addEventListener = (t, fn) => on.set(t, fn);
+  document.removeEventListener = (t, fn) => on.get(t) === fn && on.delete(t);
+  try {
+    const c = createComposer({ A: '/api/chats/c9', id: 'c9', stop() {}, compact() {}, own: () => [] });
+    c.paint(idle);
+    c.textarea.value = 'look at';
+    on.get('chat-attach-path')({ detail: { path: 'src/cart.js' } });
+    assert.equal(c.textarea.value, 'look at @src/cart.js ');
+    on.get('chat-attach-path')({ detail: {} });
+    assert.equal(c.textarea.value, 'look at @src/cart.js ', 'no path: nothing added');
+    c.destroy();
+    assert.equal(on.has('chat-attach-path'), false);
+  } finally {
+    [document.addEventListener, document.removeEventListener] = [add, remove];
   }
 });

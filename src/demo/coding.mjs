@@ -34,7 +34,7 @@ export function seedCart(dir) {
 
 /**
  * OpenCode "installed" in Hoprig's tools folder (src/codetools/npmtool.mjs reads the version from the package file),
- * so Settings → Coding tools, Updates and the new-chat picker show a second coding tool. Its program is a stand-in
+ * so Settings → New sessions → Coding tools, Updates and the new-chat picker show a second coding tool. Its program is a stand-in
  * that only says the demo does not run it: nothing is downloaded and no model is asked.
  */
 export function demoOpenCode(root) {

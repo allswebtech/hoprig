@@ -23,7 +23,7 @@ People ask "how do I review Claude Code's changes before accepting them" or "how
 3. A **+** by a line's number opens a comment box. Enter adds the comment (nothing is sent yet), Shift+Enter is a new line. Cmd+Enter on a Mac, Ctrl+Enter elsewhere, sends every comment as one message; the button says how many. Claude reads them and changes the code, and the pane reads the folder again after each turn.
 4. A line that starts with `!` runs as a shell command in the session's folder, such as `!npm test`: its output shows as it comes, **Stop** or Esc ends it, and it goes to the coding tool with your next message.
 5. Each of your messages has **Rewind to here**: **Restore code and conversation**, **Restore conversation**, **Restore code**, or **Never mind**.
-6. To try another way without losing this one: **Branch** in the session menu (or `/branch [name]`) opens a new session on a copy of the conversation; `/fork [prompt]` makes the copy and keeps you here.
+6. To try another way without losing this one: **Fork** in the session menu (or `/branch [name]`) opens a new session on a copy of the conversation; `/fork [prompt]` makes the copy and keeps you here.
 7. For a task of the Work page, the run's result waits for **Accept** or **Send back**; nothing is pushed or merged by the run.
 
 ![A chat: the to-do list, a changed file, and Claude Code asking to run the tests](/screenshots/chat-desktop-light.webp)
@@ -36,5 +36,5 @@ People ask "how do I review Claude Code's changes before accepting them" or "how
 
 - Hoprig does not review the code itself; you do, and the coding tool acts on what you say.
 - The diff shows every change since the last commit, yours too, not only the session's.
-- Rewind is not offered while a terminal runs the conversation, and Claude Code's Summarize choices of rewind are not offered. Branch is not offered for OpenCode.
+- Rewind is not offered while a terminal runs the conversation, and Claude Code's Summarize choices of rewind are not offered. Fork is not offered for OpenCode.
 - A `!` command runs for at most 5 minutes.

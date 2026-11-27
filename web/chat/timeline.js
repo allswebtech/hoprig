@@ -5,16 +5,22 @@
 // view stays at the bottom unless the owner scrolled up. A screen reader hears only what is new and whole (a reply,
 // a card), never the list as it streams.
 import { icon } from '../icons.js';
-import { add, api, fill, h, link, toast } from '../lib.js';
+import { add, api, copyText, fill, h, link, toast } from '../lib.js';
 import { mdView } from '../mdtext.js';
 import { messageFiles } from './attach.js';
 import { OUTCOME, askCard } from './asks.js';
+import { pathButton } from './pathmenu.js';
 import { answerLine, waitWords } from '../handsoff.js';
 import { outputView, rePaths, toolCard } from './tools.js';
 import { thinkingOpen, transcriptView } from './transcript.js';
 import { askTitle, failText, ownMessageView, signInWay, startFold, took, turnErrorWords, turnParts } from './words.js';
 
 const NEAR_PX = 120;
+
+const copyDone = async (text) => toast((await copyText(text)) ? 'Copied' : 'Select it and copy it by hand');
+/** A code block of a reply, with its Copy at the top right. */
+const codeBlock = (code) => h('div.chat-codewrap', h('pre.md-code', code),
+  h('button.btn.icon.ghost.chat-codecopy', { type: 'button', title: 'Copy', 'aria-label': 'Copy this code', onclick: () => copyDone(code) }, icon('copy', { size: 14 })));
 
 /**
  * o: { scroll (the scrolling element), A (the chat's API path), cwd(), stopTask(id), after(), canRewind(), rewind({ messageId, text }),
@@ -92,6 +98,8 @@ export function createTimeline(o) {
     el.open = thinkingOpen(view.now());
     return el;
   }
+  // A reply's text as Markdown: links, a code block with Copy, a `path` of the folder as a button to the editor.
+  const reply = (text) => mdView(text, { rich: true, code: codeBlock, onCode: (t) => pathButton(t, { cwd: o.cwd() }) });
   function textEl() {
     const el = h('div.chat-item.chat-text');
     el.kind = 'text';
@@ -106,7 +114,7 @@ export function createTimeline(o) {
       frame = requestAnimationFrame(() => {
         frame = 0;
         for (const b of pending) {
-          if (b.kind === 'text') fill(b, mdView(b.text));
+          if (b.kind === 'text') fill(b, reply(b.text));
           else {
             fill(b.body, b.text);
             fill(b.peek, b.final ? '' : b.text.slice(-90).replace(/\s+/g, ' '));
@@ -177,7 +185,9 @@ export function createTimeline(o) {
           fill(el.head, thinkHead(el));
           fill(el.body, el.text || h('span.chat-hint', `${who()} did not show what it thought.`));
           fill(el.peek);
-        } else fill(el, mdView(el.text));
+        } else {
+          fill(el, reply(el.text), el.text.trim() ? h('button.btn.icon.ghost.chat-copyreply', { type: 'button', title: 'Copy', 'aria-label': 'Copy this reply', onclick: () => copyDone(el.text) }, icon('copy', { size: 14 })) : null);
+        }
         return el;
       }
       case 'tool': {

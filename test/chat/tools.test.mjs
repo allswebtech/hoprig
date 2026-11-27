@@ -211,7 +211,7 @@ test('a chat of OpenCode: refused while off or missing; only a provider that ser
   // The page is told why the chat runs nothing (in place of an empty chat that invites a message); what OpenCode's
   // server still runs is shown.
   v = (await owner('GET', `/api/chats/${open}`)).json;
-  assert.match(v.toolOff, /^OpenCode is off on this computer: turn it on under Settings → Coding tools/);
+  assert.match(v.toolOff, /^OpenCode is off on this computer: turn it on under Settings → New sessions → Coding tools/);
   assert.ok(v.events.some((e) => e.kind === 'user'), 'read from the server that runs');
   const prompts = s.calls.filter((x) => x.path.endsWith('/prompt')).length;
   saveConfig({ codingTools: ['claude', 'opencode'] });

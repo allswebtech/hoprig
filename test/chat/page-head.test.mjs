@@ -19,7 +19,8 @@ test('the head as the desktop app\'s title bar: a session menu on the caret, the
   const titled = (n) => (n.attrs && n.attrs.title ? [n.attrs.title] : []).concat(n.children ? n.children.flatMap(titled) : []);
   const names = titled(hd.el);
   assert.ok(names.includes('Session menu'), 'the caret beside the title');
-  for (const b of ['Open in Terminal', 'Changes', 'Files', 'Desktop mode']) assert.ok(names.includes(b), b);
+  for (const b of ['Terminal (Ctrl+`)', 'Changes', 'Files', 'Home']) assert.ok(names.includes(b), b);
+  assert.ok(!names.includes('Desktop mode'), 'Desktop mode is on Home and Settings, not in the chat bar');
   assert.equal(byClass(hd.el, 'chat-histbtn').length, 0, 'the unlabelled clock is gone (Earlier conversations is in the menu)');
   assert.equal(byClass(hd.el, 'chat-caret').length, 1);
   assert.match(texts(byClass(hd.el, 'chat-folder')[0]).join(''), /^shop$/, 'the folder is said, not a menu of its own');
@@ -31,7 +32,7 @@ test('Open in names its targets as the desktop app does; the more menu has Backg
   const { openInItems, moreItems } = await import('../../web/chat/header.js');
   const v = { title: 'Fix the cart', cwd: '/w/shop', short: '~/w/shop', branch: 'main', engine: { id: 'claude' }, caps: {}, tasks: [] };
   // Inside "Open in" the terminal is "Terminal", not "Open in Terminal" a second time.
-  assert.deepEqual(openInItems(v).map((x) => x.label), ['Terminal', 'Files', 'Source control'], '"Changes" is only the diff pane');
+  assert.deepEqual(openInItems(v).map((x) => x.label), ['Continue in Terminal', 'Files', 'Source control'], '"Changes" is only the diff pane');
   assert.equal(openInItems({ ...v, terminal: { name: 'w1' } })[0].label, 'Open the terminal', 'while a terminal runs it, the entry goes there');
   const labels = (x, o) => moreItems(x, o).map((i) => i.label);
   assert.ok(!labels(v).includes('Background tasks'), 'no background work: no entry that opens an empty pane');
@@ -66,8 +67,8 @@ test('on a phone the session menu lists Terminal, Files and Changes at its first
   globalThis.location ||= { hash: '', search: '', pathname: '/' };
   const { sessionItems } = await import('../../web/chat/header.js');
   const phone = sessionItems(V, { view: 'normal', phone: true }).map((x) => x.label);
-  assert.deepEqual(phone, ['Transcript view', 'Open in Terminal', 'Files', 'Changes', 'Archive', 'Copy branch name', 'Earlier conversations', 'Rename', 'Delete', 'Select to delete', 'Trash', 'Provider'], 'a phone has no session list: its trash and Select to delete are here');
-  assert.ok(!sessionItems(V, { view: 'normal' }).some((x) => x.label === 'Open in Terminal'), 'a wide screen: under Open in');
+  assert.deepEqual(phone, ['Transcript view', 'Continue in Terminal', 'Files', 'Changes', 'Archive', 'Copy branch name', 'Earlier conversations', 'Rename', 'Delete', 'Select to delete', 'Trash', 'Provider'], 'a phone has no session list: its trash and Select to delete are here');
+  assert.ok(!sessionItems(V, { view: 'normal' }).some((x) => x.label === 'Continue in Terminal'), 'a wide screen: under Open in');
 });
 
 test('the session menu at the caret: Transcript view and Open in are submenus of it, the view now marked', async () => {
@@ -76,18 +77,18 @@ test('the session menu at the caret: Transcript view and Open in are submenus of
   const tree = sessionTree(V, { view: 'thinking', thought: true, who: 'Claude' });
   assert.deepEqual(tree.map((x) => x.label), ['Transcript view', 'Open in', 'Archive', 'Copy branch name', 'Earlier conversations', 'Rename', 'Delete']);
   assert.deepEqual(tree[0].items.map((x) => [x.label, x.checked]), [['Normal', false], ['Thinking', true], ['Verbose', false]]);
-  assert.deepEqual(tree[1].items.map((x) => x.label), ['Terminal', 'Files', 'Source control']);
+  assert.deepEqual(tree[1].items.map((x) => x.label), ['Continue in Terminal', 'Files', 'Source control']);
   assert.deepEqual(sessionTree(V, { view: null }).map((x) => x.label)[0], 'Open in', 'no view to choose: no entry');
 });
 
-test('the title bar\'s hand-off button says what it does: Open in Terminal, not a plain shell\'s "Terminal"', async () => {
+test('the title bar\'s Terminal button is the plain shell pane, as the desktop app\'s; the hand-off is in the session menu', async () => {
   globalThis.location ||= { hash: '', search: '', pathname: '/' };
   const { createHeader } = await import('../../web/chat/header.js');
   const hd = createHeader({ A: '/api/chats/x', way: null, act: {}, view: null });
   hd.paint(V);
   const term = byClass(hd.el, 'chat-tbtn')[0];
-  assert.equal(term.attrs.title, 'Open in Terminal');
-  assert.notEqual(paths(term)[0], 'M4 5h16a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1z', 'not the plain terminal icon');
+  assert.equal(term.attrs.title, 'Terminal (Ctrl+`)');
+  assert.equal(paths(term)[0], 'M4 5h16a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1z', 'the plain terminal icon');
 });
 
 test('the more button is the desktop app\'s ⋮: three dots one above the other', async () => {
@@ -247,4 +248,50 @@ test('where the session list is not drawn (600-899 px, a tablet held upright) th
   assert.ok(tablet.includes('Select to delete') && tablet.includes('Trash'), `768 px: ${tablet.join(', ')}`);
   const wide = await labels(1440);
   assert.ok(!wide.includes('Select to delete') && !wide.includes('Trash'), 'with the list beside the chat they are in its menu');
+});
+
+test('the session menu says Fork, and Open in has Continue in Terminal (the hand-off)', async () => {
+  globalThis.window = globalThis.window || { addEventListener() {} };
+  globalThis.location ||= { hash: '', search: '', pathname: '/' };
+  const { sessionItems, openInItems } = await import('../../web/chat/header.js');
+  const claude = { title: 't', cwd: '/w/a', engine: { id: 'claude', capabilities: { fork: true } } };
+  assert.ok(sessionItems(claude, {}).some((x) => x.value === 'fork' && x.label === 'Fork'));
+  assert.ok(!sessionItems(claude, {}).some((x) => x.label === 'Branch'), 'Branch clashes with git branch');
+  assert.equal(openInItems(claude)[0].label, 'Continue in Terminal');
+  assert.equal(sessionItems(claude, { phone: true }).find((x) => x.value === 'terminal').label, 'Continue in Terminal');
+});
+
+test('clicking the title edits it in place: Enter saves, Esc cancels, no sheet, no pencil', async () => {
+  globalThis.window = globalThis.window || { addEventListener() {} };
+  globalThis.location ||= { hash: '', search: '', pathname: '/' };
+  globalThis.matchMedia = () => ({ matches: false });
+  const sent = [];
+  globalThis.fetch = async (url, init) => {
+    sent.push([url, JSON.parse(init.body)]);
+    return { ok: true, status: 200, json: async () => ({}) };
+  };
+  const { createHeader } = await import('../../web/chat/header.js');
+  const hd = createHeader({ A: '/api/chats/x', way: null, act: {}, view: null });
+  hd.paint({ title: 'Fix the cart', cwd: '/w/shop', engine: { id: 'claude' }, profile: { name: 's', label: 'M' } });
+  assert.equal(byClass(hd.el, 'chat-title')[0].children[0].children.length, 1, 'the title row holds the words only: the pencil is gone');
+  const row = byClass(hd.el, 'chat-h1')[0];
+  byClass(hd.el, 'chat-title')[0].listeners.click();
+  let input = byClass(hd.el, 'chat-title-input')[0];
+  assert.ok(input, 'an input stands in the title\'s place');
+  assert.equal(input.value, 'Fix the cart');
+  assert.ok(input.attrs['aria-label']);
+  let stopped = 0;
+  input.value = 'Other name';
+  input.listeners.keydown({ key: 'Escape', preventDefault() {}, stopPropagation: () => stopped++ });
+  assert.equal(stopped, 1, 'Esc is the input\'s: it must not stop Claude');
+  assert.equal(byClass(hd.el, 'chat-title-input').length, 0);
+  assert.deepEqual(sent, [], 'Esc cancels');
+  assert.equal(row.children[0].className.includes('chat-title'), true);
+  byClass(hd.el, 'chat-title')[0].listeners.click();
+  input = byClass(hd.el, 'chat-title-input')[0];
+  input.value = '  Cart total  ';
+  input.listeners.keydown({ key: 'Enter', preventDefault() {}, stopPropagation() {} });
+  await new Promise((r) => setTimeout(r, 0));
+  assert.deepEqual(sent, [['/api/chats/x/title', { title: 'Cart total' }]]);
+  assert.equal(byClass(hd.el, 'chat-title-input').length, 0);
 });

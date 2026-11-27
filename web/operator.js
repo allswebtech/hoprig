@@ -1,17 +1,18 @@
-// Operator (#/operator): one place that says what needs the owner now, so he does not have to look at every page in
-// turn. GET /api/operator/attention (src/operator/feature.mjs): the attention list, ranked (what can harm his data or
+// Operator: what needs the owner now. It has no page of its own any more: the cards that ask him to act are rows in
+// the Needs you group of Home (needsYouRows), the Tia side is a fold of Settings -> Tia (operator-tia.js tiaAloneFold),
+// the computers box is a part of a computer's Overview (operator-rooms.js), and #/operator opens Home.
+// GET /api/operator/attention (src/operator/feature.mjs): the attention list, ranked (what can harm his data or
 // computer, stopped work, what waits for him, the machine, information), each item with its facts, the recommended
 // act as the one button and the others behind "More"; what is watched and when it was read (or why not); the
 // timeline of what was done by a tap. A tap is POST /api/operator/act { item, act, seen }: the server refuses a tap
 // made on an item that changed, and then this page shows the item as it is now.
-import { icon } from './icons.js';
-import { add, ago, api, confirmSheet, fill, h, link, toast } from './lib.js';
+import { ago, api, confirmSheet, fill, h, link, stateOf, toast } from './lib.js';
+import { store } from './store.js';
+import * as registry from './registry.js';
 import { navChanged, registerPage } from './registry.js';
-import { emptyState, errorBox, skeletonRows } from './shell.js';
-import { byTiaList, drawTia, focusKey, hisCap, hisWays, hisWords } from './operator-tia.js';
-import { placeLinks } from './operator-ways.js';
-import { roomsPart } from './operator-rooms.js';
+import { groupHead } from './shell.js';
 import { findingPart } from './operator-look.js';
+import { placeLinks } from './operator-ways.js';
 
 const A = '/api/operator';
 const CLASS_WORDS = { harm: 'Can lose work', stopped: 'Stopped', waits: 'Waits for you', machine: 'This computer', info: 'For your information' };
@@ -34,6 +35,10 @@ function setCount(n) {
     navChanged();
   }
 }
+/** The number on Home's badge: the cards that ask the owner to act (the rows of Needs you). */
+export const homeCount = () => count;
+// The menu lane gives the badge of Home a hook; without it (this lane alone) the count only lives here.
+if (typeof registry.registerHomeCount === 'function') registry.registerHomeCount(homeCount);
 if (typeof window !== 'undefined' && typeof location !== 'undefined' && !location.pathname.startsWith('/login')) {
   pollCount();
   setInterval(pollCount, 30_000);
@@ -61,13 +66,6 @@ function actButton(it, a, catalog, { primary, tap }) {
   if (a.href) return h(cls, { href: link(a.href), ...named, onclick: () => tap(it, a, { quiet: true }) }, h('span', label));
   return h(`button${cls.slice(1)}`, { type: 'button', ...named, onclick: (e) => tap(it, a, { button: e.currentTarget, confirm: confirmFor(a, c) }) }, h('span', label));
 }
-
-/** What the toast says after a tap: the timeline's words (subject: result). */
-/** The page's first sentence: true with every switch as it may be. */
-export const INTRO = 'What stopped or is about to, from everything Hoprig watches. One tap does the recommended step. Tia does a step by herself only by a rule you switched on, by "Tia decides", or by a look, when you turned it on.';
-
-/** An act whose result the Computers part shows (its hold line and Undo): that part is read again right after it. */
-export const redrawsRooms = (actId) => actId === 'elsewhere';
 
 export const doneWords = (r) => r.said || (r.act === 'dismiss' ? 'Not now: hidden until it changes.' : 'Done.');
 
@@ -115,149 +113,95 @@ export function emptyWords(r) {
 /** What the drawn list shows: the same key means nothing to draw again (a redraw loses focus and an open More). */
 export const listKey = (r) => JSON.stringify([r.items.map((i) => [i.id, i.rev, i.since, i.facts]), r.more || 0, r.hidden || 0, emptyWords(r).text]);
 
-/** Draws `nodes` into `list`, keeping which More menus were open and which step had the focus. */
-function redraw(list, nodes) {
-  const open = new Set([...list.querySelectorAll('details[open]')].map((d) => d.closest('[data-item]')?.dataset.item));
-  const f = document.activeElement;
-  const focused = f && list.contains(f) ? { item: f.closest('[data-item]')?.dataset.item, act: f.dataset?.act || (f.tagName === 'SUMMARY' ? 'more' : null) } : null;
-  fill(list, nodes);
-  for (const d of list.querySelectorAll('details')) if (open.has(d.closest('[data-item]')?.dataset.item)) d.open = true;
-  if (!focused?.item) return;
-  const card = [...list.querySelectorAll('[data-item]')].find((c) => c.dataset.item === focused.item);
-  (focused.act === 'more' ? card?.querySelector('summary') : card?.querySelector(`[data-act="${focused.act}"]`))?.focus();
+/** A card asks the owner to act, unless it only informs (a branch that is only here, a session that ended). */
+export const asksYou = (it) => it.class !== 'info';
+
+/**
+ * A session that asks or is at a limit is already a card of Needs you on Home, with its own buttons: a row for it
+ * would say the same twice, so it is left out while that card is there.
+ */
+export function sameAsCard(it, machines = store.all || []) {
+  if (it.kind !== 'asks' && it.kind !== 'limit') return false;
+  return machines.some((m) => (m.sessions || []).some((x) => (x.chatId ? it.subject.endsWith(`(${x.chatId.slice(0, 8)})`) : it.subject === `session ${x.name}`) && ['attention', 'limit', 'failed'].includes(stateOf(x).key)));
 }
 
-function watchedList(watched) {
-  return h('ul.op-watched', watched.map((w) => h(`li${w.ok ? '' : '.op-unread'}`,
-    icon(w.ok ? 'check' : 'alert', { size: 16 }),
-    h('span.op-w-label', w.label),
-    h('span.op-w-text', w.ok ? w.summary : w.error),
-    w.ok && w.at ? h('span.op-w-at', when(w.at)) : null)));
+/**
+ * One row of Home's Needs you: what it is, the one fact that matters, the recommended step as the one button, and the
+ * other steps behind "More steps" (closed). The risk of a step is asked by the sheet when it is pressed.
+ */
+export function itemRow(it, catalog, tap, { changed = false, finding = null, done = () => {}, opened = new Set() } = {}) {
+  const main = it.acts.find((a) => a.id === it.recommended) || it.acts[0];
+  const others = [...it.acts.filter((a) => a !== main), { id: 'dismiss' }];
+  const more = h('details.op-more', h('summary', { 'aria-label': `More steps for ${it.subject}` }, 'More'), h('div.op-more-acts', others.map((a) => actButton(it, a, catalog, { primary: false, tap }))));
+  more.open = opened.has(it.id);
+  more.addEventListener('toggle', () => opened[more.open ? 'add' : 'delete'](it.id)); // kept while the rows are drawn again
+  return h(`article.op-row.op-${it.class}`, { 'data-item': it.id },
+    h('div.op-row-text',
+      h('h3.op-subject', it.subject),
+      h('p.op-row-fact', changed ? 'Changed: look again' : it.facts[0] || classWords(it))),
+    findingPart(it, finding, done),
+    h('div.op-acts', actButton(it, main, catalog, { primary: true, tap }), more));
 }
 
-function timelineList(lines) {
-  if (!lines.length) return h('p.hint', 'You have done nothing from here yet.');
-  return h('ul.op-timeline', lines.map((l) => h(`li${l.ok ? '' : '.op-failed'}`,
-    h('span.op-t-at', { title: l.at }, when(l.at)),
-    h('span.op-t-what', `${l.subject}: ${l.result}`))));
-}
-
-function viewOperator({ frame }) {
-  const list = h('div.op-list', skeletonRows(3));
-  const watched = h('div.op-side-body', skeletonRows(4));
-  const timeline = h('div.op-side-body');
-  const tia = h('div.op-tia-box');
-  const byTia = h('div.op-side-body');
-  const roomsBox = h('section.op-rooms-box', { 'aria-label': 'Computers' });
-  const rooms = roomsPart(roomsBox, { onread: () => alive && load() });
-  frame({
-    title: 'Operator',
-    page: 'operator',
-    intro: INTRO,
-    wide: true,
-    body: [h('div.op-grid',
-      h('section.op-main', { 'aria-label': 'Needs you' }, h('h2.op-h', 'Needs you'), list),
-      h('aside.op-side',
-        roomsBox,
-        tia,
-        h('section', { 'aria-label': 'Done by Tia' }, h('h2.op-h', 'Done by Tia'), byTia),
-        h('section', { 'aria-label': 'Done by you' }, h('h2.op-h', 'Done by you'), timeline),
-        h('section', { 'aria-label': 'Watched' }, h('h2.op-h', 'Watched'), watched)))],
-  });
+/**
+ * Home's Needs you rows: draws the cards that ask the owner to act into `box` and keeps them up to date. Nothing is
+ * drawn (the box stays empty) while none asks. Returns the function that stops it.
+ */
+export function needsYouRows(box) {
   let alive = true;
-  let look = true;
-  let drawn = null; // the key of the list as drawn
-  let after = null; // after a tap: the item to put the focus on once the list is drawn again
-  let changedId = null; // the item a tap was refused on because it changed: marked until the next tap
-  let tiaKey = null; // what the Tia panel shows as drawn
-  let tiaAfter = null; // after the owner's own change in the panel or in Done by Tia: the control to put the focus on
-  const changed = (focus) => {
-    tiaAfter = { focus: focus || null };
-    if (alive) load();
-  };
-
-  // After a tap the focus goes to the same item when it is still there, else to the next one, else to the timeline.
-  function focusAfter({ id, next }) {
-    const cards = [...list.querySelectorAll('[data-item]')];
-    const card = cards.find((c) => c.dataset.item === id) || cards.find((c) => c.dataset.item === next) || null;
-    const target = card?.querySelector('.op-acts > .btn') || timeline.querySelector('li, p');
-    if (!target) return;
-    if (!target.matches('button, a, summary')) target.tabIndex = -1;
-    target.focus();
-  }
-
+  let drawn = null;
+  let changedId = null; // the item a tap was refused on because it changed
+  const opened = new Set(); // the rows whose More is open
   async function tap(it, a, { quiet = false, button = null, confirm = null } = {}) {
     if (confirm && !(await confirmSheet(confirm))) return;
-    const cards = [...list.querySelectorAll('[data-item]')].map((c) => c.dataset.item);
     changedId = null;
-    if (!quiet) after = { id: it.id, next: cards[cards.indexOf(it.id) + 1] || null };
     if (button) button.disabled = true;
     try {
       const r = await api(`${A}/act`, { item: it.id, act: a.id, seen: it.rev });
       if (!quiet) toast(doneWords(r), { kind: 'ok' });
     } catch (e) {
-      // A tap on an item that changed: the card is marked, and shown, once the list is drawn again.
       if (e.status === 409 && e.data?.current?.id) changedId = e.data.current.id;
       if (!quiet) toast(e.message, { kind: 'error', ms: 6000 });
     } finally {
-      // The list is drawn again only when it changed: a button left disabled would stay so, and hold no focus.
       if (button) button.disabled = false;
     }
     if (alive) load();
-    // "Start new work on <name>": the hold line and its Undo under Computers at once, not at the next 15 s redraw.
-    if (alive && redrawsRooms(a.id)) rooms.load();
   }
-
   async function load() {
     let r;
     try {
-      r = await api(`${A}/attention${look ? '?look=1' : ''}`);
-      look = false;
-    } catch (e) {
-      if (!alive) return;
-      return fill(list, e.status === 404 ? h('p.hint', 'This computer runs an older version without the Operator page.') : errorBox(e.message, load));
+      r = await api(`${A}/attention`);
+    } catch {
+      return; // older computer, offline or logged out: what is drawn stays
     }
     if (!alive) return;
     setCount(r.needs ?? r.count);
-    const key = `${listKey(r)}|${changedId || ''}|${JSON.stringify(r.reflexes?.his || {})}|${JSON.stringify(r.findings || {})}`;
-    if (key !== drawn) {
-      drawn = key;
-      redraw(list, [r.items.length
-        ? [...r.items.map((it) => itemCard(it, r.acts, tap, { changed: it.id === changedId, his: hisWords(it, r.reflexes), hisWays: hisWays(it, r.reflexes), cap: hisCap(it, r.reflexes), finding: r.findings?.[it.id] || null, done: () => alive && load() })), r.more ? h('p.hint', `${r.more} more below these; the first ones matter most.`) : null]
-        : (({ icon: ic, text }) => emptyState(ic, text))(emptyWords(r)),
-      r.hidden && r.items.length ? h('p.hint', `${r.hidden} put off until ${r.hidden > 1 ? 'they change' : 'it changes'}.`) : null]);
-    }
-    if (after) focusAfter(after);
-    after = null;
-    if (changedId) [...list.querySelectorAll('[data-item]')].find((c) => c.dataset.item === changedId)?.scrollIntoView({ block: 'nearest' });
-    fill(watched, watchedList(r.watched));
-    fill(timeline, timelineList(r.timeline));
-    // The Tia panel: drawn again when what it says changed, and always after his own change there (drawTia).
-    if (r.reflexes) {
-      const own = tiaAfter;
-      tiaAfter = null;
-      tiaKey = drawTia(tia, r.reflexes, changed, { drawn: tiaKey, force: !!own, focus: own?.focus?.startsWith('undo-') ? null : own?.focus });
-      const keep = own?.focus?.startsWith('undo-') ? own.focus : byTia.contains(document.activeElement) ? document.activeElement.dataset?.focus : null;
-      fill(byTia, byTiaList(r.byTia || [], r.reflexes, changed));
-      // After an Undo the focus stays on its line, or goes to the heading when the line is gone.
-      if (keep && !focusKey(byTia, keep) && own) {
-        const head = byTia.parentElement?.querySelector('h2');
-        if (head) {
-          head.tabIndex = -1;
-          head.focus();
-        }
-      }
-    }
+    const items = r.items.filter((i) => asksYou(i) && !sameAsCard(i));
+    const key = `${JSON.stringify(items.map((i) => [i.id, i.rev, i.since, i.facts]))}|${changedId || ''}|${JSON.stringify(r.findings || {})}`;
+    if (key === drawn) return;
+    drawn = key;
+    fill(box, items.length ? h('section.home-group.g-needs-op', { 'aria-label': 'Needs you' }, groupHead('Needs you'),
+      h('div.cards.op-rows', items.map((it) => itemRow(it, r.acts, tap, { changed: it.id === changedId, finding: r.findings?.[it.id] || null, done: () => alive && load(), opened })))) : null);
   }
   load();
-  // Opened: every computer is read now, then the list again (its overload item may offer one with room). The 15 s
-  // redraw shows what is kept.
-  rooms.load(true).then(() => alive && load());
-  const every = setInterval(() => alive && !document.hidden && (load(), rooms.load()), 15_000);
+  const every = setInterval(() => alive && !document.hidden && load(), 15_000);
   return () => {
     alive = false;
     clearInterval(every);
   };
 }
 
-registerPage({ id: 'operator', title: 'Operator', icon: 'eye', group: 'more', order: 5, perComputer: true, render: viewOperator, badge: () => count });
+/** The old page: its address opens Home, scrolled to Needs you (the timer outlives this page: the router leaves it at once). */
+function viewOperator() {
+  location.replace('#/');
+  let tries = 0;
+  const look = setInterval(() => {
+    const at = document.querySelector('.g-needs-op, .g-needs');
+    if (at || ++tries > 20) {
+      clearInterval(look);
+      at?.scrollIntoView({ block: 'start' });
+    }
+  }, 150);
+}
+
+registerPage({ id: 'operator', title: 'Operator', icon: 'eye', render: viewOperator });

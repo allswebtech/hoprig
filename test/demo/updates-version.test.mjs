@@ -1,4 +1,4 @@
-// The demo's Settings → Updates shows the package's own version for Hoprig, read from package.json.
+// The demo's Settings → Version and updates shows the package's own version for Hoprig, read from package.json.
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { test } from 'node:test';

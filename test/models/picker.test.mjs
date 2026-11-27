@@ -30,7 +30,7 @@ test('a saved model the list leaves out is shown as it is, marked, never replace
 });
 
 test('every picker of the page takes the provider\'s list; none offers the three fixed names', () => {
-  for (const f of ['tia.js', 'workpropose.js', 'workdo.js', 'newsession-options.js', 'sessiondefaults.js']) {
+  for (const f of ['tia.js', 'workpropose.js', 'workdo.js', 'sessiondefaults.js']) {
     const src = fs.readFileSync(path.join(WEB, f), 'utf8');
     assert.match(src, /modelPicker\(\{/, `${f} uses the picker`);
     assert.doesNotMatch(src, /\[\.\.\.MODELS\]|MODELS\.map\(/, `${f}: no fixed list`);
@@ -51,3 +51,9 @@ test('a family is described in one place only: the subscription\'s data, which t
   assert.deepEqual(holders, [], 'a second list of family labels');
 });
 
+
+test('the note under a subscription\'s list names no Claude Code version: the computer may have another', () => {
+  const src = fs.readFileSync(path.join(WEB, 'modelpicker.js'), 'utf8');
+  assert.doesNotMatch(src, /read for version/);
+  assert.match(src, /The models Claude Code offers a subscription\./);
+});

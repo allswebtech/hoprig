@@ -11,7 +11,7 @@
 //                                            | { op: 'move', id, to } | { op: 'pause', paused } | { op: 'clear' }
 //   POST /api/automation/schedules           { op: 'add', schedule } | { op: 'change', id, schedule } | { op: 'delete', id }
 //
-// Settings → Updates (./updater.mjs; the old /api/claude routes stay for older pages and other computers):
+// Settings → Version and updates (./updater.mjs; the old /api/claude routes stay for older pages and other computers):
 //   GET  /api/updates                        { mode, notify, running, items: [row] }
 //   POST /api/updates/check                  { id? }: look again now (one item, or all)
 //   POST /api/updates/settings               { mode?: 'manual' | 'auto', notify?: bool, itemModes?: { <id>: 'manual' | 'auto' | null } }
@@ -114,7 +114,7 @@ export function serverAdapter(sctx, { log = console.log, chat = null } = {}) {
       // with code "not_in_front" when nothing was typed, "typed_not_sent" when the text went but its Enter did not.
       send: (name, text) => sctx.deck.sendToTool(name, text),
       kill: (name) => sctx.backend.kill(name),
-      // A chat (src/chat): its feature opens it as the page does, with Settings' New-session defaults (as a terminal
+      // A chat (src/chat): its feature opens it as the page does, with Settings' New sessions (as a terminal
       // a schedule starts), not the folder's last chat: nobody watches a scheduled chat as it starts.
       ...(chat ? {
         // The chat's own checks run here too: the coding tool is on, and the provider still serves it.
@@ -174,7 +174,7 @@ const asBad = async (fn) => {
 
 /**
  * The feature. `opts.tick` false: no timer (tests drive tick() by hand). `opts.ctx`: a ready automation ctx
- * instead of the server adapter, `opts.now`: a clock (tests), `opts.updateItems`: stand-ins for Settings → Updates (demo, tests),
+ * instead of the server adapter, `opts.now`: a clock (tests), `opts.updateItems`: stand-ins for Settings → Version and updates (demo, tests),
  * `opts.log`: where the automations' lines go (default: the server's output; the demo keeps them in its log file).
  */
 export function automationFeature(sctx, opts = {}) {

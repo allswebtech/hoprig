@@ -27,7 +27,7 @@ default branch or tags: publishing stays your own press, separate, always.
    the check that it answers, and the picture again. When both are right: "live since 14:05" in Work → Activity.
    When not, it says which check failed or which kept files changed, and **Take it back** runs your project's `back`.
 
-**The limiter** (Settings → Go live): a list of words every check command runs behind, such as `["nice", "-n", "15"]`
+**The limiter** (at the foot of Work → Go live): a list of words every check command runs behind, such as `["nice", "-n", "15"]`
 or a script of yours that waits for a free place. It is confirmed like a command: the sheet shows the words, your yes
 is for those, and a change asks again. Until it is confirmed, no check starts: the check stops with "confirm them
 again there first", and you start it again after your yes.

@@ -8,9 +8,9 @@
 //   queue      { enabled }                               default on: it only acts on messages you queued
 //   schedules  { enabled, lateHours, atOnce, list }      default on: it only acts on schedules you made; atOnce:
 //                                                         how many runs that end by themselves at once (1 to 4)
-//   restore    { enabled }                               null = on for the built-in terminals, off for tmux
+//   restore    { enabled }                               null = on (a restart of the computer ends tmux too; reopening types nothing)
 //   retry      { enabled, max, firstMinutes, prompt }    default off
-//   (updates have their own top-level key "updates": ./updates.mjs, Settings → Updates)
+//   (updates have their own top-level key "updates": ./updates.mjs, Settings → Version and updates)
 //   idle       { shells, shellHours, gateway, gatewayMinutes } default off
 //   workspace  { map, commitMap, memory, sync, push, pushBranches, everyHours }
 //                                                         map on (it acts only where a map exists, and writes only
@@ -174,9 +174,8 @@ export function readSettings(raw) {
   return out;
 }
 
-/** Whether restore is on, given the backend: on by default where sessions end with the service. */
-export const restoreOn = (settings, backend) =>
-  settings.restore.enabled === null ? !(backend && backend.capabilities && backend.capabilities.persistent) : settings.restore.enabled;
+/** Whether restore is on: on by default everywhere (a choice of the person is kept). `backend` stays for the callers. */
+export const restoreOn = (settings, _backend) => (settings.restore.enabled === null ? true : settings.restore.enabled);
 
 // ---- queued messages ----
 

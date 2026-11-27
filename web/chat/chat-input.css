@@ -11,14 +11,21 @@
 
 /* ---------- the owner's message: rewind beside it, pictures in it ---------- */
 .chat-userrow { display: flex; justify-content: flex-end; align-items: center; gap: 6px; min-width: 0; }
-/* "Rewind to here" in words beside the message, quiet until the pointer is on the message (a touch screen: always as
-   it is, large enough for a finger). */
+/* "Rewind to here" in words beside the message, shown only while the pointer or the keyboard is on the message (a touch
+   screen has no hover: always, large enough for a finger). */
 /* At rest in the muted colour at full strength (4.5:1 and more in both themes, for 12 px text on every message); on
    hover it turns to the text colour. */
-.chat-rewindbtn { flex: none; min-height: 28px; padding: 0 8px; gap: 4px; font-size: var(--fs-xs); font-weight: 500; color: var(--muted); transition: color var(--tick); }
-.chat-userrow:hover .chat-rewindbtn, .chat-rewindbtn:focus-visible { color: var(--text); }
+.chat-rewindbtn { flex: none; min-height: 28px; padding: 0 8px; gap: 4px; font-size: var(--fs-xs); font-weight: 500; color: var(--muted); opacity: 0; transition: color var(--tick), opacity var(--tick); }
+.chat-userrow:hover .chat-rewindbtn, .chat-userrow:focus-within .chat-rewindbtn, .chat-rewindbtn:focus-visible { opacity: 1; }
+.chat-rewindbtn:hover { color: var(--text); }
 .chat-no-rewind .chat-rewindbtn { display: none; }
-@media (hover: none) and (pointer: coarse) { .chat-rewindbtn { opacity: 1; min-height: 44px; } }
+@media (hover: none) { .chat-rewindbtn { opacity: 1; } }
+@media (pointer: coarse) { .chat-rewindbtn { min-height: 44px; } }
+/* A phone: never beside the bubble (it would take a third of the width); under its corner, small and quiet. */
+@media (max-width: 599px) {
+  .chat-userrow { flex-direction: column-reverse; align-items: flex-end; gap: 0; }
+  .chat-rewindbtn { min-height: 32px; padding: 0 4px 0 8px; margin: 0 -4px 0 0; }
+}
 .chat-files { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 6px; margin-top: 6px; }
 .chat-user .chat-files .chip { min-height: 24px; border-color: transparent; background: rgb(255 255 255 / .18); color: inherit; white-space: nowrap; }
 .chat-thumb-link { display: block; border-radius: 8px; overflow: hidden; line-height: 0; background: var(--surface-2); }
@@ -157,11 +164,8 @@
   .chat-chips { gap: 4px; }
   .chat-chip { padding: 0 8px; gap: 4px; }
   .chat-ring { padding: 0 2px; gap: 4px; }
-  /* A long model name (a provider's own id) shrinks the model control, cut with an ellipsis: the ring stays whole. */
-  .chat-modelchip { flex: 0 1 auto; min-width: 0; }
+  /* A long model name is cut at 18 characters; the row scrolls, nothing shrinks. */
+  .chat-chips > .chat-modelchip { flex: none; min-width: 0; }
   .chat-ring { flex: none; }
-  /* Lead model's chip is its icon alone here (its title and spoken label say on or off), so the model control keeps
-     room for its name; it never shrinks below its icon and a few letters. */
-  .chat-lead .chat-chip-k, .chat-lead .chat-chip-v { display: none; }
-  .chat-modelchip { min-width: 64px; }
+  /* Lead model's chip keeps its word (a chip that is only a picture says nothing): the row scrolls, so there is room. */
 }

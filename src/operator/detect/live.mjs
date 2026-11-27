@@ -22,7 +22,7 @@ export function detectLive(board, { now = Date.now() } = {}) {
       subject: 'the login page',
       since,
       facts: [`the login page ${said(l.status)}`, since != null ? `like this for ${span(now - since)}` : null, l.checkedAt ? `checked at ${clock(l.checkedAt, now)}` : null],
-      acts: [act('open', { href: '#/settings/about', label: 'Open About' })],
+      acts: [act('open', { href: '#/settings/security?show=this-device', label: 'Open Security and sign-in' })],
       why: 'Phones and other computers cannot sign in while it fails.',
     }));
   }

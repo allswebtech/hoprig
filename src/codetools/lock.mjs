@@ -45,3 +45,13 @@ export async function takeLock(dir, { waitMs = 0, staleMs = 90_000 } = {}) {
     }
   }
 }
+
+/** Does a living process hold the lock `dir` right now (and not for longer than `staleMs`)? */
+export function held(dir, { staleMs = 90_000 } = {}) {
+  try {
+    const owner = Number(fs.readFileSync(path.join(dir, 'pid'), 'utf8'));
+    return alive(owner) && Date.now() - fs.statSync(dir).mtimeMs <= staleMs;
+  } catch {
+    return false;
+  }
+}

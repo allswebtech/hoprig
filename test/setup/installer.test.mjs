@@ -181,16 +181,25 @@ test('install.sh: the package manager is told not to ask (a question would wait 
   const apt = rec.filter((l) => l.startsWith('apt-get '));
   assert.deepEqual(apt.filter((l) => !/read \d+ bytes/.test(l)), [
     'apt-get update -q | DEBIAN_FRONTEND=noninteractive',
-    'apt-get install -y -q build-essential python3 | DEBIAN_FRONTEND=noninteractive',
+    'apt-get install -y -q build-essential python3 tmux | DEBIAN_FRONTEND=noninteractive',
   ]);
   // through sudo for an ordinary user, with the setting inside the sudo command (sudo drops the environment)
   if (process.getuid() !== 0) {
     assert.deepEqual(rec.filter((l) => l.startsWith('sudo ')), [
       'sudo env DEBIAN_FRONTEND=noninteractive apt-get update -q',
-      'sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y -q build-essential python3',
+      'sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y -q build-essential python3 tmux',
     ]);
   }
-  assert.match(r.out, /To install:\n {2}build-essential python3 /);
+  // One plain line about the password, ticks, and none of the package manager's words or names on the screen.
+  assert.match(r.out, /^Hoprig: setting up this computer\. It takes a few minutes\.$/m);
+  assert.match(r.out, /^Hoprig needs a few parts of the system\. If your computer asks for its password, type it and press Enter \(nothing shows while you type\)\.$/m);
+  assert.match(r.out, /^✓ System parts$/m);
+  assert.doesNotMatch(r.out, /build-essential|apt-get|To install:|Installing /);
+  // Coming back another day is one click: an app menu entry that signs in and opens the page.
+  const entry = fs.readFileSync(path.join(s.env.HOME, '.local', 'share', 'applications', 'hoprig.desktop'), 'utf8');
+  assert.match(entry, /^Name=Hoprig$/m);
+  assert.match(entry, /^Exec=".*" link --open$/m);
+  assert.match(entry, /^Terminal=false$/m);
 });
 
 test('install.sh runs nothing until its last line is read (a download that breaks off does no half install)', { skip: posixOnly }, () => {
@@ -232,7 +241,7 @@ test('install.ps1 follows the same rule (read, not run: no PowerShell here)', ()
   assert.match(ps, /\$npmMajor -ge 12 -and -not \(Test-Path -LiteralPath \$Source\)/);
   assert.match(ps, /\$npmAllow = @\('--allow-git=root'\)/);
   assert.match(ps, /\$npmAllow = @\('--allow-remote=root'\)/);
-  assert.match(ps, /& npm install -g @npmAllow --no-audit --no-fund \$Source/);
+  assert.match(ps, /Invoke-Logged 'npm\.cmd' \(@\('install', '-g'\) \+ \$npmAllow \+ @\('--no-audit', '--no-fund', \$Source\)\)/);
 });
 
 test('install.sh: a readable os-release that does not parse is read past, not fatal', { skip: posixOnly }, async () => {
@@ -274,7 +283,7 @@ test('install.sh as root with --stay-root: said first, then installed as before,
   assert.equal(r.code, 0, r.out);
   const said = r.out.indexOf('· This is root, kept on root by your choice (--stay-root). Claude Code refuses bypass permissions mode for root; the modes that ask still start.');
   assert.ok(said >= 0, r.out);
-  assert.ok(said < r.out.indexOf('To install:'), 'said before anything is installed');
+  assert.ok(said < r.out.indexOf('✓ System parts'), 'said before anything is installed');
   // as root the package manager runs without sudo
   assert.deepEqual(installed(pc.record()).filter((l) => l.startsWith('sudo ')), []);
   assert.match(r.out, /hoprig-stand-in setup --yes --stay-root/);
@@ -285,7 +294,7 @@ test('install.sh as root inside a container (the variable container): stays on r
   const r = await installBare(asRoot(pc, { container: 'podman' }), { piped: false });
   assert.equal(r.code, 0, r.out);
   assert.match(r.out, /^· This is root, inside a container \(container=podman\): Hoprig stays on root here\./m);
-  assert.ok(r.out.indexOf('This is root') < r.out.indexOf('To install:'));
+  assert.ok(r.out.indexOf('This is root') < r.out.indexOf('✓ System parts'));
   assert.match(r.out, /hoprig-stand-in setup --yes\n/);
 });
 
@@ -305,10 +314,10 @@ test('install.sh with a Node.js 22 installed: says in one line what it found, in
   assert.equal(r.code, 0, r.out);
   const found = r.out.split('\n').filter((l) => l.startsWith('Found Node.js'));
   assert.deepEqual(found, [`Found Node.js 22.11.0, older than ${floor}, the lowest Hoprig runs on: the newest long-term release of Node.js goes in its place, for you only, with nvm.`]);
-  assert.ok(r.out.indexOf('Found Node.js') < r.out.indexOf('To install:'), 'said before the list of what is installed');
-  assert.match(r.out, /\n {2}Node\.js LTS, for you only, with nvm v[\d.]+ in /);
+  assert.ok(r.out.indexOf('Found Node.js') < r.out.indexOf('✓ Node.js'), 'said before the tick');
   assert.deepEqual(pc.record().split('\n').filter((l) => l.startsWith('nvm ')), ['nvm install --lts --no-progress', 'nvm use --lts']);
-  assert.match(r.out, /\n✓ Node\.js v\d+/);
+  assert.match(r.out, /\n✓ Node\.js\n/);
+  assert.match(r.out, /\n✓ Hoprig\n/);
   assert.match(r.out, /hoprig-stand-in setup --yes\n/, 'hoprig is installed and set up with the new Node.js');
   // A Node.js at the floor is kept: no line about it and no nvm.
   const keep = fakeBin(path.join(dir, 'floor'), { node: `SEAL_FAKE_NODE=${floor} exec ${JSON.stringify(process.execPath)} --import ${JSON.stringify(fixture)} "$@"` });
@@ -317,4 +326,11 @@ test('install.sh with a Node.js 22 installed: says in one line what it found, in
   assert.equal(r2.code, 0, r2.out);
   assert.doesNotMatch(r2.out, /Found Node\.js|Node\.js LTS/);
   assert.ok(!/^nvm /m.test(again.record()), 'nvm is not asked');
+});
+
+test('install.sh: nvm is installed as a script (no git: on a Mac without the Command Line Tools git is a stub), and a failure says how to try again', () => {
+  const sh = fs.readFileSync(path.join(ROOT, 'install.sh'), 'utf8');
+  assert.match(sh, /METHOD=script "\$nvm_sh" "\$tmp\/nvm-install\.sh"/);
+  assert.match(sh, /die_again "nvm did not install/);
+  assert.match(sh, /Paste the same line again to try once more\./);
 });

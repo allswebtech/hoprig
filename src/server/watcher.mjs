@@ -183,10 +183,10 @@ export class Watcher {
     return base ? `${base.replace(/\/+$/, '')}/#/${page}` : '';
   }
 
-  emit(status, name, message = '', label = name) {
+  emit(status, name, message = '', label = name, error = false) {
     const { notify } = this.settings();
     if (!notify || !notify.url) return;
-    const d = describe(status, label, message);
+    const d = describe(status, label, message, { error });
     // Not awaited: a slow receiver never holds up the loop.
     this.send(notify, { ...d, status, session: name, url: this.#link(name) }).catch(() => {});
   }
@@ -199,7 +199,7 @@ export class Watcher {
     for (const e of events) {
       const c = e.card;
       const msg = e.status === 'limit' ? (c.limit && c.limit.text) || (c.runLimit && c.runLimit.error) || '' : c.lastMessage || c.note || '';
-      this.emit(e.status, c.name, msg, c.display || c.name);
+      this.emit(e.status, c.name, msg, c.display || c.name, c.endedInError === true);
     }
   }
 

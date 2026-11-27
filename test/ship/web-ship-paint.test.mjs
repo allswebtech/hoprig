@@ -78,3 +78,32 @@ test('after a press the focus goes to what it changed: the confirmed block, not 
     slot.remove();
   }
 });
+
+test('the limiter sits at the foot of Go live and the look again does not draw it again', async () => {
+  served = view({ run: null });
+  const { slot, ui } = await open();
+  try {
+    const field = slot.querySelector('[id="sp-limiter"]');
+    assert.ok(field, 'the limiter field is on the Go live page');
+    assert.match(texts(slot).join(' '), /The limiter/);
+    await ui.refresh();
+    assert.equal(slot.querySelector('[id="sp-limiter"]'), field, 'the poll leaves it alone');
+    const last = slot.children[slot.children.length - 1];
+    assert.ok(last.querySelector('[id="sp-limiter"]'), 'it is the last thing on the page');
+  } finally {
+    ui.stop();
+    slot.remove();
+  }
+});
+
+test('the cards are numbered in the order they show: with no put-together, Go live is the second', async () => {
+  served = view({ step: null, togethers: [] });
+  const { slot, ui } = await open();
+  try {
+    const titles = slot.querySelectorAll('.sp-title').map((t) => texts(t).join(''));
+    assert.deepEqual(titles.filter((t) => /^\d\. /.test(t)), ['1. Pick the finished tasks', '2. Go live']);
+  } finally {
+    ui.stop();
+    slot.remove();
+  }
+});

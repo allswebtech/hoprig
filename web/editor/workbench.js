@@ -331,7 +331,7 @@ export function viewCode({ query }, onCurrent) {
     if (what === 'quick') quick.open();
     else if (what === 'find') findInFiles();
     else if (what === 'line') goToLine();
-    else if (what === 'settings') location.hash = link('#/settings/editor', null);
+    else if (what === 'settings') location.hash = link('#/settings/appearance?show=code-editor', null);
     else if (what === 'terminal' || what === 'shortcuts') run(what);
     else if (what === 'plain') {
       setEditorPref('plain', !plain);
@@ -409,7 +409,7 @@ export function viewCode({ query }, onCurrent) {
     copyRelativePath: () => copyPath(false),
     reveal: () => active() && wb.revealPath(active().path),
     wordWrap: () => tabs.toggleWrap(),
-    settings: () => (location.hash = link('#/settings/editor', null)),
+    settings: () => (location.hash = link('#/settings/appearance?show=code-editor', null)),
     shortcuts,
   };
   function run(id) {

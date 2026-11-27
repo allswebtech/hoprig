@@ -5,9 +5,14 @@
    everything you tap is at least 44 px high. */
 
 body.chat-mode { overflow: hidden; }
+/* Nothing of the chat pushes the page sideways: what is wider than the screen is cut at the page's root (the chips scroll in their own row). */
+html:has(body.chat-mode), body.chat-mode { overflow-x: clip; max-width: 100%; }
+/* A phone zooms the page in when a field with a text size under 16 px gets the focus, and the page stays moved: every
+   field a person types into in the chat (the message box, the rename box, the searches, the answers) is 16 px. */
+@media (pointer: coarse) { body.chat-mode :is(input:not([type='checkbox'], [type='radio'], [type='range'], [type='file']), textarea, select) { font-size: 16px; } }
 /* As over a terminal: Tia's round button would sit on the message box. */
 body.chat-mode .tia-boxroot { display: none; }
-.chat-wrap { position: fixed; inset: 0 0 auto 0; height: var(--vvh, 100dvh); display: flex; flex-direction: column; background: var(--bg); }
+.chat-wrap { position: fixed; inset: 0 0 auto 0; height: var(--vvh, 100dvh); max-width: 100vw; overflow-x: clip; display: flex; flex-direction: column; background: var(--bg); }
 
 /* ---------- the head ---------- */
 .chat-bar { display: flex; align-items: center; gap: 4px; min-height: 56px; padding: calc(4px + env(safe-area-inset-top)) 6px 4px; background: var(--surface); border-bottom: 1px solid var(--border); }
@@ -17,6 +22,8 @@ body.chat-mode .tia-boxroot { display: none; }
 .chat-h1 { margin: 0; font-size: var(--fs-lg); line-height: 1.25; min-width: 0; display: flex; }
 .chat-title { display: flex; min-width: 0; align-items: center; gap: 6px; max-width: calc(100% + 4px); padding: 2px 4px; margin-left: -4px; border: 0; border-radius: var(--r-sm); background: transparent; color: var(--text); font: 700 var(--fs-lg)/1.25 var(--font); cursor: pointer; }
 .chat-title:hover { background: var(--surface-2); }
+.chat-h1:has(> .chat-title-input) { flex: 1 1 auto; }
+.chat-title-input { flex: 1; min-width: 0; width: 100%; margin-left: -4px; padding: 2px 4px; border: 1px solid var(--accent); border-radius: var(--r-sm); background: var(--surface); color: var(--text); font: 700 var(--fs-lg)/1.25 var(--font); }
 .chat-title svg { flex: none; color: var(--muted); opacity: 0; transition: opacity var(--tick); }
 .chat-title:hover svg, .chat-title:focus-visible svg { opacity: 1; }
 .chat-title-row { display: flex; align-items: center; gap: 6px; min-width: 0; max-width: 100%; }
@@ -28,7 +35,7 @@ body.chat-mode .tia-boxroot { display: none; }
 .chat-hchip { min-height: 26px; padding: 0 8px; gap: 4px; font-size: var(--fs-xs); min-width: 0; flex: none; max-width: 45%; color: var(--text-2); }
 .chat-chip-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .chat-hchip svg { flex: none; }
-.chat-morebtn, .chat-deskbtn { flex: none; }
+.chat-morebtn, .chat-sidebtn, .chat-homebtn { flex: none; }
 /* The session menu's caret beside the title, and the title-bar buttons (Terminal, Changes, Files) at the right. */
 .chat-caret { flex: none; width: 28px; min-height: 28px; color: var(--text-2); }
 .chat-tbtns { display: flex; align-items: center; gap: 2px; flex: none; }
@@ -109,7 +116,7 @@ body.chat-mode .toasts { top: calc(var(--chat-toast-top, calc(58px + env(safe-ar
 
 /* ---------- the dock: to-dos, agents strip, composer, status line ---------- */
 .chat-dock { background: var(--surface); border-top: 1px solid var(--border); padding: 6px 8px calc(6px + env(safe-area-inset-bottom)); }
-.chat-dock > .chat-col { display: grid; gap: 6px; }
+.chat-dock > .chat-col { display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; } /* minmax: a long queued message never widens the dock past a phone */
 .chat-todos:empty { display: none; }
 .chat-todos { border: 1px solid var(--border); border-radius: 10px; background: var(--surface-2); padding: 2px 8px; max-height: 30vh; overflow-y: auto; }
 .chat-todos-head { display: flex; align-items: center; gap: 6px; width: 100%; min-height: 32px; border: 0; background: transparent; color: var(--text); font-size: var(--fs-sm); cursor: pointer; padding: 0; min-width: 0; }
@@ -121,19 +128,46 @@ body.chat-mode .toasts { top: calc(var(--chat-toast-top, calc(58px + env(safe-ar
 .chat-todo-list .t-in_progress { font-weight: 650; }
 .chat-todo-list .t-in_progress .chat-todo-mark { color: var(--accent); }
 
-.chat-strip { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 32px; padding: 0 10px; border: 1px solid var(--border); border-radius: 10px; background: var(--accent-soft); color: var(--accent-soft-text); font: 600 var(--fs-sm) var(--font); cursor: pointer; }
-.chat-strip > span:nth-child(2) { flex: 1; text-align: left; }
-.chat-strip-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); animation: pulse 1.4s ease-in-out infinite; }
+/* Background tasks (agents.js): a head with the count, a row for each task that runs. */
+.chat-bg { border: 1px solid var(--border); border-radius: 10px; background: var(--accent-soft); color: var(--accent-soft-text); font-size: var(--fs-sm); min-width: 0; }
+.chat-bg.hidden { display: none; }
+.chat-bg-head { display: flex; align-items: center; gap: 4px; padding: 0 4px 0 10px; }
+.chat-bg-toggle { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; min-height: 32px; padding: 0; border: 0; background: none; color: inherit; font: 600 var(--fs-sm) var(--font); text-align: left; cursor: pointer; }
+.chat-bg-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chat-bg-toggle svg { flex: none; transition: transform var(--tick); transform: rotate(90deg); }
+.chat-bg-folded .chat-bg-toggle svg { transform: none; }
+.chat-bg-all { flex: none; color: inherit; }
+.chat-strip-dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); animation: pulse 1.4s ease-in-out infinite; }
+.chat-bg-list { list-style: none; margin: 0; padding: 0 10px 6px; display: grid; gap: 2px; max-height: 30vh; overflow-y: auto; }
+.chat-bg-folded .chat-bg-list { display: none; }
+.chat-bg-row { display: flex; align-items: center; gap: 8px; min-width: 0; min-height: 28px; font-weight: 500; }
+.chat-bg-type { flex: none; display: inline-flex; color: var(--accent); }
+.chat-bg-title { flex: none; max-width: 40%; padding: 0; border: 0; background: none; color: var(--text); font: 600 var(--fs-sm) var(--font); text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+button.chat-bg-title { cursor: pointer; }
+button.chat-bg-title:hover { text-decoration: underline; }
+.chat-bg-now { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); }
+.chat-bg-time { flex: none; color: var(--text-2); font-variant-numeric: tabular-nums; }
+.chat-bg-row .chat-taskstop { flex: none; min-height: 26px; padding: 0 8px; }
 
 .chat-composer-wrap { position: relative; display: grid; gap: 6px; }
-.chat-queue { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.chat-queue { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; max-height: 30vh; overflow-y: auto; }
 .chat-queue:empty, .chat-attach:empty { display: none; }
-.chat-queued { display: flex; align-items: center; gap: 8px; min-height: 34px; padding: 0 2px 0 10px; border: 1px dashed var(--border-strong); border-radius: 10px; background: var(--surface-2); font-size: var(--fs-sm); color: var(--text-2); }
-.chat-queued-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.chat-queued-file { margin-left: 6px; min-height: 20px; padding: 0 6px; font-size: var(--fs-xs); vertical-align: middle; }
-.chat-queued-state { flex: none; color: var(--muted); font-size: var(--fs-xs); }
-.chat-unqueue { width: 32px; min-height: 32px; }
-.chat-composer { display: flex; align-items: flex-end; gap: 6px; }
+/* A message waiting to be read: its bubble as it will be (right, rounded), faded with a dashed accent edge. */
+.chat-queued { display: grid; justify-items: end; gap: 2px; min-width: 0; }
+.chat-queued-bubble { max-width: min(640px, 88%); min-width: 0; padding: 8px 12px; border-radius: 14px; border-bottom-right-radius: 4px; border: 1px dashed color-mix(in srgb, var(--accent) 40%, transparent); background: var(--surface-2); color: var(--text-2); font-size: var(--fs-sm); line-height: 1.45; overflow-wrap: anywhere; }
+.chat-queued-text { white-space: pre-wrap; }
+.chat-queued-text:empty { display: none; }
+.chat-queued-clip { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; -webkit-mask-image: linear-gradient(#000 60%, transparent); mask-image: linear-gradient(#000 60%, transparent); }
+.chat-queued-more { display: block; margin-top: 2px; padding: 0; border: 0; background: none; color: var(--accent); font: 600 var(--fs-xs) var(--font); cursor: pointer; }
+.chat-queued-foot { display: flex; align-items: center; justify-content: flex-end; gap: 6px; min-width: 0; max-width: 100%; }
+.chat-queued-state { min-width: 0; color: var(--muted); font-size: var(--fs-xs); }
+/* Edit and Remove: on hover or keyboard focus; a touch screen has no hover, so always. */
+.chat-queued-acts { flex: none; display: inline-flex; align-items: center; opacity: 0; transition: opacity var(--tick); }
+.chat-queued:hover .chat-queued-acts, .chat-queued:focus-within .chat-queued-acts { opacity: 1; }
+.chat-queued-act { padding: 0 6px; min-height: 28px; border: 0; background: none; color: var(--accent); font: 600 var(--fs-xs) var(--font); cursor: pointer; }
+@media (hover: none) { .chat-queued-acts { opacity: 1; } }
+.chat-unqueue { width: 28px; min-height: 28px; }
+.chat-composer { display: flex; align-items: flex-end; gap: 6px; padding-right: 4px; } /* a clear gap between Send or Stop and the column's edge */
 .chat-send, .chat-stop { border-radius: 50%; flex: none; }
 textarea.chat-input:disabled { opacity: 0.6; }
 
@@ -158,13 +192,15 @@ textarea.chat-input:disabled { opacity: 0.6; }
 .chat-status[data-status='attention'] .chat-st-dot { background: var(--warn-solid); }
 .chat-status[data-status='terminal'] .chat-st-dot { background: var(--muted); }
 .chat-status[data-status='error'] .chat-st-dot { background: var(--danger-solid); }
-.chat-status[data-status='stopped'] .chat-st-dot { background: var(--muted); }
+.chat-status[data-status='stopped'] .chat-st-dot, .chat-status[data-status='ended'] .chat-st-dot { background: var(--muted); }
 .chat-status[data-status='limit'] .chat-st-dot { background: var(--danger-solid, var(--danger)); }
 .chat-st-timer { flex: none; margin-left: -8px; color: var(--text-2); font-variant-numeric: tabular-nums; }
 .chat-st-timer:empty { display: none; }
 .chat-st-state { flex: none; max-width: 45%; overflow: hidden; text-overflow: ellipsis; color: var(--text-2); font-weight: 600; }
 .chat-st-rest { display: flex; gap: 0; min-width: 0; overflow: hidden; }
 .chat-st-part { flex: none; }
+/* A very long branch name ends in an ellipsis (its title and Copy hold the whole name), it never runs out of the column. */
+.chat-st-part[data-k='Git branch'] { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 button.chat-st-part { padding: 0; border: 0; background: none; color: inherit; font: inherit; cursor: pointer; }
 button.chat-st-part:hover { color: var(--text); text-decoration: underline; }
 .chat-st-part::before { content: '·'; margin: 0 6px; opacity: .6; }
@@ -185,15 +221,22 @@ button.chat-st-part:hover { color: var(--text); text-decoration: underline; }
   .chat-scroll { padding: 12px 12px 8px; }
   .chat-dock { padding: 6px 8px calc(4px + env(safe-area-inset-bottom)); }
   .chat-dock > .chat-col { gap: 4px; }
-  /* The chips are one row that scrolls sideways, never a second and third row over the conversation. */
-  .chat-chips { overflow-x: auto; scrollbar-width: none; margin: 0 -8px; padding: 0 8px; }
+  /* The chips stand in ONE row inside the column and scroll sideways in that row (a soft fade at the right edge; the
+     padding lets the last one clear it): the page itself never scrolls sideways. */
+  .chat-chips { flex-wrap: nowrap; overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: none; padding-right: 24px; -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 24px), transparent); mask-image: linear-gradient(to right, #000 calc(100% - 24px), transparent); }
   .chat-chips::-webkit-scrollbar { display: none; }
+  .chat-chips > * { flex: none; }
+  .chat-chips-gap { display: none; }
+  /* The foot is compact: the box, the chips and the status line close together. */
+  .chat-composer-wrap { gap: 2px; }
+  .chat-status { min-height: 20px; font-size: var(--fs-sm); }
   .chat-chip, .chat-ring { min-height: 44px; }
-  .chat-chips-gap { min-width: 4px; }
   .chat-send, .chat-stop, .chat-plus { width: 44px; min-height: 44px; }
   textarea.chat-input { min-height: 44px; }
+  /* The placeholder stays on one line (the box is narrow beside the plus, the microphone and the button). */
+  textarea.chat-input::placeholder { font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .chat-unqueue { width: 44px; min-height: 44px; }
-  .chat-queued, .chat-strip, .chat-todos-head, .chat-think summary { min-height: 44px; }
+  .chat-queued-act, .chat-unqueue, .chat-bg-toggle, .chat-bg-all, .chat-bg-row, .chat-todos-head, .chat-think summary { min-height: 44px; }
   .chat-banner .btn, .btn.chat-more, .btn.chat-down { min-height: 44px; }
   /* The head is one row: the title opens the session menu, with Open in and the provider (header.js). */
   .chat-sub, .chat-tbtns, .chat-caret { display: none; }
@@ -206,6 +249,11 @@ button.chat-st-part:hover { color: var(--text); text-decoration: underline; }
   .chat-st-part[data-k='Git branch'] { display: none; }
 }
 
+/* A short screen (a phone with its keyboard open): the lists above the box give room to the conversation. */
+@media (max-height: 520px) {
+  .chat-bg-list, .chat-queue, .chat-todos { max-height: calc(var(--vvh, 100dvh) * 0.14); }
+}
+
 /* New session: Terminal or Chat (newsession.js) */
 .ns-as { display: grid; gap: 6px; margin: 0 0 14px; }
 .ns-as .hint { margin: 0; }
@@ -215,3 +263,15 @@ button.chat-st-part:hover { color: var(--text); text-decoration: underline; }
 /* A turn the AI account refused: the plain line, its button and the tool's own words, apart. */
 .chat-error { display: grid; gap: 8px; justify-items: start; }
 .chat-error > .banner, .chat-error > details { justify-self: stretch; }
+
+/* ---------- the terminal pane under the chat (termpane.js): a shell, tabs with +, hidden with Ctrl+` ---------- */
+.chat-termpane { flex: none; display: flex; flex-direction: column; height: clamp(180px, 38vh, 440px); min-width: 0; border-top: 1px solid var(--border); background: var(--bg); }
+.chat-term-bar { flex: none; display: flex; align-items: center; gap: 6px; min-height: 36px; padding: 0 6px; background: var(--surface); border-bottom: 1px solid var(--border); }
+.chat-term-tabs { flex: 1; min-width: 0; display: flex; gap: 2px; overflow-x: auto; }
+.chat-term-tab { flex: none; padding: 4px 10px; border: 0; border-radius: var(--r-sm); background: transparent; color: var(--text-2); font: 600 var(--fs-sm) var(--font); cursor: pointer; }
+.chat-term-tab:hover { background: var(--surface-2); }
+.chat-term-tab.on { background: var(--surface-2); color: var(--text); }
+.chat-term-tools { flex: none; display: flex; gap: 2px; }
+.chat-term-note { margin: 0; padding: 6px 10px; font-size: var(--fs-sm); color: var(--muted); }
+.chat-term-box { flex: 1; min-height: 0; display: flex; }
+.chat-term-frame { flex: 1; width: 100%; height: 100%; border: 0; background: var(--bg); }

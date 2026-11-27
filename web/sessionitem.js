@@ -3,7 +3,7 @@
 import { heldActCard } from './handsoff.js';
 import { hasCard, runsInBackground } from './homefold.js';
 import { icon } from './icons.js';
-import { api, askNote, atOf, bgCommandNote, h, isCodingCard, limitBox, link, liveBasic, machinePill, permissionActions, profileIcon, profileText, stateOf, statusPill, switchProfile, toast, toolChip } from './lib.js';
+import { api, askNote, atOf, bgCommandNote, h, isCodingCard, limitBox, link, liveBasic, machinePill, permissionActions, profileIcon, profileText, stateOf, statusPill, switchProfile, toast, toolChip, worktreeOf } from './lib.js';
 import { isStarting, markStarting, startingPill } from './newsession.js';
 import { registeredCardBadges } from './registry.js';
 
@@ -20,9 +20,15 @@ const chip = (s, opts) => (isStarting(s) ? startingPill(s) : statusPill(s, opts)
  */
 export function folderWorthShowing(s) {
   if (!s.short) return false;
+  if (worktreeOf(s.cwd)) return true; // on a branch of its own: the line says so
   const parts = String(s.short || '').split(/[\\/]/).filter(Boolean);
   const [parent, last] = parts.slice(-2);
   return !(parent === 'projects' && (last === s.name || last === s.display));
+}
+/** The folder line of a card: where the session runs; a chat in its own worktree says its project and its branch. */
+export function folderLine(s) {
+  const wt = worktreeOf(s.cwd);
+  return wt ? `${String(s.short || wt.project).replace(/[\\/]\.claude[\\/]worktrees[\\/].*$/, '')} · ${wt.branch}` : s.short;
 }
 /**
  * The extra folders a session may read (a need of its project, --with, "Also open"), by their map names, or null.
@@ -189,20 +195,20 @@ function backButton(s, profiles, after) {
 
 /**
  * Home: a session as a card, with the computer's name when there are several. `heading`: the state key its group's
- * heading already names ("Working", "Waiting for your next message"): its pill then shows only the time.
+ * heading already names ("Working", "Finished"): its pill then shows only the time.
  */
 export function sessionCard(s, profiles, refresh, multi, { heading = null } = {}) {
   const st = stateOf(s);
   const after = moved(s, refresh);
   const back = backButton(s, profiles, after);
   return h(`article.card.st-${st.key}`, linkProps(s, `${nameOf(s)}${multi ? ` on ${s.machineLabel}` : ''}: ${st.text}`),
-    h('div.card-top', h('h3.card-name', nameOf(s)), chip(s, { text: st.key !== heading || Boolean(s.background) })),
+    h('div.card-top', h('h3.card-name', nameOf(s)), chip(s, { text: st.key !== heading || Boolean(s.background) || st.text === 'Ready' })),
     h('div.card-meta',
       chatTag(s),
       toolChip(s),
       multi ? machinePill(s.machineLabel) : null,
       provider(s),
-      folderWorthShowing(s) ? h('span.card-path', icon('folder', { size: 14 }), s.short) : null,
+      folderWorthShowing(s) ? h('span.card-path', icon('folder', { size: 14 }), folderLine(s)) : null,
       extrasLine(s),
       liveBasic(s),
       registeredCardBadges().map((b) => b(s))),
@@ -213,7 +219,7 @@ export function sessionCard(s, profiles, refresh, multi, { heading = null } = {}
     // Refused as root: what to do next, in plain words.
     st.key === 'failed' && rootRefusedNext(s.note) ? h('p.card-note.card-next', rootRefusedNext(s.note)) : null,
     // A command still running in the background while it waits for the owner (web/lib.js): the state stays
-    // "Waiting for your next message", this adds the one line that says a command may carry on by itself.
+    // Finished, this adds the one line that says a command may carry on by itself.
     bgCommandNote(s) ? h('p.card-note.card-bg-note', bgCommandNote(s)) : null,
     // Answered right here, the same answers as the session page's banner.
     permissionActions(s, refresh),

@@ -9,6 +9,7 @@ import { claudeSignIn } from './claudelogin.js';
 import { signIn } from './computers.js';
 import { errorBox, okBox } from './shell.js';
 import { gitDone, gitRows, openGitSetup } from './gitsetup.js';
+import { firstRunCard, isFirstRun } from './firstrun.js';
 import { store } from './store.js';
 import { SETTINGS_ALIASES } from './settings.js';
 
@@ -50,11 +51,12 @@ export function hubOnboarding(onb, { https, joined }) {
 export function withGitStep(onb, g) {
   if (!onb || !Array.isArray(onb.steps) || !g || onb.steps.some((s) => s.id === 'git')) return onb;
   const done = gitDone(g);
-  const step = { id: 'git', title: 'Git and GitHub set up', optional: false, done,
+  const step = { id: 'git', title: 'Git and GitHub set up', optional: true, done,
     // Only what set-up lacks: files not saved yet are the brain row's daily line, never this step's.
     detail: done ? `signed in as ${g.gh.account}` : gitRows(g).filter((r) => !r.ok && !(r.id === 'brain' && g.brain && g.brain.remote && g.brain.upstream)).map((r) => `${r.title[0].toLowerCase()}${r.title.slice(1)}: ${r.text[0].toLowerCase()}${r.text.slice(1)}`).join('; '),
     action: done ? null : { kind: 'git' } };
-  return { ...onb, steps: [...onb.steps, step], done: (onb.done ?? onb.steps.filter((s) => !s.optional && s.done).length) + (done ? 1 : 0), total: (onb.total ?? onb.steps.filter((s) => !s.optional).length) + 1 };
+  // Optional, like the rules, the phone and the skills: a first session needs only Claude Code, the tools and a project.
+  return { ...onb, steps: [...onb.steps, step] };
 }
 
 export function isHub(own, onb, computers) {
@@ -98,8 +100,7 @@ export function withProviderWords(onb) {
  */
 export function withBrainSkills(onb, brainOnly) {
   if (!onb || !Array.isArray(onb.steps) || !(brainOnly > 0)) return onb;
-  return { ...onb, steps: onb.steps.map((s) => (s.id === 'skills' ? { ...s, done: false, detail: skillsWords(s, brainOnly), action: { kind: 'link-brain' } } : s)),
-    done: onb.steps.some((s) => s.id === 'skills' && s.done) ? (onb.done ?? onb.steps.filter((s) => !s.optional && s.done).length) - 1 : onb.done };
+  return { ...onb, steps: onb.steps.map((s) => (s.id === 'skills' ? { ...s, done: false, detail: skillsWords(s, brainOnly), action: { kind: 'link-brain' } } : s)) };
 }
 
 /**
@@ -277,7 +278,28 @@ export function getStartedArea({ firstRun = () => false, onChange = () => {} } =
   let git = null; // GET /api/workspace/git, for the Git and GitHub step
   let brainOnly = 0; // GET /api/brain skills.brainOnly, for the skills step
   const steps = () => (onb && hub() ? hubOnboarding(onb, { https: location.protocol === 'https:', joined: store.all.length > 1 }) : withGitStep(withBrainSkills(withProviderWords(onb), brainOnly), git));
+  // A new install with no session: the first-run card in place of the checklist (firstrun.js). The page's body gets the
+  // class "first-run", which hides what an empty Home would show beside it (page-home.css).
+  const first = () => isFirstRun({ onb, hub: hub(), dismissed: dismissed(), sessions: (own() && own().sessions ? own().sessions.length : 1) });
   const paint = () => {
+    document.body.classList.toggle('first-run', first());
+    if (first()) {
+      fill(el, firstRunCard(onb, {
+        refresh: load,
+        run: (a) => runAction(a, load),
+        onDismiss: async () => {
+          try {
+            await api('~/api/settings', { server: { getStartedDismissed: true } });
+            await store.refresh();
+          } catch (e) {
+            toast(e, { kind: 'error' });
+          }
+          paint();
+          onChange();
+        },
+      }));
+      return onChange();
+    }
     fill(el, getStartedCard(steps(), {
       dismissed: dismissed(),
       expanded,
@@ -291,7 +313,7 @@ export function getStartedArea({ firstRun = () => false, onChange = () => {} } =
         try {
           await api('~/api/settings', { server: { getStartedDismissed: true } });
           await store.refresh();
-          toast('Closed. Settings → About brings it back.', { ms: 8000, action: { label: 'Open About', run: () => (location.hash = link('#/settings/about?show=this-device')) } });
+          toast('Closed. At the foot of the Settings list, Show Get started again brings it back.', { ms: 8000, action: { label: 'Open Settings', run: () => (location.hash = link('#/settings')) } });
         } catch (e) {
           toast(e, { kind: 'error' });
         }
@@ -324,5 +346,5 @@ export function getStartedArea({ firstRun = () => false, onChange = () => {} } =
       if (onb) paint();
     }
   });
-  return { el, repaint: paint, plan: () => planGetStarted(steps(), { dismissed: dismissed() }), stop: () => { stopped = true; clearTimeout(timer); unsubscribe(); } };
+  return { el, repaint: paint, first, plan: () => planGetStarted(steps(), { dismissed: dismissed() }), stop: () => { stopped = true; clearTimeout(timer); unsubscribe(); document.body.classList.remove('first-run'); } };
 }

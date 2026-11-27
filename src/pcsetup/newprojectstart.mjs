@@ -1,7 +1,7 @@
 // "Start with AI" for a new project (newproject.mjs makes the project): an App session in the project's folder whose
 // first message names the new-project skill and carries the brief from docs/brief.md, as the owner wrote it. The same
 // choices as Work's "Do it" (src/work/doit.mjs): the coding tool, the provider (the folder's default when none is
-// chosen), the model and the effort (Settings → New-session defaults when none is chosen); the chat takes Settings'
+// chosen), the model and the effort (Settings → New sessions when none is chosen); the chat takes Settings'
 // defaults, not a mode the owner chose for himself in another chat (defaults: true, as Do it).
 //
 //   GET  /api/pcsetup/project/start?name=&tool=      what a start would use: the coding tools, providers, models,
@@ -107,7 +107,7 @@ export function cleanStart(b) {
 export function projectStarter(o) {
   const cfg = () => (o.config ? o.config() : {});
   const projects = () => (o.projects ? o.projects() : projectsDir());
-  // The saved values a check keeps accepting (the default of Settings → New-session defaults); the provider's own list
+  // The saved values a check keeps accepting (the default of Settings → New sessions); the provider's own list
   // comes from src/models/catalog.mjs (chat/tools.mjs choicesOf).
   const models = () => {
     const saved = (cfg().sessionDefaults || {}).model;

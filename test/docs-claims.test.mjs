@@ -80,7 +80,7 @@ test('the work-while-you-sleep use case shows Work → Schedules, and the screen
 
 test('with tmux, Reopen sessions after a restart is off at first, and the pages say so; tmux is explained where it first stands', async () => {
   const { DEFAULTS, restoreOn } = await import('../src/automation/settings.mjs');
-  assert.equal(restoreOn(DEFAULTS, { capabilities: { persistent: true } }), false, 'tmux: off at first');
+  assert.equal(restoreOn(DEFAULTS, { capabilities: { persistent: true } }), true, 'tmux: on at first too: a restart of the computer ends tmux');
   assert.equal(restoreOn(DEFAULTS, { capabilities: { persistent: false } }), true, 'the built-in terminals: on at first');
   for (const text of [flat(section('It keeps going without you')), flat(read(SLEEP))]) {
     assert.doesNotMatch(text, /survive a restart by themselves/);
@@ -115,7 +115,7 @@ test('what starts by itself: fixed rules start things, and what they start can b
 /**
  * install.sh run for real on a made-up Linux computer with nothing installed but what the script needs to run: a node
  * that reports `node`, an apt-get, sudo and curl that are stand-ins, and no build tools. Without --yes and with no
- * terminal it shows what it would install and ends at its one question; nothing is installed.
+ * terminal it shows what it will install and runs it; the stand-ins make that fail, so nothing is installed.
  */
 function installerAsks(node) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'docs-install-'));
@@ -131,7 +131,7 @@ function installerAsks(node) {
   const home = path.join(dir, 'home');
   fs.mkdirSync(home);
   return new Promise((resolve) => {
-    // Its own session: /dev/tty cannot be opened, so the installer cannot ask and stops before it installs anything.
+    // The stand-in sudo and apt-get fail: the installer says what it installs, then runs it, and ends at that failure.
     const child = spawn('sh', [path.join(ROOT, 'install.sh')], { env: sealed({ PATH: bin, HOME: home, SEAL_FAKE_NODE: node }), detached: true, stdio: ['ignore', 'pipe', 'pipe'] });
     let out = '';
     child.stdout.on('data', (d) => (out += d));
@@ -151,16 +151,16 @@ test('the install paragraph names what install.sh installs, with sudo, and the l
   const [major, minor] = MIN_NODE_TEXT.split('.').map(Number);
   const older = await installerAsks(`${major}.${minor - 1}.9`);
   assert.equal(older.code, 1, older.out);
-  assert.match(older.out, /hoprig installer: no terminal to ask in/, 'it stops at its one question');
-  assert.match(older.out, /To install:\n {2}build-essential python3 {3}\(/, 'the build tools on Linux');
-  if (process.getuid() !== 0) assert.match(older.out, /\(sudo env DEBIAN_FRONTEND=noninteractive apt-get update -q && sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y -q build-essential python3\)/, 'with sudo');
-  assert.match(older.out, /\n {2}Node\.js LTS, for you only, with nvm /, 'an older Node.js is installed again');
+  assert.doesNotMatch(older.out, /no terminal to ask in|Install now/, 'it asks nothing: it says what it installs and does it');
+  assert.match(older.out, /hoprig installer: installing build-essential python3 tmux did not succeed/, 'it ran the install, which the stand-in refused');
+  assert.match(older.out, /^Hoprig needs a few parts of the system\. If your computer asks for its password, type it and press Enter/m, 'the system parts, with sudo, said in one plain line');
+  assert.match(older.out, /Found Node\.js \S+, older than \S+, the lowest Hoprig runs on: the newest long-term release of Node\.js goes in its place, for you only, with nvm\./, 'an older Node.js is installed again');
   const floor = await installerAsks(MIN_NODE_TEXT.split('.').length === 3 ? MIN_NODE_TEXT : `${MIN_NODE_TEXT}.0`);
-  assert.doesNotMatch(floor.out, /Node\.js LTS/, 'the lowest supported Node.js is kept');
-  assert.match(floor.out, /To install:\n {2}build-essential python3 /);
+  assert.doesNotMatch(floor.out, /Found Node\.js/, 'the lowest supported Node.js is kept');
+  assert.match(floor.out, /^Hoprig needs a few parts of the system\./m);
   const v = MIN_NODE_TEXT.replaceAll('.', '\\.');
   const p = flat(section('Install'));
-  assert.match(p, new RegExp(`It installs what is missing \\(Node\\.js ${v} or newer when it is missing or older, and on Linux the build tools, with sudo\\), after asking once`));
+  assert.match(p, new RegExp(`It says what is missing and installs it without asking \\(Node\\.js ${v} or newer when it is missing or older, and on Linux the build tools and a few system parts, with sudo, which asks for its own password; Ctrl-C stops it\\)`));
   assert.match(flat(read('README.md')), new RegExp(`Requires Node\\.js ${v} or newer \\(`));
   assert.match(read('docs/INSTALL.md'), new RegExp(`\\n- \\*\\*Node\\.js ${v} or newer\\.\\*\\*`));
   // The skill's own package (npx hoprig-skill) says the floor its package.json asks for. Its README is written by
@@ -221,9 +221,9 @@ test('the Operator line: one recommended step, nothing without a tap unless a ru
   assert.ok(RULE_IDS.every((id) => readOperator(only).rules[id] === false) && readDecide(only).on === false);
   assert.equal(looks({ ctx: { config: () => only }, dir: () => lookDir }).enabled(), true, 'a look may start with every rule and Tia decides off');
   fs.rmSync(lookDir, { recursive: true, force: true });
-  // The page's whole sentence (web/operator.js cannot be imported without a browser: its INTRO line is read).
-  const intro = /\nexport const INTRO = '((?:[^'\\]|\\.)*)';\n/.exec(read('web/operator.js'))[1];
-  assert.equal(intro, 'What stopped or is about to, from everything Hoprig watches. One tap does the recommended step. Tia does a step by herself only by a rule you switched on, by "Tia decides", or by a look, when you turned it on.');
+  // The Operator has no page of its own: its cards are rows of Home's Needs you, and the switches of Tia are on Settings, Tia.
+  assert.match(read('web/operator.js'), /#\/operator opens Home/);
+  assert.match(read('web/operator-tia.js'), /fold\('tia-alone', 'What she may do alone'/);
   const what = flat(section('What it does'));
   const op = /- \*\*Operator\*\*:[^\n]*?(?= - \*\*Updates\*\*)/.exec(what)[0];
   assert.match(op, /one recommended step for each/);
@@ -274,15 +274,16 @@ test('Work, what is not there yet: Do it has a branch of its own now; the OKs ar
 
 test('the automations have the dashboard\'s own names: the queue switch, and no "Restore" for reopening sessions', () => {
   const page = read('web/automation.js');
-  for (const name of ['Send the next queued message', 'Reopen sessions after a restart', 'Try again after a server error']) assert.ok(page.includes(`'${name}'`), name);
+  for (const name of ['Reopen sessions after a restart', 'Try again after a server error']) assert.ok(page.includes(`'${name}'`), name);
   assert.match(read('web/workschedules.js'), /'Queued messages'/);
   const pages = [section('It keeps going without you'), read(SLEEP)].map(flat);
-  for (const text of pages) assert.match(text, /\*\*Queue\*\* \(the switch \*\*Send the next queued message\*\*, on at first; its list is \*\*Queued messages\*\* in Work → Schedules\)/);
+  // The queue has no switch any more; the README's section may still say it did until its own words are changed.
+  for (const text of pages) assert.match(text, /\*\*Queue\*\* \((the switch \*\*Send the next queued message\*\*, on at first|always on: it acts only on messages you queued); its list is \*\*Queued messages\*\* in Work → Schedules\)/);
   // "Restore code", "Restore conversation" (Rewind) and `workspace restore` are other things of the same word.
   const oldName = /\bRestore\b(?! code| conversation)/;
   for (const f of ['site/content/use-cases/always-on-coding-machine.md', SLEEP]) assert.doesNotMatch(read(f), oldName, f);
   assert.doesNotMatch(section('Not built, or not proven yet'), oldName);
-  assert.match(flat(read('site/content/use-cases/always-on-coding-machine.md')), /\*\*Reopen sessions after a restart\*\* \(Settings → Automations\)/);
+  assert.match(flat(read('site/content/use-cases/always-on-coding-machine.md')), /\*\*Reopen sessions after a restart\*\* \(Settings → While you are away\)/);
 });
 
 test('the commands table: a row with subcommands lists all of them, and the table says it is a short list', async () => {
@@ -937,10 +938,10 @@ test('the install guide says what sudo without a password means for the user, an
 test('the operator guide says the token check appears once a file is saved, and where the two settings stand', () => {
   const tia = read('web/tia.js');
   assert.match(tia, /sg\.file \? h\('div\.savebar', btn\('secondary', \{ label: 'Check what this token may do'/, 'the button is drawn only with a file');
-  assert.match(tia, /fold\('tia-advanced', 'Advanced',[\s\S]*?saveBar\('Save'[\s\S]*?return \[box, tiaRights\(\{ isAlive \}\)/, 'the rights box comes after Advanced and the first Save');
+  assert.match(tia, /fold\('tia-rights', 'Rights', tiaRights\(\{ isAlive \}\)\)/, 'the rights box is the Rights fold');
   const t = rights();
   assert.match(t, /\*\*Check what this token may do\*\* \(a button that appears once a token file is saved; it asks on your press only\)/);
-  assert.match(t, /Both stand below that page's first \*\*Save\*\* button and its \*\*Advanced\*\* fold, so scroll on past them\./);
+  assert.match(t, /Both stand in that page's \*\*Rights\*\* fold, closed at first, so open it\./);
 });
 
 // docs/HANDS-OFF.md:43 and :107-112, docs/OPERATOR.md:303, :324, :327-328 words explained where they first stand

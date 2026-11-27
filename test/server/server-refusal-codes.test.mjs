@@ -64,11 +64,11 @@ test('bypass off: a start in bypass and Settings\' defaults in bypass say so wit
   let r = await d.req('/api/sessions', { dir: work, profile: 'sub', mode: 'new', permissionMode: 'bypassPermissions' });
   assert.equal(r.status, 400);
   assert.equal(r.json.code, 'bypass-off');
-  assert.match(r.json.error, /^bypass permissions mode \(the coding tool then acts without asking you first\) is off: turn on "Allow bypass permissions mode" in Settings → New-session defaults first\.$/);
+  assert.match(r.json.error, /^bypass permissions mode \(the coding tool then acts without asking you first\) is off: turn on "Allow bypass permissions mode" in Settings → New sessions first\.$/);
   r = await d.req('/api/settings', { sessionDefaults: { permissionMode: 'bypassPermissions' } });
   assert.equal(r.status, 400);
   assert.equal(r.json.code, 'bypass-off');
-  assert.match(r.json.error, /^bypass permissions mode \(the coding tool then acts without asking you first\) is off: turn on "Allow bypass permissions mode" in Settings → New-session defaults first\.$/, 'the place its button opens');
+  assert.match(r.json.error, /^bypass permissions mode \(the coding tool then acts without asking you first\) is off: turn on "Allow bypass permissions mode" in Settings → New sessions first\.$/, 'the place its button opens');
   assert.notEqual((loadConfig().sessionDefaults || {}).permissionMode, 'bypassPermissions', 'nothing was saved');
   r = await d.req('/api/settings', { sessionTitles: 'yes' });
   assert.equal(r.status, 400);

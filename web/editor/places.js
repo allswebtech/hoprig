@@ -28,13 +28,13 @@ export function refused(e, root) {
   const [title, text] = e.status === 404
     ? ['This folder is not there', 'It may have been moved or deleted.']
     : outside
-      ? ['This folder is outside the dashboard\'s folders', 'The editor opens only folders inside the folder list in Settings → New-session defaults → Advanced → Folders. Open a project from Workspace, or add its folder to that list.']
+      ? ['This folder is outside the dashboard\'s folders', 'The editor opens only folders inside the folder list in Settings → Security and sign-in → Folders Hoprig may open. Open a project from Workspace, or add its folder to that list.']
       : e.status === 403
         ? ['This folder is not opened in the editor', `${e.message[0].toUpperCase()}${e.message.slice(1)}.`]
         : ['The folder could not be read', e.message];
   return h('div.ed-fail', icon('folder', { size: 34 }), h('h2.ed-fail-title', title), h('p.ed-fail-text', text), h('p.ed-fail-text.muted', tildePath(root)),
     h('div.ed-fail-tools',
       h('a.btn.primary', { href: link('#/workspace') }, 'Go to Workspace'),
-      outside ? h('a.btn.secondary', { href: link('#/settings/new-sessions?show=folders', null) }, 'Open the folder list') : null,
+      outside ? h('a.btn.secondary', { href: link('#/settings/security?show=folders', null) }, 'Open the folder list') : null,
       e.status >= 500 || !e.status ? btn('secondary', { icon: 'refresh', label: 'Try again', onclick: () => location.reload() }) : null));
 }

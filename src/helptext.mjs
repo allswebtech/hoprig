@@ -48,12 +48,30 @@ const machinesCli = async () => (await import('./machines/cli.mjs')).USAGE;
 const serverCli = async () => (await import('./server/cli.mjs')).USAGE;
 const workspaceCli = async () => (await import('./workspace/cli.mjs')).USAGE;
 
-/** Each command's whole help. `top` is the top help, for the commands it alone describes. */
+// The four commands that no module of their own describes: their lines were once part of the top help, which now
+// only names them ("hoprig help <command>" and "hoprig <command> --help" print these).
+const PROFILES_USAGE = `usage:
+  hoprig profiles [--json]    list profiles
+  hoprig profiles map <name> [on|off] [--yes]
+                              a provider's model map (MODELS) for every session and chat on it:
+                                 what it would rename, and whether it is on (off at first)`;
+const ADD_USAGE = `usage:
+  hoprig add [name]           add a profile (a provider: another Claude account, an API key, a proxy)`;
+const RM_USAGE = `usage:
+  hoprig rm <name> [--yes]    delete a profile (asks first; --yes: without asking)`;
+const AUTO_USAGE = `usage:
+  hoprig auto [args]          start in Auto mode: when a provider reaches its limit, work goes on
+                                 under the next one without stopping, and comes back by itself
+  hoprig auto status          Auto mode's settings, each provider's usage and limits
+  hoprig auto on | off        make Auto the default way to start (off at first)
+  hoprig auto order a b c     the providers Auto mode uses, most preferred first`;
+
+/** Each command's whole help. */
 const COMMAND = {
-  profiles: (top) => linesFor(top, 'profiles'),
-  add: (top) => linesFor(top, 'add'),
-  rm: (top) => linesFor(top, 'rm'),
-  auto: (top) => linesFor(top, 'auto'),
+  profiles: () => PROFILES_USAGE,
+  add: () => ADD_USAGE,
+  rm: () => RM_USAGE,
+  auto: () => AUTO_USAGE,
   chat: async () => (await import('./chat/cli.mjs')).USAGE,
   setup: async () => (await import('./setup/setup.mjs')).SETUP_USAGE,
   doctor: setupCli,

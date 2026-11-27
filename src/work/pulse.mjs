@@ -309,7 +309,7 @@ async function sessionUnit(r, { key, conv, project, state, item = null, run = nu
 
 /**
  * The progress of this computer's Work, as every reader gets it: o: { cfg, place (null: no Work list), items, now, since
- * (ms or null) }. The time zone is Settings → Work's (else this computer's).
+ * (ms or null) }. The time zone is Work → Tasks → Work settings (at the foot)'s (else this computer's).
  */
 export async function readProgress({ cfg = {}, place = null, items = [], now = Date.now(), since = null, item = null, run = null, alive } = {}) {
   const tz = (cfg && cfg.work && typeof cfg.work.timeZone === 'string' && cfg.work.timeZone) || '';

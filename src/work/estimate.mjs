@@ -8,7 +8,7 @@
 //   the basis   the last ten `done` ones of that kind at most; a duration below zero or over seven days (a clock set
 //               back, a lost end) does not count
 //   the range   shortest to longest, rounded to five minutes: "about 5 h 30 to 8 h 30, from 4 like it"
-//   running     "done by about 14:30 to 17:30" (the local time of the computer, or the zone of Settings → Work); past
+//   running     "done by about 14:30 to 17:30" (the local time of the computer, or the zone of Work → Tasks → Work settings (at the foot)); past
 //               the longest one: "longer than any like it (the longest took 2 h)", never a new number
 
 export const BASIS_MAX = 10;

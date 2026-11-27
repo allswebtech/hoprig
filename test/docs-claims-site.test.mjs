@@ -33,10 +33,10 @@ test('a mission\'s tasks run one after another at first; Sessions at once lets u
   assert.match(whyNot({ ...c, running: 4, slots: 4 }), /at most 4 at once/);
   // The page's names are the dashboard's.
   assert.match(read('web/mission.js'), /num\('Sessions at once', 'atOnce'/);
-  assert.match(read('web/automation.js'), /choiceRow\('Runs by themselves at once'/);
+  assert.match(read('web/automation.js'), /choiceRow\('At most this many at once'/);
   const page = flat(read(SLEEP));
   assert.doesNotMatch(page, /in a mission whose plan you accepted, one after another/);
-  assert.match(page, /Her tasks run one after another at first\. \*\*Sessions at once\*\* on Work → Team lets up to four run side by side, never more than \*\*Runs by themselves at once\*\* in Settings → Automations \(also one at first\)\./);
+  assert.match(page, /Her tasks run one after another at first\. \*\*Sessions at once\*\* on Work → Team lets up to four run side by side, never more than \*\*At most this many at once\*\* on Work → Schedules \(also one at first\)\./);
 });
 
 test('the index: the tests run on the systems and Node.js versions of the workflow; what is new was tried by hand on Linux only', () => {
@@ -223,8 +223,7 @@ test('the Operator use case: the switches in the panel\'s order, what each needs
   // A rule of Tia's refuses that move below Hands off (src/operator/reflex.mjs).
   assert.match(read('src/operator/reflex.mjs'), /const paid = !p \|\| p\.kind === 'api' \|\| p\.paid === true;\n\s*if \(paid && tia\.level !== 'handsoff'\) throw refusal\('paid'/);
   assert.match(page, /\*\*Continue on the next provider\*\* goes to the next provider of your order under Providers → Auto mode, and it does not ask first\. When that order holds a pay-per-use API key, the work from there on costs money\. A rule of Tia's or \*\*Tia decides\*\* makes that move only at her level \*\*Hands off\*\*/);
-  // Operator is in the group More (web/shell.js), on a phone too (the tab More).
-  assert.match(read('web/shell.js'), /h\('div\.side-group-title', 'More'\)/);
+  // (The menu has no More group since 27 Nov 2026 (web/shell.js); the docs page below is rewritten by the operator lane.)
   assert.match(page, /\*\*Operator\*\* is in the menu's group \*\*More\*\*, on a phone too\./);
   assert.doesNotMatch(page, /last fetch|never fetches/);
 });

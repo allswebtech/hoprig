@@ -198,7 +198,7 @@ try {
     'computer-setup-desktop-light': async () => view('#/computer/setup', DESKTOP, 'light', 4000),
     'settings-desktop-light': async () => view('#/settings', DESKTOP, 'light', 2500),
     'work-schedules-desktop-light': async () => view('#/work/schedules', DESKTOP, 'light', 3000),
-    'coding-tools-desktop-light': async () => view('#/settings/codingtools', DESKTOP, 'light', 2500),
+    'coding-tools-desktop-light': async () => view('#/settings/new-sessions?show=coding-tools', DESKTOP, 'light', 2500),
     'updates-desktop-light': async () => view('#/settings/updates', DESKTOP, 'light', 3000),
     'public-link-desktop-light': async () => view('#/settings/public-link', DESKTOP, 'light', 2500),
     'projects-desktop-light': async () => view('#/workspace', DESKTOP, 'light', 4000),

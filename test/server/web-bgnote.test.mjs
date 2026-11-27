@@ -1,5 +1,5 @@
 // "A command it started still runs in the background": the one line a card shows for a session that WAITS for the
-// owner while a background command runs (web/lib.js bgCommandNote). The state stays "Waiting for your next message";
+// owner while a background command runs (web/lib.js bgCommandNote). The state stays "Finished";
 // this is an extra line, shown only when the session is waiting and a command runs — never when it is working (the
 // card then says "Working in the background") and never without a command. Wired into Home and the Workspace (the card
 // and the row in sessionitem.js), the session page (session.js) and the App's list (chat/sidebar.js).

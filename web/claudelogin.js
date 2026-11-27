@@ -46,13 +46,15 @@ function blankTab() {
  * offers to try again. `email` pre-fills the sign-in page. `after(result, body, close)` may draw what comes next
  * into the sheet (the sessions that go on); it returns true when it did, and the sheet then stays open.
  */
-export function claudeSignIn({ done = () => {}, another = false, email = '', after = null } = {}) {
+export function claudeSignIn({ done = () => {}, another = false, email = '', after = null, console: payPerUse = false } = {}) {
   let tab = blankTab();
   let finished = false;
   let poll = null;
   const head = another
     ? { title: 'Sign in with another Claude account', subtitle: 'The account signed in now stays until the new sign-in is complete.' }
-    : { title: 'Sign in to Claude Code', subtitle: 'With your Claude account. Claude Code keeps the sign-in on this computer; it never comes to this page.' };
+    : payPerUse
+      ? { title: 'Sign in to Claude Code', subtitle: 'With Anthropic Console: you pay for what you use. Claude Code keeps the sign-in on this computer; it never comes to this page.' }
+      : { title: 'Sign in to Claude Code', subtitle: 'With your Claude account. Claude Code keeps the sign-in on this computer; it never comes to this page.' };
   return openSheet(head, (close) => {
     const body = h('div.wizard', busy('Starting Claude Code on the computer…'));
     const terminal = () => h('p.hint', 'Not working? ', h('a', { href: '#', onclick: (e) => { e.preventDefault(); terminalWay(close); } }, 'Use the terminal instead'), '.');
@@ -155,7 +157,7 @@ export function claudeSignIn({ done = () => {}, another = false, email = '', aft
       fill(body, busy('Starting Claude Code on the computer…'));
       let r;
       try {
-        r = await api(R('/start'), email ? { email } : {});
+        r = await api(R('/start'), { ...(email ? { email } : {}), ...(payPerUse ? { console: true } : {}) });
       } catch (e) {
         if (tab) tab.close();
         tab = null;

@@ -2,8 +2,8 @@
 // before its release: a fact told twice now stands once, contradictions were mended, parts moved. That must lose no
 // fact. So this test holds the block's bold lead-ins as they were before (written here as data), and a lead-in that
 // is gone must name the item that now holds its fact and a few words of that fact that stand there. The unreleased
-// block is the first one (from "## 0.3.6"), then the released 0.3.5, 0.3.4 and 0.3.3. The released blocks are
-// history: the text after the unreleased block is held by its hash, so not one character of them changes.
+// block is the first one (from "## 0.4.0"), then the released 0.3.6, 0.3.5, 0.3.4 and 0.3.3. The released blocks
+// are history: the text after the unreleased block is held by its hash, so not one character of them changes.
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
@@ -13,13 +13,17 @@ import { fileURLToPath } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const text = fs.readFileSync(path.join(ROOT, 'site/content/changelog.md'), 'utf8').replace(/\r\n?/g, '\n');
-const at = text.indexOf('\n## 0.3.6 ');
+const at = text.indexOf('\n## 0.4.0 ');
 const end = text.indexOf('\n## ', at + 1);
 const block = text.slice(at, end);
+/** Where the released 0.3.5 block starts, after the released 0.3.6 one. */
+const from035 = text.indexOf('\n## ', end + 1);
+/** The released 0.3.6 block, right after the unreleased one. */
+const released036 = text.slice(end, from035);
 /** Where the released 0.3.4 block starts, after the released 0.3.5 one. */
-const from034 = text.indexOf('\n## ', end + 1);
-/** The released 0.3.5 block, right after the unreleased one. */
-const released035 = text.slice(end, from034);
+const from034 = text.indexOf('\n## ', from035 + 1);
+/** The released 0.3.5 block. */
+const released035 = text.slice(from035, from034);
 /** Where the released 0.3.3 block starts, after the released 0.3.4 one. */
 const from033 = text.indexOf('\n## ', from034 + 1);
 /** The released 0.3.4 block. */
@@ -28,8 +32,8 @@ const released034 = text.slice(from034, from033);
 const released = text.slice(from033, text.indexOf('\n## ', from033 + 1));
 /** Each item of the 0.3.3 block by its bold lead-in: the lead-in, and the item's whole line. */
 const items = new Map([...released.matchAll(/^- \*\*(.+?)\*\*.*$/gm)].map((m) => [m[1], m[0]]));
-/** An item by its lead-in where it stands now: the unreleased block, the released 0.3.5 or 0.3.4, else 0.3.3. */
-const newer = new Map([...(released034 + released035 + block).matchAll(/^- \*\*(.+?)\*\*.*$/gm)].map((m) => [m[1], m[0]]));
+/** An item by its lead-in where it stands now: the unreleased block, the released 0.3.6, 0.3.5 or 0.3.4, else 0.3.3. */
+const newer = new Map([...(released034 + released035 + released036 + block).matchAll(/^- \*\*(.+?)\*\*.*$/gm)].map((m) => [m[1], m[0]]));
 const current = new Map([...items, ...newer]);
 
 /** The block's bold lead-ins before it was put in order (217). */
@@ -344,17 +348,19 @@ const LATER = {
 };
 
 /**
- * sha256 of the text after the unreleased block (from "\n## 0.3.5 " to the file's end, line ends as "\n"), as the
- * released 0.3.5 has it: the released 0.3.5 block and every older one. It holds the text from "\n## 0.3.4 " and from
- * "\n## 0.3.3 " that this test held before, whose own hashes are still checked too.
+ * sha256 of the text after the unreleased block (from "\n## 0.3.6 " to the file's end, line ends as "\n"), as the
+ * released 0.3.6 has it: the released 0.3.6 block and every older one. It holds the text from "\n## 0.3.5 ", from
+ * "\n## 0.3.4 " and from "\n## 0.3.3 " that this test held before, whose own hashes are still checked too.
  */
+const OLDER_036 = '73724f3268a40458e6c2e70fea6dbecde8dd4e74c1fcc5ca994243743958ecbf';
 const OLDER_035 = 'caa6612960daa965b85008a4558dfa696ee25bb08f9a1e97248541e93b1ea642';
 const OLDER = 'f33e0b3bf5836f83fa330101760af8b4915a7b7b96f60fd6490aa79be290c0d7';
 const OLDER_033 = '9ef74182cb2c45872406c9b0bea479caf1ad48fede79fae8c5a5e65430d905a1';
 
 test('the unreleased block is found', () => {
-  assert.ok(at >= 0 && end > at, 'a block "## 0.3.6 …" followed by an older "## " block');
-  assert.ok(text.startsWith('\n## 0.3.5 (25 November 2026)\n', end), 'the block after it is the released 0.3.5');
+  assert.ok(at >= 0 && end > at, 'a block "## 0.4.0 …" followed by an older "## " block');
+  assert.ok(text.startsWith('\n## 0.3.6 (26 November 2026)\n', end), 'the block after it is the released 0.3.6');
+  assert.ok(text.startsWith('\n## 0.3.5 (25 November 2026)\n', from035), 'then the released 0.3.5');
   assert.ok(text.startsWith('\n## 0.3.4 (25 November 2026)\n', from034), 'then the released 0.3.4');
   assert.ok(text.startsWith('\n## 0.3.3 (24 November 2026)\n', from033), 'then the released 0.3.3');
   assert.ok(/^- \*\*/m.test(block), 'the unreleased block has entries');
@@ -396,7 +402,8 @@ test('a later lead-in that is gone names the item that holds its fact, and is re
 });
 
 test('the older blocks are history: not one character of them changed', () => {
-  assert.equal(createHash('sha256').update(text.slice(end)).digest('hex'), OLDER_035);
+  assert.equal(createHash('sha256').update(text.slice(end)).digest('hex'), OLDER_036);
+  assert.equal(createHash('sha256').update(text.slice(from035)).digest('hex'), OLDER_035);
   assert.equal(createHash('sha256').update(text.slice(from034)).digest('hex'), OLDER);
   assert.equal(createHash('sha256').update(text.slice(from033)).digest('hex'), OLDER_033);
 });
@@ -414,13 +421,17 @@ test('the lead-in about her rules counts them as the code has them, and its list
   for (const [id, w] of Object.entries(said)) assert.ok(current.get(lead).includes(w), `the item names the rule ${id}`);
 });
 
-test("the Operator's parts are named in the block as the page heads them", () => {
-  // The page's section headings (web/operator.js: h('h2.op-h', '…')); the page cannot be imported without a browser.
-  const heads = [...fs.readFileSync(path.join(ROOT, 'web/operator.js'), 'utf8').matchAll(/h\('h2\.op-h', '([^']+)'\)/g)].map((m) => m[1]);
-  assert.ok(heads.includes('Done by you') && heads.includes('Done by Tia'), heads.join(', '));
-  const named = [...(block + released035 + released034 + released).matchAll(/one line under \*\*([^*]+)\*\*/g)].map((m) => m[1]);
-  assert.ok(named.length >= 2, 'the blocks say where a step is written');
-  for (const n of named) assert.ok(heads.includes(n), `"${n}" is a part of the Operator page (${heads.join(', ')})`);
+test("the Operator's parts are named in the blocks as the page heads them", () => {
+  // The Operator has no page of its own any more: its parts are headed in web/operator-tia.js (Settings, Tia) and web/operator-rooms.js.
+  const now = ['operator-tia.js', 'operator-rooms.js'].flatMap((f) => [...fs.readFileSync(path.join(ROOT, 'web', f), 'utf8').matchAll(/h\('h[23]\.op-h', '([^']+)'\)/g)].map((m) => m[1]));
+  assert.ok(now.includes('Done by Tia'), now.join(', '));
+  // The released blocks (fixed by their hashes above) name the parts the page had then.
+  const then = [...now, 'Needs you', 'Done by you', 'Watched'];
+  const named = (t) => [...t.matchAll(/one line under \*\*([^*]+)\*\*/g)].map((m) => m[1]);
+  const old = named(released036 + released035 + released034 + released);
+  assert.ok(old.length >= 2, 'the released blocks say where a step is written');
+  for (const n of old) assert.ok(then.includes(n), `"${n}" was a part of the Operator page (${then.join(', ')})`);
+  for (const n of named(block)) assert.ok(now.includes(n), `"${n}" is a part of the Operator now (${now.join(', ')})`);
 });
 
 test('an unreleased heading says so, and RELEASING.md says who writes the date there', () => {

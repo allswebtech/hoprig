@@ -111,7 +111,7 @@ test(`settings, notifications, auto-switch safety net, password change (${kind})
 
   // --- settings: defaults, refused patches change nothing, a good patch round-trips ---
   let s = (await call('/api/settings', { cookie: A })).json;
-  assert.deepEqual(s.server.quickActions.map((q) => q.label), ['continue', '/clear']);
+  assert.deepEqual(s.server.quickActions.map((q) => q.label), ['continue']);
   assert.equal(s.server.notify, null);
   assert.deepEqual(s.notifyEvents, ['waiting', 'attention', 'limit', 'ended', 'switched', 'automation']);
   assert.equal(s.backend.kind, kind);

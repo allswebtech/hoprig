@@ -353,7 +353,7 @@ async function rulesStep(ui, want) {
  * `missing` lists "kit.item" still missing afterwards; `changed` is true when anything was installed or set.
  */
 // `extraSteps`: steps of `hoprig setup` itself (lingering), named `ownSteps` here: optional.mjs's extraSteps() is another thing.
-export async function runPcSetup({ ui, yes = false, dryRun = false, kits = null, recipe = null, projects = false, rules = null, hold = false, sys: sysOver, runner = stream, ghList, onStep, codingTools: tools = null, extras: extrasOver, extraSteps: ownSteps = [], get, signal, stopOn = [] } = {}) {
+export async function runPcSetup({ ui, yes = false, dryRun = false, kits = null, recipe = null, projects = false, rules = null, signInLater = false, hold = false, sys: sysOver, runner = stream, ghList, onStep, codingTools: tools = null, extras: extrasOver, extraSteps: ownSteps = [], get, signal, stopOn = [] } = {}) {
   ui.yes = ui.yes || yes;
   ui.dryRun = ui.dryRun || dryRun;
   const sys = sysOver || (await sysFacts());
@@ -380,7 +380,9 @@ export async function runPcSetup({ ui, yes = false, dryRun = false, kits = null,
     ui.line('warn', `${y.kit}: yours to do: ${y.text}`);
     if (y.command) ui.out(`    ${y.command}`);
   }
-  const asks = chosen.includes('github') && (found.github || []).some((i) => ['identity', 'signin'].includes(i.id) && i.state === 'missing');
+  // Inside `hoprig setup` at a terminal the commit name and the GitHub sign-in are the Git part's (asked once there).
+  const later = signInLater && ui.interactive && !ui.dryRun && !ui.yes;
+  const asks = !later && chosen.includes('github') && (found.github || []).some((i) => ['identity', 'signin'].includes(i.id) && i.state === 'missing');
   const rulesDue = rules === true || (rules === null && ui.interactive && !ui.yes && !(rulesState().installed && !rulesState().oldBlock));
   const repos = recipe && ((recipe.repos && recipe.repos.length) || (recipe.workspaces && recipe.workspaces.length));
   const ct = tools || (await import('../codetools/index.mjs'));
@@ -448,12 +450,12 @@ export async function runPcSetup({ ui, yes = false, dryRun = false, kits = null,
       ui.line('fail', `${t.name} was not installed: hoprig tools install ${t.id}`);
     }
   }
-  if (chosen.includes('github')) {
+  if (chosen.includes('github') && !later) {
     found = await detectKits(sys);
     if ((await github(ui, sys, found, recipe, runner)).length) changed = true;
   }
   if (await rulesStep(ui, rules)) changed = true;
-  if (await workspaceRulesStep(ui)) changed = true;
+  if (!later && await workspaceRulesStep(ui)) changed = true;
   let proj = null;
   if (projects || repos) {
     const gh = ghList || {
@@ -500,7 +502,8 @@ export async function runPcSetup({ ui, yes = false, dryRun = false, kits = null,
     if (!kitCovered(kit, sys.platform)) continue;
     // An item that is only found (Android Studio) is not "still missing": where to get it was said before the yes.
     const only = (i) => (kit.items.find((x) => x.id === i.id) || {}).foundOnly;
-    const miss = (after[k] || []).filter((i) => i.state === 'missing' && !only(i));
+    // The commit name and the GitHub sign-in the Git part asks next are not "still missing" yet.
+    const miss = (after[k] || []).filter((i) => i.state === 'missing' && !only(i) && !(later && k === 'github' && ['identity', 'signin'].includes(i.id)));
     missing.push(...miss.map((i) => `${k}.${i.id}`));
     // What is in the closing list already is not said here again.
     const said = miss.filter((i) => !(personal && PERSONAL[i.id] && ui.todos.has(PERSONAL[i.id])));

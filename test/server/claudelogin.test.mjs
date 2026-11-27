@@ -518,3 +518,19 @@ test('nothing of the account or a key in any response but the account route\'s',
   assert.ok(accountBodies.some((b) => b.includes('someone@example.invalid')), 'the account route is where the owner reads it');
   for (const secret of ['provider-key-should-not-leak', 'shouldnotleak', 'sk-ant-']) assert.equal(accountBodies.join('\n').includes(secret), false, secret);
 });
+
+test('pay as you use: --console is in the arguments only when the start asks for it', STANDIN, async () => {
+  const args = async (body) => {
+    process.env.FAKE_CLAUDE_ENV_FILE = ENV_FILE;
+    const r = await call('/api/accounts/claude-login/start', body, { remote: true });
+    assert.equal(r.json.state, 'link');
+    const got = JSON.parse(fs.readFileSync(ENV_FILE, 'utf8')).args;
+    delete process.env.FAKE_CLAUDE_ENV_FILE;
+    await call('/api/accounts/claude-login/cancel', {});
+    return got;
+  };
+  assert.deepEqual(await args({}), []);
+  assert.deepEqual(await args({ console: false }), []);
+  assert.deepEqual(await args({ console: 'yes' }), [], 'only the boolean true counts');
+  assert.deepEqual(await args({ console: true }), ['--console']);
+});

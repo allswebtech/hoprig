@@ -11,18 +11,21 @@ const read = (f) => fs.readFileSync(path.join(ROOT, f), 'utf8');
 const flat = (s) => s.replace(/\s+/g, ' ');
 const PAGE = 'site/content/use-cases/not-a-developer.md';
 
-test('the install line installs Node.js and Hoprig; Claude Code is set-up\'s question, not the installer\'s', () => {
+test('the install line installs Node.js and Hoprig; Claude Code is set-up\'s own step, not the installer\'s', () => {
   const sh = read('install.sh');
   const setup = read('src/setup/setup.mjs');
-  // install.sh never runs Claude Code's installer; set-up does, after its own question.
+  // install.sh never runs Claude Code's installer; set-up does, without a question.
   assert.doesNotMatch(sh, /claude\.ai\/install/);
-  assert.match(sh, /Install now\? \[Y\/n\]/);
-  assert.match(sh, /sudo may ask for your computer password\./);
-  assert.match(setup, /ui\.line\('warn', 'Claude Code is not installed\.'\);\n\s*if \(!\(await ui\.confirm\('Install it now\?', true\)\)\)/);
+  assert.doesNotMatch(sh, /Install now/, 'the installer asks nothing before it installs');
+  assert.doesNotMatch(read('install.ps1'), /Install now|Confirm-Step/);
+  assert.match(sh, /If your computer asks for its password, type it and press Enter/);
+  assert.match(setup, /if \(!ui\.quiet\) ui\.line\('warn', 'Claude Code is not installed\.'\);/);
+  // No question where Claude Code is on in Coding tools and someone is there or said --yes; asked (and skipped with no terminal) elsewhere.
+  assert.match(setup, /includes\('claude'\) && \(ui\.interactive \|\| ui\.yes\)\) && !\(await ui\.confirm\('Install it now\?', true\)\)/);
   const page = flat(read(PAGE));
-  assert.doesNotMatch(page, /after asking you once: Node\.js \(the program that Hoprig and Claude Code run on\) and Claude Code itself/);
-  assert.match(page, /It lists what is missing and asks you once: Node\.js \(the program that Hoprig and Claude Code run on\), and on Linux a few system programs, for which the computer may ask for your password\. Then it installs Hoprig\./);
-  assert.match(page, /When Claude Code is missing, it asks whether to install it now\./);
+  assert.doesNotMatch(page, /asks you once|after asking you once: Node\.js \(the program that Hoprig and Claude Code run on\) and Claude Code itself/);
+  assert.match(page, /It lists what is missing and installs it, without asking: Node\.js \(the program that Hoprig and Claude Code run on\), and on Linux a few system programs, for which the computer may ask for your password\. Then it installs Hoprig\./);
+  assert.match(page, /When Claude Code is missing, it installs it for you\./);
 });
 
 test('not signed in to Claude: set-up says so and goes on, and the sign-in is Get started\'s press', () => {

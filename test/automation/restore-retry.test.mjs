@@ -160,10 +160,10 @@ test('restore: the reopened command line is the launcher\'s move, so the session
   assert.deepEqual(argv, ['hop', 'auto', '--model', 'opus', '--effort', 'high', '--permission-mode', 'plan', '--resume', SID]);
 });
 
-test('restore default: on for the built-in terminals, off for tmux, the owner decides otherwise', () => {
+test('restore default: on everywhere (a restart of the computer ends tmux too), the owner decides otherwise', () => {
   const s = JSON.parse(JSON.stringify(DEFAULTS));
   assert.equal(restoreOn(s, { capabilities: { persistent: false } }), true);
-  assert.equal(restoreOn(s, { capabilities: { persistent: true } }), false);
+  assert.equal(restoreOn(s, { capabilities: { persistent: true } }), true);
   s.restore.enabled = true;
   assert.equal(restoreOn(s, { capabilities: { persistent: true } }), true);
   s.restore.enabled = false;

@@ -1,4 +1,4 @@
-// The way out of an error: a server sentence that says "turn it on in Settings → Coding tools" sends a `code` beside
+// The way out of an error: a server sentence that says "turn it on in Settings → New sessions → Coding tools" sends a `code` beside
 // its error, and this one table turns that code into a button to the place (lib.js wayButton, used by a toast of an
 // error and by errorBox). One table for the whole page, never a list per page. The label is the place's own heading;
 // `?show=<id>` brings a switch or field into view (showpart.js). A way only opens the place: nothing is pressed,
@@ -15,18 +15,18 @@ export const WAYS = {
   'no-provider': { label: 'Providers', href: '#/providers' },
   'provider-not-served': { label: 'Providers', href: '#/providers' },
   // A coding tool that is off, not installed, or whose server did not start (src/codetools, src/chat/engines).
-  'tool-off': { label: 'Coding tools', href: '#/settings/codingtools' },
-  'tool-not-installed': { label: 'Coding tools', href: '#/settings/codingtools' },
-  'tool-not-started': { label: 'Coding tools', href: '#/settings/codingtools' },
-  // A coding tool to install (src/codetools/start.mjs: "Install it in Settings → Coding tools"): its Install button is there.
-  'tool-install': { label: 'Coding tools', href: '#/settings/codingtools' },
+  'tool-off': { label: 'Coding tools', href: '#/settings/new-sessions?show=coding-tools' },
+  'tool-not-installed': { label: 'Coding tools', href: '#/settings/new-sessions?show=coding-tools' },
+  'tool-not-started': { label: 'Coding tools', href: '#/settings/new-sessions?show=coding-tools' },
+  // A coding tool to install (src/codetools/start.mjs: "Install it in Settings → New sessions → Coding tools"): its Install button is there.
+  'tool-install': { label: 'Coding tools', href: '#/settings/new-sessions?show=coding-tools' },
   // Settings switches and fields a refusal names.
   'bypass-off': { label: 'New-session defaults', href: '#/settings/new-sessions?show=bypass' },
   // Bypass permissions refused because Hoprig runs as root (src/bypassgate.mjs ROOT_BYPASS_LINE): the page that
   // explains it and moves Hoprig to an ordinary user. It opens the page only; the move is his own press there.
   'root-bypass': { label: 'Runs as root', href: '#/settings/root' },
-  'learn-off': { label: 'Learn skills', href: '#/settings/learn' },
-  'limiter-changed': { label: 'Go live', href: '#/settings/golive?show=sp-limiter' },
+  'learn-off': { label: 'Learn skills', href: '#/skills/learned' },
+  'limiter-changed': { label: 'Go live', href: '#/work/golive?show=sp-limiter' },
   'no-password': { label: 'Security and sign-in', href: '#/settings/security?show=password' },
   'notify-address': { label: 'Notifications', href: '#/settings/notifications?show=page-address' },
   'updates-moved': { label: 'Updates', href: '#/settings/updates' },
@@ -41,13 +41,13 @@ export const WAYS = {
   'gateway-service': { label: 'Health', href: '#/computer/health' },
   'gateway-no-provider': { label: 'Providers', href: '#/providers?show=gateways' },
   'gateway-not-shared': { label: 'Providers', href: '#/providers?show=gateways' },
-  // Work's place (src/work/place.mjs): a project that is gone (Settings → Work), or no AI brain yet (its page sets it up).
-  'work-place-gone': { label: 'Settings → Work', button: "Open Work's settings", href: '#/settings/work' },
+  // Work's place (src/work/place.mjs): a project that is gone (Work → Tasks → Work settings), or no AI brain yet (its page sets it up).
+  'work-place-gone': { label: 'Work settings', button: "Open Work's settings", href: '#/work/tasks?show=work-place' },
   'no-workspace': { label: 'AI brain', href: '#/brain' },
   // An Accept of a plan that was interrupted and waits (src/work/planstore.mjs): Work's own page shows its record and Drop.
   'interrupted': { label: 'Work', href: '#/work' },
-  // A planning tool's file that does not use his id yet (src/work/model.mjs): the field in Settings → Work.
-  'owner-id': { label: 'Settings → Work', button: "Open Work's settings", href: '#/settings/work?show=owner-id' },
+  // A planning tool's file that does not use his id yet (src/work/model.mjs): the field in Work → Tasks → Work settings.
+  'owner-id': { label: 'Work settings', button: "Open Work's settings", href: '#/work/tasks?show=owner-id' },
   // The places the Operator's texts name (src/operator: item.mjs, decide-table.mjs, rules.mjs, reflex.mjs, decider.mjs).
   // "Tia decides → Change the limits" and a hold are on the Operator page.
   'operator-page': { label: 'Operator', href: '#/operator' },

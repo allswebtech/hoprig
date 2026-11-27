@@ -355,7 +355,7 @@ export function likelyOwnerId(doc) {
  * does it: me"): the planning tool would not know that word.
  */
 export const needsOwnerId = (doc, ownerId) => plannerShape(doc) && !rawItems(doc).some((x) => x.owner === ownerId || x.source === ownerId);
-const ownerIdFirst = () => Object.assign(new Error('this Work list is kept in a planning file. First type your name or initials, as that file uses them, in Settings → Work → "Your id in a planning file". New items then get the same form.'), { status: 409, code: 'owner-id', details: { code: 'owner-id' } });
+const ownerIdFirst = () => Object.assign(new Error('this Work list is kept in a planning file. First type your name or initials, as that file uses them, in Work → Tasks → Work settings (at the foot) → More → "Your id in a planning file". New items then get the same form.'), { status: 409, code: 'owner-id', details: { code: 'owner-id' } });
 
 // ---------- changes (ctx: { today, ownerId, projects }) ----------
 

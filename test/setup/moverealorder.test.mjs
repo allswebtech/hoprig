@@ -26,7 +26,7 @@ const { projectSlug: slugOf } = await import('../../src/sessions.mjs');
 // Claude Code names a project folder after its real path (process.cwd()); a temporary folder may be reached through a
 // link (macOS: /var is a link to /private/var), and a path here may not be made yet.
 const projectSlug = (p) => slugOf(path.join(fs.realpathSync(s.tmp), path.relative(s.tmp, p)));
-const { gatewayAddons, portOf } = await import('../../src/addons/gateways.mjs');
+const { gatewayAddons } = await import('../../src/addons/gateways.mjs');
 
 const UID = 1234;
 const PORT = 8442; // the dashboard's port of this test (never the product's default)
@@ -64,11 +64,12 @@ const ok = { ok: true, code: 0, stdout: '', stderr: '' };
 let made = false;
 let trial = false;
 let dash = null; // { pid, uid } of what listens on PORT
+let gwInstalled = false;
 let gwl = { pid: 4343, uid: 0 }; // root's gateway
 const uids = new Map([[4343, 0]]);
 const ssText = () => [
   dash && `LISTEN 0 511 127.0.0.1:${PORT} 0.0.0.0:* users:(("node",pid=${dash.pid},fd=20))`,
-  gwl && `LISTEN 0 511 127.0.0.1:${portOf(gw)} 0.0.0.0:* users:(("node",pid=${gwl.pid},fd=21))`,
+  gwl && `LISTEN 0 511 127.0.0.1:${gw.gateway.port()} 0.0.0.0:* users:(("node",pid=${gwl.pid},fd=21))`,
 ].filter(Boolean).join('\n');
 const userState = path.join(madeHome, '.local/state/hoprig');
 const low = {
@@ -98,7 +99,10 @@ const low = {
         uids.set(4242, UID);
         return ok;
       }
+      if (rest.join(' ') === `hoprig addons install ${gw.id}`) return (gwInstalled = true, ok);
       if (rest.join(' ') === `hoprig addons start ${gw.id}`) {
+        // As on a real server: root's copy lives in root's Node, so the user's start finds nothing until it is installed for the user.
+        if (!gwInstalled) return { ok: false, code: 1, stdout: `${gw.title} is not installed (hoprig addons install ${gw.id})\n`, stderr: '' };
         gwl = { pid: 4344, uid: UID };
         uids.set(4344, UID);
         return ok;
@@ -178,6 +182,8 @@ test('only root, one command: every real step of the move works for the user the
   assert.ok(seen.chown.some((c) => c.p === newName), 'the catch-up gave its file to the made user');
   // The gateway: root's stopped by its pid, its data copied into the made home, started and seen as the made user.
   assert.deepEqual(seen.killed, [4343]);
+  const gwRuns = seen.asUser.map((a) => a.what).filter((w) => w.startsWith('hoprig addons '));
+  assert.deepEqual(gwRuns, ['hoprig addons install', 'hoprig addons start'], 'the package is installed for the user, then started');
   assert.equal(fs.readFileSync(path.join(madeHome, gw.dataDir, 'accounts.json'), 'utf8'), '{"made":"up"}');
   assert.match(text, new RegExp(`${gw.title} runs as hoprig\\.`));
   assert.match(fs.readFileSync(path.join(madeHome, '.config/hoprig/profiles/alpha.env'), 'utf8'), new RegExp(`addons start ${gw.id}"`));

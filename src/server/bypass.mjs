@@ -4,7 +4,7 @@
 //   GET  /api/settings/bypass        → { allow, kept (when the one-time step kept bypass on: Home says it once),
 //                                    terminals (terminal sessions running in bypass now) }
 //   POST /api/settings/bypass        { allow, confirm }   on: only with confirm: true (the page asks first); off: the
-//                                    open App sessions in bypass go to Manual, and New-session defaults stop naming it
+//                                    open App sessions in bypass go to Manual, and New sessions stop naming it
 //   POST /api/settings/bypass/seen   Home's note about the one-time step was read: it goes
 import path from 'node:path';
 import { BYPASS, bypassAllowed, bypassInArgs, firstLook } from '../bypassgate.mjs';

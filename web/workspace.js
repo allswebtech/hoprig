@@ -481,6 +481,8 @@ function autoPanel(onMap = () => {}) {
       !w.map ? 'Needs the map kept up to date (above).' : why ? commitMapWhy(why) : 'Commits the map and this computer\'s own file when they changed; nothing else in the brain.');
     commit.querySelector('input').disabled = !w.map;
     commit.classList.toggle('is-off', !w.map);
+    // Four switches open; the rest (saving the map's history, the credentials, the daily and weekly looks, pushing
+    // other branches, how often) under a More.
     fill(box,
       toggle('Keep the map up to date', !!w.map, async (v) => {
         const ok = await save({ map: v });
@@ -490,22 +492,25 @@ function autoPanel(onMap = () => {}) {
         }
         return ok;
       },
-        'Adds what is new on this computer to the map; written only when something changed, and only where a map exists.'),
-      commit,
+        { line: 'Adds what is new on this computer to the map.', more: 'Written only when something changed, and only where a map exists.' }),
       toggle('Save the AI memory by itself', !!w.memory, (v) => save({ memory: v }),
         'Commits the memory folders of the AI brain and of your groups\' own repositories, and only them, when they changed.'),
       toggle('Keep the workspace in step', !!w.sync, (v) => save({ sync: v }),
-        ['Gets what is new for the AI brain, your groups\' own repositories and the other repositories, and moves one forward only when nothing is in the way. A project is never moved by itself: Sync on ', h('a', { href: link('#/workspace') }, 'the Workspace page'), ' does that when you ask.']),
+        { line: 'Gets what is new for the AI brain, your groups\' own repositories and the other repositories.',
+          more: ['It moves a repository forward only when nothing is in the way. A project is never moved by itself: Sync on ', h('a', { href: link('#/workspace') }, 'the Workspace page'), ' does that when you ask.'] }),
       toggle('Also upload', !!w.push, (v) => save({ push: v }),
-        'Uploads what is only ahead here: the map\'s commit and, with keeping in step, those repositories. With the map saved too, a map another computer changed is brought in step by itself. Off: nothing leaves this computer by itself.'),
-      credsToggle(w, save),
-      ...looksToggles(w, save),
-      branchToggles(w, save),
-      h('label.fieldrow', h('span.field-label', 'Every how many hours'), h('div.inlineform', hours, btn('small secondary', { label: 'Save', onclick: async () => {
-        const n = Number(hours.value);
-        if (!Number.isInteger(n) || n < 1 || n > 168) return toast('A whole number of hours, 1 to 168.', { kind: 'error' });
-        if (await save({ everyHours: n })) toast('Saved');
-      } }))));
+        { line: 'Off: nothing leaves this computer by itself.',
+          more: 'On: uploads what is only ahead here, the map\'s commit and, with keeping in step, those repositories. With the map saved too, a map another computer changed is brought in step by itself.' }),
+      fold('workspace-auto-more', 'More',
+        commit,
+        credsToggle(w, save),
+        ...looksToggles(w, save),
+        branchToggles(w, save),
+        h('label.fieldrow', h('span.field-label', 'Every how many hours'), h('div.inlineform', hours, btn('small secondary', { label: 'Save', onclick: async () => {
+          const n = Number(hours.value);
+          if (!Number.isInteger(n) || n < 1 || n > 168) return toast('A whole number of hours, 1 to 168.', { kind: 'error' });
+          if (await save({ everyHours: n })) toast('Saved');
+        } })))));
   };
   api('/api/automation').then(async (st) => {
     w = { map: true, commitMap: false, memory: false, sync: false, push: false, pushBranches: {}, everyHours: 6, credentials: false, onlyHere: false, servers: false, ...((st.settings && st.settings.workspace) || {}) };
@@ -553,7 +558,8 @@ function placesPanel(st, refresh) {
     h('div.rows',
       h('div.row.static', h('span.row-main', h('span.row-title', 'Workspace'), h('span.row-sub.mono', st.short)), change('dir', 'Workspace folder', st.short)),
       h('div.row.static', h('span.row-main', h('span.row-title', 'Projects folder'), h('span.row-sub.mono', st.projectsShort)), change('projects', 'Projects folder', st.projectsShort))),
-    res);
+    res,
+    computerPanel());
 }
 
 /**
@@ -641,7 +647,7 @@ function settingsRender() {
       const mapSlot = h('div');
       const paintMap = (map) => fill(mapSlot, mapPanel(m, draw, mapKept(auto, map)));
       paintMap();
-      fill(box, placesPanel(st, draw), computerPanel(), workspaceFolders(), mapSlot, peerPanel(), autoPanel(paintMap));
+      fill(box, placesPanel(st, draw), workspaceFolders(), mapSlot, peerPanel(), autoPanel(paintMap));
     } catch (e) {
       fill(box, errorBox(`The workspace could not be read: ${e.message}`, draw));
     }

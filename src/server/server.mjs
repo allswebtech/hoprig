@@ -77,6 +77,7 @@ import { machinesFeature } from '../machines/index.mjs';
 import { healthFeature } from '../machines/health.mjs';
 import { ownLinePage } from '../machines/healthline.mjs';
 import { gatewayHostFeature } from '../addons/gatewayhost.mjs';
+import { gatewayManageFeature } from '../addons/gatewaymanage.mjs';
 import { confirmedCard } from '../assistant/confirmed.mjs';
 import { assistantFeature } from '../assistant/feature.mjs';
 import { automationFeature } from '../automation/feature.mjs';
@@ -246,7 +247,7 @@ export function createServer(opts = {}) {
   };
   const roots = () => resolveRoots(cfg().server.roots);
   // The models one session may start with: the fixed aliases, plus the model saved as the default for new sessions
-  // (already checked when it was saved), so the page offers exactly what Settings → New-session defaults offers.
+  // (already checked when it was saved), so the page offers exactly what Settings → New sessions offers.
   // An older page's list (sessionChoices.models): the family names, plus the saved default. A picker of this version
   // asks GET /api/models for the provider's own list (src/models/catalog.mjs).
   const sessionModels = () => {
@@ -355,19 +356,20 @@ export function createServer(opts = {}) {
     automationFeature(ctx, { tick: opts.watch !== false, chat, work: () => work.sched, ...opts.automation }), // queue, schedules (also of chats and runs that end by themselves), restore, retry, updates, idle care
     addonsFeature(ctx, opts.addons), // Settings → Add-ons: install, start, stop, update, set up as an account
     gatewayHostFeature(ctx, opts.gatewayhost), // Health → Gateways: start, stop and run a gateway as a service on this computer, behind a confirmation that names it
+    gatewayManageFeature(ctx, opts.gatewaymanage), // Providers → the shipped gateway: its accounts, limits, Add, combos and keys, through its own management interface (never Tia's)
     modelsFeature(ctx, { autoOn: () => autoOn(), ...opts.models }), // the models a picker offers: the provider's own list (src/models)
     accountsFeature(ctx, { remote: gateway.states, removing: gateway.forget, ...opts.accounts }), // Providers: add a subscription, an API key or a gateway in the page
     providersFeature(ctx, opts.providers), // Providers → a provider: its check (sent only on the owner's press), its map, what is left
     claudeLoginFeature(ctx, opts.claudeLogin), // Claude Code's own sign-in from the page (Setup, Get started, Providers)
     pcsetupFeature(ctx, opts.pcsetup), // PC → Setup: system status, set up this computer, projects, recipes
     newProjectFeature(ctx, { chat, ...opts.newproject }), // New project's "Start with AI": a session with the new-project skill and the brief
-    skillhubFeature(ctx, opts.skillhub), // Settings → Skills: installed, suggested for a project, find, review → approve, updates
+    skillhubFeature(ctx, opts.skillhub), // Skills: installed, suggested for a project, find, review → approve, updates
     onboardingFeature(ctx, opts.onboarding), // Home → Get started: the steps a new user goes through, done or not
     workspaceFeature(ctx, opts.workspace), // Workspace: the tree, its map, restore and sync, Git and GitHub, the AI brain (read-only)
     leaveFeature(ctx, opts.leave), // Computers → Before you format this computer: the whole check (read only), the daily line on Home, the one press that pushes the other branches
     adoptFeature(ctx, opts.adopt), // Workspace → Projects found on this computer: look, suggest, arrange (the owner's own page only)
     learn, // Skills → Learned: drafts of skills from the owner's own work (off by default), Install, Discard, Undo
-    fieldFeature(ctx, opts.field), // Settings → Field reports and their Home lines: nothing is sent, shown or learned without the owner's choice
+    fieldFeature(ctx, opts.field), // Settings → Version and updates → Field reports and their Home lines: nothing is sent, shown or learned without the owner's choice
     proposalsFeature(ctx, { reload: () => features.find((f) => f.name === 'assistant')?.core?.skills?.reload(), ...opts.proposals }), // Skills: proposal files of an outside improvement loop, Accept with Undo, Not now
     improveFeature(ctx, opts.improve), // Settings → Tia → Improve Tia: a round that measures rewordings of her texts and proposes the better ones
     work, // Work: tasks and Today, kept in a file of the workspace and saved to git by name; "Do it" opens a chat
@@ -679,7 +681,7 @@ export function createServer(opts = {}) {
       const held = heldUntil(); // "start nothing new": a decision of Tia's while the computer was overloaded
       if (held) throw heldError(held);
       if (b.permissionMode === BYPASS && asRoot) throw Object.assign(new HttpError(409, ROOT_BYPASS_LINE), { details: { code: 'root-bypass' } });
-      if (b.permissionMode === BYPASS && !bypassAllowed(cfg(), asRoot)) throw Object.assign(bad('bypass permissions mode (the coding tool then acts without asking you first) is off: turn on "Allow bypass permissions mode" in Settings → New-session defaults first.'), { details: { code: 'bypass-off' } });
+      if (b.permissionMode === BYPASS && !bypassAllowed(cfg(), asRoot)) throw Object.assign(bad('bypass permissions mode (the coding tool then acts without asking you first) is off: turn on "Allow bypass permissions mode" in Settings → New sessions first.'), { details: { code: 'bypass-off' } });
       const dir = insideRoots(v.absPath(b.dir), roots());
       if (!dir) throw bad('choose a folder inside the allowed roots');
       // `tool`: the coding tool (absent: Claude Code, as before). Codex and OpenCode take their own choices.
@@ -764,7 +766,11 @@ export function createServer(opts = {}) {
       const r = roots();
       const dir = b.dir ? insideRoots(v.absPath(b.dir), r) : r[0];
       if (!dir) throw bad('choose a folder inside the allowed roots');
-      return { name: await deck.shell(dir) };
+      // The terminal pane under a chat sends its chat's id: the shell is made for that chat and ends when it is archived.
+      if (b.chat !== undefined && (typeof b.chat !== 'string' || !b.chat || b.chat.length > 100)) throw bad('bad chat');
+      const name = await deck.shell(dir);
+      if (b.chat) chat.madeShell(b.chat, name);
+      return { name };
     }],
     ['GET', /^\/api\/sessions\/([^/]+)$/, async (req, m) => {
       const name = decodeURIComponent(m[1]);
@@ -1002,7 +1008,7 @@ export function createServer(opts = {}) {
         if (b.server !== undefined) serverPatch = cleanServerPatch(b.server);
         if (b.sessionDefaults !== undefined) sessionDefaults = cleanSessionDefaults(b.sessionDefaults);
         if (sessionDefaults && sessionDefaults.permissionMode === BYPASS && asRoot && (cfg().sessionDefaults || {}).permissionMode !== BYPASS) throw new Error(ROOT_BYPASS_LINE);
-        if (sessionDefaults && sessionDefaults.permissionMode === BYPASS && !asRoot && !bypassAllowed(cfg())) throw Object.assign(new Error('bypass permissions mode (the coding tool then acts without asking you first) is off: turn on "Allow bypass permissions mode" in Settings → New-session defaults first.'), { details: { code: 'bypass-off' } });
+        if (sessionDefaults && sessionDefaults.permissionMode === BYPASS && !asRoot && !bypassAllowed(cfg())) throw Object.assign(new Error('bypass permissions mode (the coding tool then acts without asking you first) is off: turn on "Allow bypass permissions mode" in Settings → New sessions first.'), { details: { code: 'bypass-off' } });
         // Keeping Hoprig on root on purpose: only as root, and only with the sentence typed as it is written (its case
         // aside), so it is never chosen by one click or for a computer that is not on root.
         if (b.stayRoot !== undefined) stayRoot = stayRootChoice(b.stayRoot, asRoot);

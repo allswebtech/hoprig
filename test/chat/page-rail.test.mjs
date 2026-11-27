@@ -33,13 +33,13 @@ test('the session rail: where the session runs, its cost only in Verbose on a bi
   assert.equal(R.railHidden(), true, 'a new page opens with it hidden');
   rail.toggle();
   assert.equal(R.railHidden(), false);
-  // Beside the rail the dock does not say again what the rail says: the strip, the context, the plan usage, the cost.
+  // Beside the rail the dock does not say again what the rail says: the context, the plan usage, the cost.
   const fs = await import('node:fs');
   const css = fs.readFileSync(new URL('../../web/chat/rail.css', import.meta.url), 'utf8');
   assert.match(css, /@media \(min-width: 1100px\)/);
   assert.equal(R.RAIL_MIN_PX, 1100, 'the script and the sheet agree on the width');
   for (const k of ['Context', 'Plan limits', 'Cost so far']) assert.ok(css.includes(`[data-k='${k}']`), k);
-  assert.match(css, /chat-rail-off\) \.chat-strip \{ display: none; \}/);
+  assert.doesNotMatch(css, /chat-bg|chat-strip/, 'the Background tasks part above the box shows beside the rail too');
   delete globalThis.localStorage;
 });
 
@@ -79,6 +79,7 @@ test('the rail\'s Changes card: asked again after each tool and turn, one questi
   globalThis.matchMedia = () => ({ matches: true, addEventListener() {} });
   // Each question waits until the test answers it: two news while one is asked make one more question, not two.
   globalThis.fetch = (u) => new Promise((res) => {
+    if (String(u).endsWith('/pr')) return res({ status: 404, ok: false, json: async () => ({ error: 'not found' }) }); // the pull request is another test's
     asked.push(String(u));
     answer = () => res({ status: 200, ok: true, json: async () => ({ git: true, files: 1, added: 0, removed: 0, untracked: 1, list: [{ path: '/w/a/notes.md', new: true, added: 0, removed: 0 }] }) });
   });
@@ -305,7 +306,7 @@ test('the branch name in the rail and in the status line is a button that copies
   }
 });
 
-test('a state update keeps the rail\'s controls (the Provider link, a task\'s Stop) where the keyboard is: redrawn only when they change', async () => {
+test('a state update keeps the rail\'s controls (the Provider link, the cost row) where the keyboard is: redrawn only when they change', async () => {
   const mm = globalThis.matchMedia;
   globalThis.matchMedia = () => ({ matches: true, addEventListener() {}, removeEventListener() {} });
   const realFetch = globalThis.fetch;
@@ -318,45 +319,17 @@ test('a state update keeps the rail\'s controls (the Provider link, a task\'s St
     const v = { cwd: '/w/a', branch: 'main', profile: { name: 'auto', label: 'Auto' }, status: 'waiting', engine: { id: 'claude', capabilities: {} }, usage: {}, tasks: [task] };
     rail.paint(v);
     const link = () => byClass(rail.el, 'chat-rail-link').find((b) => texts(b).join('') === 'Auto');
-    const stop = () => byClass(rail.el, 'chat-taskstop')[0] || byClass(rail.el, 'btn').find((b) => /Stop/.test(texts(b).join('')));
-    const [l1, s1] = [link(), stop()];
-    assert.ok(l1 && s1);
+    const l1 = link();
+    assert.ok(l1);
     rail.paint({ ...v, status: 'working', usage: { contextUsed: 10 }, tasks: [{ ...task }] }); // a turn: news, nothing in these rows changed
     assert.equal(link(), l1, 'the same Provider button: its focus stays');
-    assert.equal(stop(), s1, 'the same Stop button');
     // Never taken out of the page either (the browser moves the focus off a control taken out and put back).
     const out = (n) => n.taken || 0;
-    const [lt, st] = [out(l1), out(s1)];
+    const lt = out(l1);
     const kept = (why) => {
       assert.equal(link(), l1, `${why}: the same Provider button`);
-      assert.equal(stop(), s1, `${why}: the same Stop button`);
       assert.equal(out(l1), lt, `${why}: the Provider button stayed in the page`);
-      assert.equal(out(s1), st, `${why}: the Stop button stayed in the page`);
-      for (let n = s1; n; n = n.parentNode) assert.equal(out(n), n === s1 ? st : 0, `${why}: its row and list stayed in the page`);
     };
-    // An agent reports progress every few seconds: what it does now and its tokens change, in its row's tooltip.
-    const agent = { taskId: 'a1', type: 'agent', status: 'running', title: 'Explore', toolId: 'u2', now: 'Running grep', usage: { tokens: 900 } };
-    rail.paint({ ...v, tasks: [task, agent] });
-    const s1row = s1.parentNode;
-    const tip = () => byClass(rail.el, 'chat-rail-task')[1].attrs.title;
-    const tip1 = tip();
-    // The row that reports the progress keeps its own controls too: a rebuild at every tick would take the keyboard off them.
-    const own = () => [byClass(byClass(rail.el, 'chat-rail-task')[1], 'chat-taskstop')[0], byClass(byClass(rail.el, 'chat-rail-task')[1], 'chat-rail-taskname')[0]];
-    const [as1, an1] = own();
-    assert.ok(as1 && an1);
-    const [ast, ant] = [out(as1), out(an1)];
-    rail.paint({ ...v, tasks: [task, { ...agent, now: 'Reading cart.js', usage: { tokens: 1500 } }] });
-    kept('an agent\'s progress');
-    assert.notEqual(tip(), tip1, 'the progress is written into the row');
-    assert.deepEqual(own(), [as1, an1], 'the progressing row keeps its own Stop and its name');
-    assert.deepEqual([out(as1), out(an1)], [ast, ant], '… and neither left the page');
-    rail.paint({ ...v, tasks: [task, agent, { taskId: 'a2', type: 'agent', status: 'running', title: 'Review' }] });
-    kept('another task starts');
-    assert.equal(byClass(rail.el, 'chat-rail-task').length, 3);
-    rail.paint({ ...v, tasks: [task, { ...agent, status: 'completed' }, { taskId: 'a2', type: 'agent', status: 'running', title: 'Review' }] });
-    kept('another task ends');
-    assert.deepEqual(byClass(rail.el, 'chat-rail-taskname').map((n) => texts(n).join('')), ['sleep 60', 'Review']);
-    assert.equal(s1.parentNode, s1row);
     // Verbose on a provider billed by use: the cost rises after a turn, a row of its own appears and changes.
     const billedV = { ...v, profile: { name: 'api', label: 'Auto', kind: 'api' }, costTotal: 0.1 };
     view = 'verbose';
@@ -370,62 +343,28 @@ test('a state update keeps the rail\'s controls (the Provider link, a task\'s St
     rail.paint({ ...v, profile: { name: 'gw', label: 'Gateway' }, tasks: [] });
     assert.equal(link(), undefined, 'another provider: "Auto" is gone');
     assert.ok(byClass(rail.el, 'chat-rail-link').some((b) => texts(b).join('') === 'Gateway'), '… and its name is said');
-    assert.equal(stop(), undefined);
+    assert.equal(byClass(rail.el, 'chat-rail-task').length + byClass(rail.el, 'chat-taskstop').length, 0, 'the rail has no background tasks: they are above the box');
   } finally {
     globalThis.matchMedia = mm;
     globalThis.fetch = realFetch;
   }
 });
 
-test('a rail task\'s Stop can be pressed again after a stop that did not reach the computer', async () => {
+test('the rail holds no Background tasks card and no long provider text: both moved (the tasks above the box, the words into a tooltip)', async () => {
   const mm = globalThis.matchMedia;
   globalThis.matchMedia = () => ({ matches: true, addEventListener() {}, removeEventListener() {} });
   const realFetch = globalThis.fetch;
   globalThis.fetch = async () => ({ status: 200, ok: true, json: async () => ({ git: false }) });
   try {
     const R = await import('../../web/chat/rail.js');
-    const asked = [];
-    // As the page's stopTask does: a failure is told in a toast there and the call comes back.
-    const rail = R.createRail({ A: '/api/chats/x', view: () => 'normal', computer: () => 'This one', stop: async (id) => { asked.push(id); }, canStop: () => true, jump() {}, providers() {} });
-    const task = { taskId: 'a1', type: 'agent', status: 'running', title: 'Explore', toolId: 'u2' };
-    const v = { cwd: '/w/a', branch: 'main', profile: { name: 'auto', label: 'Auto' }, status: 'working', engine: { id: 'claude', capabilities: {} }, usage: {}, tasks: [task] };
-    rail.paint(v);
-    const stop = byClass(rail.el, 'chat-taskstop')[0];
-    const press = stop.listeners.click({ preventDefault() {}, stopPropagation() {}, currentTarget: stop });
-    assert.equal(stop.disabled, true, 'no second press while the request is on its way');
-    await press;
-    assert.deepEqual(asked, ['a1']);
-    rail.paint({ ...v, tasks: [{ ...task, now: 'Reading', usage: { tokens: 10 } }] }); // the task still runs: the row is kept
-    assert.equal(byClass(rail.el, 'chat-taskstop')[0], stop, 'the same button');
-    assert.equal(stop.disabled, false, 'it can be pressed again');
-  } finally {
-    globalThis.matchMedia = mm;
-    globalThis.fetch = realFetch;
-  }
-});
-
-test('many background tasks: the rail shows a compact row for each of the first few, then "N more" for the rest', async () => {
-  const mm = globalThis.matchMedia;
-  globalThis.matchMedia = () => ({ matches: true, addEventListener() {}, removeEventListener() {} });
-  const realFetch = globalThis.fetch;
-  globalThis.fetch = async () => ({ status: 200, ok: true, json: async () => ({ git: false }) });
-  try {
-    const R = await import('../../web/chat/rail.js');
-    let sheet = 0;
-    const jumped = [];
-    const rail = R.createRail({ A: '/api/chats/x', view: () => 'normal', computer: () => 'This one', stop() {}, canStop: () => true, jump: (id) => jumped.push(id), tasks: () => sheet++ });
-    const tasks = Array.from({ length: 20 }, (_, i) => ({ taskId: `t${i}`, type: 'shell', status: 'running', title: `sleep ${i}`, toolId: `u${i}` }));
-    rail.paint({ cwd: '/w/a', status: 'waiting', engine: { id: 'claude', capabilities: {} }, usage: {}, tasks });
-    const rows = byClass(rail.el, 'chat-rail-task');
-    assert.equal(rows.length, 5, 'one row each for the first few');
-    assert.equal(byClass(rail.el, 'chat-task').length, 0, 'not the strip\'s big cards with their accent border');
-    assert.deepEqual(texts(rows[0]).filter(Boolean), ['sleep 0', 'Stop'], 'its name and its Stop on one row');
-    byClass(rows[0], 'chat-rail-taskname')[0].listeners.click();
-    assert.deepEqual(jumped, ['u0'], 'the name shows its call in the chat');
-    const more = byClass(rail.el, 'chat-rail-more')[0];
-    assert.equal(texts(more).join(''), '15 more');
-    more.listeners.click();
-    assert.equal(sheet, 1, 'the rest in the Background tasks sheet');
+    const rail = R.createRail({ A: '/api/chats/x', view: () => 'normal', computer: () => 'This one', providers() {} });
+    const tasks = Array.from({ length: 6 }, (_, i) => ({ taskId: `t${i}`, type: 'shell', status: 'running', title: `sleep ${i}`, toolId: `u${i}` }));
+    rail.paint({ cwd: '/w/a', status: 'waiting', profile: { name: 'auto', label: 'Auto' }, engine: { id: 'claude', capabilities: {} }, usage: {}, tasks });
+    const said = texts(rail.el).join('|');
+    assert.doesNotMatch(said, /Background tasks|sleep 0|Stop/);
+    assert.equal(byClass(rail.el, 'chat-rail-said').length, 0, 'the provider words are not a block under the row');
+    const link = byClass(rail.el, 'chat-rail-link').find((b) => texts(b).join('') === 'Auto');
+    assert.match(link.attrs.title, /The AI account this chat runs on/, 'they are the button\'s tooltip');
   } finally {
     globalThis.matchMedia = mm;
     globalThis.fetch = realFetch;
@@ -455,7 +394,89 @@ test('with a finger the head\'s and the rail\'s controls are 44 px, at every wid
   for (const sel of ['.chat-caret', '.chat-tbtn', 'button.chat-st-part']) assert.match(head, new RegExp(`${sel.replace('.', '\\.')}[^{]*\\{[^}]*min-height:\\s*44px`), sel);
   assert.match(head, /\.chat-caret[^{]*\{[^}]*min-width:\s*44px/);
   const rail = coarse('../../web/chat/rail.css');
-  for (const sel of ['.chat-rail-link', '.chat-rcard-count', '.chat-rcard-fold > summary', '.chat-rail-taskname', '.chat-taskstop']) assert.ok(rail.includes(sel), sel);
+  for (const sel of ['.chat-rail-link', '.chat-rcard-count', '.chat-rcard-fold > summary']) assert.ok(rail.includes(sel), sel);
   assert.match(rail, /min-height:\s*44px/);
   assert.match(coarse('../../web/desktop/desktop.css'), /\.desk-menu-item[^{]*\{[^}]*min-height:\s*44px/, 'the session menu\'s entries');
+});
+
+// The pull request in the Changes card: Create PR, the PR line with its checks and its menu; asked after a turn and when the
+// rail opens (not by a timer, not at each tool); no gh, no remote, no pull request: nothing extra.
+async function prRail({ changes, pr, send }) {
+  globalThis.window = globalThis.window || { addEventListener() {} };
+  const mm = globalThis.matchMedia;
+  const realFetch = globalThis.fetch;
+  const asked = [];
+  globalThis.matchMedia = () => ({ matches: true, addEventListener() {} });
+  globalThis.fetch = async (u, init = {}) => {
+    asked.push(`${init.method || 'GET'} ${String(u)}`);
+    const data = String(u).endsWith('/changes') ? changes : String(u).endsWith('/pr') ? pr : {};
+    return { status: 200, ok: true, json: async () => data };
+  };
+  const R = await import('../../web/chat/rail.js');
+  const rail = R.createRail({ A: '/api/chats/x', view: () => 'normal', computer: () => 'This one', changes() {}, send });
+  rail.paint({ cwd: '/w/a', status: 'waiting', engine: { id: 'claude', capabilities: {} }, usage: {} });
+  await new Promise((r) => setTimeout(r, 30));
+  const card = byClass(rail.el, 'chat-rcard').find((c) => texts(c).join('').startsWith('Changes'));
+  return { R, rail, card, asked, done: () => { globalThis.fetch = realFetch; globalThis.matchMedia = mm; } };
+}
+const changed = { git: true, files: 1, added: 3, removed: 0, untracked: 0, list: [{ path: 'a.js', added: 3, removed: 0 }] };
+
+test('Create PR: shown with a remote, gh and something to send; a press sends the fixed message', async () => {
+  const sent = [];
+  const t = await prRail({ changes: changed, pr: { remote: true, ahead: 0, gh: true, pr: null }, send: async (x) => sent.push(x) });
+  try {
+    const b = byClass(t.card, 'chat-rail-create')[0];
+    assert.ok(b, 'Create PR is there');
+    assert.equal(texts(b).join(''), 'Create PR');
+    b.listeners.click({ currentTarget: b });
+    await new Promise((r) => setTimeout(r, 10));
+    assert.deepEqual(sent, [t.R.CREATE_PR_MESSAGE]);
+    assert.match(sent[0], /commit.*push.*pull request.*gh/i);
+  } finally {
+    t.done();
+  }
+});
+
+test('Create PR is left out: no gh, no remote, a clean branch that is pushed, a pull request that exists', async () => {
+  for (const pr of [{ remote: true, ahead: 0, gh: false, pr: null }, { remote: false, ahead: null, gh: false, pr: null }, { remote: true, ahead: 0, gh: true, pr: { number: 1, title: 't', url: null, checks: null } }]) {
+    const t = await prRail({ changes: changed, pr, send() {} });
+    try {
+      assert.equal(byClass(t.card, 'chat-rail-create').length, 0, JSON.stringify(pr));
+    } finally {
+      t.done();
+    }
+  }
+  const t = await prRail({ changes: { ...changed, files: 0, list: [] }, pr: { remote: true, ahead: 0, gh: true, pr: null }, send() {} });
+  try {
+    assert.equal(byClass(t.card, 'chat-rail-create').length, 0, 'nothing changed and nothing unpushed');
+  } finally {
+    t.done();
+  }
+  const u = await prRail({ changes: { ...changed, files: 0, list: [] }, pr: { remote: true, ahead: 2, gh: true, pr: null }, send() {} });
+  try {
+    assert.equal(byClass(u.card, 'chat-rail-create').length, 1, 'two commits not pushed');
+  } finally {
+    u.done();
+  }
+});
+
+test('the PR line: #n title and its checks, named for a screen reader; asked after a turn, not at each tool', async () => {
+  const t = await prRail({ changes: changed, pr: { remote: true, ahead: 0, gh: true, pr: { number: 12, title: 'Cart totals', url: 'https://example.com/pull/12', checks: 'failing' } }, send() {} });
+  try {
+    const line = byClass(t.card, 'chat-rail-prtitle')[0];
+    assert.match(texts(line).join(''), /^#12 Cart totals/);
+    assert.match(line.attrs['aria-label'], /Pull request #12 Cart totals, checks failing/);
+    assert.equal(texts(byClass(t.card, 'chat-rail-checks')[0]).join(''), 'Checks failing');
+    assert.ok(byClass(t.card, 'chat-pr-failing').length);
+    const prs = () => t.asked.filter((x) => x.endsWith('/pr')).length;
+    assert.equal(prs(), 1, 'asked when the rail opened');
+    t.rail.changed();
+    await new Promise((r) => setTimeout(r, 20));
+    assert.equal(prs(), 1, 'a tool ran: not asked');
+    t.rail.turnEnded();
+    await new Promise((r) => setTimeout(r, 20));
+    assert.equal(prs(), 2, 'a turn ended: asked');
+  } finally {
+    t.done();
+  }
 });

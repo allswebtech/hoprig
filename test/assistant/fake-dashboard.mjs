@@ -88,7 +88,7 @@ export function baseState() {
     kits: [{ id: 'tools', title: 'Developer tools', items: [{ name: 'gh', state: 'missing' }], commands: ['apt install gh'], admin: true }, { id: 'node', title: 'Node.js', items: [], commands: [], admin: false }],
     addons: [{ id: 'trouteai', title: 'TRouteAI', installed: true, running: false, version: '1.2.0' }],
     publicLink: { on: false, kind: 'temporary', state: 'off', url: null, custom: { state: 'none' } },
-    // Settings → Coding tools and Settings → Updates (src/codetools/feature.mjs, src/automation/updater.mjs)
+    // Settings → New sessions → Coding tools and Settings → Updates (src/codetools/feature.mjs, src/automation/updater.mjs)
     codingTools: [
       { id: 'claude', name: 'Claude Code', on: true, managed: false, installed: '2.1.325', providers: ['sub', 'sub2', 'api'] },
       { id: 'opencode', name: 'OpenCode', on: false, managed: true, installed: null, providers: [] },

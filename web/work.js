@@ -10,14 +10,15 @@
 //   Activity  (#/work/activity)  the one history of the workspace, newest first: sessions, runs, commits, saves,
 //                                what the automations did and errors, by project, day and who (workhistory.js)
 // "Do it" on a task starts a coding session that does it (workdo.js). "Save" commits the Work file (and the run files)
-// in its git repository and shows what it will commit first. Where the data lives is Settings → Work (also in this
+// in its git repository and shows what it will commit first. Where the data lives is "Work settings" at the foot of Tasks (also in this
 // file). Rows and sheets are workitems.js.
 import { icon } from './icons.js';
-import { api, btn, fill, h, needsYou, needsYouFirst, openSheet, prefs, statusPill, toast } from './lib.js';
-import { registerPage, registerSettingsPage } from './registry.js';
+import { api, btn, fill, h, machine, needsYou, needsYouFirst, openSheet, prefs, statusPill, toast } from './lib.js';
+import { registerPage } from './registry.js';
 import { accessPanel } from './workaccess.js';
 import { emptyState, errorBox, field, fold, groupHead, panel, radioCards, saveBar, skeletonRows, tabBar } from './shell.js';
 import { sessionHref } from './sessionitem.js';
+import { partOf, showPart } from './showpart.js';
 import { store } from './store.js';
 import { dayWord, itemRow, itemSheet, weekLabel, whoText } from './workitems.js';
 import { keepFocus, runsSheet } from './workdo.js';
@@ -33,7 +34,7 @@ const TABS = [['today', 'Today', 'sun'], ['tasks', 'Tasks', 'tasks'], ['plans', 
 const CLOSED = ['done', 'dropped'];
 let cache = null; // the last answer of GET /api/work: a page opened again shows it at once
 
-function viewWork({ frame, sub }) {
+function viewWork({ frame, sub, query }) {
   // Team (#/work/team) and one mission of Tia's (#/work/mission/<id>): mission.js.
   const tab = sub === 'tasks' || sub === 'activity' || sub === 'schedules' || sub === 'golive' || sub === 'team' ? sub : /^mission\/[^/]+$/.test(sub) ? 'team' : sub === 'plans' || /^(plans|proposal)\/[^/]+$/.test(sub) ? 'plans' : sub ? null : 'today';
   if (!tab) {
@@ -188,7 +189,7 @@ function viewWork({ frame, sub }) {
   // The bar over both parts: why the Work folder cannot be used, a file a change would alter (with "Tidy the file
   // once"), or the offer to keep a copy of the list in its repository (saveBand).
   async function paintTop() {
-    if (!data || data.problem) return fill(top, data && data.problem ? h('div.banner.warn', icon('alert', { size: 18 }), h('span', data.problem, ' ', h('a', { href: '#/settings/work' }, 'Settings → Work'))) : null);
+    if (!data || data.problem) return fill(top, data && data.problem ? h('div.banner.warn', icon('alert', { size: 18 }), h('span', data.problem, ' ', h('a', { href: '#/work/tasks?show=work-place' }, 'Work settings'))) : null);
     const tidy = data.untidy ? h('div.banner.warn.wk-untidy', icon('alert', { size: 18 }),
       h('div.wk-untidy-text',
         h('strong', 'This file has things a change would alter, so Work changes nothing in it yet.'),
@@ -262,9 +263,17 @@ function viewWork({ frame, sub }) {
       btn('small primary', { icon: 'upload', label: words.label, onclick: save })));
   }
 
+  // "Work settings" are drawn once, from the answer the page already has (no second request), and only on this
+  // computer's own page: they are this computer's. "…?show=work-place" opens the fold at the place.
+  let settingsFoot = null;
   function paintFoot() {
-    if (!data || !data.place) return fill(foot);
-    fill(foot, h('p.hint.wk-hint', icon('folder', { size: 14 }), ` Kept in ${data.place.label}/${data.place.fileName} · `, h('a', { href: '#/settings/work' }, 'change where')));
+    const where = !data || !data.place ? null : h('p.hint.wk-hint', icon('folder', { size: 14 }), ` Kept in ${data.place.label}/${data.place.fileName}`);
+    if (tab === 'tasks' && !machine.current && data && data.settings && !settingsFoot) {
+      settingsFoot = workSettingsPart(data);
+      const part = partOf(query);
+      if (part) setTimeout(() => alive && showPart(part, { alive: () => alive }), 0);
+    }
+    fill(foot, where, tab === 'tasks' && !machine.current ? settingsFoot : null);
   }
 
   let activity = null; // the Activity part's handle (workhistory.js paintHistory): refresh, working
@@ -313,7 +322,7 @@ function viewWork({ frame, sub }) {
       return;
     }
     if (data.problem) {
-      fill(content, data.place ? null : h('div.card.wk-start', emptyState('folder', 'Work keeps its list in a folder of your workspace. Choose where in Settings → Work.', btn('primary', { label: 'Open Settings → Work', onclick: () => (location.hash = '#/settings/work') }))),
+      fill(content, data.place ? null : h('div.card.wk-start', emptyState('folder', 'Work keeps its list in a folder of your workspace. Choose where in Work settings, at the foot of Tasks.', btn('primary', { label: 'Open Work settings', onclick: () => (location.hash = '#/work/tasks?show=work-place') }))),
         // The history (what the automations did, Hands-off's answers among them, the sessions, the commits) needs no
         // list of tasks: it is shown all the same.
         tab === 'activity' ? h('section.wk-section', historySlot) : null);
@@ -555,20 +564,14 @@ function saveSheet() {
 
 registerPage({ id: 'work', title: 'Work', icon: 'tasks', group: 'main', order: 5, render: viewWork });
 
-// ---------- Settings → Work ----------
+// ---------- Work settings (the foot of Work > Tasks) ----------
 
-registerSettingsPage({
-  id: 'work', title: 'Work', icon: 'tasks', order: 16, onlyHere: true,
-  desc: 'Where your tasks are kept, and how a save is committed.',
-  summary: () => api('/api/work').then((w) => (w.place ? `Kept in ${w.place.label}` : 'Not set up yet'), () => ''),
-  render: () => {
-    const slot = h('div', skeletonRows(2));
-    api('/api/work').then((w) => fill(slot, settingsPanels(w)), (e) => fill(slot, errorBox(e)));
-    return [slot];
-  },
-});
-
-function settingsPanels(w) {
+/**
+ * "Work settings", folded at the foot of Tasks (they were a Settings page, far from the work): where the tasks are
+ * kept stays open inside it; the time zone, your id in a planning file and "Another program" (tokens, webhooks,
+ * limits) sit in its More. The commit subject has no field: Work's own default is used, an old value keeps working.
+ */
+export function workSettingsPart(w) {
   const s = { ...w.settings };
   const projectPart = h('div.wk-where');
   const paintProject = () => fill(projectPart, s.place !== 'project' ? null : [
@@ -578,7 +581,7 @@ function settingsPanels(w) {
       'A folder inside the project. A planning list already there (deadlines.json) is used as it is.'),
   ]);
   paintProject();
-  const where = panel({ icon: 'folder', title: 'Work data lives in', desc: 'Your tasks are one file in a git repository of your workspace, so every computer that has it sees the same list.' },
+  const where = panel({ id: 'work-place', icon: 'folder', title: 'Where your tasks are kept', desc: 'Your tasks are one file in a git repository of your workspace, so every computer that has it sees the same list.' },
     radioCards('work-place', [
       { value: 'brain', title: 'The AI brain', sub: 'ai_brain/work: on every computer that has your brain' },
       { value: 'project', title: 'A project', sub: 'A folder of one project, for a list that belongs to it' },
@@ -588,10 +591,9 @@ function settingsPanels(w) {
     }),
     projectPart,
     saveBar('Save', () => api('/api/work/settings', { place: s.place, project: s.project, path: s.path }), 'Saved: Work uses this folder'));
-  const more = panel({ title: 'Saving, dates and planning files' },
-    field('Commit subject', h('input.field', { value: s.saveSubject, maxlength: 100, oninput: (e) => (s.saveSubject = e.target.value) }), 'The message of the commit each Save makes.'),
+  const more = panel({ title: 'Dates and planning files' },
     field('Time zone', h('input.field', { value: s.timeZone, placeholder: 'This computer\'s own', autocapitalize: 'off', spellcheck: 'false', oninput: (e) => (s.timeZone = e.target.value.trim()) }), 'What "today" means for due dates. Empty: this computer\'s clock. Or a name such as Europe/Berlin.'),
     field('Your id in a planning file', h('input.field.mono', { id: 'owner-id', value: s.ownerId, autocapitalize: 'off', spellcheck: 'false', oninput: (e) => (s.ownerId = e.target.value.trim()) }), 'A planning tool\'s list names who does an item; this is the word it uses for you. Items with it are yours, and only the ones you added can be removed.'),
-    saveBar('Save', () => api('/api/work/settings', { saveSubject: s.saveSubject, timeZone: s.timeZone, ownerId: s.ownerId })));
-  return [where, more, accessPanel()];
+    saveBar('Save', () => api('/api/work/settings', { timeZone: s.timeZone, ownerId: s.ownerId })));
+  return fold('work-settings', 'Work settings', where, fold('work-settings-more', 'More', more, accessPanel()));
 }

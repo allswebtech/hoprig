@@ -135,7 +135,10 @@ test('structure: the main pages, the second group, the Settings pages, and old a
   const group = (g) => pages.filter((m) => m[2] === g).sort((a, b) => a[3] - b[3]).map((m) => m[1]);
   assert.deepEqual(group('main'), ['work', 'workspace', 'providers', 'computers'], 'Home is the router\'s own, then Work · Workspace · Providers · Computers');
   // Automations has no page of its own any more: Work → Schedules, Settings → Automations, Work → Activity.
-  assert.deepEqual(group('more'), ['operator', 'skills', 'brain', 'tia', 'settings']);
+  // The menu is Home, Work, Workspace, Providers, Computers and Settings last (shell.js menuItems); no More page.
+  // Skills and Memory are tabs of Projects (navAs: 'workspace'); Tia has no item of her own (her button and Settings -> Tia).
+  assert.deepEqual(group('more'), ['settings']);
+  assert.match(src('tia.js'), /registerPage\(\{\s*id: 'tia', title: NAME, icon: 'sparkle', navAs: 'settings'/);
   // Every address in PAGE_ADDRESSES (what Tia's open_screen may open) leads to a page that exists.
   const ids = new Set([...pages.map((m) => m[1]), ...[...pageFiles().map(src).join('\n').matchAll(/registerPage\(\{\s*id: '([a-z-]+)'/g)].map((m) => m[1])]);
   const list = /export const PAGE_ADDRESSES = \[([\s\S]*?)\];/.exec(src('app.js'))[1];
@@ -143,13 +146,18 @@ test('structure: the main pages, the second group, the Settings pages, and old a
   assert.ok(addresses.length > 20);
   for (const a of addresses) {
     const first = a.slice(2).split('/')[0];
-    assert.ok(first === '' || ['new', 'more'].includes(first) || ids.has(first), `${a} leads to a page`);
+    assert.ok(first === '' || ['new'].includes(first) || a === '#/more' || ids.has(first), `${a} leads to a page`);
   }
-  const settingsPages = [...pageFiles().map(src).join('\n').matchAll(/registerSettingsPage\(\{\s*id: '([a-z-]+)', title: ([^,]+), icon: '[a-z]+', order: (\d+)/g)]
-    .sort((a, b) => a[3] - b[3]).map((m) => m[1]);
-  assert.deepEqual(settingsPages, ['new-sessions', 'root', 'workspace', 'work', 'automations', 'golive', 'notifications', 'handsoff', 'appearance', 'security', 'public-link', 'tia', 'editor', 'learn', 'addons', 'codingtools', 'updates', 'field', 'about']);
+  // The Settings pages, in the order of the list (registry.js SETTINGS_ORDER wins over a file's own number): the design's
+  // order, nothing else. Editor, Coding tools, About, Work and Field reports are cards of other pages now.
+  const order = /export const SETTINGS_ORDER = Object\.freeze\(\{([\s\S]*?)\}\);/.exec(src('registry.js'))[1];
+  const rank = Object.fromEntries([...order.matchAll(/'?([a-z-]+)'?: (\d+)/g)].map((m) => [m[1], Number(m[2])]));
+  const fileOrder = [...pageFiles().map(src).join('\n').matchAll(/registerSettingsPage\(\{\s*id: '([a-z-]+)', title: ([^,]+), icon: '[a-z]+', order: (\d+)/g)].map((m) => [m[1], Number(m[3])]);
+  const settingsPages = fileOrder.map(([id, o]) => [id, rank[id] ?? o]).sort((a, b) => a[1] - b[1]).map((m) => m[0]);
+  assert.deepEqual(settingsPages, ['new-sessions', 'root', 'notifications', 'appearance', 'security', 'public-link', 'handsoff', 'workspace', 'automations', 'tia', 'updates', 'addons']);
+  for (const gone of ['editor', 'codingtools', 'about', 'work', 'field', 'golive', 'learn']) assert.ok(!settingsPages.includes(gone), `${gone} is not a page of its own`);
   const app = src('app.js');
-  for (const [from, to] of [['/pc', '/computer'], ['/pc/projects', '/workspace'], ['/settings/accounts', '/providers'], ['/settings/computers', '/computers'], ['/settings/skills', '/skills'], ['/settings/signin', '/settings/security'], ['/settings/auto', '/providers'], ['/tia-settings', '/settings/tia'], ['/settings/claude', '/settings/updates']]) {
+  for (const [from, to] of [['/pc', '/computer'], ['/pc/projects', '/workspace'], ['/settings/accounts', '/providers'], ['/settings/computers', '/computers'], ['/settings/skills', '/skills'], ['/settings/signin', '/settings/security'], ['/settings/auto', '/providers'], ['/tia-settings', '/settings/tia'], ['/settings/claude', '/settings/updates'], ['/settings/golive', '/work/golive'], ['/settings/learn', '/skills/learned']]) {
     assert.ok(app.includes(`'${from}': '${to}'`), `${from} → ${to}`);
   }
   for (const f of ['shell.js', 'home.js', 'newsession.js', 'accounts.js', 'settings.js']) {
@@ -197,7 +205,7 @@ test('one floating thing on a phone: Tia is a button in the page head there, the
   const before = registeredHeadTools().length;
   registerHeadTool(() => null);
   assert.equal(registeredHeadTools().length, before + 1);
-  assert.match(src('shell.js'), /h\('div\.head-icons', registeredHeadTools\(\)/, 'the page head draws the registered buttons next to light/dark');
+  assert.match(src('shell.js'), /h\('div\.head-icons', registeredHeadTools\(\)/, 'the page head draws the registered buttons next to the Settings gear');
   assert.match(src('tia.js'), /registerHeadTool\(/);
   const css = src('page-automations.css').replace(/\/\*[\s\S]*?\*\//g, '');
   assert.match(css, /@media \(max-width: 899px\) \{\s*\.tia-launch \{ display: none; \}/, 'no round launcher on a phone');
@@ -259,7 +267,7 @@ test('AI brain: a file is shown as safe formatting, never as HTML; the list is g
     dailyLogs: { count: 1, items: [item('d1', { date: '2026-11-14' })] },
     projects: [{ name: 'shop', agents: item('agents'), decisions: null, learnings: null, activeContext: null, memory: { count: 0, items: [] } }],
   });
-  assert.deepEqual(g.map((x) => x.title), ['What your coding tools are told everywhere', 'Memory', 'Learnings and current context', 'Daily logs', 'Pending', 'shop']);
+  assert.deepEqual(g.map((x) => x.title), ['What your coding tools are told everywhere', 'What they remembered', 'Learnings and current context', 'Daily logs', 'Pending', 'shop']);
   assert.deepEqual(g[1].rows[1], { item: g[1].rows[1].item, title: 'How I work', sub: 'Short answers', chip: 'about you' });
   assert.equal(g[4].rows.length, 0, 'nothing pending: the group says so instead of an empty box');
   // A coding tool's links to make: the count and the names agree (two to make, two named; the linked one is not).
@@ -328,7 +336,7 @@ test('session view: the header holds back, name and state, the account and one m
 // ---------- Home ----------
 test('Home: groups by what the session needs, plain terminals last, and one plain line about the providers', async () => {
   const { GROUPS, groupOf, accountsLine } = await import('../../web/home.js');
-  assert.deepEqual(GROUPS.map((g) => g[1]), ['Needs you', 'Working', 'Waiting for your next message', 'Terminals']);
+  assert.deepEqual(GROUPS.map((g) => g[1]), ['Needs you', 'Working', 'Finished', 'Terminals']);
   assert.equal(groupOf({ status: 'attention' }), 'needs');
   assert.equal(groupOf({ status: 'waiting', limit: { text: 'x' } }), 'needs', 'a limit needs you');
   assert.equal(groupOf({ status: 'waiting' }), 'waiting', 'a finished turn only waits for the next message');
@@ -340,7 +348,7 @@ test('Home: groups by what the session needs, plain terminals last, and one plai
   // Subagents go on after the reply ended: it is in the Working group and says where the work is.
   assert.equal(groupOf({ status: 'working', background: 2 }), 'working');
   assert.deepEqual([stateOf({ status: 'working', background: 2 }).text, stateOf({ status: 'working' }).text], ['Working in the background', 'Working']);
-  assert.match(fs.readFileSync(path.join(WEB, 'sessionitem.js'), 'utf8'), /chip\(s, \{ text: st\.key !== heading \|\| Boolean\(s\.background\) \}\)/, 'the card says so under the Working heading too');
+  assert.match(fs.readFileSync(path.join(WEB, 'sessionitem.js'), 'utf8'), /chip\(s, \{ text: st\.key !== heading \|\| Boolean\(s\.background\) || st\.text === .Ready. \}\)/, 'the card says so under the Working heading too');
   assert.deepEqual([{ name: 't', kind: 'shell', activity: 9 }, { name: 'c', kind: 'claude', status: 'waiting', activity: 1 }].sort(needsYouFirst).map((s) => s.name), ['c', 't'], 'after the Claude sessions');
   const { markStarting } = await import('../../web/newsession.js');
   markStarting(null, 'fresh');
@@ -693,11 +701,9 @@ test('a computer runs sessions only when online, not a hub, with Claude Code and
   assert.match(runsSessions({ status: 'online', profiles: p }, null).why, /Claude Code is not installed/);
   assert.match(runsSessions({ status: 'online', profiles: [{ name: 'auto', virtual: true }] }).why, /No provider/);
   const src = fs.readFileSync(path.join(WEB, 'newsession-popup.js'), 'utf8');
-  assert.match(src, /groupHead\('Computer'\)/, 'the computer is the first choice');
+  assert.match(src, /computerChips\(\{/, 'the computers are chips over the projects');
   assert.match(src, /prefs\.set\('new\.machine'/, 'the choice is kept for the next time');
-  assert.doesNotMatch(src, /select\('Computer'/, 'not hidden under Options any more');
-  assert.match(fs.readFileSync(path.join(WEB, 'newsession-options.js'), 'utf8'), /modelPicker\(\{\n\s*provider: st\.profile \|\| \(m && m\.recommended\)/, 'a model for this one session, from the provider\'s own list');
-  assert.match(fs.readFileSync(path.join(WEB, 'newsession-start.js'), 'utf8'), /model: st\.model \|\| null/);
+  assert.doesNotMatch(src, /select\('Computer'/, 'not hidden under More options');
   const app = fs.readFileSync(path.join(WEB, 'app.js'), 'utf8');
   assert.match(app, /CODING_PAGES\.includes\(page\.id\) && onHub\(hash\)/, 'a hub opens the coding pages on a computer that codes');
 });
@@ -809,8 +815,8 @@ test('workspace: one line about it, the map in groups, commands that still work 
   const auto = whole.slice(whole.indexOf('function autoPanel('));
   const drawn = auto.slice(auto.indexOf('fill(box,'));
   assert.match(auto, /const commit = toggle\('Save a change of the map/);
-  const order = ['Keep the map up to date', 'commit,', 'Keep the workspace in step', 'Also upload', 'Every how many hours'].map((t) => drawn.indexOf(t));
-  assert.ok(order.every((x, k) => x > 0 && (k === 0 || x > order[k - 1])), 'four switches in that order, then the hours');
+  const order = ['Keep the map up to date', 'Keep the workspace in step', 'Also upload', 'commit,', 'Every how many hours'].map((t) => drawn.indexOf(t));
+  assert.ok(order.every((x, k) => x > 0 && (k === 0 || x > order[k - 1])), 'four switches in that order, then the rest under More, the hours last');
   assert.match(auto, /commit\.querySelector\('input'\)\.disabled = !w\.map/, 'saving the map needs the map kept up to date');
   const g = mapGroups(map);
   assert.deepEqual(g.map((x) => x.id), ['brain', 'project', 'other', 'tool']);
@@ -844,7 +850,8 @@ test('Git and GitHub: three rows, done only when all are; a step of Get started'
   const { withGitStep, actionLabel } = await import('../../web/getstarted.js');
   const onb = { steps: [{ id: 'claude', done: true }], done: 1, total: 1 };
   const w = withGitStep(onb, out);
-  assert.deepEqual([w.done, w.total, w.steps[1].id, w.steps[1].action.kind], [1, 2, 'git', 'git']);
+  assert.deepEqual([w.done, w.total, w.steps[1].id, w.steps[1].action.kind], [1, 1, 'git', 'git']);
+  assert.equal(w.steps[1].optional, true, 'not needed for a first session');
   assert.equal(withGitStep(onb, null), onb, 'an older computer: the list as it came');
   assert.equal(actionLabel({ kind: 'git' }), 'Set up git and GitHub');
 });
@@ -855,7 +862,7 @@ test('Get started: the brain\'s unlinked skills reopen the skills step with the 
   assert.equal(withBrainSkills(onb, 0), onb, 'nothing in the brain alone: as it came');
   assert.equal(withBrainSkills(null, 3), null);
   const w = withBrainSkills(onb, 2);
-  assert.deepEqual([w.done, w.total], [1, 2]);
+  assert.deepEqual([w.done, w.total], [2, 2], 'skills is optional: the counts do not move');
   assert.equal(w.steps[1].detail, 'Claude Code knows 1 extra skill (a ready-made way of working). 2 more are stored but not switched on.');
   assert.deepEqual(w.steps[1].action, { kind: 'link-brain' });
   assert.equal(actionLabel(w.steps[1].action), 'Switch on');
@@ -1007,12 +1014,10 @@ test('the mode that asks nothing says what it means, in the same sentences where
   assert.equal(sd.BYPASS_MEANS, 'Claude Code runs commands and changes files without asking. Use it only for folders you could lose. It still asks you: a question, a plan, a tool your settings say "ask" for, and before some deletes. Where it stops before a delete, Hoprig allows it by itself only when the delete is plainly inside the folder the command runs in (never your home, workspace or projects folder).');
   assert.equal(sd.BYPASS_MEANS.split(/(?<=\.) /).length, 4, 'four sentences');
   assert.equal('BYPASS_IN_CHAT' in sd, false, 'one rule (src/asking.mjs), one sentence: a chat and a terminal are the same');
-  // Settings → New-session defaults (the banner under the choice) and New session → Options (the line under it).
+  // Settings → New-session defaults (the banner under the choice); New session asks for no mode any more.
   assert.match(fs.readFileSync(path.join(WEB, 'sessiondefaults.js'), 'utf8'), /h\('p\.banner\.muted', BYPASS_MEANS\)/);
   const options = fs.readFileSync(path.join(WEB, 'newsession-options.js'), 'utf8');
-  // As root the line under the choice is the root line instead (settings.rootBypass); otherwise nothing.
-  assert.match(options, /select\('What Claude Code may do without asking'[^\n]*\n\s*\(v\) => \(v === 'bypassPermissions' \? BYPASS_MEANS : st\.rootBypass \|\| null\)\)/);
-  assert.doesNotMatch(options, /can run any command and change any file/, 'the sentence of before is gone');
+  assert.doesNotMatch(options, /BYPASS_MEANS|can run any command and change any file/, 'no mode in More options');
   // The text itself is written once: every other page takes it from sessiondefaults.js.
   const holders = fs.readdirSync(WEB, { recursive: true }).filter((f) => f.endsWith('.js') && fs.readFileSync(path.join(WEB, f), 'utf8').includes('Hoprig allows it by itself only when the delete'));
   assert.deepEqual(holders, ['sessiondefaults.js']);
@@ -1044,24 +1049,23 @@ test('new session: what runs in a folder (a terminal session, or a chat at work)
   assert.equal(runningIn({ live: false, session: 'old' }), null, 'nothing runs there: a tap opens a new chat');
   assert.equal(runningIn({ live: true }), null);
   const src = fs.readFileSync(path.join(WEB, 'newsession-popup.js'), 'utf8');
-  // App or Terminal first, then the coding tool, then the project; a plain shell under Options.
-  assert.ok(src.indexOf("groupHead('Open as')") < src.indexOf("groupHead('Coding tool')"), 'App or Terminal before the coding tool');
+  // One quiet line and More options first, then the projects.
+  assert.ok(src.indexOf("'Tap a project to start'") < src.indexOf("groupHead('Recent')"), 'the line before the projects');
   assert.match(src, /row\(f, folderSub\(f, projectsShort\), \(e\) => start\(f, e\.currentTarget\)\)/, 'a tap on a project starts a new session, also where one runs');
   assert.match(src, /leave\(one \? link\(one, st\.m\) : sessionHref\(list\[0\]\)\)/, 'what runs there is its own button (runningIn)');
-  assert.match(fs.readFileSync(path.join(WEB, 'newsession-options.js'), 'utf8'), /'A plain terminal, without a coding tool'/);
+  assert.doesNotMatch(fs.readFileSync(path.join(WEB, 'newsession-options.js'), 'utf8'), /plain terminal/i, 'a plain shell opens from the chat, the Projects page and the editor');
 });
 
 test('new session: repositories by their own name, and a path only where it says more than the name', async () => {
   const { folderSub, repoWords } = await import('../../web/newsession.js');
-  assert.deepEqual(repoWords('code/bookshop-api', 'bookshop'), { name: 'bookshop-api', sub: 'repository in bookshop' });
+  assert.deepEqual(repoWords('code/bookshop-api', 'bookshop'), { name: 'bookshop-api', sub: 'in bookshop' });
   assert.deepEqual(repoWords('.', 'bookshop'), { name: 'bookshop', sub: null }, 'a project\'s own folder: its name, no second line');
   assert.equal(folderSub({ name: 'shop', short: '~/Workspace/projects/shop' }, '~/Workspace/projects'), null, 'no "project" under every row');
   assert.equal(folderSub({ name: 'tool', short: '~/src/tool' }, '~/Workspace/projects'), '~/src/tool');
   assert.equal(folderSub({ name: 'x', short: '~/x' }, null), '~/x', 'projects folder not known: the path');
   const src = fs.readFileSync(path.join(WEB, 'newsession-popup.js'), 'utf8');
   assert.match(src, /sub \? h\('span\.row-sub', sub\) : null/, 'a row without a second line draws none');
-  // On a phone the computers and the coding tools sit two to a row, so the first project is in the first screen.
-  assert.match(fs.readFileSync(path.join(WEB, 'page-projects.css'), 'utf8'), /@media \(max-width: 520px\) \{[^}]*\.ns-tile \{ position: relative; flex-direction: column;/);
+  assert.deepEqual(repoWords('code/tool', null), { name: 'tool', sub: null }, 'a repository of no project: no second line');
 });
 
 test('Home cards: the pill leaves out what the heading says; the folder only when it is not projects/<name>', async () => {
@@ -1423,17 +1427,13 @@ test('a sentence that sends him to a switch in Settings opens the page at that s
   const { BYPASS_SWITCH } = await import('../../web/home.js');
   assert.equal(BYPASS_SWITCH, '#/settings/new-sessions?show=bypass');
   assert.match(fs.readFileSync(path.join(WEB, 'home.js'), 'utf8'), /href: BYPASS_SWITCH, onclick: \(\) => seen\(\) \}, 'Open the switch'/);
-  assert.match(fs.readFileSync(path.join(WEB, 'settings.js'), 'utf8'), /const part = partOf\(query\);\n\s*if \(part\) showPart\(part, \{ alive: isAlive \}\);/);
+  assert.match(fs.readFileSync(path.join(WEB, 'settings.js'), 'utf8'), /const part = partFor\(sub, partOf\(query\), pages\);\n\s*if \(part\) showPart\(part, \{ alive: isAlive \}\);/);
 });
 
-test('the queue\'s banner and the sign-in code\'s banner open the switch they name', async () => {
-  const { QUEUE_SWITCH } = await import('../../web/automation.js');
+test('the sign-in code\'s banner opens the switch it names', async () => {
   const { PUBLIC_LINK_SWITCH } = await import('../../web/computers.js');
-  assert.equal(QUEUE_SWITCH, '#/settings/automations?show=queue');
   assert.equal(PUBLIC_LINK_SWITCH, '#/settings/public-link?show=public-link-switch');
   const src = (f) => fs.readFileSync(path.join(WEB, f), 'utf8');
-  assert.match(src('automation.js'), /so queued messages wait\. ', h\('a', \{ href: link\(QUEUE_SWITCH\) \}, 'Open the switch'\)\)/);
-  assert.match(src('automation.js'), /rule\('Send the next queued message'[^\n]*\n[^\n]*\), \{ id: 'queue' \}\)/);
   assert.match(src('computers.js'), /by its network address\. ', h\('a', \{ href: link\(PUBLIC_LINK_SWITCH\) \}, 'Open the switch'\)/);
   assert.match(src('publiclink.js'), /return panel\(\{ id: 'public-link-switch' \},\n\s*h\('label\.switchrow\.pl-switch'/);
 });

@@ -1,5 +1,5 @@
 // A sentence that names another place of the dashboard has a link that opens it (the switch itself through ?show=
-// where it names one): Workspace, Computers, Settings → Workspace / Appearance / New-session defaults, Skills →
+// where it names one): Workspace, Computers, Settings → Workspace / Appearance / New sessions, Skills →
 // Learned, Providers. Each sentence is looked up in its file and must have its link right beside it.
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -14,10 +14,9 @@ const PLACES = [
   ['web/gateways.js', 'Link it again on the Computers page', "link('#/computers')"],
   ['web/editor/index.js', ': the code button (</>) on its row', "link('#/workspace')"],
   ['web/editor/index.js', 'The colours follow the page', "link('#/settings/appearance?show=page-theme')"],
-  ['web/desktop/index.js', 'the home folder unless changed in', "link('#/settings/new-sessions?show=folders')"],
+  ['web/editor/places.js', 'Open the folder list', "link('#/settings/security?show=folders', null)"],
   ['web/field.js', 'A draft waits in Skills → Learned', "link('#/skills/learned')"],
   ['web/wscomputer.js', 'has the others', "link('#/settings/workspace')"],
-  ['web/skilllearned.js', 'until you press Install or Discard', "link('#/skills/learned')"],
   ['web/gatewaydefine.js', 'make it a provider here', "link('#/providers')"],
 ];
 

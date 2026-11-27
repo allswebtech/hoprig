@@ -71,7 +71,7 @@ test('errorBox of an error with a code shows its words and one button to the pla
   assert.deepEqual(texts(b), ['Add a computer']);
   // A place of one computer opens on the computer whose answer it was.
   const far = errorBox(new ApiError('OpenCode is off on this computer.', 409, { code: 'tool-off' }, 'laptop'));
-  assert.equal(ways(far)[0].attrs.href, '#/m/laptop/settings/codingtools');
+  assert.equal(ways(far)[0].attrs.href, '#/m/laptop/settings/new-sessions?show=coding-tools');
   // A plain text, as before: no button.
   assert.equal(ways(errorBox('Something failed.')).length, 0);
   assert.deepEqual(texts(errorBox('Something failed.')).filter((x) => x.trim()), ['Something failed.']);
@@ -88,12 +88,12 @@ test('a toast of an error with a code gets the button; pressing it only opens th
   t.mock.timers.enable({ apis: ['setTimeout'] });
   document.body = new FakeElement('body');
   location.hash = '#/';
-  const el = toast(new ApiError('Learning skills is off: turn it on in Settings → Learn skills', 409, { code: 'learn-off' }), { kind: 'error' });
-  assert.ok(texts(el).includes('Learning skills is off: turn it on in Settings → Learn skills'));
+  const el = toast(new ApiError('Learning skills is off: turn it on in Skills → Learned', 409, { code: 'learn-off' }), { kind: 'error' });
+  assert.ok(texts(el).includes('Learning skills is off: turn it on in Skills → Learned'));
   const b = all(el).find((x) => x.tag === 'button');
   assert.deepEqual(texts(b), ['Open Learn skills']);
   b.listeners.click({ preventDefault() {}, stopPropagation() {} });
-  assert.equal(location.hash, '#/settings/learn', 'it goes there and does nothing else');
+  assert.equal(location.hash, '#/skills/learned', 'it goes there and does nothing else');
   // The link in errorBox has no handler: it is an address, never a press of a switch.
   const link = ways(errorBox(new ApiError('x', 409, { code: 'bypass-off' })))[0];
   assert.deepEqual(link.listeners, {});
@@ -112,4 +112,9 @@ test('with Try again too, the way and Try again stand in one row', () => {
   assert.deepEqual(row.children.map((c) => texts(c).join('').trim()), ['Open Coding tools', 'Try again']);
   // Without a code: Try again alone, as before.
   assert.equal(all(errorBox('x', () => {})).some((e) => /\bsavebar\b/.test(e.className)), false);
+});
+
+test('the ways of the two pages that moved open their new places', () => {
+  assert.equal(wayOf(new ApiError('x', 409, { code: 'limiter-changed' })).href, '#/work/golive?show=sp-limiter');
+  assert.equal(wayOf(new ApiError('x', 409, { code: 'learn-off' })).href, '#/skills/learned');
 });

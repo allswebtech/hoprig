@@ -5,6 +5,7 @@
 import { icon } from './icons.js';
 import { ago, api, at, btn, copyText, fill, h, machine, openSheet, toast } from './lib.js';
 import { panel, toggle } from './shell.js';
+import { makeComboSheet } from './trouteai.js';
 
 const P = (name, p) => at(machine.current, `/api/providers/${encodeURIComponent(name)}${p}`);
 const WHY = { served: 'served', refused: 'not served', key: 'the key was refused', untold: 'no answer to tell' };
@@ -38,10 +39,18 @@ function resultBlock(last, name = null, reload = null, on = false) {
       h('div.ph-name', h('code', r.sends), h(`span.ph-tag.ph-${r.verdict}`, WHY[r.verdict] || r.verdict)),
       h('p.hint', r.why === 'a picture' ? 'A request with a picture' : `Asked as ${r.why}`),
       r.said ? h('p.ph-said', `It said: ${r.said}`) : null,
-      r.mend ? h('div.ph-mends', h('p.ph-do', 'To mend it:'), copyLine(r.mend.combo),
+      r.mend ? h('div.ph-mends', h('p.ph-do', 'To mend it:'), comboMend(r, reload),
         r.why !== 'a picture' ? h('p.hint', 'A combo is a name you make at the gateway that sends requests to a model it serves.') : null, r.mend.models ? [h('p.ph-or', 'or, in this provider:'), useLine(name, r, reload, on)] : null,
         // A name the owner's own settings send: changed in his settings file, not by a line in this provider.
         r.mend.yours ? [h('p.ph-or', 'or, in your own settings:'), h('p.hint', r.mend.yours)] : null) : null))) : null);
+}
+
+// The combo that mends a refused name: a press where the gateway is this computer's own and managed in Hoprig (the check
+// says so in mend.make), else the sentence to copy. The press opens the sheet that makes it; the check is read again after.
+function comboMend(r, reload) {
+  if (!r.mend.make || machine.current || !reload) return copyLine(r.mend.combo);
+  return h('div.ph-mend', btn('primary small', { icon: 'plus', label: 'Make the combo', onclick: () => makeComboSheet({ name: r.mend.make.name, done: reload }) }),
+    h('span.hint', `Makes "${r.mend.make.name}" in the gateway on this computer.`));
 }
 
 // While the map is off for sessions, "Use this" asks in one sheet: put the line in and turn the map on, or only put
