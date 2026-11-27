@@ -97,10 +97,10 @@ wget -qO- https://raw.githubusercontent.com/allswebtech/hoprig/main/install.sh |
   commits and changed files) comes back onto the task for **Accept** or **Send back**; Accept leaves the branch for
   Go live, and nothing is merged or pushed. **Plans** hold a goal, milestones and
   dated tasks with what waits for what, on a timeline; **Plan with AI** has a session research a goal and propose a
-  plan, and nothing is written before you accept it. **Auto**, a switch per project on Work → Team (off at first),
+  plan, and nothing is written before you accept it. **Auto**, a switch per project in Settings → Tia → Limits and roles (off at first),
   lets Tia start that project's ready tasks by herself, one at a time, each one in Activity and stopped by **End**. **Another program** adds a task with a Work token (made in
   Work settings at the foot of Work → Tasks, shown once, good for Work only) and hears its result through a signed webhook; such a task starts
-  only when you start it. **Missions** (off at first, on Work → Team) let Tia do a goal with roles: a developer,
+  only when you start it. **Missions** (off at first, in Settings → Tia → Limits and roles) let Tia do a goal with roles: a developer,
   tester or ops session may run only the project's tests, its build and its scripts, each in a box with no network.
   [docs/WORK.md](docs/WORK.md)
 - **Operator**: what stopped or is about to, from everything Hoprig watches (a session at its limit,
