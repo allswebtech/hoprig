@@ -197,8 +197,8 @@ test('the coding chat in the dashboard', { timeout: 120_000, skip: process.platf
   assert.equal((await view()).running, false, 'the menu started no process');
   assert.equal((await owner('POST', `/api/chats/${id}/take`, {})).status, 200);
   assert.equal((await view()).terminal, null, 'the terminal stopped Claude');
-  const shell = await until('the terminal to be a plain shell', async () => (await owner('GET', '/api/state')).json.sessions.find((s) => s.name === term.json.name && s.kind === 'shell'));
-  assert.ok(shell, 'the terminal itself stays');
+  // A terminal the dashboard made for the conversation ends with it: no plain shell left as a second card.
+  await until('the terminal to end', async () => !(await owner('GET', '/api/state')).json.sessions.some((s) => s.name === term.json.name));
   assert.equal((await owner('POST', `/api/chats/${id}/send`, { text: 'back in the chat' })).status, 200);
   await until('the answer', async () => (await view()).events.some((e) => e.kind === 'text' && e.text === 'echo: back in the chat'));
   await until('the turn to end', async () => (await view()).status === 'waiting');
@@ -221,12 +221,14 @@ test('the coding chat in the dashboard', { timeout: 120_000, skip: process.platf
   await until('its title', async () => (await view()).title === 'Cart total rounding');
   await until('the turn to end', async () => (await view()).status === 'waiting');
 
-  // ---- open in a terminal: the chat closes, a terminal session resumes the conversation ----
+  // ---- open in a terminal: the chat's process ends and its record stays, a terminal session resumes the conversation ----
   const opened = await owner('POST', `/api/chats/${id}/terminal`, {});
   assert.equal(opened.status, 200);
   const handed = await owner('GET', `/api/chats/${id}`);
-  assert.equal(handed.status, 404, 'the chat is closed');
-  assert.equal(handed.json.closed.terminal, opened.json.name, 'its page can open the terminal it went to');
+  assert.equal(handed.status, 200, 'the chat record stays: its process ended, the chat is not closed');
+  assert.equal(handed.json.running, false);
+  assert.equal(handed.json.title, 'Cart total rounding', 'with its title');
+  assert.equal((await until('the chat reads along', async () => (await view()).terminal)).name, opened.json.name, 'its page can open the terminal it went to');
   const resumed = await until('the terminal session', async () => (await owner('GET', '/api/state')).json.sessions.find((s) => s.name === opened.json.name && s.kind === 'claude' && s.sessionId));
   // (the session is Claude Code's as soon as its launcher's record is there; the coding tool names its conversation a moment later)
   assert.equal(resumed.sessionId, id, 'the same conversation');

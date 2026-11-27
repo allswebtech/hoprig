@@ -8,7 +8,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { fakeBin, pathWith, scratch } from '../setup/helpers.mjs';
-import { CLOSED_PORT, sealed } from '../seal.mjs';
+import { CLOSED_PORT, closedGateways, sealed } from '../seal.mjs';
 
 const s = scratch();
 test.after(s.cleanup);
@@ -21,7 +21,7 @@ const { sysInfo } = await import('../../src/setup/checks.mjs');
 // A computer with no programs at all for the doctor run in this process: it reaches no systemctl, tmux or claude.
 // Its dashboard's port is one of its own (PORT): the doctor probes the port a dashboard would listen on, never 7433.
 const bare = path.join(s.tmp, 'bare');
-const SYS = sysInfo({ env: sealed({ HOME: s.env.HOME, PATH: pathWith(bare, fakeBin(path.join(bare, 'bin'), {})), PORT: String(CLOSED_PORT), NO_COLOR: '1' }), has: () => false, pm: null, root: false });
+const SYS = sysInfo({ env: sealed({ HOME: s.env.HOME, PATH: pathWith(bare, fakeBin(path.join(bare, 'bin'), {})), PORT: String(CLOSED_PORT), NO_COLOR: '1' }), has: () => false, pm: null, root: false, ownGateways: false });
 // Before the first test: a test registered after an await that comes later is lost by the runner.
 const real = await boxCheck();
 const skip = !real.ok && `no box here: ${real.why}`;
@@ -94,6 +94,9 @@ test('in the real box: hoprig doctor, run as a person runs it in a temporary hom
     NO_COLOR: '1',
   });
   fs.mkdirSync(env.HOME, { recursive: true });
+  // The gateways have ports of their own: a copy of one on this computer is never asked on its default port.
+  fs.mkdirSync(env.HOPRIG_CONFIG_DIR, { recursive: true });
+  fs.writeFileSync(path.join(env.HOPRIG_CONFIG_DIR, 'config.json'), JSON.stringify({ addons: closedGateways() }));
   const r = spawnSync(process.execPath, [BIN, 'doctor', '--offline'], { env, cwd: env.HOME, encoding: 'utf8', timeout: 100_000 });
   assert.match(r.stdout, /· A box for commands\s+this computer has one \(bwrap\)/, r.stdout + r.stderr);
 });

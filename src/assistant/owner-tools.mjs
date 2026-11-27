@@ -8,6 +8,8 @@ import { ASSISTANT_NAME } from './tia.mjs';
 import { sudoArgv } from './adminrun.mjs';
 import { hoprigOwnDirs } from '../paths.mjs';
 import { wallKind } from '../wall.mjs';
+import { isSecretFolder } from '../server/folders.mjs';
+import { commandPlaces } from './commandplaces.mjs';
 import { account, comp, computer, conversation, findSession, folder, providerNote, session, statusOf, tool, toolError } from './toolkit.mjs';
 
 const ABS = /^(\/|~\/|~$|[A-Za-z]:[\\/])/;
@@ -72,7 +74,8 @@ export const switch_account = tool({
   },
 });
 
-export const set_auto_mode = tool({
+// An act of hoprig_act (hoprigact.mjs), no tool of her own any more: set_auto_mode is an old name of it (tools.mjs OLD_NAMES).
+export const auto_mode_act = tool({
   name: 'set_auto_mode',
   level: 'L2',
   description: 'What happens at a usage limit (the Providers page): turn Auto mode on or off, set the order of providers it uses (most preferred first), and whether a session moves back to a preferred provider when it is free again. Auto mode may move work to a paid API provider. Stages a card.',
@@ -144,7 +147,8 @@ const FORM_KINDS = {
   new_session_model: { type: 'text' },
   new_session_effort: { type: 'choice', options: ['low', 'medium', 'high', 'xhigh', 'max'] },
 };
-export const change_setting = tool({
+// An act of hoprig_act (hoprigact.mjs): change_setting is an old name of it (tools.mjs OLD_NAMES).
+export const change_setting_act = tool({
   name: 'change_setting',
   level: 'L2',
   description: `Change one dashboard setting: ${Object.keys(SETTINGS).join(', ')}. get_computer_status with settings: true shows the current values. The password, the network, notifications, the permission mode of new sessions and ${ASSISTANT_NAME}'s own settings are the owner's (open_screen). Stages a card.`,
@@ -189,13 +193,28 @@ const HIS_ALONE = [
   [/^(systemctl|loginctl|launchctl|service|shutdown|reboot)$/, 'the system\'s services'],
   [/^(apt|apt-get|dnf|yum|pacman|zypper|brew|snap|winget|choco|port)$/, 'installing or removing system packages'],
   [/^(ssh|scp|sftp|rsync|nc|ncat|telnet|ftp)$/, 'sending data to another computer'],
+  [/^(rm|rmdir|shred|unlink)$/, 'deleting files or folders'],
 ];
+// What deletes or rewrites a git tree (the never class delete-work): its own sub-commands, and a branch or a ref taken away.
+const GIT_REWRITES = /^(reset|rebase|clean|filter-branch|filter-repo|worktree|update-ref|replace|prune|gc|reflog)$/;
 export function hisAloneCommand(line) {
   for (const part of String(line).split(/\|\||&&|[|;&]/)) {
     const w = part.trim().split(/\s+/).filter((x) => !/^[A-Za-z_][A-Za-z0-9_]*=/.test(x)); // VAR=x before the program
     const prog = (w[0] || '').replace(/^.*[\\/]/, '').toLowerCase();
     for (const [re, why] of HIS_ALONE) if (re.test(prog)) return why;
     if (prog === 'git' && w.slice(1).some((x) => /^(push|merge)$/.test(x))) return 'a push or a merge';
+    if (prog === 'git' && w.slice(1).some((x) => GIT_REWRITES.test(x))) return 'resetting, rebasing or deleting in a git tree';
+    if (prog === 'git' && w.slice(1).some((x) => x === 'branch') && w.some((x) => /^(-d|-D|--delete|-m|-M|--move)$/.test(x))) return 'deleting or moving a git branch';
+    if (prog === 'find' && w.some((x) => x === '-delete' || x === '-exec' || x === '-execdir')) return 'deleting files or folders';
+    if (prog === 'xargs' && w.some((x) => /^(rm|rmdir|shred|unlink)$/.test(x.replace(/^.*[\\/]/, '')))) return 'deleting files or folders';
+    // A shell given its program as text: that text is read the same way.
+    if (/^(bash|sh|zsh|dash|ksh)$/.test(prog)) {
+      const i = w.findIndex((x) => /^-[a-z]*c[a-z]*$/.test(x));
+      if (i > 0) {
+        const inner = hisAloneCommand(w.slice(i + 1).join(' ').replace(/^['"]|['"]$/g, ''));
+        if (inner) return inner;
+      }
+    }
     if (/^(npm|pnpm|yarn|bun)$/.test(prog) && w.some((x) => /^(-g|--global)$/.test(x))) return 'installing or removing programs for the whole computer';
     if (/^(curl|wget)$/.test(prog) && w.some((x) => /^(-d|--data.*|-F|--form.*|-T|--upload-file|--post-data|--post-file|-X|--request)$/.test(x))) return 'sending data out of the computer';
   }
@@ -222,6 +241,9 @@ export const run_command = tool({
     // stage a card or run through the admin-run path — never the plain shell here. check() only
     // refuses what is his alone in EVERY mode and is not an administrator command: the system's services and
     // packages, a push or a merge, and data sent out.
+    // The credentials folder (and any other place that holds a sign-in) is the owner's alone: a command run in it or naming a path in it is refused with no card, as a start there is.
+    const places = commandPlaces(a.command, a.folder);
+    if (places.some((x) => typeof x === 'string' && isSecretFolder(x))) throw toolError('that folder holds the owner\'s credentials or a sign-in: a command there, or on a path in it, is his own step', 'tell the owner it is his own step');
     if (wallKind(a.command) === 'admin') return;
     // A command the wall cannot read with certainty (a program hidden in $(…), a backtick, an unclosed quote, or
     // a variable standing as the program) is refused rather than run: the plain shell would expand it and could run

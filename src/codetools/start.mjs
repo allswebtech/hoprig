@@ -21,8 +21,8 @@ export function assertToolReady(toolId, cfg) {
   const t = findTool(toolId);
   if (!t) throw bad(notOffered(toolId));
   // Each refusal carries the code of the place it names (web/errorways.js), so the page draws the button to it.
-  if (!enabledToolIds(cfg).includes(toolId)) throw Object.assign(bad(`${t.name} is off on this computer. Turn it on in Settings → Coding tools.`), { details: { code: 'tool-off' } });
-  if (t.managed && !fs.existsSync(t.binPath())) throw Object.assign(new Error(`${t.name} is not installed on this computer. Install it in Settings → Coding tools.`), { status: 409, details: { code: 'tool-install' } });
+  if (!enabledToolIds(cfg).includes(toolId)) throw Object.assign(bad(`${t.name} is off on this computer. Turn it on in Settings → New sessions → Coding tools.`), { details: { code: 'tool-off' } });
+  if (t.managed && !fs.existsSync(t.binPath())) throw Object.assign(new Error(`${t.name} is not installed on this computer. Install it in Settings → New sessions → Coding tools.`), { status: 409, details: { code: 'tool-install' } });
 }
 
 /**

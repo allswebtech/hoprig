@@ -5,6 +5,11 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { claudeDir, configDir, stateDir, tilde } from '../paths.mjs';
+import { isSecret } from '../editor/paths.mjs';
+
+// The real path of an existing place. On Windows the native call also gives a short 8.3 name (RUNNER~1) in full and a
+// folder's case as the disk has it, so a place is the same place however it was typed; the plain one leaves both as written.
+export const realPath = (p) => (process.platform === 'win32' ? fs.realpathSync.native(p) : fs.realpathSync(p));
 
 /** Real paths of the configured roots that exist. */
 export function resolveRoots(roots) {
@@ -13,7 +18,7 @@ export function resolveRoots(roots) {
   for (const r of list) {
     if (typeof r !== 'string' || !path.isAbsolute(r)) continue;
     try {
-      const real = fs.realpathSync(r);
+      const real = realPath(r);
       if (fs.statSync(real).isDirectory() && !out.includes(real)) out.push(real);
     } catch {
       /* a root that does not exist on this machine is skipped */
@@ -54,7 +59,7 @@ export function insideRoots(p, roots) {
   if (typeof p !== 'string' || !path.isAbsolute(p) || p.includes('\0')) return null;
   let real;
   try {
-    real = fs.realpathSync(p);
+    real = realPath(p);
     if (!fs.statSync(real).isDirectory()) return null;
   } catch {
     return null;
@@ -77,7 +82,7 @@ export function realOr(p) {
   let at = path.resolve(p);
   for (;;) {
     try {
-      return path.join(fs.realpathSync(at), ...rest);
+      return path.join(realPath(at), ...rest);
     } catch {
       const up = path.dirname(at);
       if (up === at) return path.resolve(p);
@@ -106,13 +111,39 @@ export function listDirs(dir, roots, { hidden = false, max = 500 } = {}) {
   return out.slice(0, max);
 }
 
-/** What the browse screen shows for `p` (null when it is not allowed). */
+/**
+ * True when `p` is, or lies inside, a place that holds a sign-in or the owner's credentials (the credentials folder, the
+ * providers' folder, Claude Code's own sign-in files: editor/paths.mjs secretPaths), by its real place; also the
+ * dashboard's own state and config folders (they hold the tokens and the private keys of the move).
+ */
+export const isSecretFolder = (p) => typeof p === 'string' && path.isAbsolute(p) && !p.includes('\0') && (isSecret(realOr(p)) || isOwnFolder(p));
+
+/** What the browse screen shows for `p` (null when it is not allowed). Nothing is listed inside a secret place. */
 export function browse(p, roots, opts) {
   const dir = insideRoots(p, roots);
   if (!dir) return null;
-  const root = roots.find((r) => within(dir, r));
+  // the outermost root that holds it (roots may lie inside one another: the projects folder inside the home)
+  const root = roots.filter((r) => within(dir, r)).sort((a, b) => a.length - b.length)[0];
   const parent = dir === root ? null : path.dirname(dir);
-  return { path: dir, short: tilde(dir), parent, dirs: listDirs(dir, roots, opts) };
+  return { path: dir, short: tilde(dir), parent, dirs: isSecretFolder(dir) ? [] : listDirs(dir, roots, opts) };
+}
+
+export const SECRET_START_MSG = 'that folder holds the owner\'s credentials or a sign-in: only the owner starts a session or a chat there, from his own page';
+
+/**
+ * A session or a chat is started in `dir` (an absolute path as the request gave it): inside a secret place only the
+ * owner's own page may (this dashboard's, or a main computer's relaying its own page), never Tia's token, her door,
+ * her relay, another dashboard's plain token or a request without the page's mark, whatever her level says. Throws 403.
+ * `ctx` is the server's feature context, `req` the request.
+ */
+export async function refuseSecretStart(ctx, req, dir) {
+  if (!isSecretFolder(dir)) return;
+  const [{ ownerPageOnly }, { tokenIdOf }] = await Promise.all([import('../workspace/whomay.mjs'), import('../machines/index.mjs')]);
+  try {
+    await ownerPageOnly(req, ctx, 'A start in this folder', { tokenId: tokenIdOf });
+  } catch {
+    throw Object.assign(new Error(SECRET_START_MSG), { status: 403 });
+  }
 }
 
 // The cwd Claude Code wrote into a transcript: the first line that has one, within the first 64 KiB.
@@ -173,6 +204,9 @@ export function claudeFolders(limit = 30) {
   return out;
 }
 
+/** The tail of a path that is a chat's worktree: /.claude/worktrees/<name> and anything inside it. */
+const WORKTREE_TAIL = /[\\/]\.claude[\\/]worktrees[\\/][^\\/]+(?:[\\/].*)?$/;
+
 /**
  * Recent folders for the picker: live sessions first, then Claude Code's own history; existing and inside roots.
  * `live`: the folders sessions run in, as paths or { cwd, session } (a terminal) or { cwd, chat } (a chat at work); a
@@ -183,8 +217,10 @@ export function recentFolders(live, roots, limit = 12) {
   const out = [];
   const own = ownRoots();
   const add = (p, isLive, session = null, chat = null) => {
-    const real = insideRoots(p, roots);
-    if (!real || seen.has(real) || own.some((r) => within(real, r))) return;
+    // A chat's own worktree (<project>/.claude/worktrees/<name>) is never a project: its project's folder is offered, so a
+    // new session there starts in the project, and a chat running in the worktree counts as running in its project.
+    const real = insideRoots(typeof p === 'string' ? p.replace(WORKTREE_TAIL, '') : p, roots);
+    if (!real || seen.has(real) || own.some((r) => within(real, r)) || isSecretFolder(real)) return;
     seen.add(real);
     out.push({ path: real, short: tilde(real), name: path.basename(real) || real, live: isLive, ...(session ? { session } : {}), ...(chat ? { chat } : {}) });
   };

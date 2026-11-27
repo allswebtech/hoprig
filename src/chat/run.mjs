@@ -5,7 +5,7 @@ import { providerEnv } from '../assistant/engine.mjs';
 import { startAsHers } from '../assistant/hersignin.mjs';
 import { loadConfig } from '../config.mjs';
 import { credsDir } from '../workspace/credlinks.mjs';
-import { cancelAsks } from './asks.mjs';
+import { cancelAsks, syncAllMark } from './asks.mjs';
 import { createChatRun, heldBefore, removeChatLeftovers, removeRun, updateRun } from '../runs.mjs';
 import { hear, lostWork, processGone } from './hear.mjs';
 import { leadPlan, withOthers } from '../models/lead.mjs';
@@ -30,6 +30,8 @@ export function start(chat) {
   chat.starting = (async () => {
     // The same conversation must not run twice: a process that is still stopping ends first.
     if (chat.ending) await chat.ending;
+    if (gen !== chat.gen || chat.closed) return false;
+    await (await import('../workspace/instep.mjs')).lookBeforeStart(chat.cwd); // 3 seconds at most; never throws
     if (gen !== chat.gen || chat.closed) return false;
     // The record that this chat runs the conversation (runs.mjs createChatRun), first: a launcher in any terminal reads
     // it before it starts the coding tool there. A launcher whose record came first keeps the conversation.
@@ -94,6 +96,7 @@ async function open(chat, gen, hold) {
   const budgetOf = chat.o.engineOpts ? chat.o.engineOpts.maxBudgetUsd : undefined;
   const budget = typeof budgetOf === 'function' ? budgetOf() : undefined;
   let session = null;
+  syncAllMark(chat, hold.file); // "Allow everything": the floor's pre-check reads it (asks.mjs syncAllMark)
   session = chat.engine.open({
     extras,
     cwd: chat.cwd, env, profile: chat.profile, sessionId: chat.conversationId, resume, fork, model: chat.model, effort: chat.effort, ultracode: chat.ultracode,

@@ -113,6 +113,7 @@ test('the routes of a running chat', { timeout: 120_000, skip: process.platform 
   assert.equal(outside.status(), 401);
   outside.close();
   const v0 = await view();
+  assert.equal(v0.hasMessage, false, 'nothing sent yet: the status line says Ready, not Finished');
   const s = stream(base, `${A}/stream?from=${v0.next}&epoch=${v0.epoch}`, { Cookie: cookie });
   t.after(() => s.close());
   await until('the first state', () => s.got.some((e) => e.event === 'state'));
@@ -127,13 +128,16 @@ test('the routes of a running chat', { timeout: 120_000, skip: process.platform 
   // ---- mode and settings: in the running process ----
   assert.equal((await owner('POST', `${A}/mode`, { mode: 'acceptEdits' })).json.liveMode, 'acceptEdits');
   assert.equal((await owner('POST', `${A}/mode`, { mode: 'everything' })).status, 400);
-  const set = await owner('POST', `${A}/settings`, { model: 'haiku', effort: 'xhigh', ultracode: true });
-  assert.deepEqual(set.json, { model: 'haiku', effort: 'xhigh', ultracode: true, restart: false });
+  const set = await owner('POST', `${A}/settings`, { model: 'haiku', effort: 'xhigh', ultracode: false });
+  assert.deepEqual(set.json, { model: 'haiku', effort: 'xhigh', ultracode: false, restart: false });
+  // The chat started without the chip, so its process has no Workflow tool: the chip on starts it again.
+  assert.deepEqual((await owner('POST', `${A}/settings`, { ultracode: true })).json, { model: 'haiku', effort: 'xhigh', ultracode: true, restart: true });
   assert.equal((await owner('POST', `${A}/settings`, { ultracode: 'yes' })).status, 400);
   assert.equal((await owner('POST', `${A}/next`, { model: 'haiku' })).status, 404, 'the old route is gone');
   const v1 = await view();
   assert.deepEqual([v1.model, v1.effort, v1.ultracode, v1.permissionMode], ['haiku', 'xhigh', true, 'acceptEdits']);
   assert.equal(v1.engine.id, 'claude');
+  assert.equal(v1.hasMessage, true, 'a message was sent: the turn that ended is Finished');
 
   // ---- the queue ----
   await owner('POST', `${A}/send`, { text: 'slow 600' });

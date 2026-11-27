@@ -30,6 +30,7 @@ import { hostName } from '../paths.mjs';
 import { capture } from '../setup/system.mjs';
 import { cloudflaredEnv, dashboardPort, findBin, fixedDir, fixedStateFile, hasPassword, readFixed, writeAtomic } from './cloudflared.mjs';
 import { checkPort, exposureQuestion, serviceLogin } from './localservice.mjs';
+import { GATEWAY, OWN_PAGE, gatewayPort } from './trouteaipublic.mjs';
 
 const homeDir = () => path.join(fixedDir(), 'home');
 const emptyDir = () => path.join(fixedDir(), 'empty');
@@ -439,10 +440,12 @@ async function forget(_body, { onLine = () => {} } = {}) {
 }
 
 /** One more local service under its own name on the same tunnel. Without its own sign-in, only after a confirm. */
-async function addService({ port, hostname, confirmed } = {}, { onLine = () => {}, fetchImpl, by = null } = {}) {
+async function addService({ port, hostname, confirmed } = {}, { onLine = () => {}, fetchImpl, by = null, internal = null } = {}) {
+  // The shipped gateway's name is made only by its own page (trouteaipublic.mjs, which passes `internal`): never by this generic step.
+  const own = internal === GATEWAY;
   const st = readFixed();
   if (!st || st.mode !== 'named') return fail(st && st.mode === 'token' ? 'With a tunnel token, add the name in the Cloudflare dashboard (your tunnel → Public hostnames).' : 'Set up the Custom address first.');
-  const p = checkPort(port, dashboardPort());
+  const p = checkPort(port, dashboardPort(), { own });
   if (p.error) return fail(p.error);
   let host;
   try {
@@ -466,13 +469,15 @@ async function addService({ port, hostname, confirmed } = {}, { onLine = () => {
   if (route && route.taken) return fail(`There is already a DNS record for ${host} in Cloudflare. Pick another name, or delete that record in Cloudflare first.`);
   if (!d.ok || !made) return fail(`cloudflared could not point ${host} to the tunnel: ${d.last}`);
   if (made !== host) return fail(`Cloudflare made the record ${made} instead: use a name under the same domain as ${st.hostname}. Delete ${made} in Cloudflare (DNS → Records).`);
-  writeState({ ...readFixed(), extra: [...(st.extra || []), { hostname: host, port: p.port, ...(by ? { openedBy: by } : {}) }] });
+  writeState({ ...readFixed(), extra: [...(st.extra || []), { hostname: host, port: p.port, ...(own ? { gateway: GATEWAY } : {}), ...(by ? { openedBy: by } : {}) }] });
   return { ok: true, url: `https://${host}`, changed: true };
 }
 
-async function removeService({ hostname } = {}, { onLine = () => {} } = {}) {
+async function removeService({ hostname } = {}, { onLine = () => {}, internal = null } = {}) {
   const st = readFixed();
-  if (!st || !(st.extra || []).some((x) => x.hostname === hostname)) return fail('There is no such service.');
+  const found = st && (st.extra || []).find((x) => x.hostname === hostname);
+  if (!found) return fail('There is no such service.');
+  if (found.gateway === GATEWAY && internal !== GATEWAY) return fail(OWN_PAGE);
   writeState({ ...st, extra: st.extra.filter((x) => x.hostname !== hostname) });
   onLine(`${hostname} no longer leads here. Its DNS record stays in Cloudflare (cloudflared cannot remove it): delete it under your domain → DNS → Records.`);
   return { ok: true, changed: true };
@@ -493,6 +498,15 @@ export function fixedCloseOpenedBy(gone) {
   return dropped.map((x) => ({ by: x.openedBy, say: (who) => `The service ${x.hostname} that ${who} added to the Custom address was removed: its token was revoked` }));
 }
 
+/** TRouteAI was started (or its service written) with the name in its environment: the entry says so (trouteaipublic.mjs). */
+export function fixedMarkTold() {
+  const st = readFixed();
+  const e = st && st.mode === 'named' ? (st.extra || []).find((x) => x.gateway === GATEWAY || Number(x.port) === gatewayPort()) : null;
+  if (!e || e.told === true) return false;
+  writeState({ ...st, extra: st.extra.map((x) => (x === e ? { ...x, told: true } : x)) });
+  return true;
+}
+
 /** The set-up as the page shows it. Never a token, a certificate or a file path. */
 export function fixedStatus() {
   const st = readFixed() || {};
@@ -503,7 +517,7 @@ export function fixedStatus() {
     mode: st.mode || null,
     hostname: st.hostname || null,
     url: st.hostname ? `https://${st.hostname}` : null,
-    extra: (st.extra || []).map((x) => ({ hostname: x.hostname, port: x.port, url: `https://${x.hostname}` })),
+    extra: (st.extra || []).map((x) => ({ hostname: x.hostname, port: x.port, url: `https://${x.hostname}`, ...(x.gateway === GATEWAY ? { gateway: GATEWAY } : {}) })),
     suggested: suggestName(),
     port: dashboardPort(),
   };

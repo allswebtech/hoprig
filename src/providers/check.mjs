@@ -18,6 +18,7 @@ import { TOOL_VERSION, isSmall, namesFor, pictureModel } from './names.mjs';
 import { compareVersions } from '../setup/system.mjs';
 import { MAP_SINCE, configDirOf, ownOverrides, sessionMap } from './sessionmap.mjs';
 import { replaceFile } from '../replacefile.mjs';
+import { SHIPPED, prerunAddonId } from '../addons/gateways.mjs';
 
 const TIMEOUT_MS = 15_000;
 const AT_ONCE = 4;
@@ -218,6 +219,9 @@ export function mends(p, rows, picture, { takes = true, own = {} } = {}) {
     // A name the owner's own settings send there: only he changes that file (Hoprig only reads it).
     const yours = (r.also || [r.asks]).filter((n) => Object.hasOwn(own, n) && !isSmall(n));
     r.mend = { combo: `Add a combo named "${r.sends}" at the gateway`, models };
+    // The shipped gateway as Hoprig starts it (its provider's PRERUN says so) is managed in Hoprig's own pages: the page makes the combo on a press.
+    const gw = prerunAddonId(p.prerun);
+    if (gw && SHIPPED.some((d) => d.id === gw)) r.mend.make = { gateway: gw, name: r.sends };
     // A MODELS line reaches a session only where the owner turned the map on: the line itself never says it, each reader
     // adds it for the switch as it is when it is read (withSwitch), so a line kept from before a change stays true.
     r.mend.line = models ? `${r.mend.combo}, or set ${models}${other}` : r.mend.combo;

@@ -25,10 +25,22 @@ export const NEXT = Object.freeze({
   open_screen: 'tell the owner in one line what to do on that page',
   stop_session: 'list_sessions to see what runs now',
   switch_account: 'read_session in a minute to see it work on that provider',
-  set_auto_mode: 'get_computer_status with providers to see Auto mode now',
-  change_setting: 'get_computer_status with settings to see the setting now',
+  'hoprig_act list': 'call the act you found with hoprig_act, or tell the owner what it would do',
+  'hoprig_act probe-provider': 'tell the owner whether it answers; a provider that does not answer is his to look at (open_screen "providers")',
+  'hoprig_act restart-gateway': 'hoprig_act probe-provider to see that it answers now',
+  'hoprig_act stop-gateway': 'tell the owner it is stopped; hoprig_act restart-gateway starts it again',
+  'hoprig_act restart-hoprig': 'tell the owner to reload the page in a few seconds',
+  'hoprig_act reopen-session': 'read_session in a minute to see it work',
+  'hoprig_act continue-session': 'read_session in a minute for its answer',
+  'hoprig_act hold-starts': 'say so in your reply; hoprig_act hold-starts with value false releases it',
+  'hoprig_act clean-own-temp': 'say in your reply how much it freed',
+  'hoprig_act change-plan': 'manage_work plan to see the plan as it is now',
+  'hoprig_act undo-act': 'say so in your reply',
+  'hoprig_act auto-order': 'get_computer_status with providers to see Auto mode now',
+  'hoprig_act auto-mode': 'get_computer_status with providers to see Auto mode now',
+  'hoprig_act change-setting': 'get_computer_status with settings to see the setting now',
   run_command: 'tell the owner what the output says',
-  'manage_computer add': 'tell the owner the page to add the computer is open for him',
+  'manage_computer add': 'tell the owner adding a computer is his press and show him the Computers page',
   'manage_computer rename': 'get_computer_status to see it under the new name',
   'manage_computer check_updates': 'manage_computer update with an item that has one (a card)',
   'manage_computer update': 'get_computer_status with coding_tools in a few minutes to see the version',
@@ -55,7 +67,7 @@ export const NEXT = Object.freeze({
   'manage_project where': 'manage_work list first when the owner\'s words may name a task of his Work list; manage_project get to bring a project here (a card)',
   'manage_project find': 'manage_project group_add to add what it found (a card)',
   'manage_project drop_check': 'tell the owner what is only here; the drop is his (manage_project drop opens his sheet)',
-  'manage_project drop': 'tell the owner his sheet to drop it is open',
+  'manage_project drop': 'tell the owner the drop is his press on his sheet',
   'manage_project group_add': 'manage_project find to see what is in the group',
   'manage_project workspace_forget': 'list_projects with view "map" to see the map',
   'manage_automation list': 'tell the owner what runs by itself',
@@ -115,6 +127,6 @@ export const NEXT = Object.freeze({
 export function nextOf(tool, args, result) {
   const said = [result && result.summary, ...(result && Array.isArray(result.lines) ? result.lines : [])].filter((x) => typeof x === 'string');
   if (said.some((x) => /\bNext:/.test(x))) return null;
-  const action = args && typeof args.action === 'string' ? ` ${args.action}` : '';
+  const action = args && typeof args.action === 'string' ? ` ${args.action}` : args && typeof args.act === 'string' ? ` ${args.act}` : '';
   return NEXT[`${tool}${action}`] ?? NEXT[tool] ?? null;
 }

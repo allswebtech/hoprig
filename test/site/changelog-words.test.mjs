@@ -1,5 +1,5 @@
-// The unreleased block of the changelog (site/content/changelog.md, from "## 0.3.6") and the released 0.3.5, 0.3.4 and
-// 0.3.3 blocks after it (to the next "## "), read as one text, so a term first used in the new block is said there, are read by
+// The unreleased block of the changelog (site/content/changelog.md, from "## 0.4.0") and the released 0.3.6, 0.3.5, 0.3.4
+// and 0.3.3 blocks after it (to the next "## "), read as one text, so a term first used in the new block is said there, are read by
 // people who are not programmers. A term of Hoprig's own is said once in plain words where it first stands, and the
 // block holds nothing private and promises nothing: no word of a paid version, no "soon", one name for Tia's limit.
 import assert from 'node:assert/strict';
@@ -10,11 +10,12 @@ import { fileURLToPath } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const text = fs.readFileSync(path.join(ROOT, 'site/content/changelog.md'), 'utf8').replace(/\r\n?/g, '\n');
-const at = text.indexOf('\n## 0.3.6 ');
-const mid0 = text.indexOf('\n## ', at + 1);
+const at = text.indexOf('\n## 0.4.0 ');
+const mid00 = text.indexOf('\n## ', at + 1);
+const mid0 = text.indexOf('\n## ', mid00 + 1);
 const mid = text.indexOf('\n## ', mid0 + 1);
 const mid2 = text.indexOf('\n## ', mid + 1);
-assert.ok(at >= 0 && text.startsWith('\n## 0.3.5 (25 November 2026)\n', mid0) && text.startsWith('\n## 0.3.4 (25 November 2026)\n', mid) && text.startsWith('\n## 0.3.3 (24 November 2026)\n', mid2), 'the unreleased block, then the released 0.3.5, 0.3.4 and 0.3.3');
+assert.ok(at >= 0 && text.startsWith('\n## 0.3.6 (26 November 2026)\n', mid00) && text.startsWith('\n## 0.3.5 (25 November 2026)\n', mid0) && text.startsWith('\n## 0.3.4 (25 November 2026)\n', mid) && text.startsWith('\n## 0.3.3 (24 November 2026)\n', mid2), 'the unreleased block, then the released 0.3.6, 0.3.5, 0.3.4 and 0.3.3');
 const block = text.slice(at, text.indexOf('\n## ', mid2 + 1));
 
 /** Each term, and the plain words that say what it is, close after the place where it first stands. */

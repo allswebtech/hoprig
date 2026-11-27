@@ -68,13 +68,17 @@ async function capture(file, size, scale, max = MAX_BYTES) {
 try {
   let loads = 0;
   await chrome.viewport(DESKTOP.width, DESKTOP.height, { theme: 'light' });
+  // Registered once, inert unless the address has firstrun=1: the page's own answer for the list of sessions is made empty,
+  // so Home is a new install's (the demo has sessions), the same as tools/screenshots.mjs does for the first-run picture.
+  await chrome.send('Page.addScriptToEvaluateOnNewDocument', { source: `(() => { if (!location.search.includes('firstrun=1')) return; const f = window.fetch; window.fetch = async (...a) => { const r = await f(...a); if (!String((a[0] && a[0].url) || a[0]).includes('api/machines/sessions')) return r; const j = await r.clone().json(); for (const m of j.machines || []) m.sessions = []; return new Response(JSON.stringify(j), { status: r.status, headers: { 'Content-Type': 'application/json' } }); }; })();` });
   await chrome.goto(hooks.info.link, 2500); // the one-time sign-in link
   const chatId = await chrome.evaluate(`fetch('api/chats').then((r) => r.json()).then((j) => (j.chats || [])[0]?.chatId || '')`);
   const setting = (patch) => chrome.evaluate(`fetch('api/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(${JSON.stringify(patch)}) }).then((r) => r.status)`);
   const click = (text, sel) => chrome.evaluate(`(() => { const el = [...document.querySelectorAll(${JSON.stringify(sel)})].find((b) => b.getClientRects().length && b.textContent.replace(/\\s+/g, ' ').trim().includes(${JSON.stringify(text)})); if (!el) return false; el.click(); return true; })()`);
   // The first element `sel` brought up to 12 px under the sticky page head, whichever element scrolls.
   const scrollTo = (sel) => chrome.evaluate(`(() => { const el = document.querySelector(${JSON.stringify(sel)}); if (!el) return false; const head = document.querySelector('.pagehead'); el.style.scrollMarginTop = ((head ? head.getBoundingClientRect().height : 0) + 12) + 'px'; el.scrollIntoView({ block: 'start' }); return true; })()`);
-  // Get started is shown while it is open, so its shots come first; then it is closed for the other Home shots.
+  // The first run is shown while it is open, so its shots come first; then it is closed for the other Home shots.
+  await setting({ server: { getStartedDismissed: false } });
   for (const shot of SHOTS) {
     if (shot.name === 'home') await setting({ server: { getStartedDismissed: true } });
     if (ONLY && !ONLY.has(shot.name)) continue;
@@ -84,6 +88,7 @@ try {
         await chrome.evaluate('try { sessionStorage.clear(); localStorage.clear(); } catch {} true').catch(() => {});
         await chrome.goto(`${url}/?shot=${++loads}${shot.hash.replace('{chat}', chatId)}`, shot.wait || 3000);
         if (shot.open) { await click(shot.open, 'summary'); await sleep(600); }
+        if (shot.press) { await click(shot.press, '.row, button, a, [role=button]'); await sleep(1200); }
         origin = { x: 0, y: 0 };
         if (!size.mobile && SCROLL_TO[shot.name]) {
           await scrollTo(SCROLL_TO[shot.name]);

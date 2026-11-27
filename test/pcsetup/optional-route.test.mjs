@@ -8,6 +8,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { Readable } from 'node:stream';
 import test from 'node:test';
+import { pinPlatform } from '../pin-platform.mjs';
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'optional-route-'));
 Object.assign(process.env, { HOME: path.join(tmp, 'home'), USERPROFILE: path.join(tmp, 'home'), HOPRIG_CONFIG_DIR: path.join(tmp, 'cfg'), HOPRIG_STATE_DIR: path.join(tmp, 'state'), CLAUDE_CONFIG_DIR: path.join(tmp, 'claude') });
@@ -106,7 +107,8 @@ test('POST setup and fix: only kits that exist; java, an unknown id or a project
   assert.deepEqual(runs, [['php']]);
 });
 
-test('a fix runs exactly the commands its row shows; an optional kit\'s row runs nothing and sends the person to the sheet', async () => {
+test('a fix runs exactly the commands its row shows; an optional kit\'s row runs nothing and sends the person to the sheet', async (t) => {
+  t.after(pinPlatform('linux')); // the made-up computer is Linux: the kits on by default are those of Linux
   // A made-up apt computer with nothing on it: the real checks, the real fix route and pc setup, a runner that records.
   const sys = { platform: 'linux', pm: 'apt', root: false, user: 'dev', arch: 'x64', tmp: '/tmp', home: process.env.HOME, env: { PATH: '/usr/bin' }, clt: true, dnf5: false,  // seal: simulated sys facts; which() is stubbed, no program is started
     has: (b) => ['sudo', 'apt-cache'].includes(b), exists: () => false, list: () => [], which: () => null, run: async () => ({ ok: false, code: 1, stdout: '', stderr: '' }) };
@@ -143,7 +145,8 @@ test('a fix runs exactly the commands its row shows; an optional kit\'s row runs
   assert.equal(setupSummary([fvm]).optional.length, 1, 'it stays with the optional ones (as a note), not among what is fine');
 });
 
-test('no package manager: a default kit\'s missing git stays among the things to fix, with its reason and no button', async () => {
+test('no package manager: a default kit\'s missing git stays among the things to fix, with its reason and no button', async (t) => {
+  t.after(pinPlatform('linux')); // the made-up computer is Linux: the kits on by default are those of Linux
   const sys = { platform: 'linux', pm: null, root: false, user: 'dev', arch: 'x64', tmp: '/tmp', home: process.env.HOME, env: { PATH: '/usr/bin' }, clt: true, dnf5: false,  // seal: simulated sys facts; which() is stubbed, no program is started
     has: (b) => b === 'sudo', exists: () => false, list: () => [], which: () => null, run: async () => ({ ok: false, code: 127, stdout: '', stderr: '' }) };
   const checks = kitChecks(await detectKits(sys, ['basics', 'python', 'github', 'extras']), sys, null);

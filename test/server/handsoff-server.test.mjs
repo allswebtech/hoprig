@@ -93,7 +93,8 @@ test('the shipped state (offered, everything off): a start, a held act, a waitin
   const after = snapshot(box.root);
   // What changed: the session's own run record (and its folder, its lock and tool-news mark beside it), nothing else:
   // no config, no Activity line, no other file.
-  const changed = changes(before, after).filter((k) => k !== runName && k !== path.dirname(runName) && !k.startsWith(`${runName}.`) && k !== path.dirname(path.dirname(runName)));
+  const changed = changes(before, after).filter((k) => k !== runName && k !== path.dirname(runName) && !k.startsWith(`${runName}.`) && k !== path.dirname(path.dirname(runName)) && !k.startsWith('state/operator'));
+  // (the Operator's own rounds, which mend with no model and no usage from the first run, keep their record in state/operator)
   assert.deepEqual(changed, [], `changed beside the run record: ${changed.join(', ')}`);
   assert.equal(fs.existsSync(path.join(box.state, 'automation.log')), false, 'no line in Activity');
   const run = readRun(file);
@@ -154,7 +155,8 @@ test('offered:false (the owner hid the feature): every switch on but no answer, 
   assert.equal(hook(file, QUESTION).stdout, '', 'no answer while Hands-off is not offered');
   for (let i = 0; i < 3; i++) await app.watcher.tick();
   const after = snapshot(box.root);
-  const changed = changes(before, after).filter((k) => k !== runName && k !== path.dirname(runName) && !k.startsWith(`${runName}.`) && k !== path.dirname(path.dirname(runName)));
+  const changed = changes(before, after).filter((k) => k !== runName && k !== path.dirname(runName) && !k.startsWith(`${runName}.`) && k !== path.dirname(path.dirname(runName)) && !k.startsWith('state/operator'));
+  // (state/operator is the Operator's own note of the conversation ids Hoprig ran: written the first time a tick sees the run's id, and when this test runs first, as on Windows where the tests above are skipped, it is written here)
   assert.deepEqual(changed, [], `changed beside the run record: ${changed.join(', ')}`);
   assert.equal(fs.existsSync(path.join(box.state, 'automation.log')), false, 'no line in Activity');
   const run = readRun(file);

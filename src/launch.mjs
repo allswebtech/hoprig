@@ -24,7 +24,8 @@ import { providerName } from './operator/detect/util.mjs';
 import { mapEnv, mapSettings, sessionMap } from './providers/sessionmap.mjs';
 import { resolveWindowsBin, windowsSpawnPlan } from './winspawn.mjs';
 import { withExtras } from './workspace/needs.mjs';
-import { carryOf, takeHand, takeHers } from './launchfile.mjs';
+import { carryOf, takeAll, takeHand, takeHers } from './launchfile.mjs';
+import { markAll, unmarkAll } from './allmark.mjs';
 import { startAsHers } from './assistant/hersignin.mjs';
 import { credsDir } from './workspace/credlinks.mjs';
 import { endedAtStart, endedLine, noteStartFailure } from './startfail.mjs';
@@ -121,11 +122,15 @@ export function conversationOf(args) {
   return null;
 }
 
-/** The arguments that survive a move to another profile. */
+/**
+ * The arguments that survive a move to another profile. Nothing after "--" is read: that is a first message, and a word
+ * of it that looks like a flag must never reach a later start.
+ */
 export function carryArgs(args) {
   const out = [];
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
+    if (a === '--') break;
     const name = a.startsWith('--') ? a.split('=')[0] : a;
     if (a.includes('=') && a.startsWith('--')) {
       if (CARRY_VALUE.has(name) || CARRY_MANY.has(name) || CARRY_REPEAT.has(name)) out.push(a);
@@ -258,6 +263,24 @@ const hookEntry = (cmd, matcher = null) => [{ ...(matcher ? { matcher } : {}), h
 const WALL_TOOLS = WALL_MATCHER;
 
 /**
+ * The PreToolUse command of the wall and of the floor of "Allow everything", gated by cheap shell tests so that an
+ * ordinary command starts no node process (about 100 ms each): Hands-off's marker (server/handsoff.mjs) starts the hook as
+ * before; the session's `.all` mark (allmark.mjs, written by the dashboard while the session is in the mode) starts it
+ * only for a command line that holds the word rm, or for every call while Hands-off is on (it also notes what the wall
+ * would have held). The shell reads the event first and hands it on; the hook program is the authority.
+ * `offered`: Hands-off is offered; `floor`: this session may be in the mode. → the command, or null (no hook).
+ * Windows has no one shell to write the tests for: there the hook runs for every call, only where the session is in the mode.
+ */
+export function wallGate(command, { offered = false, floor = false, win = process.platform === 'win32' } = {}) {
+  if (win) return floor ? command : null;
+  const hands = `[ -e "$f/handsoff-active" ]`;
+  if (!floor) return offered ? `if [ -e "\${HOPRIG_RUN_FILE%/runs/*}/handsoff-active" ]; then ${command}; fi` : null;
+  const rm = `i=$(cat); case "$i" in *'rm '*|*'rm\\'*|*'rm"'*) printf '%s' "$i" | ${command};; esac`;
+  const mark = `[ -e "$f/hook-settings/\${HOPRIG_RUN_FILE##*/}.all" ]`;
+  return `f="\${HOPRIG_RUN_FILE%/runs/*}"; if ${mark}; then if ${hands}; then ${command}; else ${rm}; fi; ${offered ? `elif ${hands}; then ${command}; ` : ''}fi`;
+}
+
+/**
  * The one hook a coding chat's Claude Code gets (src/chat/engines/claude.mjs): PermissionRequest, the same program as a
  * terminal session's, so that one rule with the shell's real folder answers a plain delete in bypass mode for both
  * (hook.mjs hookAnswer). `version`: the Claude Code that will read it; null for one that does not surely know the
@@ -276,8 +299,9 @@ export const permissionHook = (version) => (knowsExactEvents(version) ? { Permis
  */
 export const leadHook = () => ({ PreToolUse: [{ matcher: 'Agent|Task', hooks: [{ type: 'command', command: hookCommand(), timeout: 5 }] }] });
 
-export function chatHooks(version, offered = false, hers = false) {
+export function chatHooks(version, offered = false, hers = false, floor = false) {
   const p = permissionHook(version);
+  const gate = !hers && wallGate(hookCommand(), { offered, floor });
   // A chat of Tia's holds below Full on every version: PreToolUse is older than the exact events, as a terminal of
   // hers carries it (hookSettings). It gets that hold alone, so nothing answers its OKs by hook.
   if (!p) return hers ? { PreToolUse: hookEntry(hookCommand(), WALL_TOOLS) } : null;
@@ -287,7 +311,8 @@ export function chatHooks(version, offered = false, hers = false) {
   // same cheap state-folder marker, so a chat holds a command that is the owner's alone in bypass mode too. The hook
   // program reads the switch itself and judges by the chat's folder (hook.mjs sessionFacts). Installed only while
   // offered; a chat of his on a Claude Code too old for the exact events has no hooks at all (p is null).
-  if (offered && process.platform !== 'win32') hooks.PreToolUse = hookEntry(`if [ -e "\${HOPRIG_RUN_FILE%/runs/*}/handsoff-active" ]; then ${hookCommand()}; fi`, WALL_TOOLS);
+  // A chat of his may also be in "Allow everything" (the mark, wallGate): the same entry then also pre-checks the floor.
+  if (gate) hooks.PreToolUse = hookEntry(gate, WALL_TOOLS);
   // A chat of Tia's holds what is the owner's alone below Full whatever Hands-off says (hook.mjs sessionHold), as her
   // terminal does (hookSettings): its hook runs for every call the wall reads, with no gate a switch decides.
   if (hers) hooks.PreToolUse = hookEntry(hookCommand(), WALL_TOOLS);
@@ -299,7 +324,7 @@ export function chatHooks(version, offered = false, hers = false) {
  * file, and (when `statusScript` is given) a status line command that saves the plan-usage numbers. `version` is
  * the Claude Code that will read them (null when not known).
  */
-export function hookSettings({ statusScript = null, padding = 0, version = null, offered = false, hers = false } = {}) {
+export function hookSettings({ statusScript = null, padding = 0, version = null, offered = false, hers = false, floor = false } = {}) {
   const command = hookCommand();
   const hooks = {};
   for (const e of HOOK_EVENTS) hooks[e] = hookEntry(command);
@@ -321,7 +346,9 @@ export function hookSettings({ statusScript = null, padding = 0, version = null,
   // act through, and a project switch being on means the marker is present, so a session started after it was turned
   // on is held too. The state folder is `$HOPRIG_RUN_FILE` without its `/runs/<id>.json` tail. Read, Grep and Glob are
   // excluded by the matcher. Installed only while Hands-off is offered.
-  if (offered && process.platform !== 'win32') hooks.PreToolUse = hookEntry(`if [ -e "\${HOPRIG_RUN_FILE%/runs/*}/handsoff-active" ]; then ${command}; fi`, WALL_TOOLS);
+  // A session in "Allow everything" also pre-checks its floor there (wallGate).
+  const gate = !hers && wallGate(command, { offered, floor });
+  if (gate) hooks.PreToolUse = hookEntry(gate, WALL_TOOLS);
   // A session Tia started holds what is the owner's alone below Full whatever Hands-off says, and whether or not it is
   // offered (hook.mjs sessionHold): its hook runs for every call the wall reads, with no gate that a switch decides.
   if (hers) hooks.PreToolUse = hookEntry(command, WALL_TOOLS);
@@ -365,7 +392,7 @@ export function statusScript(user) {
  * Run one Claude Code process under `profile`. Resolves to { code, sessionId, signalled, auto }, where `auto` is
  * { to, why } when the launcher itself stopped Claude to continue the session on another profile.
  */
-function runOnce(profile, args, cfg, { interactive = false, fallback = false, file: again = null, extras = null, hers = false } = {}) {
+function runOnce(profile, args, cfg, { interactive = false, fallback = false, file: again = null, extras = null, hers = false, everything = false } = {}) {
   const { file } = createRun({ profile: profile.name, cwd: process.cwd(), carryArgs: carryArgs(args), conversation: conversationOf(args), file: again });
   // The session's extra folders (by their map names) for its card and page.
   if (extras && extras.refs.length) updateRun(file, { extras: [...extras.refs] });
@@ -380,6 +407,15 @@ function runOnce(profile, args, cfg, { interactive = false, fallback = false, fi
   const map = sessionMap(profile);
   let env = mapEnv(profileEnv(profile), map);
   env.HOPRIG_RUN_FILE = file;
+  // "Allow everything" (bypassgate.mjs ALL): what the session's hook reads (hook.mjs allOn) is this variable, set here
+  // from the launch file the dashboard wrote and from nothing else: a value inherited from the shell or the profile is
+  // removed first, so a person's own `hoprig` or a command of a session can never start one in the mode.
+  delete env.HOPRIG_ALLOW_EVERYTHING;
+  delete process.env.HOPRIG_ALLOW_EVERYTHING;
+  if (everything) {
+    env.HOPRIG_ALLOW_EVERYTHING = '1';
+    markAll(file);
+  } else unmarkAll(file);
   // A session the dashboard started for Tia (its launch file said so: launchfile.mjs takeHers) is marked hers before
   // the coding tool starts, and signs in to the git server with the file the owner chose in place of his own, both
   // through the one startAsHers. Every run of this launcher is hers: a move to another provider, a restart on a new
@@ -424,7 +460,7 @@ function runOnce(profile, args, cfg, { interactive = false, fallback = false, fi
     // One file carries the hooks (with the wall of Hands-off when offered), this provider's model map
     // (providers/sessionmap.mjs) and the project's extra folders.
     const version = claudeVersionQuick({ bin: cfg.claudeBin, env });
-    fs.writeFileSync(settingsFile, JSON.stringify(withExtras({ ...hookSettings({ ...status, version, offered: handsOffOffered(cfg), hers }), ...mapSettings(map, version) }, extras && extras.settings)) + '\n', { mode: 0o600 });
+    fs.writeFileSync(settingsFile, JSON.stringify(withExtras({ ...hookSettings({ ...status, version, offered: handsOffOffered(cfg), hers, floor: everything && !hers }), ...mapSettings(map, version) }, extras && extras.settings)) + '\n', { mode: 0o600 });
   }
   const addDirs = settingsFile && extras ? extras.dirs : [];
   const full = [...given, ...modelArgs(profile, given), ...(addDirs.length ? ['--add-dir', ...addDirs] : []), ...(settingsFile ? ['--settings', settingsFile] : []), ...promptTail];
@@ -618,6 +654,7 @@ export async function launch(profileName, args, { askNext = null } = {}) {
   let hand = takeHand();
   // Whether the dashboard started this launcher for Tia (launchfile.mjs): for every run of this launch.
   const hers = takeHers();
+  const all = takeAll() && !hers;
   let menu = null; // while a choice of the launcher's own menu starts: { ask (what askNext was given), args, fresh }
   // Whatever ends the launch, no record names a conversation that nothing runs (a record of a launcher that has
   // ended goes by itself too: runs.mjs listRuns).
@@ -669,7 +706,7 @@ export async function launch(profileName, args, { askNext = null } = {}) {
     }
     const interactive = Boolean(process.stdin.isTTY && process.stdout.isTTY) && !isPrintMode(current);
     if (interactive) console.error(`hoprig: profile ${profile.name} · ${profile.label}`);
-    const once = await runOnce(profile, current, cfg, { interactive, fallback, file: kept, extras, hers });
+    const once = await runOnce(profile, current, cfg, { interactive, fallback, file: kept, extras, hers, everything: all });
     const { code, sessionId, signalled, auto, ended } = once;
     const ranId = kept ? path.basename(kept, '.json') : null; // the run that just ended, for the launcher's own menu move
     const ranCarry = once.carry; // its Hands-off stops, read before runOnce removed its record

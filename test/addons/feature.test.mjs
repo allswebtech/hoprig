@@ -182,7 +182,34 @@ test('a gateway\'s install and update are the owner\'s press, checked on the ser
   await idle();
   assert.deepEqual(await post(make('self', { tool: 'manage_computer', input: { action: 'addon', addon: 'relay', addon_action: 'update' } }), 'update', { confirm: 'box2' }), { started: true }, 'his confirmed card');
   await idle();
-  assert.deepEqual(await post(make('self'), 'start', {}), { started: true }, 'start stays hers at its level');
-  for (let i = 0; i < 20 && done.length < 3; i++) await settle();
-  assert.deepEqual(done, ['install', 'update', 'start']);
+  for (const act of ['start', 'stop']) await assert.rejects(post(make('self'), act, {}), (e) => e.status === 403 && e.details.code === 'owner-only', `${act}: Tia on her own`);
+  assert.deepEqual(await post(make('page'), 'start', {}), { started: true }, 'his own press of start needs no name');
+  await idle();
+  assert.deepEqual(await post(make('self', { tool: 'manage_computer', input: { action: 'addon', addon: 'relay', addon_action: 'start' } }), 'start', {}), { started: true }, 'his confirmed card');
+  for (let i = 0; i < 20 && done.length < 4; i++) await settle();
+  assert.deepEqual(done, ['install', 'update', 'start', 'start']);
+});
+
+test('a gateway\'s Remove is the owner\'s press naming the computer; a gateway with nothing to remove has no route; its answer is in the job', async () => {
+  const done = [];
+  const gw = { id: 'relay', title: 'Relay', gateway: { port: () => 9 }, status: async () => ({ installed: true, running: false }), start: async () => ({ ok: true }), stop: async () => ({ ok: true }),
+    remove: async ({ onLine }) => (done.push('remove'), onLine('It was removed. Its data was kept.'), { ok: true, said: 'It was removed. Its data was kept.' }) };
+  const plain = { id: 'plain', title: 'Plain', gateway: { port: () => 9 }, status: async () => ({ installed: true, running: false }), start: async () => ({ ok: true }), stop: async () => ({ ok: true }) };
+  const make = (caller, card = null) => addonsFeature({ readJson: async (req) => req.body || {}, caller: () => caller, ownerCard: () => card, config: () => ({ server: { roots: [os.tmpdir()] } }) }, { addons: [gw, plain], computer: () => 'box2' });
+  const post = (f, id, action, body) => {
+    const [, re, fn] = f.routes.find(([m, r]) => m === 'POST' && r.test(`/api/addons/${id}/${action}`));
+    return fn({ body, headers: {} }, re.exec(`/api/addons/${id}/${action}`));
+  };
+  for (const body of [{}, { confirm: 'box3' }]) await assert.rejects(post(make('page'), 'relay', 'remove', body), (e) => e.status === 400 && e.details.code === 'confirm', JSON.stringify(body));
+  await assert.rejects(post(make('self'), 'relay', 'remove', { confirm: 'box2' }), (e) => e.status === 403, 'Tia on her own');
+  await assert.rejects(post(make('page'), 'plain', 'remove', { confirm: 'box2' }), (e) => e.status === 404);
+  assert.deepEqual(done, []);
+  const f = make('page');
+  assert.deepEqual(await post(f, 'relay', 'remove', { confirm: 'box2' }), { started: true });
+  for (let i = 0; i < 20 && !done.length; i++) await settle();
+  await settle();
+  const [, re, job] = f.routes.find(([m, r]) => m === 'GET' && r.test('/api/addons/relay/job'));
+  const j = await job({ headers: {} }, re.exec('/api/addons/relay/job'), new URLSearchParams());
+  assert.deepEqual(j.lines, ['It was removed. Its data was kept.']);
+  assert.equal(j.result.ok, true);
 });

@@ -3,9 +3,11 @@
 // "Make it a private repository": a new private repository on GitHub, or the address of one you made yourself. The
 // sheet shows the server's dry run of `hoprig workspace credentials` (the cost, the steps, the visibility, that there
 // is no undo), and the yes is the repository's name typed: the server compares it and runs the step as the
-// workspace's background job (GET and POST /api/workspace/credentials, src/workspace/credweb.mjs).
+// workspace's background job (GET and POST /api/workspace/credentials, src/workspace/credweb.mjs). "Move to another
+// computer" (credmove.js) is shown only when there is another computer to move to.
 import { icon } from './icons.js';
 import { add, api, btn, fill, h, openSheet } from './lib.js';
+import { credMoveButton } from './credmove.js';
 import { errorBox, okBox } from './shell.js';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -41,7 +43,8 @@ export function credentialsPart() {
         h('span.row-main',
           h('span.row-title.ws-wrap', repo ? 'Credentials: in a private repository of yours' : 'Credentials: on this computer only'),
           h('span.row-sub.ws-wrap', sub)))),
-      next);
+      next,
+      credMoveButton());
   }
   load();
   return box;

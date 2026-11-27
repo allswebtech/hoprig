@@ -11,7 +11,7 @@
 //                                            | { op: 'move', id, to } | { op: 'pause', paused } | { op: 'clear' }
 //   POST /api/automation/schedules           { op: 'add', schedule } | { op: 'change', id, schedule } | { op: 'delete', id }
 //
-// Settings → Updates (./updater.mjs; the old /api/claude routes stay for older pages and other computers):
+// Settings → Version and updates (./updater.mjs; the old /api/claude routes stay for older pages and other computers):
 //   GET  /api/updates                        { mode, notify, running, items: [row] }
 //   POST /api/updates/check                  { id? }: look again now (one item, or all)
 //   POST /api/updates/settings               { mode?: 'manual' | 'auto', notify?: bool, itemModes?: { <id>: 'manual' | 'auto' | null } }
@@ -28,6 +28,8 @@ import { handsOffOffered } from '../handsoff.mjs';
 import { assertServes, readProfile } from '../profiles.mjs';
 import { chatToolList } from '../chat/tools.mjs';
 import { listRuns } from '../runs.mjs';
+import { isMarkedAll } from '../allmark.mjs';
+import { allAllowed } from '../bypassgate.mjs';
 import { isMarkedHers } from '../hermark.mjs';
 import { runsDir } from '../paths.mjs';
 import { launchArgv } from '../server/deck.mjs';
@@ -69,14 +71,23 @@ export function serverAdapter(sctx, { log = console.log, chat = null } = {}) {
       async list() {
         const st = await sctx.state();
         const runs = new Map(listRuns().map((r) => [r.runId, r]));
-        return st.sessions.map((c) => {
+        // A session on a provider paid per use: the retry rule never sends again on it (retry.mjs).
+        const paid = new Set((st.profiles || []).filter((p) => p.paid === true).map((p) => p.name));
+        return st.sessions.map((c0) => {
+          const c = c0.profile && paid.has(c0.profile.name) ? { ...c0, paidProfile: true } : c0;
           const r = c.runId ? runs.get(c.runId) : null;
           if (!r) return c;
           // `hers`: the dashboard marked this run Tia's (hermark.mjs), so a restore after a reboot brings it back as hers.
-          return { ...c, stopAt: r.stopAt || null, failure: r.failure || null, attentionKind: r.attentionKind || null, carryArgs: Array.isArray(r.carryArgs) ? r.carryArgs : [], ...(isMarkedHers(path.join(runsDir(), `${path.basename(r.runId)}.json`)) ? { hers: true } : {}) };
+          return { ...c, stopAt: r.stopAt || null, failure: r.failure || null, attentionKind: r.attentionKind || null, carryArgs: Array.isArray(r.carryArgs) ? r.carryArgs : [], ...(isMarkedHers(path.join(runsDir(), `${path.basename(r.runId)}.json`)) ? { hers: true } : isMarkedAll(path.join(runsDir(), `${path.basename(r.runId)}.json`)) && allAllowed(sctx.config?.() || {}, sctx.root) ? { all: true } : {}) };
         });
       },
-      async start({ tool = 'claude', dir, profile, mode = 'new', sessionId = null, carryArgs = [], name = null, fresh = false, hers = false }) {
+      // /api/state lists one card per conversation (server/onecard.mjs): a chat whose conversation a terminal runs or
+      // starts is folded into the terminal's card there, yet it is still a session a schedule may name.
+      async has(name) {
+        if (chat && chat.cards().some((c) => c.name === name)) return true;
+        return (await sctx.state()).sessions.some((c) => c.name === name);
+      },
+      async start({ tool = 'claude', dir, profile, mode = 'new', sessionId = null, carryArgs = [], name = null, fresh = false, hers = false, all = false }) {
         // "Start nothing new" (a hold of Tia's while the computer was overloaded) holds a schedule's start too. A
         // restore after a reboot (mode "move") brings back what ran before, so it is not held.
         const held = mode === 'move' ? null : heldUntil();
@@ -97,7 +108,7 @@ export function serverAdapter(sctx, { log = console.log, chat = null } = {}) {
         // scheduled session (no conversation) is not reset — the project's switch covers it as always.
         const reset = (mode === 'move' || mode === 'resume') && !!sessionId && handsOffOffered(sctx.config?.() || {});
         // `hers`: a restore of a session of Tia's (restore.mjs), or a schedule she added (schedules.mjs).
-        const go = async () => ({ name: await sctx.deck.create({ base: name || path.basename(dir), dir, argv, conversation: sessionId, ...(tool !== 'claude' ? { tool } : {}), ...(reset ? { hand: { reset: true } } : {}), ...(hers === true ? { hers: true } : {}) }) });
+        const go = async () => ({ name: await sctx.deck.create({ base: name || path.basename(dir), dir, argv, conversation: sessionId, ...(tool !== 'claude' ? { tool } : {}), ...(reset ? { hand: { reset: true } } : {}), ...(hers === true ? { hers: true } : {}), ...(all === true && hers !== true && allAllowed(sctx.config?.() || {}, sctx.root) ? { all: true } : {}) }) });
         if (!sessionId || !chat) return (await go()).name;
         // One conversation, one process: a conversation that a chat or a terminal runs already is not started again
         // (a message sent right after a restart, before this terminal reports it, must find it too). A fresh start
@@ -114,7 +125,7 @@ export function serverAdapter(sctx, { log = console.log, chat = null } = {}) {
       // with code "not_in_front" when nothing was typed, "typed_not_sent" when the text went but its Enter did not.
       send: (name, text) => sctx.deck.sendToTool(name, text),
       kill: (name) => sctx.backend.kill(name),
-      // A chat (src/chat): its feature opens it as the page does, with Settings' New-session defaults (as a terminal
+      // A chat (src/chat): its feature opens it as the page does, with Settings' New sessions (as a terminal
       // a schedule starts), not the folder's last chat: nobody watches a scheduled chat as it starts.
       ...(chat ? {
         // The chat's own checks run here too: the coding tool is on, and the provider still serves it.
@@ -174,7 +185,7 @@ const asBad = async (fn) => {
 
 /**
  * The feature. `opts.tick` false: no timer (tests drive tick() by hand). `opts.ctx`: a ready automation ctx
- * instead of the server adapter, `opts.now`: a clock (tests), `opts.updateItems`: stand-ins for Settings → Updates (demo, tests),
+ * instead of the server adapter, `opts.now`: a clock (tests), `opts.updateItems`: stand-ins for Settings → Version and updates (demo, tests),
  * `opts.log`: where the automations' lines go (default: the server's output; the demo keeps them in its log file).
  */
 export function automationFeature(sctx, opts = {}) {

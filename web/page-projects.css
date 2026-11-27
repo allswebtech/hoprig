@@ -1,13 +1,45 @@
 /* Styles of the projects pages only. Shared parts (sidebar, page head, list rows, folds, radio cards) live in style.css:
    use them first, and keep every class here prefixed so it cannot touch another page.
-   pj-  Projects, a project's page, New project, Get an existing project (projects.js)
+   pj-  Projects (the rows), a project's page, New project, Get an existing project (projects.js)
    sk-  Skills (skillhub.js); lr-  Skills → Learned (skilllearned.js)
    ws-  Workspace (projects.js, workspace.js) and Workspace folders (brain.js); brain-  the AI brain page (brain.js)
-   ns-  New session's choices on a phone (newsession-popup.js; the cards themselves are in style.css)
+   ns-  New session (newsession-popup.js; its rules are in style.css)
    map-  Settings → Workspace, the map (workspace.js); git-  Git and GitHub (gitsetup.js) */
 
 
-/* ---------- the list ---------- */
+/* ---------- Not in step: the block on top, drawn only when something is off (instep.js); rows like the project list ---------- */
+.instep { margin: 0 0 14px; background: var(--surface); border-radius: var(--r-lg); box-shadow: var(--shadow-1); overflow: hidden; }
+.instep-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 12px 8px 14px; min-height: 48px; }
+.instep-list { list-style: none; margin: 0; padding: 0; }
+.instep-row { display: flex; align-items: center; gap: 10px; padding: 10px 12px 10px 14px; min-width: 0; border-top: 1px solid var(--border); }
+.instep-text { flex: 1 1 auto; min-width: 0; font-size: 12.5px; color: var(--text-2); overflow-wrap: anywhere; }
+.instep-row > .btn { flex: none; min-height: 36px; }
+@media (pointer: coarse) { .instep-row > .btn, .instep-head > .btn { min-height: 44px; } }
+
+
+/* ---------- the list: one row per project, its name, one line of state, one New session ---------- */
+.pj-row { display: flex; align-items: center; gap: 10px; padding: 10px 12px 10px 14px; min-width: 0; }
+.pj-rowmain { flex: 1 1 auto; min-width: 0; display: flex; align-items: center; gap: 12px; color: inherit; text-decoration: none; min-height: 44px; }
+.pj-rowmain:hover .row-title { color: var(--accent); }
+.pj-row .row-title { font-weight: 650; overflow-wrap: anywhere; white-space: normal; }
+.pj-row .row-sub { white-space: normal; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.pj-row > .btn { flex: none; }
+.pj-away .row-icon, .pj-away .row-title { color: var(--muted); }
+.pj-rest { display: grid; gap: 4px; }
+.pj-rest > .ws-strip { margin-bottom: 8px; }
+.pj-rest > .ws-groups, .pj-rest > .ws-computers { margin-top: 12px; }
+.pj-rest > .ws-other { margin-top: 0; }
+.pj-rest > .pj-folder { margin-top: 12px; }
+/* A closed fold that reads as one row: its title, with a line of state under it (a project's page). */
+.pj-foldrow { margin: 0 0 14px; background: var(--surface); border-radius: var(--r-lg); box-shadow: var(--shadow-1); }
+.pj-foldrow > .fold-summary { min-height: 64px; padding: 8px 14px; gap: 12px; }
+.pj-foldrow > .fold-summary .icon { flex: none; }
+.pj-foldrow > .fold-body { padding: 4px 8px 10px; }
+.pj-foldrow .rows { box-shadow: none; background: var(--surface-2); }
+.pj-fold-text { flex: 1; display: grid; gap: 2px; min-width: 0; text-align: left; }
+.pj-fold-title { font-weight: 650; }
+.pj-fold-sub { font-size: var(--fs-sm); font-weight: 400; color: var(--text-2); white-space: normal; overflow-wrap: anywhere; }
+.pj-fold-sub.attn { color: var(--warn); }
 .pj-git { white-space: normal; }
 .pj-git.attn, .row-sub.attn { color: var(--warn); }
 .pj-get .icon { flex: none; }
@@ -195,15 +227,6 @@
 .bl-tool-row.bl-linked .bl-mark { background: var(--ok-soft); color: var(--ok); }
 .bl-tool-row.bl-left .bl-mark { background: var(--surface-3); color: var(--muted); }
 
-/* New session on a phone: the computers, the ways to open and the coding tools two to a row, so the first project is
-   close to the first screen. */
-@media (max-width: 520px) {
-  /* The large tiles: the icon above the words, so a line has the tile's whole width. */
-  .ns-tile { position: relative; flex-direction: column; align-items: flex-start; gap: 6px; min-height: 0; padding: 10px 12px; }
-  .ns-tile-icon { width: 30px; height: 30px; }
-  .ns-tile-tick { position: absolute; top: 10px; right: 10px; }
-}
-
 /* ---------- New project: the brief and "Start with AI" (newproject.js) ---------- */
 .np-fields { display: grid; gap: 6px; margin-top: 8px; }
 .np-more:not([hidden]) { display: grid; gap: 14px; margin: 6px 0 10px; }
@@ -254,17 +277,6 @@
 .badge.soft.warn { background: var(--warn-soft); color: var(--warn); }
 @media (pointer: coarse) { .ws-q .toggle-line { min-height: 44px; align-items: center; } }
 
-/* ---------- New session: the one line of the choices over the project list (newsession-popup.js) ---------- */
-.ns-choices { margin: 0 0 12px; border: 1px solid var(--border); border-radius: var(--r-lg); background: var(--surface); }
-.ns-choices-line { display: flex; align-items: center; gap: 10px; min-height: 44px; padding: 8px 14px; list-style: none; cursor: pointer; }
-.ns-choices-line::-webkit-details-marker { display: none; }
-.ns-choices-what { flex: 1; min-width: 0; font-weight: 550; }
-.ns-choices-change { flex: none; color: var(--accent); font-weight: 600; }
-.ns-choices-line .icon { flex: none; color: var(--muted); transition: transform 0.15s; }
-.ns-choices[open] > .ns-choices-line .icon { transform: rotate(180deg); }
-.ns-choices-body { padding: 4px 14px 10px; border-top: 1px solid var(--border); }
-/* A project row's own action, in words: Start (a new session there); Continue beside it opens what runs. */
-.ns-startword { display: flex; align-items: center; gap: 4px; color: var(--accent); font-size: var(--fs-sm); font-weight: 600; }
 /* A group's own command (workspacetool.js): its sentences wrap; on a phone its buttons go under them. */
 .ws-tool { align-items: flex-start; }
 .ws-tool .row-sub { white-space: normal; overflow-wrap: anywhere; }

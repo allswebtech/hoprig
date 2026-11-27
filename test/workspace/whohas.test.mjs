@@ -20,7 +20,9 @@ const commitOwn = (c, label, when = null) => {
   if (when) process.env.GIT_COMMITTER_DATE = process.env.GIT_AUTHOR_DATE = when;
   try {
     w.sh(c.brain, 'add', '--', `computers/${label}.json`);
-    w.sh(c.brain, 'commit', '-q', '-m', `computer ${label}`);
+    // `hoprig get` commits this computer's file itself now: the commit then only takes the test's date.
+    if (w.sh(c.brain, 'status', '--porcelain', '--', `computers/${label}.json`)) w.sh(c.brain, 'commit', '-q', '-m', `computer ${label}`);
+    else if (when) w.sh(c.brain, 'commit', '-q', '--amend', '--no-edit', '--date', when);
     w.sh(c.brain, 'pull', '-q', '--rebase');
     w.sh(c.brain, 'push', '-q');
   } finally {

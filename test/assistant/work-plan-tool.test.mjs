@@ -203,6 +203,9 @@ test('the door: the plan route takes only the keys her tool sends; a plan\'s own
   const refused = (m, p, b) => assert.throws(() => checkRoute(m, p, b, ctx), (e) => e.status === 403, `${m} ${p} ${JSON.stringify(b)}`);
   refused('POST', '/api/work/items/fix-it/plan', { at: 1, plan: PLAN_ID, status: 'done' });
   refused('POST', '/api/work/items/fix-it/plan', { plan: PLAN_ID });
-  refused('POST', `/api/work/plans/${PLAN_ID}`, { seen: '0123456789abcdef', title: 'x' });
-  refused('POST', '/api/work/plans', { title: 'x', goal: 'y' });
+  // Her act change-plan (hoprig_act) makes and changes a plan: its title, goal, projects and milestones, never its status.
+  assert.equal(checkRoute('POST', `/api/work/plans/${PLAN_ID}`, { seen: '0123456789abcdef', title: 'x' }, ctx).tool, 'hoprig_act change-plan');
+  assert.equal(checkRoute('POST', '/api/work/plans', { title: 'x', goal: 'y' }, ctx).tool, 'hoprig_act change-plan');
+  refused('POST', `/api/work/plans/${PLAN_ID}`, { seen: '0123456789abcdef', status: 'dropped' });
+  refused('POST', '/api/work/plans', { title: 'x', status: 'done' });
 });

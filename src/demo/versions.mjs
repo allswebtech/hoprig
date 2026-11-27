@@ -1,5 +1,5 @@
 // Every made-up version the demo shows, in one place: the coding tools' installed and newest versions, Hoprig's own,
-// the other computer's, the gateway's, the public link's helper and the set-up checks' programs. Settings → Updates,
+// the other computer's, the gateway's, the public link's helper and the set-up checks' programs. Settings → Version and updates,
 // the Overview, Health, Setup, Coding tools, the Computers page, the chat and the sign-in all read them from here,
 // so no page says "the newest version" while another offers a newer one (test/server/demo-versions.test.mjs).
 import fs from 'node:fs';

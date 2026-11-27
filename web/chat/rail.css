@@ -12,8 +12,7 @@
     display: flex; flex-direction: column; gap: 10px; flex: none; width: 300px; overflow-y: auto; overscroll-behavior: contain;
     padding: 14px 12px; border-left: 1px solid var(--border); background: var(--surface);
   }
-  /* What the rail says, the dock does not say again: the agents strip, the context, the plan usage and the cost. */
-  .chat-wrap:not(.chat-rail-off) .chat-strip { display: none; }
+  /* What the rail says, the dock does not say again: the context, the plan usage and the cost. */
   .chat-wrap:not(.chat-rail-off) .chat-st-part:is([data-k='Context'], [data-k='Plan limits'], [data-k='Cost so far']) { display: none; }
 }
 
@@ -29,11 +28,12 @@
 .chat-rcard-fold > summary svg { flex: none; color: var(--muted); transition: transform var(--tick); }
 .chat-rcard-fold[open] > summary svg { transform: rotate(90deg); }
 .chat-rcard-fold:not([open]) { gap: 0; }
-.chat-rcard-body { display: grid; gap: 6px; min-width: 0; }
+.chat-rcard-body { display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; min-width: 0; }
 /* Baseline: the provider's value is a button (its menu); its words sit on the same line as "Provider". */
 .chat-rail-rows { display: grid; grid-template-columns: max-content minmax(0, 1fr); align-items: baseline; gap: 4px 10px; margin: 0; font-size: var(--fs-xs); }
 .chat-rail-rows dt { color: var(--muted); }
-.chat-rail-rows dd { margin: 0; color: var(--text); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* the link's own 4px to the left (its hover and focus ring) lie inside the value's padding, which overflow does not clip */
+.chat-rail-rows dd { margin: 0 0 0 -4px; padding-left: 4px; color: var(--text); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* Who did what (parts.js): a part's tokens and its model wrap under its kind, never cut ("claude-sonnet-…"). */
 .chat-parts-rows { grid-template-columns: minmax(0, 1fr); gap: 2px 0; }
 .chat-parts-rows dd { white-space: normal; overflow: visible; overflow-wrap: anywhere; margin-bottom: 6px; font-variant-numeric: tabular-nums; }
@@ -45,18 +45,17 @@
 .chat-rail-n, .chat-rail-new { flex: none; color: var(--muted); }
 .chat-rail-bar { height: 6px; border-radius: 3px; background: var(--surface-3); overflow: hidden; }
 .chat-rail-bar > span { display: block; height: 100%; background: var(--accent); }
-/* A task: one compact row (a dot that says it runs, its name, its Stop); the first few, then "N more". A long name
-   wraps: nothing is cut to "W…". */
-.chat-rail-tasks { margin: 0; padding: 0; list-style: none; display: grid; gap: 4px; }
-.chat-rail-task { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: var(--fs-xs); }
-.chat-rail-dot { flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); }
-.chat-rail-taskname { flex: 1; min-width: 0; padding: 0; border: 0; background: none; color: var(--text); font: inherit; text-align: left; overflow-wrap: anywhere; }
-button.chat-rail-taskname { cursor: pointer; }
-button.chat-rail-taskname:hover { text-decoration: underline; }
-.chat-rail-task .chat-taskstop { flex: none; min-height: 26px; padding: 0 8px; }
 /* A finger (a tablet shows the rail): every control of the rail 44 px high. */
 @media (pointer: coarse) {
-  .btn.small.chat-rail-link, .chat-rcard-count, .chat-rcard-fold > summary, .chat-rail-taskname, .chat-rail-task .chat-taskstop { min-height: 44px; }
+  .btn.small.chat-rail-link, .chat-rcard-count, .chat-rcard-fold > summary { min-height: 44px; }
 }
-/* The provider's plain words under its button: they wrap, the row's value does not. */
-.chat-rail-rows dd .chat-rail-said { display: block; margin: 2px 0 0; white-space: normal; }
+/* The pull request line and Create PR in the Changes card: the title is cut with dots, the checks say their state under it. */
+.chat-rail-pr { display: grid; grid-template-columns: minmax(0, 1fr); gap: 2px; min-width: 0; border-top: 1px solid var(--border); padding-top: 6px; }
+.btn.small.chat-rail-prtitle { width: 100%; min-width: 0; justify-content: space-between; }
+.chat-rail-prtext { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
+.chat-rail-checks { display: flex; align-items: center; gap: 6px; margin: 0; font-size: var(--fs-xs); color: var(--text-2); }
+.chat-pr-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); flex: none; }
+.chat-pr-passing .chat-pr-dot { background: var(--ok, #2e9d5b); }
+.chat-pr-failing .chat-pr-dot { background: var(--danger, #d03b3b); }
+.chat-pr-running .chat-pr-dot { background: var(--warn, #c98a00); }
+.btn.small.chat-rail-create { justify-self: start; gap: 6px; }

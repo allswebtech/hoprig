@@ -132,9 +132,17 @@ test('with default settings nothing of drop runs by itself: a dashboard start an
 
   const diff = changes(before, snapshot(roots));
   const ours = (k) => [path.join(A.ws, 'ai_brain'), A.env.HOPRIG_CONFIG_DIR, A.env.HOPRIG_STATE_DIR].some((d) => k.includes(`${d}${path.sep}`) || k.endsWith(d)) || k.includes(`refs:${path.join(w.server, 'team', 'brain.git')}`);
-  const theirs = diff.filter((l) => !ours(l.replace(/^(removed|changed|added) /, '')));
+  // The look at the projects (every 30 minutes and at start) only FETCHES: git's own record of what the server has
+  // (FETCH_HEAD, the remote-tracking refs, new objects) changes, never a branch, HEAD or a working tree; and the map's own
+  // commit goes up to the brain's git server.
+  const fetched = (k) => k.startsWith(A.projects + path.sep) && /(^|[\\/])\.git([\\/](objects([\\/].*)?|FETCH_HEAD|refs[\\/]remotes([\\/].*)?))?$/.test(k);
+  const server = (k) => k.startsWith(path.join(w.server, 'team', 'brain.git'));
+  const theirs = diff.filter((l) => {
+    const k = l.replace(/^(removed|changed|added) /, '');
+    return !ours(k) && !fetched(k) && !server(k);
+  });
   assert.deepEqual(theirs, [], 'only the brain and Hoprig\'s own settings and state may change');
-  assert.ok(!diff.some((l) => l.includes(A.projects)), 'nothing of the projects');
+  assert.ok(!diff.some((l) => l.includes(A.projects) && !fetched(l.replace(/^(removed|changed|added) /, ''))), 'nothing of the projects but what a fetch writes');
   tc.diagnostic(`what changed besides: ${diff.length} path(s) of the brain, settings and state`);
 
   // The control: a real drop of one of them changes the snapshot (the snapshot sees what a drop does).

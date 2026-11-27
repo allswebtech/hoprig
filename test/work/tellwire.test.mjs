@@ -39,7 +39,7 @@ test('an item on: what waits for his look goes through the push channel, forced,
   });
   await f.tell.tick();
   assert.equal(got.length, 1);
-  assert.deepEqual(got[0], { force: true, status: 'automation', session: 'work', title: 'Done: Add the cart', message: 'Open Work → Today to look at it and accept it.', url: '' });
+  assert.deepEqual(got[0], { force: true, status: 'automation', session: 'work', title: 'Done: Add the cart', message: 'Open Work → Tasks to look at it and accept it.', url: '' });
 });
 
 test('the sample of his language is kept only while "Tia writes my digest" is on', () => {

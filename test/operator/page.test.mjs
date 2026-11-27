@@ -176,10 +176,11 @@ test('a rule that left an item to him says so on its card; Done by Tia shows Und
   assert.ok(texts(cut).includes('the limit rule was cut off by a stop of the dashboard'), texts(cut).join('|'));
 });
 
-test('the sidebar and the tab bar give a page\'s number the same words for a screen reader', async () => {
+test('the sidebar and the tab bar draw their number in one place, with the same words for a screen reader', async () => {
   const fs = await import('node:fs');
   const src = fs.readFileSync(new URL('../../web/shell.js', import.meta.url), 'utf8');
-  assert.equal(src.match(/'aria-label': badgeLabel\(/g).length, 2, 'both places use badgeLabel');
+  assert.equal(src.match(/'aria-label': badgeLabel\(/g).length, 1, 'the list and the bar share navItem, which uses badgeLabel');
+  assert.match(src, /fill\(bottom, bar\.map\(\(p\) => navItem\(p, current, 'tab'\)\)\)/);
   assert.doesNotMatch(src, /waiting for you` \}/);
   const { badgeLabel } = await import('../../web/shell.js');
   assert.deepEqual([badgeLabel(1), badgeLabel(3)], ['1 thing needs you', '3 things need you']);
@@ -246,17 +247,18 @@ test('after his own change the panel is drawn again while the focus is on the sw
   const box = h0();
   let key = tia.drawTia(box, tiaView(), () => {});
   switchOf(box, 'master').focus();
-  const on = tiaView({ acts: true, active: true, said: 'Tia does by herself only what the rules that are on say, within their limits.' });
+  const on = tiaView({ acts: true, active: true, said: 'Tia does by herself only what the rules that are on say, within their limits, and small jobs on Hoprig itself, each with Undo.' });
   key = tia.drawTia(box, on, () => {}, { drawn: key, force: true });
   assert.ok(texts(box).includes(on.said), 'drawn again with what the server says now');
   assert.ok(texts(box).includes('Tia OFF'), 'Tia OFF is there');
   assert.equal(document.activeElement, switchOf(box, 'master'), 'the focus is on the new master switch');
   // While he types in an open "Change the limits" form, the 15-second reload does not draw over it (his own Save does).
-  const form = all(box, (n) => n.tag === 'details')[0];
+  const limitsForms = () => all(box, (n) => n.tag === 'details' && String(n.className).includes('op-limits'));
+  const form = limitsForms()[0];
   form.open = true;
   all(form, (n) => n.tag === 'input')[0].focus();
   const kept = tia.drawTia(box, tiaView({ acts: true, said: 'other words' }), () => {}, { drawn: key });
-  assert.equal(all(box, (n) => n.tag === 'details')[0], form, 'the open form he types in stays');
+  assert.equal(limitsForms()[0], form, 'the open form he types in stays');
   assert.equal(kept, key);
   tia.drawTia(box, tiaView({ acts: true, said: 'other words' }), () => {}, { drawn: key, force: true, focus: 'limits-limit' });
   assert.ok(texts(box).includes('other words'), 'after his Save it is drawn again');
@@ -283,7 +285,7 @@ test('on another computer\'s page the Tia panel is read only: no switch, no Tia 
   const { machine } = await import('../../web/lib.js');
   machine.set('box2');
   try {
-    const panel = tia.tiaPanel(tiaView({ acts: true, active: true, said: 'Tia does by herself only what the rules that are on say, within their limits.' }), () => {});
+    const panel = tia.tiaPanel(tiaView({ acts: true, active: true, said: 'Tia does by herself only what the rules that are on say, within their limits, and small jobs on Hoprig itself, each with Undo.' }), () => {});
     assert.deepEqual(all(panel, (n) => n.tag === 'input' || n.tag === 'button' || n.tag === 'details'), []);
     assert.ok(texts(panel).includes('Change this on that computer\'s own dashboard.'), texts(panel).join('|'));
     const list = tia.byTiaList([{ at: '2026-03-10T14:00:00Z', by: 'limit', subject: 'session alpha', act: 'switch', ok: true, result: 'moved to plan-b', undo: 'aabbccdd' }], { undoable: ['aabbccdd'] }, () => {});
@@ -316,8 +318,10 @@ test('the rules\' words: what a limit counts, what "two tries" means, a switch n
   assert.ok(failed.includes('the gateway rule tried, and it failed'), failed.join('|'));
 });
 
-test('the page\'s first sentence names "Tia decides" and the looks too', () => {
-  assert.match(page.INTRO, /by a rule you switched on, by "Tia decides", or by a look, when you turned it on\./);
+test('the Tia fold names "Tia decides" and the looks as her ways to act alone', async () => {
+  const tia = await import('../../web/operator-tia.js');
+  const t = texts(tia.tiaPanel(tiaView(decideView), () => {})).join('|');
+  assert.match(t, /Tia decides/);
 });
 
 test('"Tia decides": the confirm says what a decision really costs, not a few hundred tokens', async () => {
@@ -492,4 +496,111 @@ test('the look\'s switch names the model a look runs on, or says in one line why
   assert.match(lw.lookCostWords({ ...base, estimate: est, runsOn: { provider: 'relay', model: 'claude-fable-5-2' } }), /A look now runs on fable-5-2 of relay\./);
   const words = texts(lw.lookPart({ look: { ...base, estimate: est, runsOn: null, cannot: 'relay serves no model of the strongest family (Opus or Fable), so no look starts on it' } }, () => {})).join(' ');
   assert.match(words, /No look can start now: relay serves no model of the strongest family \(Opus or Fable\), so no look starts on it\./);
+});
+
+// ---------- Operator has no page: its act cards are rows on Home, its Tia side a fold in Settings -> Tia ----------
+const tick = () => new Promise((r) => setTimeout(r, 5));
+const attention = (items) => ({ status: 200, body: { items, acts: catalog, needs: items.filter((i) => i.class !== 'info').length, watched: [], timeline: [], hidden: 0, more: 0 } });
+
+test('a Stopped card is a row of Home Needs you with its one button; a card that only informs is not there', async () => {
+  const box = h0();
+  answers.length = 0;
+  answers.push(attention([stuckItem, repoItem]));
+  const stop = page.needsYouRows(box);
+  await tick();
+  stop();
+  const t = texts(box);
+  assert.ok(t.includes('session alpha') && !t.includes('Needs you'), 'only the rows: the heading and its count are Home\'s group: ' + t.join('|'));
+  assert.ok(!t.includes('repository shop'), 'a branch that is only here is not a row');
+  assert.ok(!t.includes('For your information') && !t.includes('Watched') && !t.includes('Done by you'), 'no old parts');
+  const primary = all(box, (n) => n.tag === 'a' && n.className.split(' ').includes('primary'));
+  assert.deepEqual(primary.map((n) => n.attrs['aria-label']), ['Open the session: session alpha']);
+  assert.equal(all(box, (n) => n.tag === 'details').length, 1, 'the other steps are behind one closed More');
+  assert.equal(all(box, (n) => n.tag === 'details')[0].open, false);
+});
+
+test('with nothing to act on the box stays empty, and the Home count is the cards that ask', async () => {
+  const box = h0();
+  answers.length = 0;
+  answers.push(attention([repoItem]));
+  const stop = page.needsYouRows(box);
+  await tick();
+  stop();
+  assert.deepEqual(texts(box), []);
+  assert.equal(page.homeCount(), 0);
+  answers.push(attention([stuckItem]));
+  const stop2 = page.needsYouRows(box);
+  await tick();
+  stop2();
+  assert.equal(page.homeCount(), 1);
+});
+
+test('the old address of the Operator opens Home; Home draws the rows with the one call', async () => {
+  const reg = await import('../../web/registry.js');
+  const calls = [];
+  globalThis.location = { pathname: '/', hash: '#/operator', replace: (x) => calls.push(x) };
+  const p = reg.pageById('operator');
+  assert.equal(p.group, null, 'not in the menu');
+  p.render({});
+  assert.deepEqual(calls, ['#/']);
+  const fs = await import('node:fs');
+  const home = fs.readFileSync(new URL('../../web/home.js', import.meta.url), 'utf8');
+  assert.match(home, /import \{ needsYouRows \} from '\.\/operator\.js'/);
+  assert.match(home, /needsYouRows\(opRows,/);
+  const src = fs.readFileSync(new URL('../../web/operator.js', import.meta.url), 'utf8');
+  assert.match(src, /typeof registry\.registerHomeCount === 'function'/);
+});
+
+test('Settings -> Tia: one closed fold holds her switch, the rules, the looks and what she did', async () => {
+  const tia = await import('../../web/operator-tia.js');
+  answers.length = 0;
+  answers.push({ status: 200, body: { ...attention([]).body, reflexes: tiaView(), byTia: [] } }, { status: 200, body: { lookOthers: false } });
+  const f = tia.tiaAloneFold();
+  await tick();
+  assert.equal(f.tag, 'details');
+  assert.notEqual(f.open, true, 'closed at first');
+  const t = texts(f);
+  assert.ok(t.includes('What she may do alone') && t.includes('Done by Tia'), t.join('|'));
+  assert.ok(switchOf(f, 'master'), 'her switch is inside');
+  assert.ok(t.includes('Look at my other computers too'));
+});
+
+test('a session that asks is not a row while its own card is on Home; one that has no card is', () => {
+  const asks = { ...stuckItem, kind: 'asks', subject: 'session beta' };
+  const card = [{ sessions: [{ name: 'beta', status: 'attention' }] }];
+  assert.equal(page.sameAsCard(asks, card), true);
+  assert.equal(page.sameAsCard(asks, [{ sessions: [{ name: 'gamma', status: 'attention' }] }]), false);
+  const chat = { ...asks, subject: 'chat "Fix it" (99883e68)' };
+  assert.equal(page.sameAsCard(chat, [{ sessions: [{ name: 'x', chatId: '99883e68-aaaa', status: 'attention' }] }]), true, 'a chat is found by its id');
+  assert.equal(page.sameAsCard(stuckItem, [{ sessions: [{ name: 'alpha', status: 'attention' }] }]), false, 'no progress is Working on Home: its row stays');
+});
+
+test('Needs you holds the Operator rows above the session rows, and the one badge is their sum', async () => {
+  const reg = await import('../../web/registry.js');
+  const home = await import('../../web/home.js');
+  const box = h0();
+  answers.length = 0;
+  answers.push(attention([stuckItem]));
+  const counts = [];
+  const stop = page.needsYouRows(box, (n) => counts.push(n));
+  await tick();
+  stop();
+  assert.deepEqual(counts, [1]);
+  const sessions = [
+    { name: 'one', kind: 'claude', status: 'attention', statusAt: 1 },
+    { name: 'two', kind: 'claude', status: 'attention', statusAt: 1 },
+    { name: 'three', kind: 'claude', status: 'working', statusAt: 1 },
+  ];
+  const groups = home.homeGroups(sessions, { needsRows: ['providers'], lead: { el: box, n: 1 } });
+  const needs = groups.find((g) => g.id === 'needs');
+  assert.equal(needs.rows[0], box, 'the Operator rows stand first, above the providers row and the sessions');
+  assert.equal(needs.rows.length, 2);
+  assert.equal(needs.count, 1 + 1 + 2, 'Operator rows + providers row + sessions that need you');
+  assert.equal(groups.find((g) => g.id === 'working').count, 1);
+  home.setOwnNeeds(home.ownNeedsCount(groups, 1));
+  assert.equal(reg.homeCount(), needs.count, 'the registry sums the Operator count and Home count: the badge equals the group count');
+  // A group with no rows is not drawn: no Operator rows, no sessions that need you.
+  const quiet = home.homeGroups(sessions.slice(2), { lead: { el: box, n: 0 } });
+  assert.deepEqual(quiet.map((g) => g.id), ['working']);
+  home.setOwnNeeds(0);
 });

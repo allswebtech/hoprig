@@ -5,10 +5,11 @@
 // view stays at the bottom unless the owner scrolled up. A screen reader hears only what is new and whole (a reply,
 // a card), never the list as it streams.
 import { icon } from '../icons.js';
-import { add, api, fill, h, link, toast } from '../lib.js';
+import { add, api, copyText, fill, h, link, toast } from '../lib.js';
 import { mdView } from '../mdtext.js';
 import { messageFiles } from './attach.js';
 import { OUTCOME, askCard } from './asks.js';
+import { pathButton } from './pathmenu.js';
 import { answerLine, waitWords } from '../handsoff.js';
 import { outputView, rePaths, toolCard } from './tools.js';
 import { thinkingOpen, transcriptView } from './transcript.js';
@@ -16,6 +17,52 @@ import { askTitle, failText, ownMessageView, signInWay, startFold, took, turnErr
 
 const NEAR_PX = 120;
 
+const copyDone = async (text) => toast((await copyText(text)) ? 'Copied' : 'Select it and copy it by hand');
+/** A code block of a reply, with its Copy at the top right. */
+const codeBlock = (code) => h('div.chat-codewrap', h('pre.md-code', code),
+  h('button.btn.icon.ghost.chat-codecopy', { type: 'button', title: 'Copy', 'aria-label': 'Copy this code', onclick: () => copyDone(code) }, icon('copy', { size: 14 })));
+
+const FOLD_LINES = 8;
+/** The words of a sent message; one that runs past 8 lines is folded, with Show more (and Show less) under it. */
+function userBubble(text, files) {
+  const body = h('div.chat-usertext', text);
+  const bubble = h('div.chat-user', body);
+  const lines = String(text).replace(/\s+$/, '').split('\n').length;
+  let more = null;
+  const set = (open) => {
+    body.dataset.fold = open ? 'open' : 'closed';
+    more.setAttribute('aria-expanded', open ? 'true' : 'false');
+    fill(more, open ? 'Show less' : 'Show more');
+  };
+  const need = () => {
+    if (more) return;
+    more = h('button.chat-more', { type: 'button', 'aria-expanded': 'false', onclick: () => set(body.dataset.fold !== 'open') });
+    bubble.insertBefore(more, body.nextSibling);
+    set(false);
+  };
+  if (lines > FOLD_LINES) need();
+  else if (String(text).length > 120 && typeof requestAnimationFrame === 'function') {
+    // Lines that wrap: measured once the bubble is on the page, again when its width changes.
+    let width = -1;
+    const measure = () => {
+      if (more || !body.clientWidth || body.clientWidth === width) return;
+      width = body.clientWidth;
+      body.dataset.fold = 'closed';
+      if (body.scrollHeight > body.clientHeight + 1) need();
+      else delete body.dataset.fold;
+    };
+    requestAnimationFrame(measure);
+    if (typeof ResizeObserver === 'function') new ResizeObserver(measure).observe(body);
+  }
+  if (files) add(bubble, files);
+  return bubble;
+}
+/** Hoprig's own set-up message: the same bubble, its full text one press away. */
+function setupBubble(fold, name, files) {
+  return h('div.chat-user.chat-startfold', h('p.chat-startsaid', `Hoprig asked the AI to set up ${name} from your brief`),
+    h('details.chat-startfull', h('summary', 'Show the full message'), h('div.chat-startfulltext', fold.full)),
+    fold.brief ? h('div.chat-startbrief', fold.brief) : null, files);
+}
 /**
  * o: { scroll (the scrolling element), A (the chat's API path), cwd(), stopTask(id), after(), canRewind(), rewind({ messageId, text }),
  *      who() (the coding tool as a sentence names it: "Claude", "OpenCode"), canStopTask(), modes() (the chat's
@@ -53,11 +100,66 @@ export function createTimeline(o) {
   const blocks = new Map(); // block id → its element (live while it streams, then final)
   const orphans = new Map(); // agent id → where its steps go when its call is not drawn (an earlier window)
   const said = h('div.chat-sr', { role: 'status', 'aria-live': 'polite' }); // what a screen reader hears
+  // The end of the conversation: the living line while a turn runs, then the messages waiting to be read (page.js puts them here).
+  const tail = h('div.chat-tail');
   let main = { root: list, group: null }; // where new events go
   let first = 0; // the number of the first event drawn
   let stick = true;
   let asked = false; // a card that waits for the owner came while the view was scrolled up
   let view = null; // the transcript view (transcript.js), made with the root below
+  // On a touch screen the row of actions shows under the newest sent message and under one that was tapped.
+  let marking = false;
+  function markNewest() {
+    if (marking) return;
+    marking = true;
+    queueMicrotask(() => {
+      marking = false;
+      const rows = o.scroll.querySelectorAll ? [...o.scroll.querySelectorAll('.chat-userrow')] : [];
+      rows.forEach((r, i) => r.classList.toggle('chat-newest', i === rows.length - 1));
+    });
+  }
+  list.addEventListener('click', (e) => {
+    const t = e.target;
+    const row = t && t.closest ? t.closest('.chat-userrow') : null;
+    const keep = row && t.closest('.chat-user') && !t.closest('button, a, summary') ? row : null;
+    for (const r of list.querySelectorAll('.chat-userrow.chat-acts-on')) if (r !== keep) r.classList.remove('chat-acts-on');
+    if (keep) keep.classList.toggle('chat-acts-on');
+  });
+  // One Copy under the last reply of a turn (not one beside every block): it copies the turn's replies. On a wide screen
+  // it shows when the turn is pointed at; on a touch screen only under the last reply of the conversation, once it ended.
+  const after = (el, node) => {
+    const kids = [...el.parentNode.children];
+    el.parentNode.insertBefore(node, kids[kids.indexOf(el) + 1] || null);
+  };
+  let markingCopy = false;
+  function markLastCopy() {
+    if (markingCopy) return;
+    markingCopy = true;
+    queueMicrotask(() => {
+      markingCopy = false;
+      const rows = list.querySelectorAll ? [...list.querySelectorAll('.chat-copyturn')] : [];
+      rows.forEach((r, i) => r.classList.toggle('chat-copy-last', i === rows.length - 1));
+    });
+  }
+  function copyUnder(el) {
+    const g = el.parentNode;
+    if (!g || !el.text.trim()) return;
+    if (!g.replies) g.replies = [];
+    if (!g.replies.includes(el)) g.replies.push(el);
+    if (!g.copyRow) {
+      g.copyRow = h('div.chat-copyturn', h('button.btn.ghost.chat-copyreply', { type: 'button', title: 'Copy the reply', 'aria-label': 'Copy the reply', onclick: () => copyDone(g.replies.map((x) => x.text.trim()).filter(Boolean).join('\n\n')) }, icon('copy', { size: 16 }), h('span.chat-actword', 'Copy')));
+    }
+    after(el, g.copyRow);
+    markLastCopy();
+  }
+  // "Hoprig restarted ..." (src/models/partdoor.mjs) is shown only in a chat that really handed a part: it comes before
+  // the first card of a part, or the first call of the parts tool.
+  let restartNote = null;
+  function showRestart(el) {
+    if (!restartNote || !el.parentNode) return;
+    el.parentNode.insertBefore(h('p.chat-item.chat-note', restartNote), el);
+    restartNote = null;
+  }
   const cardOpts = () => ({ cwd: o.cwd(), stopTask: canStop() ? o.stopTask : null, view: view.now });
 
   // ---------- where an event goes ----------
@@ -84,14 +186,15 @@ export function createTimeline(o) {
   const thinkHead = (b) => (b.final ? (Number.isFinite(b.ms) && b.ms > 0 ? `Thought for ${took(b.ms)}` : 'Thought') : 'Thinking…');
   function thinkingEl(blockId, agent) {
     const head = h('span.chat-think-head');
-    const peek = h('span.chat-think-peek');
     const body = h('div.chat-think-body');
-    const el = h('details.chat-item.chat-think', h('summary', icon('sparkle', { size: 14 }), head, peek), body);
-    Object.assign(el, { head, peek, body, kind: 'thinking', agent });
+    const el = h('details.chat-item.chat-think', h('summary', h('span.chat-tool-state', { 'aria-hidden': 'true' }, icon('brain', { size: 16 })), head, h('span.chat-tool-chev', { 'aria-hidden': 'true' }, icon('chevronRight', { size: 14 }))), body);
+    Object.assign(el, { head, body, kind: 'thinking', agent });
     fill(head, 'Thinking…');
     el.open = thinkingOpen(view.now());
     return el;
   }
+  // A reply's text as Markdown: links, a code block with Copy, a `path` of the folder as a button to the editor.
+  const reply = (text) => mdView(text, { rich: true, code: codeBlock, onCode: (t) => pathButton(t, { cwd: o.cwd() }) });
   function textEl() {
     const el = h('div.chat-item.chat-text');
     el.kind = 'text';
@@ -106,11 +209,8 @@ export function createTimeline(o) {
       frame = requestAnimationFrame(() => {
         frame = 0;
         for (const b of pending) {
-          if (b.kind === 'text') fill(b, mdView(b.text));
-          else {
-            fill(b.body, b.text);
-            fill(b.peek, b.final ? '' : b.text.slice(-90).replace(/\s+/g, ' '));
-          }
+          if (b.kind === 'text') fill(b, reply(b.text));
+          else fill(b.body, b.text);
         }
         pending.clear();
         follow();
@@ -137,21 +237,22 @@ export function createTimeline(o) {
       case 'user': {
         const g = group(at);
         const { text, files } = ownMessageView(ev.text, Array.isArray(ev.attachments) ? ev.attachments : []);
-        // Rewind (the files, the conversation or both, to before this message): beside the message.
-        // "Rewind to here", in words, as Claude Code on the web names it: on every device (a phone too).
-        const back = ev.messageId && o.canRewind() ? h('button.btn.ghost.chat-rewindbtn', {
-          type: 'button', title: 'Go back to before this message: the code, the conversation or both',
-          onclick: () => o.rewind({ messageId: ev.messageId, text: ev.text }),
-        }, icon('undo', { size: 13 }), h('span', 'Rewind to here')) : null;
         const fold = startFold(text);
         const name = (fold && fold.name) || String(o.cwd() || '').split('/').filter(Boolean).pop() || 'the project';
-        const bubble = fold
-          ? h('div.chat-user.chat-startfold', h('p.chat-startsaid', `Hoprig asked the AI to set up ${name} from your brief`),
-            h('details.chat-startfull', h('summary', 'Show the full message'), h('div.chat-startfulltext', fold.full)),
-            fold.brief ? h('div.chat-startbrief', fold.brief) : null, messageFiles(files, o.A))
-          : h('div.chat-user', text, messageFiles(files, o.A));
-        const row = h('div.chat-item.chat-userrow', { dataset: { message: ev.messageId || '' } }, back, bubble);
+        const shown = messageFiles(files, o.A);
+        const bubble = fold ? setupBubble(fold, name, shown) : userBubble(text, shown);
+        const acts = h('div.chat-useracts',
+          h('button.btn.ghost.chat-copybtn', { type: 'button', title: 'Copy', 'aria-label': 'Copy this message', onclick: () => copyDone(text) },
+            icon('copy', { size: 16 }), h('span.chat-actword', 'Copy')),
+          // Rewind (the files, the conversation or both, to before this message). It puts the message back in the box, so it
+          // is also the way to edit it: no third button.
+          ev.messageId && o.canRewind() ? h('button.btn.ghost.chat-rewindbtn', {
+            type: 'button', title: 'Rewind to here: go back to before this message', 'aria-label': 'Rewind to here',
+            onclick: () => o.rewind({ messageId: ev.messageId, text: ev.text }),
+          }, icon('undo', { size: 16 }), h('span.chat-actword', 'Rewind to here')) : null);
+        const row = h('div.chat-item.chat-userrow', { dataset: { message: ev.messageId || '' } }, bubble, acts);
         row.said = text;
+        markNewest();
         return add(g, row);
       }
       case 'turn-start':
@@ -176,8 +277,10 @@ export function createTimeline(o) {
           el.ms = Number.isFinite(ev.durationMs) ? ev.durationMs : el.streamedAt ? Date.now() - el.streamedAt : null;
           fill(el.head, thinkHead(el));
           fill(el.body, el.text || h('span.chat-hint', `${who()} did not show what it thought.`));
-          fill(el.peek);
-        } else fill(el, mdView(el.text));
+        } else {
+          fill(el, reply(el.text));
+          if (!ev.agent) copyUnder(el);
+        }
         return el;
       }
       case 'tool': {
@@ -187,6 +290,7 @@ export function createTimeline(o) {
           card = toolCard(ev, cardOpts());
           tools.set(ev.id, card);
           add(container(ev, at), card);
+          if (/^mcp__hoprig-parts__/.test(ev.name || '')) showRestart(card);
         }
         return card;
       }
@@ -260,8 +364,11 @@ export function createTimeline(o) {
       case 'allowed':
         // Allowed by Hoprig itself in bypass mode (a plain delete: src/chat/asks.mjs), in the words of a terminal's page.
         // The command itself for the shell (no tool name), and where it ran when not in the chat's folder; read out.
-        return add(groupOf(at), h('p.chat-item.chat-note.chat-allowed', { role: 'status' }, h('strong', 'Allowed by Hoprig in bypass mode: '),
-          `${ev.tool && ev.tool !== 'Bash' ? `${ev.tool}: ` : ''}${ev.what || ev.tool}${ev.folder ? ` · in ${ev.folder}` : ''}`));
+        {
+          const lead = ev.by === 'all' ? 'Allowed without asking (Allow everything): ' : 'Allowed by Hoprig in bypass mode: ';
+          const what = `${ev.tool && ev.tool !== 'Bash' ? `${ev.tool}: ` : ''}${ev.what || ev.tool}${ev.folder ? ` · in ${ev.folder}` : ''}`;
+          return add(groupOf(at), h('p.chat-item.chat-note.chat-allowed', { role: 'status', title: `${lead}${what}` }, h('strong', lead), what));
+        }
       case 'session-changed':
         at.group = null;
         return add(at.root, h('div.chat-item.chat-divider', h('span', ev.reason === 'compact' ? `Conversation compacted: ${who()} goes on from a summary` : ev.reason === 'clear' ? 'Conversation cleared' : ev.reason === 'fork' ? 'Rewound to here' : 'A new conversation')));
@@ -295,7 +402,9 @@ export function createTimeline(o) {
             h('button.btn.small.secondary', { type: 'button', onclick: () => say(false) }, 'No, the lead does it')),
           status);
         partAsks.set(ev.part, card);
-        return add(groupOf(at), card);
+        add(groupOf(at), card);
+        showRestart(card);
+        return card;
       }
       case 'part-ask-kept': {
         // His yes is kept: nothing starts until the lead asks for the part (src/models/partdoor.mjs).
@@ -323,6 +432,10 @@ export function createTimeline(o) {
         return null;
       }
       case 'notice':
+        if (ev.topic === 'parts-restart') {
+          restartNote = ev.text || null; // said later, and only if a part was handed
+          return null;
+        }
         // "Compacted" after /compact: the divider says it already.
         if (ev.local && /^\s*Compacted\.?\s*$/i.test(ev.text)) return null;
         // What Claude Code answered by itself (/cost, /context): its text as it wrote it, in a box.
@@ -378,8 +491,15 @@ export function createTimeline(o) {
   /** Something was added: stay at the bottom when the owner was there, else say there is news. */
   function follow() {
     if (stick) return toBottom();
-    fill(downText, asked ? `${who()} needs your OK` : 'New messages');
+    paintDown();
     downBtn.classList.remove('hidden');
+  }
+  // While a turn runs the button says the step (Thinking, Writing, Running, Needs your OK), else that there is news.
+  function paintDown() {
+    const s = o.down ? o.down() : null;
+    const ask = !!(s && s.attention) || (!s && asked);
+    fill(downText, s ? s.text : asked ? `${who()} needs your OK` : 'New messages');
+    downBtn.classList.toggle('chat-down-ask', ask);
   }
   o.scroll.addEventListener('scroll', () => {
     stick = nearBottom();
@@ -413,7 +533,7 @@ export function createTimeline(o) {
 
   const empty = () => h('div.chat-empty', icon('text', { size: 26 }), h('p', `Write what you want, in your own words. ${who()} reads and changes the files of this project, and asks you before anything that needs your OK.`));
 
-  const root = h('div.chat-col.chat-timeline', moreSlot, olderBox, list, said);
+  const root = h('div.chat-col.chat-timeline', moreSlot, olderBox, list, tail, said);
   view = transcriptView(root, () => ({ cards: tools.values(), blocks: blocks.values() }));
   return {
     el: root,
@@ -426,11 +546,26 @@ export function createTimeline(o) {
     /** The owner's messages drawn (for the more menu's Rewind): [{ messageId, text }], oldest first. */
     messages: () => [...o.scroll.querySelectorAll('.chat-userrow')].map((e) => ({ messageId: e.dataset.message, text: e.said || '' })),
     downBtn,
+    /** The end of the conversation: the living line, then the messages waiting to be read. */
+    tail,
+    /** The tail grew or shrank: stay at the bottom where the owner was. A step changed: the jump button says it. */
+    settle() {
+      if (stick) toBottom();
+    },
+    status() {
+      if (!downBtn.classList.contains('hidden')) paintDown();
+    },
+    /** Whether tool call `id` runs: false while its OK waits, after a no, and for a start in the background. */
+    runs(id) {
+      const card = tools.get(id);
+      return card ? card.runs() : true;
+    },
     asks,
     /** Numbered events: { reset, events, first?, older? } */
     apply(r) {
       if (r.reset) {
         for (const m of [tools, asks, blocks, orphans]) m.clear();
+        restartNote = null;
         fill(olderBox);
         fill(list);
         main = { root: list, group: null };

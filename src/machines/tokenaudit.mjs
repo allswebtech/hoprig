@@ -30,7 +30,7 @@ export function revokedWords(name, keys = 0) {
 
 // A gateway goes by its title (src/addons/gateways.mjs), the public link by its plain name.
 const addonName = (id) => (id === 'public-link' ? 'the public link' : !/^[a-z0-9-]{1,40}$/.test(id) ? 'an add-on' : gatewayTitle(id) || `the add-on ${id}`);
-const ADDON_VERBS = { install: 'installed', update: 'updated', start: 'started', stop: 'stopped' };
+const ADDON_VERBS = { install: 'installed', update: 'updated', start: 'started', stop: 'stopped', remove: 'removed' };
 const ACTION_WORDS = {
   'fixed-sign-in': 'started the sign-in to Cloudflare for the Custom public link',
   'fixed-cancel': 'cancelled the sign-in to Cloudflare for the Custom public link',
@@ -52,7 +52,7 @@ const gatewayName = (s) => (!/^[a-z0-9-]{1,40}$/.test(s) ? 'a gateway' : gateway
  * show. `asks`: the route may answer with a question instead of doing it (Setup: the password or a terminal first).
  */
 export const CHANGES = [
-  ['POST', /^\/api\/addons\/([a-z0-9-]{1,40})\/(install|update|start|stop)$/, (m) => `${ADDON_VERBS[m[2]]} ${addonName(m[1])}`],
+  ['POST', /^\/api\/addons\/([a-z0-9-]{1,40})\/(install|update|start|stop|remove)$/, (m) => `${ADDON_VERBS[m[2]]} ${addonName(m[1])}`],
   ['POST', /^\/api\/addons\/([a-z0-9-]{1,40})\/do\/([a-z-]{1,40})$/, (m) => ACTION_WORDS[m[2]] || `ran "${m[2]}" of ${addonName(m[1])}`],
   // The body says on or off; it is not read here, so the line says only that the switch was used.
   ['POST', /^\/api\/public-link$/, () => 'switched the public link on or off'],

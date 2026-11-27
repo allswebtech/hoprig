@@ -349,10 +349,13 @@ test('on a phone the trash button of Earlier conversations is a finger\'s size (
   assert.match(src('web/page-projects.css'), /@media \(max-width: 599px\) \{ \.pj-pastdel \{ width: 44px; min-height: 44px; \} \}/);
 });
 
-test('on a phone a long model name shrinks the model control, so the ring beside it is never pushed off the screen', () => {
+test('on a phone the chips give way to ONE pill that is cut with an ellipsis, a long model name is cut at 18 characters, and the page is never pushed sideways', () => {
   const css = fs.readFileSync(new URL('../../web/chat/chat-input.css', import.meta.url), 'utf8');
-  const phone = css.slice(css.lastIndexOf('@media (max-width: 599px) {'));
-  assert.match(phone, /\.chat-modelchip \{ flex: 0 1 auto; min-width: 0; \}/, 'the model control may shrink');
-  assert.match(phone, /\.chat-ring \{ flex: none; \}/, 'the ring does not');
-  assert.match(fs.readFileSync(new URL('../../web/chat/chat.css', import.meta.url), 'utf8'), /\.chat-chip-label \{ min-width: 0; overflow: hidden; text-overflow: ellipsis;/, 'the name is cut with an ellipsis');
+  assert.match(css, /\.chat-modelchip \.chat-chip-label \{ max-width: 18ch; \}/, 'the name is capped');
+  const chat = fs.readFileSync(new URL('../../web/chat/chat.css', import.meta.url), 'utf8');
+  const phone = chat.slice(chat.indexOf('/* ---------- phones'));
+  assert.match(phone, /\.chat-chips \{ display: none; \}/, 'no chip row on a phone');
+  assert.match(phone, /\.chat-setpill \{ display: inline-flex; \}/, 'the pill instead');
+  assert.match(chat, /\.chat-pill-text \{ min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; \}/, 'one line, cut with an ellipsis');
+  assert.match(chat, /\.chat-chip-label \{ min-width: 0; overflow: hidden; text-overflow: ellipsis;/, 'the name is cut with an ellipsis');
 });

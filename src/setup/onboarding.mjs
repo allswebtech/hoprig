@@ -6,7 +6,7 @@
 //         id:       "claude" | "tools" | "rules" | "project" | "skills" | "phone" | "account2" | "computer",
 //         title:    string,            one line, plain words
 //         done:     boolean,
-//         optional: boolean,           true for "account2" and "computer": shown, never counted as missing
+//         optional: boolean,           true for "rules", "phone", "skills", "account2" and "computer": shown, never counted as missing
 //         detail:   string,            what is there now (never a key, a token, a password or an e-mail)
 //         action:   null | { kind: "page", target: string }          the part of the page to open:
 //                                       "pc/setup" | "pc/projects" | "settings/skills" | "settings/signin-device"
@@ -26,6 +26,10 @@
 //   POST /api/onboarding/install-claude        → { started: true }: Claude Code with its official installer, and the
 //                                              first provider ("sub"), as a background job (owner only)
 //   GET  /api/onboarding/job?from=N            that job: { running, lines, next, result: { ok, version } }
+//   POST /api/onboarding/first-chat            → { dir, name }: the first project, a folder "my-first-project" in the
+//                                              projects folder ("-2", "-3" when the name is taken; no git, nothing
+//                                              else made), and the first run is marked done (server.getStartedDismissed);
+//                                              the page then opens a chat in it (owner only)
 //
 // The slow parts (running `claude`, looking for every coding tool) are cached for a minute; the rest are file reads.
 import fs from 'node:fs';
@@ -36,6 +40,7 @@ import { stateDir } from '../paths.mjs';
 import { uniqueName } from '../server/validate.mjs';
 
 const CACHE_MS = 60_000;
+export const FIRST_PROJECT = 'my-first-project';
 
 // The terminal commands the page may ask for: argv built here, never from the request. Only Claude Code's own
 // sign-in is left here; installing it and the coding tools run in the page.
@@ -109,7 +114,7 @@ export function onboardingSteps(f) {
       action: f.tools.missing.length ? page('pc/setup') : null,
     },
     {
-      id: 'rules', title: 'Working rules', optional: false, done: !!f.rules.installed,
+      id: 'rules', title: 'Working rules', optional: true, done: !!f.rules.installed,
       detail: f.rules.installed ? `${f.rules.edited ? 'your edited copy' : 'added'}` : 'a good set of rules, yours to edit: one press adds them as a file of their own in Claude Code\'s rules folder (your own files are not changed)',
       // The button says what one press does (it writes the file at once, with no sheet).
       action: f.rules.installed ? null : { kind: 'request', method: 'POST', path: '/api/pcsetup/rules', body: { action: 'add' }, label: 'Add the rules' },
@@ -121,12 +126,12 @@ export function onboardingSteps(f) {
     },
     // The phone before the skills: it is the step a newcomer came for, and Skills is the one he understands least.
     {
-      id: 'phone', title: 'Your phone signed in', optional: false, done: f.sessions >= 2,
+      id: 'phone', title: 'Your phone signed in', optional: true, done: f.sessions >= 2,
       detail: f.sessions >= 2 ? `${f.sessions} browsers signed in` : 'scan a code with the phone: no password to type',
       action: f.sessions >= 2 ? null : page('settings/signin-device'),
     },
     {
-      id: 'skills', title: 'Skills', optional: false, done: f.skills.length > 0,
+      id: 'skills', title: 'Skills', optional: true, done: f.skills.length > 0,
       detail: f.skills.length ? `${f.skills.length} that Claude Code uses` : 'none yet: the one that comes with Hoprig is a good start',
       action: f.skills.length ? null : page('settings/skills'),
     },
@@ -170,6 +175,29 @@ export function onboardingFeature(sctx, opts = {}) {
   }
 
   const routes = [
+    ['POST', /^\/api\/onboarding\/first-chat$/, async (req) => {
+      owner(req);
+      await sctx.readJson(req);
+      const { projectsDir } = await import('../pcsetup/projects.mjs');
+      const root = (opts.projectsDir || projectsDir)();
+      fs.mkdirSync(root, { recursive: true });
+      // The next free name, made with mkdir itself (never over a folder that is there).
+      for (let i = 1; i < 1000; i++) {
+        const name = i === 1 ? FIRST_PROJECT : `${FIRST_PROJECT}-${i}`;
+        const dir = path.join(root, name);
+        try {
+          fs.mkdirSync(dir);
+        } catch (e) {
+          if (e.code === 'EEXIST') continue;
+          throw Object.assign(new Error(`the folder ${name} could not be made (${e.code || e.message})`), { status: 500 });
+        }
+        // The first run is done from here: the card never comes back, even when the chat is closed later.
+        (opts.markDone || ((await import('../config.mjs')).saveConfig))({ server: { getStartedDismissed: true } });
+        slow = null;
+        return { dir, name };
+      }
+      throw Object.assign(new Error('too many folders named my-first-project'), { status: 409 });
+    }],
     ['GET', /^\/api\/onboarding$/, async (req) => {
       owner(req);
       const f = await facts();

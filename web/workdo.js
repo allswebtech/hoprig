@@ -213,7 +213,7 @@ export function placeLine(p, inFolder = false) {
     : 'Your folder is not changed. Accept leaves the branch for Go live.';
   if (p.branch) return 'In the project\'s folder itself, on the branch it stands on now.';
   // Named as Settings names it, with the way there (web/sessiondefaults.js foldersPanel, under Advanced).
-  if (p.branchWhy === 'outside') return 'In the project\'s folder itself: Hoprig keeps a branch\'s copy in its own folder, which is not among the folders where sessions can start (Settings → New-session defaults → Advanced → Folders).';
+  if (p.branchWhy === 'outside') return 'In the project\'s folder itself: Hoprig keeps a branch\'s copy in its own folder, which is not among the folders where sessions can start (Settings → Security and sign-in → Folders Hoprig may open).';
   if (p.branchWhy === 'not-git') return 'In the project\'s folder itself: it is not a git repository, so there is no branch of its own.';
   return 'In the project\'s folder itself.';
 }

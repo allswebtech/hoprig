@@ -10,7 +10,7 @@ import path from 'node:path';
 import { imageSize } from './images.mjs';
 import { escapeHtml as esc, makeSlugger, plainText, renderMarkdown } from './markdown.mjs';
 import { toolsPage } from './reference.mjs';
-import { INSTALL } from './seo.mjs';
+import { INSTALLS } from './seo.mjs';
 import { REPO, SITE, collect, describe } from './sources.mjs';
 
 export const NAV = [['/use-cases/', 'Use cases'], ['/docs/', 'Docs'], ['/compare/', 'Compare'], ['/tools/', 'Tools'], ['/changelog/', 'Changelog']];
@@ -47,13 +47,13 @@ export function docGroups(pages) {
 
 export const useCasesOf = (pages) => pages.filter((p) => p.kind === 'usecase').sort((a, b) => a.data.order - b.data.order);
 
-export const installHtml = () => `<div class="install"><code>${esc(INSTALL)}</code><button class="btn btn-primary btn-small copy" type="button" data-copy="${esc(INSTALL)}">Copy</button></div>`;
+export const installHtml = () => INSTALLS.map((s) => `<p class="install-how"><strong>${esc(s.name)}</strong>: ${esc(s.open)}.</p><div class="install"><code>${esc(s.command)}</code><button class="btn btn-primary btn-small copy" type="button" data-copy="${esc(s.command)}">Copy</button></div>`).join('');
 
 /** `<!-- name -->` on a line of its own: a part the site fills, as HTML and as Markdown. */
 function parts(ctx) {
   const usecases = useCasesOf(ctx.pages);
   return {
-    install: { html: installHtml(), md: `\`\`\`sh\n${INSTALL}\n\`\`\`` },
+    install: { html: installHtml(), md: INSTALLS.map((s) => `${s.name}: ${s.open}.\n\n\`\`\`${s.id === 'windows' ? 'powershell' : 'sh'}\n${s.command}\n\`\`\``).join('\n\n') },
     usecases: {
       html: `<div class="cards">${usecases.map((p) => `<a class="card" href="${p.url}"><p class="who">${esc(p.data.who || '')}${p.data.coming ? ' <span class="badge">Coming</span>' : ''}</p><h2>${esc(p.title)}</h2><p>${esc(p.data.short || '')}</p></a>`).join('')}</div>`,
       md: usecases.map((p) => `- [${p.title}](${p.url})${p.data.coming ? ' (coming)' : ''}: ${p.data.short || ''}`).join('\n'),

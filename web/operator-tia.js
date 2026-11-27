@@ -3,7 +3,8 @@
 // and what can be undone), and "Done by Tia" apart from "Done by you", with Undo where the act has one. Every change
 // here is the owner's: POST /api/operator/settings, /off and /undo answer only his own page.
 import { add, ago, api, confirmSheet, fill, h, machine, toast } from './lib.js';
-import { toggle } from './shell.js';
+import { fold, toggle } from './shell.js';
+import { lookOthersSwitch } from './operator-rooms.js';
 import { decidePart } from './operator-decide.js';
 import { lookPart } from './operator-look.js';
 import { correctionsPart, decisionCount, tookBack } from './operator-corrections.js';
@@ -107,11 +108,14 @@ function ruleRow(r, after, corrected = null) {
     limitsForm(r, after));
 }
 
+/** A part of the panel as a closed fold of its own (kept open or closed per device): an opened fold then fits a phone. */
+const part = (key, title, node) => (node ? fold(`tia-part-${key}`, title, node) : null);
+
 /** The panel: the master switch, Tia OFF, the sentence that says what is off, the rules. */
 export function tiaPanel(v, after, { confirm = confirmActs } = {}) {
   if (remote()) {
     return h('section.op-tia', { 'aria-label': 'What Tia does by herself' },
-      h('div.op-tia-head', h('h2.op-h', 'What Tia does by herself')),
+      null,
       h(`p.op-tia-said${v.active ? '.on' : ''}`, { id: 'op-tia-said', role: 'status' }, v.said),
       placeLinks(v.ways),
       h('p.hint', ELSEWHERE),
@@ -140,18 +144,18 @@ export function tiaPanel(v, after, { confirm = confirmActs } = {}) {
       return false;
     }
     after('master');
-  }, 'Off after an install and after an update. Only the rules below, only the ones you switch on.', 'master');
+  }, 'Off after an install and after an update. Only the rules below that you switch on, and small jobs on Hoprig itself, each with Undo.', 'master');
   return h('section.op-tia', { 'aria-label': 'What Tia does by herself' },
-    h('div.op-tia-head', h('h2.op-h', 'What Tia does by herself'), off),
+    off ? h('div.op-tia-head', off) : null,
     h(`p.op-tia-said${v.active ? '.on' : ''}`, { id: 'op-tia-said', role: 'status' }, v.said),
     placeLinks(v.ways),
     master,
-    decidePart(v, after),
-    // His corrections of her decisions, shown where he decides about them; nothing changes by itself from them.
-    tookBack(decisionCount(v.corrections)) ? h('p.op-his.op-corrected', `Tia decides: ${tookBack(decisionCount(v.corrections))}`) : null,
-    lookPart(v, after),
-    correctionsPart(v, after),
-    h('ul.op-rules', v.rules.map((r) => ruleRow(r, after, v.corrections?.week?.rule?.[r.id] || 0))),
+    part('decide', 'Decisions', h('div', decidePart(v, after),
+      // His corrections of her decisions, shown where he decides about them; nothing changes by itself from them.
+      tookBack(decisionCount(v.corrections)) ? h('p.op-his.op-corrected', `Tia decides: ${tookBack(decisionCount(v.corrections))}`) : null)),
+    part('look', 'Looks', lookPart(v, after)),
+    part('corrections', 'Corrections', correctionsPart(v, after)),
+    part('rules', 'Rules she follows', h('ul.op-rules', v.rules.map((r) => ruleRow(r, after, v.corrections?.week?.rule?.[r.id] || 0)))),
     v.projectsOut.length ? h('p.hint', `She never acts in: ${v.projectsOut.join(', ')} (set on each project's page, under Advanced).`) : null);
 }
 
@@ -233,7 +237,7 @@ export async function tiaActsSetting(box, { confirm = confirmActs } = {}) {
         await paint();
         focusKey(box, 'master'); // drawn again: the focus back on the switch
       }
-    }, `${v.said} Which rules she follows, and whether she decides new items by one short call ("Tia decides", off until you turn it on), is set on the Operator page.`, 'master'));
+    }, `${v.said} Which rules she follows, and whether she decides new items by one short call ("Tia decides", off until you turn it on), is set below, under What she may do alone.`, 'master'));
   };
   return paint();
 }
@@ -254,5 +258,37 @@ export async function projectOutSwitch(box, name) {
       toast(e.message, { kind: 'error', ms: 6000 });
       return false;
     }
-  }, 'On: no rule of hers acts for a session, a run or a process of this project. What she may do by herself is set on the Operator page.', 'project'));
+  }, 'On: no rule of hers acts for a session, a run or a process of this project. What she may do by herself is set in Settings → Tia.', 'project'));
+}
+
+/**
+ * The one closed fold of Settings -> Tia: What she may do alone. Her switch and rules, "Tia decides" (missions too),
+ * looks, her corrections, looking at the other computers, and what she did, with Undo. Reads itself; returns the fold.
+ */
+export function tiaAloneFold() {
+  const panelBox = h('div.op-tia-box');
+  const lookBox = h('div.op-look-others');
+  const byTia = h('div.op-side-body');
+  const done = fold('tia-part-done', 'Done by Tia', byTia);
+  let key = null;
+  async function load(focus = null) {
+    let r;
+    try {
+      r = await api(`${A}/attention`);
+    } catch (e) {
+      return fill(panelBox, h('p.hint', e.status === 404 ? 'This computer runs an older version without this.' : e.message));
+    }
+    if (!r.reflexes) return;
+    const undo = focus?.startsWith('undo-') ? focus : null;
+    key = drawTia(panelBox, r.reflexes, load, { drawn: key, force: !!focus, focus: undo ? null : focus });
+    fill(byTia, byTiaList(r.byTia || [], r.reflexes, load));
+    if (undo && !focusKey(byTia, undo)) {
+      const head = done.querySelector('summary');
+      head.tabIndex = -1;
+      head.focus();
+    }
+  }
+  load();
+  lookOthersSwitch(lookBox);
+  return fold('tia-alone', 'What she may do alone', panelBox, lookBox, done);
 }

@@ -1,4 +1,4 @@
-// Tia's activity line names the public link's helper as Settings → Updates does, never "the tunnel helper".
+// Tia's activity line names the public link's helper as Settings → Version and updates does, never "the tunnel helper".
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import test from 'node:test';

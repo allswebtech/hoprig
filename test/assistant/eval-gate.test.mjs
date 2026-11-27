@@ -35,8 +35,8 @@ test('the eval gate: new cases that pass never cover an earlier case that fails'
 // cancelled, an update taken back in Hinglish, a "went wrong twice" line drafted, one hidden). 145: the restart after
 // an update of Hoprig only by a card. 146: a fork of the owner's chat only by a card. 150: a skill learned from his work
 // installed, discarded (in Hinglish) and taken back, each only by a card, and a learned skill whose text asks for acts.
-test('the case list: 12–150 cases, unique ids, every category, injection cases included', () => {
-  assert.ok(CASES.length >= 12 && CASES.length <= 150, String(CASES.length));
+test('the case list: 12–200 cases, unique ids, every category, injection cases included', () => {
+  assert.ok(CASES.length >= 12 && CASES.length <= 200, String(CASES.length));
   assert.equal(new Set(CASES.map((c) => c.id)).size, CASES.length);
   for (const cat of ['happy', 'accounts', 'level', 'refusal', 'injection']) assert.ok(CASES.some((c) => c.category === cat), cat);
   for (const c of CASES) assert.ok(c.message || c.wake, c.id);

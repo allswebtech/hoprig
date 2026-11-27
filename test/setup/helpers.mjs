@@ -5,7 +5,8 @@ import os from 'node:os';
 import path from 'node:path';
 
 /** Point every location at a fresh scratch folder. Call BEFORE importing the modules under test. */
-export function scratch() {
+/** `fresh`: no settings file yet, which makes `hoprig setup` the quiet first run; else one is there (today's full run). */
+export function scratch({ fresh = false } = {}) {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'hoprig-setup-test-'));
   const env = {
     HOME: path.join(tmp, 'home'),
@@ -22,6 +23,10 @@ export function scratch() {
   delete process.env.HOPRIG_PROFILES_DIR;
   delete process.env.XDG_CONFIG_HOME;
   delete process.env.XDG_STATE_HOME;
+  if (!fresh) {
+    fs.mkdirSync(env.HOPRIG_CONFIG_DIR, { recursive: true });
+    fs.writeFileSync(path.join(env.HOPRIG_CONFIG_DIR, 'config.json'), '{}\n');
+  }
   return { tmp, env, cleanup: () => fs.rmSync(tmp, { recursive: true, force: true }) };
 }
 

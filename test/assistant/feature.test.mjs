@@ -289,13 +289,13 @@ for (const kind of kinds) {
     // ---- a card staged by her shows up for the owner with every value ----
     await owner('POST', '/api/assistant/chat', { text: 'stage auto', conversation: conv });
     const card = await until('her card', async () => (await owner('GET', '/api/assistant/cards')).json.cards[0]);
-    assert.equal(card.tool, 'set_auto_mode');
+    assert.equal(card.tool, 'hoprig_act');
     assert.ok(card.lines.some((l) => /Turn it ON/.test(l)));
     // He declines her card: one correction of that kind of decision (her tool's name), kept while its switch is on.
     saveConfig({ ...loadConfig(), operator: { corrections: { on: true } } });
     assert.equal((await owner('POST', `/api/assistant/cards/${card.id}/reject`, {})).status, 200);
     const { listCorrections } = await import('../../src/operator/corrections.mjs');
-    assert.deepEqual(listCorrections().map((c) => [c.kind, c.about]), [['declined', { decision: 'set_auto_mode' }]]);
+    assert.deepEqual(listCorrections().map((c) => [c.kind, c.about]), [['declined', { decision: 'hoprig_act' }]]);
 
     // ---- settings: validated; off → 403 for her token and the tab says what to do ----
     assert.equal((await owner('POST', '/api/assistant/settings', { level: 'max' })).status, 400);

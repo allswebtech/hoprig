@@ -1,5 +1,5 @@
 // New session with no provider on the chosen computer (web/newsession-choice.js): the coding tool never reads "Ready";
-// it says it needs a provider first, with an Add provider button that goes to Providers on that computer.
+// it says it needs a provider first, and the button goes to Providers on that computer.
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
@@ -50,16 +50,9 @@ test('no provider on the chosen computer: the tool needs a provider first, never
   assert.deepEqual(C.toolState({ on: true, providers: [] }), need, 'the tool list itself names no provider');
 });
 
-test('the tile says "Needs a provider first" with an Add provider button to Providers', () => {
-  const left = [];
-  const row = C.toolTiles({ tools: [{ ...claude, state: C.providerState(claude, []) }], chosen: null, choose: () => assert.fail('no choice'), onleave: () => left.push(1) });
-  const tile = all(row).find((x) => x.attrs && x.attrs['data-choice'] === 'claude');
-  assert.equal(tile.tag, 'div', 'no radio button to choose');
-  assert.doesNotMatch(text(tile), /Ready/);
-  assert.match(text(tile), /Claude Code Needs a provider first: Add provider/);
-  const a = all(tile).find((x) => x.tag === 'a');
-  assert.equal(a.attrs.href, '#/providers');
-  assert.ok(a.classList.contains('btn'), 'a button, not a word in the line');
-  a.listeners.click[0]();
-  assert.deepEqual(left, [1], 'following it closes the popup');
+test('the one line that takes the projects\' place says what the tool needs, without Ready', () => {
+  const t = { ...claude, state: C.providerState(claude, []) };
+  assert.equal(C.lackLine(t), 'Claude Code: Needs a provider first.');
+  assert.doesNotMatch(C.lackLine(t), /Ready/);
+  assert.equal(t.state.href, '#/providers', 'the one button goes to Providers');
 });

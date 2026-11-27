@@ -4,33 +4,34 @@
 
 **1. Install.** Open a terminal and paste one line.
 
-macOS or Linux:
-
-```sh
-curl -fsSL https://raw.githubusercontent.com/allswebtech/hoprig/main/install.sh | sh
-```
-
-Windows (PowerShell):
-
-On Windows (natively, without WSL) the main paths were used by hand on one Windows 11 computer: setup, doctor, the
-computer setup with winget, projects, the background service and the dashboard with sessions and a chat. That first
-run needed ways round (a new project needed a global git identity, programs winget installed stayed "missing", the
-Python kit gave no Python, installing the service again left the old dashboard serving); this version has fixes for
-them that were not yet tried there. The test suite passes on GitHub's Windows runners with Node 24 and 26, about 835
-tests skipped there, each with its cause, and a skipped test proves nothing. A runner does not prove Task Scheduler
-(the service), winget, icacls (which hands a folder back to you), a restart of the service or the `.cmd` launcher in a
-real console, nor whether a check or a go-live command opens a console window on the desktop while it runs, so Windows
-support is experimental until it has run on real Windows computers. Two things work differently there: a go-live
-command ended at its time limit also ends a server it started in the background (on Linux that server goes on
-running), and a scheduled run whose coding tool could not be ended switches its schedule off until you switch it on
-again in Work → Schedules (a schedule that names another computer is not switched off). Hands-off and the box are not
-offered on Windows, and `install.ps1` itself was not tried.
+Windows: press the Windows key, type PowerShell, press Enter, paste this line and press Enter.
 
 ```powershell
 irm https://raw.githubusercontent.com/allswebtech/hoprig/main/install.ps1 | iex
 ```
 
-**2. Scan.** At the end you see a QR code. Scan it with your phone's camera: the dashboard opens.
+Mac: press Command and Space, type Terminal, press Enter, paste this line and press Enter.
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/allswebtech/hoprig/main/install.sh | sh
+```
+
+Linux: press Ctrl+Alt+T, paste this line and press Enter.
+
+```sh
+wget -qO- https://raw.githubusercontent.com/allswebtech/hoprig/main/install.sh | sh
+```
+
+**Windows, macOS and Linux.** The install line and the whole test suite run on GitHub's Windows, macOS and Linux
+machines (the Windows test jobs are still allowed to fail), and the first run was walked on Windows four ways: a new
+PC with scripts off, scripts allowed, an administrator window, and Git missing. Windows is new here, and a real home
+Windows PC has seen less of Hoprig than a Linux computer has: the background service (Task Scheduler), winget and a
+restart of the service were not run on one. Two things work differently on Windows: a go-live command ended at its time
+limit also ends a server it started in the background (on Linux that server goes on running), and a scheduled run whose
+coding tool could not be ended switches its schedule off until you switch it on again in Work → Schedules. Hands-off and
+the box are not offered on Windows.
+
+**2. Your browser opens.** Nothing is asked on the way. At the end Hoprig opens in your browser, already signed in, with one card, **Welcome to Hoprig**: press **Sign in** to sign in to Claude, then **New project** (or **My own folder**), and tell Claude what to make. (To use it from your phone, turn that on later in Settings → Security and sign-in.)
 
 That's it.
 
@@ -43,32 +44,67 @@ That's it.
 
 ### What the one run does
 
-The installer ends in `hoprig setup`, and setup takes the computer from here to coding in one run. On a
-machine that already has things, it first shows what is there and proposes only what is missing; when nothing is
-missing it says so in one line and asks nothing.
+The install line first says what is missing (Node.js 24.13.1 or newer when it is missing or older, and on Linux the
+build tools and a few system parts, with sudo) and installs it without asking; sudo asks for its own password and
+Ctrl-C stops it. On Windows an existing Node.js that is new enough is used; otherwise the official Node.js zip is
+unpacked into your own folder after a checksum check (no administrator and no winget), and Git for Windows is added
+with winget only when it is missing (Windows may ask once to allow a change). It was run from a packed build, as a plain user with sudo, on arm64 in Debian 12, Fedora 45, Alpine
+3.24 and Ubuntu 24.04 containers, up to a dashboard whose sign-in page answers (Alpine uses its own Node.js 24, the
+others get Node.js 26 through nvm). Arch, openSUSE and RHEL are written, not run.
 
-1. **Claude Code and the dashboard.** Node.js, Claude Code (*install it now?* when it is missing), the sign-in
-   (when no account is signed in it says so in one line and goes on), a dashboard password (made for you, kept in a
-   private file), who may open the dashboard (*the second question*, below), and the dashboard running in the
-   background so it starts with the computer.
+The installer ends in `hoprig setup`. On a computer that has no Hoprig settings yet (the first run) setup is quiet: it
+asks nothing, shows one tick line for each thing it does, and does only what a first chat needs:
+
+1. **Node.js, Hoprig and Claude Code.** Claude Code is installed for you, without a question, when it is missing. A
+   Claude sign-in that is already there on this computer is found and not asked for again.
+2. **The dashboard**, kept to this computer only (nobody else can open it), with a password made for you and kept in
+   a private file, running in the background so that it starts with the computer (on Windows with Task Scheduler and
+   a Start menu entry **Hoprig**, on Linux with an app-menu entry **Hoprig**).
+3. **Your browser opens**, signed in by a link that works once, and says "You can close this window". If it did not
+   open, the line above it is the link. Coming back another day, use the **Hoprig** entry of the Start menu or the
+   app menu.
+
+Everything that used to be asked in the terminal is on a page now, when you want it:
+
+| What | Where |
+|---|---|
+| Sign in to Claude, or pay as you use | the card on Home (**Welcome to Hoprig**), later **Providers** |
+| The first project | **New project** or **My own folder** on that card, later **Projects → Add project** |
+| This computer ready for coding (git, Node.js, Python, `gh`, tmux, the rest) | **Computers**, open the computer, **Setup** |
+| Git and GitHub | the **Git and GitHub** row of **Setup** |
+| The workspace folders and your workspace on GitHub | **Projects** (under **More**) and **Settings → Automations → Workspace** ([WORKSPACE.md](WORKSPACE.md)) |
+| Skills | **Projects → Skills** ([SKILLS.md](SKILLS.md)) |
+| Your phone, or another device | **Settings → Security and sign-in → Sign in another device** |
+| From anywhere | **Settings → Security and sign-in → Public link**, or a main computer ([HUB.md](HUB.md)) |
+
+Run `hoprig setup` again later (it is no longer a first run once the settings exist) and it takes the computer further
+in one run, asking only what is not decided yet. On a machine that already has things, it first shows what is there and
+proposes only what is missing; when nothing is missing it says so in one line and asks nothing.
+
+1. **Claude Code and the dashboard.** Node.js, Claude Code, the sign-in (when no account is signed in it says so in
+   one line and goes on), a dashboard password, who may open the dashboard (*the second question*, below), and the
+   dashboard running in the background so it starts with the computer.
 2. **This computer for coding.** git, Node.js, Python, GitHub's `gh`, tmux and the rest: it shows what is there,
-   lists the exact commands for what is missing, asks once ([PC-SETUP.md](PC-SETUP.md)). In a terminal it also
-   offers working rules for Claude Code (a file in `~/.claude/rules/`, yours to edit; your own `CLAUDE.md` is
-   never touched).
-3. **Git and GitHub.** The GitHub sign-in in the terminal (`gh auth login`, then `gh auth setup-git` so plain git
-   uses it), git's name and e-mail when missing (GitHub's no-reply address suggested), and *is there a workspace
+   lists the exact commands for what is missing, asks once ([PC-SETUP.md](PC-SETUP.md)). Working rules for Claude
+   Code (a file in `~/.claude/rules/`, yours to edit; your own `CLAUDE.md` is never touched) are not asked in the
+   terminal.
+3. **Git and GitHub.** The GitHub sign-in in the terminal, once (`gh auth login`, then `gh auth setup-git` so plain
+   git uses it), git's name and e-mail taken from GitHub (its no-reply address) and said in one line, asked only when
+   GitHub is not signed in, and *is there a workspace
    of yours on GitHub already?*: restore it, start a new one in a private repository, or later
    ([WORKSPACE.md](WORKSPACE.md#git-and-github)).
 4. **The workspace.** On a new computer, `~/Workspace` with its AI brain ([WORKSPACE.md](WORKSPACE.md)); where
    it is there, only a report.
 5. **A project.** When you have none: type a new name, `owner/repo` or a Git address, or press Enter to skip.
-6. **Skills for it.** The skill that comes with Hoprig first, then what fits the project, each shown before it
-   is added ([SKILLS.md](SKILLS.md)).
+6. **Skills for it.** Hoprig's own reviewed skills are added without a question (one with a blocking finding is
+   never added); what fits the project comes after, each shown before it is added ([SKILLS.md](SKILLS.md)).
 7. **A QR code.** Scan it with your phone to sign in.
 
 Before all of it, setup makes the `hoprig` and `hop` commands work in every shell, also `ssh <computer> hoprig …`
 where nvm's Node.js is not loaded: two small scripts in `~/.local/bin` and that folder on PATH in your shell's start
 files, added once ([WORKSPACE.md](WORKSPACE.md#the-command-in-every-shell)).
+
+On a computer where something of this is not done, Home shows a **Get started** card with the steps that are left; it can be closed, and the foot of Settings brings it back.
 
 One part that fails does not stop the next ones: at the end, setup names it with the command to try again.
 
@@ -111,8 +147,8 @@ A server that only shows your other computers (a main computer) stops after the 
 
 - **Node.js 24.13.1 or newer.** The tests run on Linux and macOS with Node 24 and 26 on every change (and natively
   on macOS with Node 26). On Windows they run as a job that is still allowed to fail (a failure there does not fail
-  the run); they pass there on GitHub's runners with Node 24 and 26, about 835 tests skipped, each with its cause
-  (see above).
+  the run); the suite runs green there on GitHub's machines with Node 24 and 26. Windows is new here, and a real
+  home PC has seen less of it than a Linux computer has (see above).
 - **tmux 3.2 or newer**, when you want sessions that outlive the dashboard. An older tmux is not used: the
   built-in terminals are taken instead.
 - **npm 12** needs nothing from you: setup builds the one module that needs a build (`node-pty`, the only install
@@ -122,7 +158,7 @@ A server that only shows your other computers (a main computer) stops after the 
 
 | What | How | Where |
 |---|---|---|
-| Node.js (when missing or older than 24.13.1) | macOS / Linux: [nvm](https://github.com/nvm-sh/nvm), for you only, no administrator rights. Alpine: `apk add nodejs npm`. Windows: WinGet, the official `OpenJS.NodeJS.LTS` package | `~/.nvm` (macOS / Linux) |
+| Node.js (when missing or older than 24.13.1) | macOS / Linux: [nvm](https://github.com/nvm-sh/nvm), for you only, no administrator rights. Alpine: `apk add nodejs npm`. Windows: the official zip from nodejs.org, checked against its SHA-256 list, no administrator and no winget | `~/.nvm` (macOS / Linux), `%LOCALAPPDATA%\hoprig\node` (Windows) |
 | Build tools (Linux only) | your package manager (`apt`, `dnf`, `yum`, `pacman`, `zypper`, `apk`) with `sudo`; needed once to compile the terminal module | system |
 | Hoprig | `npm install -g` | npm's global folder, or `~/.local` when that folder belongs to the system |
 | The terminal module (`node-pty`) | built when Hoprig is installed; npm 12 and newer do not run that build in `npm install -g`, so `hoprig setup` runs it (`npm rebuild node-pty` in Hoprig's own folder, whose `package.json` allows the install script of exactly that module and no other) | inside Hoprig's folder |
@@ -133,20 +169,20 @@ command.
 
 ### Not logged in to Claude yet?
 
-Setup says so in one line and carries on. Sign in on the dashboard: **Home → Get started → Sign in to Claude** (or
-**Computers → this computer → Setup**, the Claude login row's **Sign in**) opens Claude's sign-in page in your
+Setup says so in one line and carries on. Sign in on the dashboard: **Sign in to Claude** on the card on Home (or
+**Providers**, the **Sign in** button of the Claude row, or **Computers → this computer → Setup**, the Claude login row's **Sign in**) opens Claude's sign-in page in your
 browser. In a terminal instead: run `claude`, type `/login`, sign in in the browser, then type `/exit`.
 
 ### Open it on your phone
 
-- **Same Wi-Fi:** choose `2` in setup, scan the QR code. Plain http is not encrypted: use it only on a network you
+- **Same Wi-Fi:** run `hoprig setup --access network` and scan the QR code. Plain http is not encrypted: use it only on a network you
   trust (your home), never on public Wi-Fi.
-- **Anywhere:** **Settings → Public link → On** (`hoprig public on`), or a main computer on a server; see
+- **Anywhere:** **Settings → Security and sign-in → Public link → On** (`hoprig public on`), or a main computer on a server; see
   [Which setup is mine?](COMPUTERS.md#which-setup-is-mine).
 - **Other ways:** `hoprig setup --access tailscale` serves the page at an https address that only your own
   [Tailscale](https://tailscale.com/download) devices can open, for when you want no public sign-in page.
 
-Run `hoprig setup` any time to see the QR code again.
+Run `hoprig setup` any time to see the QR code again; **Settings → Security and sign-in → Sign in another device** shows one on the page.
 
 ### Change a choice
 
@@ -185,7 +221,7 @@ to remove it too, see [its docs](https://code.claude.com/docs/en/setup).
 
 ### Troubleshooting
 
-Open **Computers → this computer → Health** on the dashboard: the same checks as `hoprig doctor`, with a **Fix**
+Open **Computers → this computer → Setup** on the dashboard: the same checks as `hoprig doctor`, with a **Fix**
 button where one press can fix a problem (it shows what it runs and asks first). In a terminal:
 
 ```sh
@@ -202,7 +238,7 @@ the computer alone. Common ones:
 |---|---|
 | `✗ Claude Code  not installed` | `hoprig setup` (or `hoprig claude install latest`) |
 | `! Claude Code ... its folder is not on PATH` | open a new terminal, or run `hoprig setup` (it remembers the full path) |
-| `✗ Claude login  not logged in` | **Home → Get started → Sign in to Claude** on the dashboard; in a terminal: `claude`, then type `/login` |
+| `✗ Claude login  not logged in` | **Sign in to Claude** on the card on Home, or **Providers → Sign in**; in a terminal: `claude`, then type `/login` |
 | `✗ Dashboard password  not set` | `hoprig passwd` |
 | `✗ Terminal module (node-pty)` | the command shown: it builds the module, and on Linux installs the C++ build tools first when they are missing. The line says why it is not there (never built: npm 12; left out: no build tools when Hoprig was installed) |
 | `! Terminal module (node-pty)` with tmux | sessions run in tmux and take messages, but no terminal opens in the browser until the command shown has run |
@@ -211,7 +247,7 @@ the computer alone. Common ones:
 | `! ... can be read by other users` | the `chmod 700` command shown |
 | `✗ Settings file` | fix the JSON in the file shown, or move it away and run `hoprig setup` |
 
-On Linux, to keep the dashboard running while you are logged out: open **Computers → this computer → Health** and
+On Linux, to keep the dashboard running while you are logged out: open **Computers → this computer → Advanced → Service** and
 press **Let them start after a restart** (it asks first; where sudo would ask for a password, the page shows the line
 to type). In a terminal: `sudo loginctl enable-linger $USER`.
 
@@ -245,7 +281,7 @@ system of its own, such as Docker's) root is on purpose, and Hoprig stays on roo
 ## Moving Hoprig off root
 
 On a server that hands out only a root login, an older Hoprig installed itself under root. Claude Code refuses
-bypass permissions mode for root, so every session there asks about each command. `hoprig doctor`, Health and
+bypass permissions mode for root, so every session there asks about each command. `hoprig doctor`, the computer's Setup page and
 **Settings → Runs as root** say so in one line, with one step: move Hoprig to an ordinary user.
 
 **The move needs the network.** It keeps root's build of Hoprig, but the user's own install fetches nvm, Node.js,
@@ -273,7 +309,7 @@ Its options (`hoprig move-to-user --help` lists them):
 The same runs from **Settings → Runs as root → Show what the move does** on that server's own page, after you type
 the server's name. A computer token or Tia never starts it. The same page has **Keep Hoprig on root on purpose**:
 you type `keep Hoprig on root`, the choice is kept in this computer's settings and can be taken back there; bypass
-permissions mode stays unavailable, and doctor and Health then show root as information only.
+permissions mode stays unavailable, and the doctor and Setup then show root as information only.
 
 - **The user.** The move uses the user Hoprig made (the file `.hoprig-made-by-move` in its home, owned by root,
   which only Hoprig's installer writes; the comment field alone is not trusted), or the one you name with `--user NAME` (a user id of 1000 or more and a home

@@ -485,7 +485,7 @@ test('workspace auto: --memory and --push-branches <place>=on|off set the new sw
   assert.match(bad.text(), /<place>=on or <place>=off/);
   const show = await quietUi();
   await main(['auto'], { ui: show.ui, write: () => {} });
-  assert.match(show.text(), /a project is never fetched, fast-forwarded or pushed by itself otherwise/);
+  assert.match(show.text(), /a project is never merged, rebased or pushed by itself/);
   // The memory switch names everything it commits: the brain's memory folder and the groups' own.
   assert.match(show.text(), /memory: the memory folders of the AI brain and of your groups' own repositories are committed \(and only them\)/);
   assert.match(fs.readFileSync(new URL('../../web/workspace.js', import.meta.url), 'utf8'), /Commits the memory folders of the AI brain and of your groups\\' own repositories, and only them/);

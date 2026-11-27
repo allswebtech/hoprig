@@ -96,6 +96,13 @@ test('carryArgs keeps how Claude runs and drops the session choice, prompts and 
   assert.deepEqual(L.carryArgs(['--unknown', 'v', '--dangerously-skip-permissions']), ['--dangerously-skip-permissions']);
 });
 
+test('carryArgs and moveArgs never take a word of a first message (after "--") along, only the flags before it', () => {
+  const id = '11111111-1111-4111-8111-111111111111';
+  const args = ['--effort', 'high', '--', '--model=opus do the work', '--verbose'];
+  assert.deepEqual(L.carryArgs(args), ['--effort', 'high']);
+  assert.deepEqual(L.moveArgs({ env: {} }, args, id), ['--effort', 'high', '--resume', id]);
+});
+
 test('a resume starts on this profile\'s model, never on the one named in the transcript', () => {
   const login = { env: {} };
   const pinned = { env: { ANTHROPIC_MODEL: 'opus' } };

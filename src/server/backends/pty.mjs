@@ -493,10 +493,10 @@ export class PtyBackend {
     this.terms.set(next, t);
   }
 
-  async kill(name) {
+  async kill(name, { hold = null } = {}) {
     const t = this.#byName(name);
     t.closing = true;
-    await this.#stop(t);
+    await this.#stop(t, hold); // `hold`, the pid that holds the conversation, is given longer, as in a respawn
     this.#remove(t);
   }
 

@@ -43,7 +43,7 @@ jobs:
       # named loudly (CONTRIBUTING.md). A release (release.yml) runs the tests without it.
       - run: npm test -- --part=${{ matrix.part }} --again
 
-  # Windows is not supported yet: its jobs tell, they do not block. Their results are shown, a failure does not fail
+  # Windows is experimental: its jobs tell, they do not block. Their results are shown, a failure does not fail
   # the run. The same Node.js versions as above (24, the lowest Hoprig runs on, and 26). Every test process
   # gets a home of its own there (USERPROFILE, APPDATA, LOCALAPPDATA in the run's temporary folder), and the runner
   # fails by name when a test still wrote into the real profile (tools/home-guard.mjs).

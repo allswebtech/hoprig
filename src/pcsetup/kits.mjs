@@ -173,7 +173,7 @@ export const KITS = [
     id: 'python',
     title: 'Python',
     summary: 'python3 with pip and venv, for scripts and Python projects.',
-    defaultOn: true,
+    get defaultOn() { return process.platform !== 'win32'; }, // Windows: one tick away, not on by itself
     items: [
       { id: 'python', name: 'python3', bins: ['python3'], version: ['python3', '--version'], eol: (v) => pastEol(PYTHON_EOL[minorOf(v)]), needsClt: true, packages: { ...same(['python3'], ['apt', 'dnf', 'yum', 'zypper', 'apk']), pacman: ['python'], brew: ['python'] }, steps: pyWin },
       { id: 'pip', name: 'pip', bins: ['python3'], version: ['python3', '-m', 'pip', '--version'], needsClt: true, packages: { apt: ['python3-pip'], dnf: ['python3-pip'], yum: ['python3-pip'], pacman: ['python-pip'], zypper: ['python3-pip'], apk: ['py3-pip'], brew: ['python'] }, steps: pyWin },
@@ -197,7 +197,7 @@ export const KITS = [
     id: 'extras',
     title: 'Terminal extras',
     summary: 'tmux (sessions that survive), ripgrep (fast search) and jq (JSON on the command line).',
-    defaultOn: true,
+    get defaultOn() { return process.platform !== 'win32'; }, // Windows: one tick away, not on by itself
     items: [
       { id: 'tmux', name: 'tmux', bins: ['tmux'], version: ['tmux', '-V'], platforms: ['linux', 'darwin'], packages: same(['tmux']) },
       { id: 'ripgrep', name: 'ripgrep', bins: ['rg'], version: ['rg', '--version'], packages: same(['ripgrep']), winget: 'BurntSushi.ripgrep.MSVC' },

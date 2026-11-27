@@ -11,7 +11,7 @@ import { apply, decide } from '../../src/automation/workspacesync.mjs';
 import { lookOnlyHere, lookServers, onlyHereLine, readLooks, serversLine } from '../../src/workspace/onlyherelook.mjs';
 
 const DAY = 86_400_000;
-const off = { ...DEFAULTS.workspace, map: false };
+const off = { ...DEFAULTS.workspace, map: false, ffProjects: {} }; // (the look at the projects has its own tests: instep-brain.test.mjs)
 const types = (r) => r.actions.map((a) => a.type);
 
 test('both looks are off at first, and a patch takes only true or false for them', () => {

@@ -37,6 +37,28 @@ export function redact(text) {
   return s.replace(NAMED, (m, name) => `${name}***`);
 }
 
+/** What stands where a key was in the owner's own message, and the one line she says about it. */
+export const KEY_MARK = '[key removed]';
+export const KEY_NOTE = 'A key was in your message. It was not kept or sent. If it was a real one, revoke it.';
+
+/**
+ * The owner's message as it may go on: every secret-shaped part replaced by KEY_MARK (a value after a secret-sounding
+ * name only when it looks random, as looksSecret reads it: MAX_TOKENS=200000 stays). → { text, found }
+ */
+export function maskInput(text) {
+  let found = false;
+  let s = String(text);
+  for (const re of SHAPES) s = s.replace(re, () => ((found = true), KEY_MARK));
+  s = s.replace(NAMED, (m, name, v) => {
+    if (v.length >= 16 && /[A-Za-z]/.test(v) && /\d/.test(v)) {
+      found = true;
+      return name + KEY_MARK;
+    }
+    return m;
+  });
+  return { text: s, found };
+}
+
 /** True when `text` carries something that looks like a secret (an input the assistant must not pass on). */
 export function looksSecret(text) {
   const s = String(text);

@@ -38,19 +38,35 @@ import { listProfiles } from '../profiles.mjs';
 import { DEFAULT_ROUTER_PORT } from '../routerstate.mjs';
 import { which } from '../setup/system.mjs';
 import { workspaceDir } from '../workspace/layout.mjs';
+import { GATEWAY_NEEDS } from './owncopy.mjs';
 import { changeableByOthers, executable, fileSha256, insideWorkspace, localGateway, notExecutable, typedProgram } from './localgateway.mjs';
+
+// The version of the shipped gateway that Install puts into Hoprig's own folder (the one this Hoprig is tested with).
+// The one place that names it; Update installs the newest from npm instead. A copy of an older version is not changed
+// by itself: the page only says that a newer one is there.
+export const GATEWAY_PIN = '1.0.13';
+// The first version that writes its command token file and takes --data-dir (the floors of the copies older than the pin).
+export const GATEWAY_MANAGED_FROM = '1.0.11';
+// GATEWAY_NEEDS (owncopy.mjs): the first version that the public address, the list of providers and the sign-in link need.
+export { GATEWAY_NEEDS };
 
 export const SHIPPED = [
   // A self-hosted AI gateway (https://github.com/allswebtech/trouteai, MIT). You add providers in its own dashboard
   // (OpenAI, Gemini, OpenRouter, local models and more); it offers them through one Anthropic-compatible API, which is
-  // what Claude Code speaks. Its command line (from `trouteai --help`, version 1.0.8): `trouteai` starts it (dashboard
-  // and API on one port, default 20017), `trouteai update` updates it. It is an npm package.
+  // what Claude Code speaks. Its command line (from `trouteai --help`, version 1.0.13): `trouteai` starts it (dashboard
+  // and API on one port, default 20017; --port, --host, --data-dir say where), `trouteai update` updates it,
+  // `trouteai config`, `trouteai reset-password`, `trouteai key create` and `trouteai uninstall` are its other commands.
+  // It is an npm package. Install puts it into Hoprig's own folder (`own`): a copy that is on the computer already
+  // (npm install -g) is used until then. The listen words below are for 1.0.11 and newer, which listen on this computer
+  // only by default; the older copy listened on every address.
   {
     id: 'trouteai',
     title: 'TRouteAI',
     summary: 'A self-hosted AI gateway. Add any provider in its dashboard (OpenAI, Gemini, OpenRouter, local models…) and Claude Code can use them all as one more provider.',
     homepage: 'https://github.com/allswebtech/trouteai',
     npm: 'trouteai',
+    // Install puts the package into Hoprig's own folder at this version (codetools/npmtool.mjs); only a shipped one has it.
+    own: { pin: GATEWAY_PIN, from: GATEWAY_MANAGED_FROM },
     // The parts whose install scripts its README allows (npm install -g trouteai --allow-scripts=tls-client-node,koffi
     // --loglevel=error): each builds a helper program. Names only; Hoprig adds the flags (localgateway.mjs installFlags).
     allowScripts: ['tls-client-node', 'koffi'],
@@ -60,7 +76,7 @@ export const SHIPPED = [
     // Its accounts, keys and logs: a folder of its own in the home of the user it runs as.
     dataDir: '.trouteai',
     // Where the dashboard listens on this computer only (or the computer is a server): these arguments keep the gateway
-    // there too. Its own default is every address; a flag outranks its environment (HOST) and its data folder's .env.
+    // there too. A flag outranks its environment (HOST) and its data folder's .env.
     localOnly: ['--host', '127.0.0.1'],
     version: ['--version'],
     dashboard: '/',

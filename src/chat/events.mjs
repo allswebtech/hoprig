@@ -12,7 +12,7 @@
 //                   why, canAlways, always, alwaysText, canProject }   a tool call waits for the owner
 //                 type: mcp { server, title, message, mode: form | url, url, fields }   an MCP server asks him
 //                   (src/chat/mcpask.mjs: its words are the server's, shown as plain text; only he answers it)
-//   ask-closed    { request, outcome: allowed | allowed-always | allowed-project | denied | cancelled | hoprig (allowed by the hook)
+//   ask-closed    { request, outcome: allowed | allowed-always | allowed-project | allowed-all (Allow everything) | denied | cancelled | hoprig (allowed by the hook)
 //                   | mcp-accepted | mcp-declined }
 //   allowed       { tool, what, folder? }                 allowed by Hoprig in bypass mode (the hook: src/chat/asks.mjs)
 //   turn-start    { auto, messageId? }                    auto: the coding tool went on by itself (a task ended)

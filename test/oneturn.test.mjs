@@ -107,7 +107,7 @@ test('the Operator starts its checks one per pass of the event loop, and its tic
   at.length = 0;
   await src.tick();
   c.going = false;
-  assert.equal(at.length, 7, `the providers' readings and the six checks looked at the clock, once each: ${at}`);
+  assert.equal(at.length, 8, `the providers' readings and the seven checks looked at the clock, once each: ${at}`);
   for (let i = 1; i < at.length; i++) assert.ok(at[i] > at[i - 1], `two checks started in one pass: ${at.join(' ')}`);
 });
 

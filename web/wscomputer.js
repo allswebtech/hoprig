@@ -1,12 +1,11 @@
 // This computer in the workspace (src/workspace/computer.mjs) and set-up's one path in the page:
-//   computerPanel()   Settings → Workspace: this computer's label (given once; the host name is only offered), and
-//                     which computer has what, from each computer's own file in the AI brain
+//   computerPanel()   Settings → Workspace: this computer's label (given once; the host name is only offered)
 //   githubPath(after) the fresh computer's choice on the Workspace page once GitHub is signed in: the owner's brain on
 //                     GitHub found → get it (no project comes by itself); none → start the workspace and keep its
 //                     brain in a new private repository
 import { icon } from './icons.js';
 import { api, btn, fill, h, link, toast } from './lib.js';
-import { errorBox, okBox, panel } from './shell.js';
+import { errorBox, okBox } from './shell.js';
 
 const plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -34,35 +33,25 @@ function labelForm(suggestion, done) {
   return h('div',
     h('label.fieldrow', h('span.field-label', 'This computer\'s name in your workspace'),
       h('div.inlineform', input, btn('small primary', { label: 'Save', onclick: () => send() })),
-      h('span.hint', 'Lower-case letters, digits, "-" and "_". Given once; your other computers see what is here under it.')),
+      h('span.hint', 'Lower-case letters, digits, "-" and "_". Given once; written into the AI brain, so it is not the same as the computer\'s name in the dashboard.')),
     res);
 }
 
-/** What one computer's file says, in a line: its entries without their code repositories (they come with them). */
-function hereText(c) {
-  const top = c.here.filter((x) => !c.here.some((y) => y !== x && x.startsWith(`${y}/`)));
-  return top.length ? top.slice(0, 8).join(', ') + (top.length > 8 ? ` and ${top.length - 8} more` : '') : 'nothing of the map';
-}
-
-/** Settings → Workspace: this computer's label and which computer has what. */
+/**
+ * Settings → Workspace, in "Where things are": this computer's name in the workspace. Which computer has what is
+ * on the Workspace page ("Your computers"), not repeated here.
+ */
 export function computerPanel() {
-  const box = h('div', busyLine('…'));
+  const box = h('div.ws-name', busyLine('…'));
   const load = () => api('/api/workspace/computers').then((d) => {
     fill(box,
       d.label
-        ? h('p.hint', `This computer is `, h('strong', d.label), ' in your workspace. Its own file in the AI brain says what is here; no other computer writes it.')
+        ? h('p.hint', `This computer is `, h('strong', d.label), ' in your workspace. The name is written into the AI brain, so it is not the same as the computer\'s name in the dashboard.')
         : labelForm(d.suggestion, load),
-      d.computers.length
-        ? h('div.rows', d.computers.map((c) => h('div.row.static',
-          h('span.row-icon', icon('cpu')),
-          h('span.row-main', h('span.row-title', c.label, c.mine ? h('span.badge.soft', 'this computer') : null),
-            h('span.row-sub', `${hereText(c)} · Hoprig ${c.hoprig || 'unknown'}`)))))
-        : h('p.hint', 'No computer has written its file in the AI brain yet. A computer with a name writes it at its next look at the map.'),
-      d.refused && d.refused.length ? h('ul.hint', d.refused.map((r) => h('li', `computers/${r.name} was not read: ${r.why}`))) : null,
       d.folderWhy ? errorBox(d.folderWhy) : null);
   }, (e) => fill(box, errorBox(e)));
   load();
-  return panel({ icon: 'cpu', title: 'Your computers', desc: 'Which computer has which project. A computer that never wrote its file cannot be seen from here.' }, box);
+  return box;
 }
 
 /** Follow the workspace's background job until it ends; resolves its answer. */

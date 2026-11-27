@@ -7,6 +7,15 @@ import { api, fill, h } from './lib.js';
 export const NOT_LISTED = 'not in this provider\'s list';
 const MODEL_RE = /^[A-Za-z0-9][A-Za-z0-9._:/@+\-[\]]{0,119}$/; // as src/server/endpoint.mjs
 
+/**
+ * The model a provider added with a key starts on: a middle one (a sonnet name) when the list has one, else the first.
+ * A default never spends more than needed (the first listed is often the dearest).
+ */
+export const middleModel = (list) => {
+  const l = Array.isArray(list) ? list : [];
+  return (l.find((m) => /sonnet/i.test(m.id)) || l[0] || { id: '' }).id;
+};
+
 /** What an entry says of itself, in a few words: "1M window · pictures". */
 const extras = (m) => [m.window1m ? '1M window' : null, m.images ? 'pictures' : null, m.efforts && m.efforts.length ? `efforts ${m.efforts.join(', ')}` : null].filter(Boolean).join(' · ');
 /** One option's text: its label, its exact id where the label is another, and what it says of itself. */
@@ -51,7 +60,7 @@ export function modelPicker(o) {
     const n = view.models.length;
     const left = value && marked(view, value) && !view.models.some((m) => m.id === value);
     note.textContent = [
-      view.why || (view.source === 'endpoint' || view.source === 'tool' ? `${n} model${n === 1 ? '' : 's'} this provider lists.` : view.source === 'subscription' ? `The models Claude Code offers a subscription (read for version ${view.read ? view.read.version : '?'}).` : view.note || ''),
+      view.why || (view.source === 'endpoint' || view.source === 'tool' ? `${n} model${n === 1 ? '' : 's'} this provider lists.` : view.source === 'subscription' ? 'The models Claude Code offers a subscription.' : o.quiet ? '' : view.note || ''),
       left ? `The saved model "${value}" is ${NOT_LISTED}; it stays chosen until you pick another.` : '',
     ].filter(Boolean).join(' ');
     typed.classList.toggle('hidden', !view.typed);

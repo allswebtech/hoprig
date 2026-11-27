@@ -40,7 +40,7 @@ export async function launchChrome({ port, realHome = false } = {}) {
   const home = path.join(profile, 'home');
   fs.mkdirSync(home);
   const env = { ...process.env, HOME: realHome ? os.userInfo().homedir : home };
-  const proc = spawn(bin, ['--headless=new', '--remote-debugging-port=0', `--user-data-dir=${profile}`, '--no-first-run', '--no-default-browser-check', '--hide-scrollbars', '--force-color-profile=srgb', 'about:blank'], { stdio: ['ignore', 'ignore', 'pipe'], env });
+  const proc = spawn(bin, ['--headless=new', '--remote-debugging-port=0', `--user-data-dir=${profile}`, '--no-first-run', '--no-default-browser-check', '--hide-scrollbars', '--force-color-profile=srgb', ...(process.platform === 'darwin' ? ['--use-mock-keychain', '--password-store=basic'] : []), 'about:blank'], { stdio: ['ignore', 'ignore', 'pipe'], env });
   // Its last error lines and how it ended, for the error when it does not start (a busy runner, or a browser that exits).
   let tail = '';
   proc.stderr.on('data', (d) => { tail = (tail + d).slice(-4000); });
@@ -145,8 +145,9 @@ export async function launchChrome({ port, realHome = false } = {}) {
       }
       await sleep(wait);
     },
-    async viewport(width, height, { mobile = false, scale = mobile ? 2 : 1, theme = 'light' } = {}) {
+    async viewport(width, height, { mobile = false, scale = mobile ? 2 : 1, theme = 'light', touch = false } = {}) {
       await send('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: scale, mobile });
+      await send('Emulation.setTouchEmulationEnabled', { enabled: !!touch, maxTouchPoints: 5 });
       await send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-color-scheme', value: theme }, { name: 'prefers-reduced-motion', value: 'reduce' }] });
     },
     /** PNG or JPEG bytes of the viewport (or a clip { x, y, width, height }). */

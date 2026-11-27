@@ -235,7 +235,7 @@ test('a server that does not start says what to look at next, in words a chat ca
   const r = await S.ensureServer('opencode', {});
   assert.equal(r.ok, false);
   // The page's sentence names no file (a person who never opened a terminal cannot open one); the log is named apart.
-  assert.equal(r.why, 'OpenCode\'s server did not start. Check under Settings → Coding tools that it is installed and up to date.');
+  assert.equal(r.why, 'OpenCode\'s server did not start. Check under Settings → New sessions → Coding tools that it is installed and up to date.');
   assert.match(r.log, /\S+opencode-server\.log$/);
   assert.doesNotMatch(r.why, /\(start\)|cannot be used/);
   assert.match(fs.readFileSync(path.join(S.serverDir(), 'opencode-server.log'), 'utf8'), /cannot open the database/, 'its own words are in that log');

@@ -10,6 +10,8 @@
 // `hoprig pair`, not a token without the mark. Each refusal is one plain sentence.
 import { OWNER_PAGE_HEADER, SELF_HEADER } from '../machines/relay.mjs';
 
+/** What a person is told when a drop, a group removal or the rules is tried by Tia: the step is his, on the sheet. */
+export const SHEET_STEP = 'the owner\'s own step: Tia shows him the sheet on the Workspace page, she never does it';
 const fail = (message) => Object.assign(new Error(message), { status: 403 });
 
 /**
@@ -39,17 +41,17 @@ async function joinedTokenIds() {
  */
 export async function ownerPageOnly(req, sctx, what, { tokenId = () => null, card = false } = {}) {
   const auth = String((req.headers && req.headers.authorization) || '');
-  if (/^Bearer\s+tia_/i.test(auth)) throw fail(`${what} is the owner's own step: Tia shows him the sheet on the Workspace page, she never does it`);
+  if (/^Bearer\s+tia_/i.test(auth)) throw fail(`${what} is ${SHEET_STEP}`);
   const by = sctx.caller ? sctx.caller(req) : 'page';
   // `card`: an act Tia's tool does only after the owner pressed Confirm on her card (an L2 card, e.g. a sync that
   // pushes): her door passes, here or through a hub this computer joined. A drop, a group or the rules: never.
   if (by === 'self') {
     if (card) return 'card';
-    throw fail(`${what} is the owner's own step: Tia shows him the sheet on the Workspace page, she never does it`);
+    throw fail(`${what} is ${SHEET_STEP}`);
   }
   if (by === 'page') return 'page';
   // Another dashboard's token: only a hub this computer joined, and only for its own signed-in page.
-  if (req.headers[SELF_HEADER] === '1' && !card) throw fail(`${what} is the owner's own step: Tia shows him the sheet on the Workspace page, she never does it`);
+  if (req.headers[SELF_HEADER] === '1' && !card) throw fail(`${what} is ${SHEET_STEP}`);
   const id = tokenId(req);
   // A hub that added this computer before tokens had the mark (or that runs an older Hoprig) holds a plain token: the
   // refusal names the one step that makes it count, on this computer's own page.

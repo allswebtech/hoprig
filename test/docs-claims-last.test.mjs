@@ -40,16 +40,16 @@ test('Guides: every head cell of a table begins with a capital letter or a code 
   assert.ok(headRows('docs/WORKSPACE.md').includes('| Coding tool | What is linked or named | In the brain |'));
 });
 
-test('WORK: a project\'s test command is set on Work → Team, in Tia\'s switches and limits, under Projects, and kept in the dashboard\'s settings', () => {
+test('WORK: a project\'s test command is set in Settings → Tia → Limits and roles, under Projects, and kept in the dashboard\'s settings', () => {
   const page = flat(part('docs/WORK.md', 'Missions: a goal Tia does by herself'));
-  assert.ok(page.includes('You set it per project on **Work → Team**: open **Tia\'s switches and limits**, and under **Projects** type it into the project\'s field **Its test command**, then press **Save**. It is kept in the dashboard\'s settings, not in the project\'s files.'), 'the page says where');
+  assert.ok(page.includes('You set it per project in **Settings → Tia → Limits and roles**: under **Projects** type it into the project\'s field **Its test command**, then press **Save**. It is kept in the dashboard\'s settings, not in the project\'s files.'), 'the page says where');
   assert.ok(!page.includes('(set per project on Team;'), 'the old half-sentence is gone');
   const ui = read('web/mission.js');
   assert.ok(ui.includes("field('Its test command', test,"), 'the field is named so');
-  assert.ok(ui.includes("h('h3.ms-h3', 'Projects')"), 'under Projects');
+  assert.ok(ui.includes("block('Projects'"), 'under Projects');
   assert.ok(ui.includes("h('span', 'Tia\\'s switches and limits')"), 'in the fold Tia\'s switches and limits');
   assert.ok(ui.includes("label: 'Save', dataset: { key: `save:${p}` }"), 'its own Save');
-  assert.ok(ui.includes("export function paintTeam("), 'on the Team tab');
+  assert.ok(read('web/tia.js').includes("fold('tia-limits', 'Limits and roles', limitsBox, missionLimits())"), 'in Settings → Tia, the fold Limits and roles');
   assert.match(read('src/mission/settings.mjs'), /projects +\{ <name>: \{ on, auto, test: \[argv\] \} \}/, 'kept in the config under missions.projects');
   assert.ok(read('src/mission/feature.mjs').includes('saveConfig({ missions: next })'), 'saved into the dashboard\'s settings');
 });
@@ -124,7 +124,7 @@ test('HUB: the Docker image is for a main computer only (no "hub" in prose for i
 
 test('WORK: with fewer than two like it, Today says once under the count that there is no estimate, and the digest says it beside the run', () => {
   const page = flat(read('docs/WORK.md'));
-  assert.ok(page.includes('With fewer than two, a run gets no number: Work\'s Today tab says it once, under the count of what runs ("No estimate yet: nothing like it has finished here."), and the digest says "no estimate yet" beside the run.'));
+  assert.ok(page.includes('With fewer than two, a run gets no number: Work\'s Activity tab says it once, under **Running now** ("No estimate yet: nothing like it has finished here."), and the digest says "no estimate yet" beside the run.'));
   assert.ok(!page.includes('With fewer than two: "no estimate yet:'), 'the old words are gone');
   const pulse = read('web/workpulse.js');
   assert.ok(pulse.includes("const noBasis = (u) => !u.basis || u.basis.count < 2;"), 'fewer than two');
@@ -134,13 +134,13 @@ test('WORK: with fewer than two like it, Today says once under the count that th
   assert.ok(read('src/work/tellmsg.mjs').includes("if (u.basis.count < 2) lines.push(`Running: ${name}, no estimate yet`);"), 'the digest');
 });
 
-test('WORK: a mission\'s money limit is its own field "Spend cap per day ($)" under Limits on Team; Tia\'s daily limit for paid use counts of a mission only her paid move of a task and a mission\'s call of Tia decides there', () => {
+test('WORK: a mission\'s money limit is its own field "Spend cap per day ($)" under Limits in Settings → Tia → Limits and roles; Tia\'s daily limit for paid use counts of a mission only her paid move of a task and a mission\'s call of Tia decides there', () => {
   const page = flat(part('docs/WORK.md', 'Missions: a goal Tia does by herself'));
   assert.ok(page.includes('is what is left of today\'s **Spend cap per day ($)** (below) after what was spent and what her sessions that run now hold'));
-  assert.ok(page.includes('and the **Spend cap per day ($)**, the missions\' own cap, set under **Limits** in **Tia\'s switches and limits** on Work → Team and counted from each run\'s own cost line (with no cap set, nothing starts). Tia\'s daily limit for paid use (Settings → Tia) does not count these sessions; of a mission, it counts only what the Operator does on a provider billed by use: her move of a task there (below), and a call of **Tia decides** about a mission\'s choice that runs there.'));
+  assert.ok(page.includes('and the **Spend cap per day ($)**, the missions\' own cap, set under **Limits** in **Settings → Tia → Limits and roles** and counted from each run\'s own cost line (with no cap set, nothing starts). Tia\'s daily limit for paid use (Settings → Tia) does not count these sessions; of a mission, it counts only what the Operator does on a provider billed by use: her move of a task there (below), and a call of **Tia decides** about a mission\'s choice that runs there.'));
   assert.ok(!page.includes('it counts only her own move of a task'), 'the old words are gone');
   assert.ok(read('web/mission.js').includes("h('summary.fold-summary', h('span', 'Tia\\'s switches and limits')"), 'the fold that holds Limits');
-  assert.ok(read('web/mission.js').indexOf("h('h3.ms-h3', 'Limits')") < read('web/mission.js').indexOf("return h('details.fold.ms-settings'"), 'Limits is drawn inside the fold');
+  assert.ok(read('web/mission.js').indexOf("block('Limits'") < read('web/mission.js').indexOf("return h('details.fold.ms-settings'"), 'Limits is drawn inside the fold');
   assert.ok(read('web/operator-decide.js').includes("toggle('Tia decides', d.on,"), 'the switch\'s label');
   const mis = read('src/operator/decider.mjs');
   const body = mis.slice(mis.indexOf('async function mission(item0)'), mis.indexOf('function view()'));
@@ -150,7 +150,7 @@ test('WORK: a mission\'s money limit is its own field "Spend cap per day ($)" un
   assert.ok(!/spend cap per day\*\*|today's spend cap/.test(page), 'the old lower-case names are gone');
   const ui = read('web/mission.js');
   assert.ok(ui.includes("num('Spend cap per day ($)', 'capUsd', s.capUsd,"), 'the field as the page draws it');
-  assert.ok(ui.indexOf("h('h3.ms-h3', 'Limits')") >= 0 && ui.indexOf("h('h3.ms-h3', 'Limits')") < ui.indexOf("num('Spend cap per day ($)'"), 'under Limits');
+  assert.ok(ui.indexOf("block('Limits'") >= 0 && ui.indexOf("block('Limits'") < ui.indexOf("num('Spend cap per day ($)'"), 'under Limits');
   assert.ok(ui.includes("'Counted from each run\\'s own cost line. At the cap nothing new starts. 0: nothing starts.'"), 'from each run\'s cost line; 0 starts nothing');
   assert.ok(read('src/mission/engine.mjs').includes('const { left, budget } = budgetFor({ capUsd: s.capUsd, spentUsd: spentOn(all, dayOf(p)).usd, held,'), 'a session\'s budget comes from the missions\' own cap');
   assert.ok(read('src/mission/limits.mjs').includes("if (!(s.capUsd > 0)) return 'no spend cap is set yet: set one under Work → Team';"), 'none set: nothing starts');
@@ -164,9 +164,9 @@ test('WORK: a mission\'s money limit is its own field "Spend cap per day ($)" un
   assert.ok(dec.includes("hold(ps.what, tia.dailyCapUsd, `mission-"), 'the move is held against her limit');
 });
 
-test('COMPUTERS: a computer that no longer lets this dashboard in: its sentence, Setup and Health unread, Rename and Remove left under Advanced', () => {
+test('COMPUTERS: a computer that no longer lets this dashboard in: its sentence, Setup unread, Rename and Remove left under Advanced', () => {
   const page = flat(read('docs/COMPUTERS.md'));
-  assert.ok(page.includes('| "Not allowed any more" | Its right was revoked on that computer. The New session sheet says: "It no longer lets this dashboard in. Add it again here: Computers → Add a computer"; the computer\'s own page says: "*name* no longer lets this dashboard in. Add it again here: Computers → Add a computer." Until you do, its **Setup** and **Health** tabs cannot read it; under **Advanced**, **Rename** and **Remove from this list** still work. |'), 'the row');
+  assert.ok(page.includes('| "Not allowed any more" | Its right was revoked on that computer. The New session sheet says: "It no longer lets this dashboard in. Add it again here: Computers → Add a computer"; the computer\'s own page says: "*name* no longer lets this dashboard in. Add it again here: Computers → Add a computer." Until you do, its **Setup** tab cannot read it; under **Advanced**, **Rename** and **Remove from this list** still work. |'), 'the row');
   assert.ok(!page.includes('Its right was revoked on that computer. Add it again'), 'the old row is gone');
   assert.ok(!page.includes('and the page says: "It no longer lets'), 'the sheet\'s sentence is not called the page\'s');
   const lib = read('web/lib.js');
@@ -182,7 +182,6 @@ test('COMPUTERS: a computer that no longer lets this dashboard in: its sentence,
   assert.ok(read('web/pc.js').includes("if (m.status === 'unauthorised') return notAllowedCard(ctx.label(), m.error);"), 'the computer\'s page shows it');
   const pc = read('web/pc.js');
   assert.ok(pc.includes("setup: 'What it has for coding cannot be checked while it does not let this dashboard in.',"), 'Setup unread');
-  assert.ok(pc.includes("health: 'Its checks cannot be read while it does not let this dashboard in.',"), 'Health unread');
   assert.ok(pc.includes("advanced: 'Its name, and taking it off this list. Its programs, ports and power can be used again once it lets this dashboard in.',"), 'Advanced keeps the name and the list');
   assert.ok(pc.includes("act('pencil', 'Rename',") && pc.includes("act('trash', 'Remove from this list',"), 'the two buttons');
   assert.ok(pc.includes('if (notAllowed(ctx.entry())) return [];'), 'move and power are not offered');
@@ -344,7 +343,7 @@ test('OPERATOR: a Console sign-in is billed by use, and with the switch off Auto
 
 test('PROVIDERS: Auto mode and providers billed by use, the row, and the message when nothing is left', () => {
   const own = flat(part('docs/PROVIDERS.md', 'Auto mode and providers billed by use'));
-  assert.ok(own.includes('Auto mode (on Providers, **Carry on with the next provider** under **When a provider reaches its limit**) uses a provider billed by use only while **Also use pay-per-use providers** is on.'));
+  assert.ok(own.includes('Auto mode (on Providers, **At a limit**, **Carry on with the next provider**) uses a provider billed by use only while **Also use pay-per-use providers** is on.'));
   assert.ok(own.includes('such a sign-in is named "Claude sign-in billed by use (Console account)", never a subscription. While the switch is off, such a provider can stay in the order, but Auto mode leaves it out and its row says so.'));
   assert.ok(own.includes('When that leaves Auto mode nothing it may use, no session starts under Auto mode and nothing is spent; the same holds when the providers of the order are gone or do not serve Claude Code. A start from a terminal (`hoprig auto`), a request of a session that runs under it, a chat of the App and a run of Work then say why: each provider that is left out, with its reason, and the way out. With a provider billed by use that is turning that switch on, or putting a subscription into the order; else putting a provider that serves Claude Code into the order. A chat says that Claude Code could not start, and a run of Work that it did not start. Tia does not choose Auto mode then: she starts or moves the session on the next provider she may use, and with none she says why in the same words. A session that already runs under Auto mode on a provider billed by use gets nothing more while the switch is off: its message says to turn that switch on, or to start the session again under Auto mode.'));
   assert.ok(!own.includes('get a message that names the providers billed by use and the two ways out'), 'the old sentence of two starts only is gone');
@@ -352,7 +351,7 @@ test('PROVIDERS: Auto mode and providers billed by use, the row, and the message
   assert.match(read('bin/hoprig.mjs'), /case 'auto':[\s\S]{0,300}return start\('auto', rest\);/, '`hoprig auto` starts a session in Auto mode');
   const acc = read('web/accounts.js');
   assert.match(acc, /title: 'Carry on with the next provider'/);
-  assert.match(acc, /'When a provider reaches its limit'/);
+  assert.match(acc, /title: 'At a limit'/);
   assert.match(acc, /toggle\('Also use pay-per-use providers',/);
   assert.match(acc, /const BILLED_SIGNIN = 'Claude sign-in billed by use \(Console account\)';/);
   assert.match(acc, /PAY_PER_USE_HELP = 'API keys billed for every use, and a Claude sign-in on a Console account \(billed by use too\), take part in Auto mode only while this is on\./);
@@ -393,28 +392,19 @@ test('OPERATOR: her git sign-in, one truth: gh gets a value that is not a token,
 const readme = () => flat(read('README.md'));
 const notBuilt = () => flat(part('README.md', 'Not built, or not proven yet'));
 
-test('README: New session opens with one line of what will be used, Change unfolds it, then the project', () => {
+test('README: New session opens with the projects as rows, one tap starts, More options holds the rest', () => {
   const page = readme();
-  assert.match(page, /\*\*New session\*\* on Home \(or a project's \*\*New session\*\*\) opens with one line that says what will be used: the computer \(on Home, when several are linked\), the App or a terminal, and the coding tool\. \*\*Change\*\* on that line unfolds those choices: the computer \(on Home\), \*\*App\*\* \(a chat, like the Claude Code app\) or \*\*Terminal\*\*, and the coding tool\. Below it you pick the project the session starts in\./);
+  assert.match(page, /\*\*New session\*\* on Home opens with \*\*Tap a project to start\*\*: the projects as big rows \(\*\*Recent\*\*, then \*\*All projects\*\*, then \*\*Another folder…\*\*\), and one tap on a row starts an App chat there with nothing else asked\./);
+  assert.match(page, /\*\*More options\*\* holds only what must be chosen before the start: \*\*Open in a terminal\*\* \(the coding tool's own screen instead of the chat\), \*\*Coding tool\*\* \(when two or more are ready\), \*\*An earlier conversation\*\*, \*\*On a branch of its own\*\* and \*\*Read other projects too\*\*\./);
   assert.doesNotMatch(page, /asks two things at once/);
   const popup = read('web/newsession-popup.js');
-  // The line names the computer only where several are linked, and says "in the App" or "in a terminal".
-  // A project's New session (st.preset) names no computer on the line and paints no computer under Change.
+  // The computers are chips only where several are linked; a project's New session names no computer.
   assert.match(popup, /const key = store\.multi && !st\.preset \? JSON\.stringify\(/);
   assert.match(popup, /if \(!key\) return paint\(pcSlot\);/);
   assert.match(popup, /preset: project,/);
-  assert.match(popup, /computer: store\.multi && !st\.preset \? \(where\(\) \|\| \{\}\)\.machineLabel \|\| null : null,/);
-  const line = read('web/newsession-choice.js');
-  assert.match(line, /const parts = computer \? \[`On \$\{computer\}`\] : \[\];/);
-  assert.match(line, /openAs === 'terminal' \? 'in a terminal' : 'in the App'/);
-  assert.match(popup, /The computer, App or Terminal and the coding tool: folded under the line that says what is chosen\./);
-  assert.match(popup, /h\('span\.ns-choices-change', 'Change'\)/);
-  assert.match(popup, /h\('div\.ns-choices-body', pcSlot, openAsSlot, toolSlot\)/);
-  // The line comes first, the project below it.
-  assert.match(popup, /h\('div\.ns-root', choices, status, alsoSlot, projSlot,/);
-  const choice = read('web/newsession-choice.js');
-  assert.match(choice, /name: 'App', line: 'A chat, like the Claude Code app'/);
-  assert.match(choice, /name: 'Terminal'/);
+  assert.match(popup, /'Tap a project to start'/);
+  // The line and More options come first, the projects below them.
+  assert.match(popup, /h\('div\.ns-root', intro, moreSlot, opts, pcSlot, status, projSlot,/);
 });
 
 test('README: Tia runs on, Automatic is the first subscription that can answer now, never a paid provider by herself', () => {
@@ -458,7 +448,7 @@ test('README: Tia runs on, Automatic is the first subscription that can answer n
 test('README: the Providers picture and the Settings picture say only what they show', () => {
   const page = read('README.md');
   assert.match(page, /<img src="docs\/screenshots\/accounts-desktop-light\.webp" alt="The Providers page: four providers, the first two numbered in Auto mode's order, Claude Max with its 5-hour and weekly limits, and a Sign in button for one that is not signed in"/);
-  assert.match(page, /<img src="docs\/screenshots\/settings-desktop-light\.webp" alt="Settings: one row per page, most with their current state in one line, and New-session defaults open beside them"/);
+  assert.match(page, /<img src="docs\/screenshots\/settings-desktop-light\.webp" alt="Settings: seven rows, each with its state in one line, and New sessions open beside them"/);
   const acc = read('web/accounts.js');
   // The number is the place in Auto mode's order, drawn only while Auto mode is on, and not for a provider billed by
   // use while pay-per-use is off. The demo's order is max, api; its api key goes straight to Anthropic, so it is
@@ -476,9 +466,7 @@ test('README: the Providers picture and the Settings picture say only what they 
   assert.match(acc, /h\('span', 'Sign in'\)/);
   assert.match(acc, /'This plan does not report its usage\.'/);
   assert.match(read('src/demo/index.mjs'), /writeProfile\('max', \{ label: 'Claude Max'/);
-  // Go live draws no state line in the list.
-  assert.match(read('web/ship.js'), /summary: \(\) => '', render: limiterPage,/);
-  assert.match(read('web/sessiondefaults.js'), /title: 'New-session defaults'/);
+  assert.match(read('web/sessiondefaults.js'), /title: 'New sessions'/);
 });
 
 test('README and RELEASING: every head cell of a table begins with a capital letter (a phone shows them as card labels)', () => {
@@ -592,7 +580,7 @@ test('README: cloudflared is "the helper for the public link", as the Updates li
   assert.doesNotMatch(page, /tunnel helper/);
   assert.match(page, /- \*\*Updates\*\* of Hoprig, the coding tools and the helper for the public link \(cloudflared\) on one page, Manual by default\./);
   assert.match(page, /The helper for the public link \(cloudflared\) installs itself the first time\./);
-  assert.match(page, /\*\*Settings → Updates\*\* is one page for Hoprig, Claude Code, OpenCode and the helper for the public link \(cloudflared\): each row shows the/);
+  assert.match(page, /\*\*Settings → Version and updates\*\* is one page for Hoprig, Claude Code, OpenCode and the helper for the public link \(cloudflared\): each row shows the/);
   assert.match(page, /OpenCode when none of its sessions is open, the helper for the public link when the link is off\./);
   assert.match(page, /the helper for the public link, when Hoprig downloads it, is checked against its known SHA-256 before it is used \(one already on the computer's PATH, or installed with Homebrew on a Mac, is used as it is\)\./);
   assert.doesNotMatch(page, /the helper for the public link is checked against its known SHA-256/);
@@ -631,7 +619,7 @@ test('README: a terminal session is ended with End session, never Close, and its
   const s = read('web/session.js');
   assert.match(s, /\{ value: 'kill', label: 'End session', sub: 'Stops everything running in it'/);
   assert.match(s, /ok: 'End session',/);
-  assert.match(read('src/server/backends/tmux.mjs'), /async kill\(name\) \{\s+await this\.#endPrograms\(/);
+  assert.match(read('src/server/backends/tmux.mjs'), /async kill\(name(, \{ hold = null \} = \{\})?\) \{\s+await this\.#endPrograms\(/);
 });
 
 test('README: one name for Tia\'s limit, the label Settings → Tia draws, and no cap left', () => {
@@ -655,7 +643,7 @@ test('README: the "Not built" list says a terminal session ends, never that it c
   assert.match(page, /the ending of a terminal's programs before the session ends, the safe git reads\./);
   assert.doesNotMatch(page, /programs before it closes/);
   assert.match(read('web/session.js'), /\{ value: 'kill', label: 'End session',/);
-  assert.match(read('src/server/backends/tmux.mjs'), /async kill\(name\) \{\s+await this\.#endPrograms\(/);
+  assert.match(read('src/server/backends/tmux.mjs'), /async kill\(name(, \{ hold = null \} = \{\})?\) \{\s+await this\.#endPrograms\(/);
 });
 
 test('README: a direct call to GitHub or GitLab that can change something stays yours at Full in her session', () => {
@@ -740,14 +728,10 @@ test('README: a part started by your yes counts $0.50 until its turn reports a c
   assert.ok(read('web/tia.js').includes("'a part whose end Hoprig did not see (the dashboard stopped while it ran): Hoprig could not measure what it cost, so the rest of"));
 });
 
-test('README: the New session picture on a phone says one line with Change, as the sheet draws it', () => {
+test('README: the New session picture on a phone shows the recent projects, as the sheet draws them', () => {
   const page = read('README.md');
-  assert.ok(page.includes('<img src="docs/screenshots/new-session-phone-light.webp" alt="New session on a phone: one line that names the computer, the App and the coding tool, with Change beside it, and the recent projects"'));
-  const choice = read('web/newsession-choice.js');
-  assert.ok(choice.includes('const parts = computer ? [`On ${computer}`] : [];'), 'the line names the computer');
-  assert.ok(choice.includes("parts.push(openAs === 'terminal' ? 'in a terminal' : 'in the App', !known ? 'looking at the coding tools…' : tool ? `with ${tool}` : 'no coding tool is ready');"), 'the App and the coding tool');
+  assert.ok(page.includes('<img src="docs/screenshots/new-session-phone-light.webp" alt="New session on a phone: Tap a project to start, the computers to choose from, a search box, the recent projects with Continue and all projects"'));
   const popup = read('web/newsession-popup.js');
-  assert.ok(popup.includes("h('summary.ns-choices-line', { 'data-key': 'choices' }, lineText, h('span.ns-choices-change', 'Change'),"), 'Change beside the line');
   assert.ok(popup.includes("groupHead('Recent')"), 'the recent projects');
 });
 

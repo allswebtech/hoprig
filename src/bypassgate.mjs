@@ -1,6 +1,6 @@
 // "Allow bypass permissions mode", as the Claude Code desktop app has it under Settings: until the owner turns it on
 // (with a confirmation), Bypass permissions is not offered anywhere in the dashboard (the App's mode menu and its
-// Shift+Tab, a new session's options, New-session defaults), a request for it is refused, and the App starts Claude
+// Shift+Tab, a new session's options, New sessions), a request for it is refused, and the App starts Claude
 // Code without --allow-dangerously-skip-permissions. Config key "allowBypass" (true / false).
 // Nobody who used bypass before this switch existed loses it by the update: the first time a dashboard starts without
 // the key (firstLook), it is set ON where the session defaults name bypass, an open App session runs in it, or a
@@ -16,6 +16,12 @@ import path from 'node:path';
 import { CLAUDE_ROOT_REFUSAL } from './setup/rootfacts.mjs';
 
 export const BYPASS = 'bypassPermissions';
+/**
+ * "Allow everything": the mode beyond Bypass permissions (Claude Code has no such mode: it runs in bypassPermissions and
+ * Hoprig's own hook and chat answer what Bypass would still stop). Chosen only by the owner on his own page, and only
+ * after he accepted it once on this computer (`allowEverythingAt` in the config). Claude Code only.
+ */
+export const ALL = 'allowEverything';
 
 /** Does this process run as root (user id 0 on Linux or macOS)? The default of every rule below; tests hand theirs in. */
 export const runsAsRoot = () => process.platform !== 'win32' && typeof process.getuid === 'function' && process.getuid() === 0;
@@ -27,8 +33,22 @@ export const runsAsRoot = () => process.platform !== 'win32' && typeof process.g
  */
 export const bypassAllowed = (cfg, root = runsAsRoot()) => root !== true && !!cfg && cfg.allowBypass === true;
 
+/** Is Allow everything usable now: Bypass is allowed (so never as root) and the owner accepted it once. */
+export const allAllowed = (cfg, root = runsAsRoot()) => bypassAllowed(cfg, root) && Number.isFinite(cfg.allowEverythingAt);
+
+/** The owner's list of modes: `modes` as gateModes leaves them, with Allow everything right after Bypass while Bypass is allowed. */
+export function ownerModes(modes, cfg, root = runsAsRoot()) {
+  const m = gateModes(modes, cfg, root);
+  if (!bypassAllowed(cfg, root) || m.includes(ALL)) return m;
+  const at = m.indexOf(BYPASS);
+  return at < 0 ? m : [...m.slice(0, at + 1), ALL, ...m.slice(at + 1)];
+}
+
 /** The one line said where bypass would be chosen as root: the coding tool's own words, and what to do. */
 export const ROOT_BYPASS_LINE = `Claude Code refuses bypass permissions mode as root ("${CLAUDE_ROOT_REFUSAL}"). Start in a mode that asks, or move Hoprig to an ordinary user in Settings → Runs as root (in a terminal: hoprig move-to-user)`;
+
+/** Said where Allow everything would be chosen as root (it runs on top of Bypass, which Claude Code refuses there). */
+export const ALL_ROOT_LINE = `Claude Code refuses bypass permissions mode as root, and Allow everything runs on top of it, so neither is offered here. Start in a mode that asks, or move Hoprig to an ordinary user in Settings → Runs as root (in a terminal: hoprig move-to-user)`;
 
 /** A list of permission modes without Bypass permissions unless it is allowed. */
 export const gateModes = (modes, cfg, root = runsAsRoot()) => (bypassAllowed(cfg, root) ? modes : (modes || []).filter((m) => m !== BYPASS));
@@ -109,5 +129,6 @@ export function rootRefusal({ args = [], cfg = {}, root = runsAsRoot() } = {}) {
   if (root !== true) return null;
   const d = (cfg && cfg.sessionDefaults) || {};
   const every = cfg && Array.isArray(cfg.claudeArgs) ? cfg.claudeArgs : [];
+  if (d.permissionMode === ALL) return ALL_ROOT_LINE;
   return bypassInArgs(args) || d.permissionMode === BYPASS || bypassInArgs(every) ? ROOT_BYPASS_LINE : null;
 }

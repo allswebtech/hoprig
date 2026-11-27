@@ -142,11 +142,11 @@ test('a second press of its control closes the menu; Tab closes it too', async (
 // Chrome's own shortcuts (support.google.com/chrome/answer/157179, read 19 Nov 2026) that the desktop app's keys meet.
 // A page never gets these: the browser acts first. Judged from the published list, not by sending keys to a page.
 const CHROME_KEEPS = {
-  linux: ['Ctrl+O', 'Ctrl+Shift+M', 'Ctrl+Shift+D', 'Ctrl+Shift+J', 'Ctrl+Shift+N', 'Ctrl+Shift+T', 'Ctrl+Shift+W', 'Ctrl+Shift+B', 'Ctrl+Shift+O', 'Ctrl+Shift+G', 'Ctrl+Shift+R', 'Ctrl+Shift+I', 'Alt+Shift+I'],
-  mac: ['Cmd+O', 'Cmd+Shift+M', 'Cmd+Shift+I', 'Cmd+Shift+D', 'Cmd+Shift+J', 'Cmd+Shift+N', 'Cmd+Shift+T', 'Cmd+Shift+W', 'Cmd+Shift+B', 'Cmd+Shift+G', 'Cmd+Shift+R', 'Cmd+Shift+H', 'Cmd+Option+I', 'Cmd+Shift+]', 'Cmd+Shift+['],
+  linux: ['Ctrl+O', 'Ctrl+Shift+M', 'Ctrl+Shift+D', 'Ctrl+Shift+J', 'Ctrl+Shift+N', 'Ctrl+Shift+T', 'Ctrl+Shift+W', 'Ctrl+Shift+B', 'Ctrl+Shift+O', 'Ctrl+Shift+G', 'Ctrl+Shift+R', 'Ctrl+Shift+I', 'Alt+Shift+I', 'Ctrl+N'],
+  mac: ['Cmd+O', 'Cmd+Shift+M', 'Cmd+Shift+I', 'Cmd+Shift+D', 'Cmd+Shift+J', 'Cmd+Shift+N', 'Cmd+Shift+T', 'Cmd+Shift+W', 'Cmd+Shift+B', 'Cmd+Shift+G', 'Cmd+Shift+R', 'Cmd+Shift+H', 'Cmd+Option+I', 'Cmd+Shift+]', 'Cmd+Shift+[', 'Cmd+N'],
 };
 // The desktop app's keys (code.claude.com/docs/en/desktop, Keyboard shortcuts; Cmd is Ctrl on Windows and Linux).
-const DESKTOP = { shortcuts: 'Cmd+/', mode: 'Cmd+Shift+M', model: 'Cmd+Shift+I', effort: 'Cmd+Shift+E', view: 'Ctrl+O', diff: 'Cmd+Shift+D', next: 'Cmd+Shift+]', prev: 'Cmd+Shift+[' };
+const DESKTOP = { shortcuts: 'Cmd+/', mode: 'Cmd+Shift+M', model: 'Cmd+Shift+I', effort: 'Cmd+Shift+E', view: 'Ctrl+O', diff: 'Cmd+Shift+D', next: 'Cmd+Shift+]', prev: 'Cmd+Shift+[', terminal: 'Ctrl+`', new: 'Cmd+N' };
 
 // The App's other keys with a modifier, outside keys.js: they must stay theirs.
 const OTHER_PAGE_KEYS = [
@@ -212,6 +212,11 @@ for (const os of ['linux', 'mac']) {
   test(`the desktop app's keys on ${os}: its own where the browser leaves it, else the nearest free one with its reason`, () => {
     const keys = K.desktopKeys(os === 'mac');
     for (const k of keys) {
+      if (!DESKTOP[k.id]) { // the App's own key (the session list's Hide and Show): the browser must not keep it
+        assert.ok(!CHROME_KEEPS[os].includes(k.keys), `${k.id}: ${k.keys} is not one the browser keeps`);
+        assert.equal(k.why, undefined);
+        continue;
+      }
       const desk = os === 'mac' ? DESKTOP[k.id] : DESKTOP[k.id].replace('Cmd', 'Ctrl');
       assert.ok(!CHROME_KEEPS[os].includes(k.keys), `${k.id}: ${k.keys} is not one the browser keeps`);
       if (CHROME_KEEPS[os].includes(desk)) {

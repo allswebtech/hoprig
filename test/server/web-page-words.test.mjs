@@ -84,14 +84,15 @@ test('Home: no folder line for a session without a folder, and "it is working ag
   assert.equal(changedSince(was, { ...was, status: 'working' }), 'it is working again');
 });
 
-test('Work: "No tasks of your own yet", the button the interrupted save names, two places with two labels', async () => {
+test('Work: "No tasks of your own yet" once (no second Add button), the button the interrupted save names, two places with two labels', async () => {
   const work = read('web/work.js');
   assert.doesNotMatch(work, /'No tasks yet\./);
-  assert.equal(work.match(/'No tasks of your own yet\. /g).length, 2);
+  assert.equal(work.match(/'No tasks of your own yet\. /g).length, 1);
+  assert.doesNotMatch(work, /Add your first task|label: 'Add a task'/, 'the page\'s own Add task is the one door');
   assert.match(work, /label: 'Drop the record'/);
   for (const f of ['src/work/planstore.mjs', 'src/work/resume.mjs']) assert.ok(read(f).includes('press "Drop the record" on the Work page, or run hoprig tasks save --drop-interrupted'), f);
   const { wayOf } = await import('../../web/errorways.js');
   assert.equal(wayOf({ code: 'interrupted' }).label, 'Work');
-  assert.equal(wayOf({ code: 'work-place-gone' }).label, 'Settings → Work');
-  assert.equal(wayOf({ code: 'owner-id' }).label, 'Settings → Work');
+  assert.equal(wayOf({ code: 'work-place-gone' }).label, 'Work settings');
+  assert.equal(wayOf({ code: 'owner-id' }).label, 'Work settings');
 });

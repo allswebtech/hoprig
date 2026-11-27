@@ -7,7 +7,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
 import { ROOT, probeEnv } from '../../tools/build-skill.mjs';
-import { sealed, sealedPath } from '../seal.mjs';
+import { closedGateways, sealed, sealedPath } from '../seal.mjs';
 
 if (process.platform === 'win32') process.env.HOPRIG_SEAL_REAL = [process.env.HOPRIG_SEAL_REAL, 'whoami'].filter(Boolean).join(','); // seal: doctor in a child of its own reads who owns its folders and so this account's SID with the system's whoami by its full path; it only reads
 
@@ -17,6 +17,10 @@ const NPX = path.join(ROOT, 'packages/hoprig-skill/bin/hoprig-skill.mjs');
 
 function tempHome() {
   const home = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'claims-')));
+  // doctor asks the gateways' ports; here they are ports of its own, whatever this computer's PATH holds (a real gateway's default port is never asked).
+  fs.mkdirSync(path.join(home, 'config'), { recursive: true, mode: 0o700 });
+  const settings = JSON.stringify({ addons: closedGateways() });
+  fs.writeFileSync(path.join(home, 'config', 'config.json'), settings);
   // doctor asks systemd whether user services run here: a stand-in says no, before the runner's traps.
   const standIns = fs.mkdtempSync(path.join(os.tmpdir(), 'claims-bin-'));
   for (const name of ['systemctl', 'loginctl']) fs.writeFileSync(path.join(standIns, name), '#!/bin/sh\nexit 1\n', { mode: 0o755 });
@@ -37,7 +41,7 @@ function tempHome() {
   const win = process.platform === 'win32' ? { 'ProgramFiles(x86)': path.join(standIns, 'no-program-files') } : {};
   const env = sealed({ ...probeEnv(home), ...win, PORT: '0', PATH: sealedPath([standIns, process.env.PATH]) });
   const run = (bin, ...args) => spawnSync(process.execPath, [bin, ...args], { env, cwd: home, encoding: 'utf8', timeout: 60_000, input: '' });
-  return { home, run, done: () => [home, standIns].forEach(removeOwn) };
+  return { home, settings, run, done: () => [home, standIns].forEach(removeOwn) };
 }
 
 /**
@@ -107,8 +111,10 @@ test('what the skill lists under "Look first" changes nothing of the user\'s; th
       // Windows: PowerShell (which Hoprig asks about processes there) makes its own module cache in a home that never
       // had one; that file and its folders are the system's, not Hoprig's and not the user's.
       const left = fs.readdirSync(t.home, { recursive: true }).map((p) => p.split(path.sep).join('/')).filter((p) => !(process.platform === 'win32' && POWERSHELL_CACHE.test(p)));
-      assert.deepEqual(left.filter((p) => !OWN.test(p)), [], `hop ${c} wrote a file of the user's`);
-      if (left.length) writers.push(c);
+      // The settings the test made are not a file a command wrote, unless the command changed them.
+      const mine = (p) => (p === 'config' || p === 'config/config.json') && fs.readFileSync(path.join(t.home, 'config', 'config.json'), 'utf8') === t.settings;
+      assert.deepEqual(left.filter((p) => !OWN.test(p) && !mine(p)), [], `hop ${c} wrote a file of the user's`);
+      if (left.some((p) => !mine(p))) writers.push(c);
     } finally {
       t.done();
     }

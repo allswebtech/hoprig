@@ -4,8 +4,9 @@
 //
 //   GET  /api/chats                           the open chats, as cards
 //   GET  /api/chats/tools                     the coding tools a chat can run here: [{ id, name }] (on and installed)
-//   POST /api/chats                           { dir, tool?, profile?, model?, effort?, permissionMode?, ultracode?, lead?, sessionId?, text? }
-//                                             → { id }   what is left out: as the last chat in that folder ran
+//   POST /api/chats                           { dir, tool?, profile?, model?, effort?, permissionMode?, ultracode?, lead?, worktree?, sessionId?, text? }
+//                                             → { id, worktree? }   (worktree: { branch } or { why }, when it was asked for)
+//                                             what is left out: as the last chat in that folder ran
 //                                             (folders.mjs), else the folder's default provider for that coding tool
 //                                             and Settings. tool: the coding tool (absent: Claude Code); the chat
 //                                             stays in it (tools.mjs)
@@ -20,7 +21,8 @@
 //                                             → { stopped, back: [{ text, files }] }  (the queued messages, taken back)
 //   POST /api/chats/<id>/provider             { profile }   continue on another provider
 //   POST /api/chats/<id>/upload               raw bytes, X-File-Name → { path }   (the uploads folder, as for sessions)
-//   POST /api/chats/<id>/close               Archive: it leaves the list; its conversation goes to archived.mjs's list
+//   POST /api/chats/<id>/close               Archive: it leaves the list; its conversation goes to archived.mjs's list;
+//                                            → { ok, restore } (the body that opens it again, or null)
 //   GET  /api/chats/archived                  the archived sessions, to continue one (archived.mjs)
 // and the routes of live.mjs (the event stream, mode, settings, queue, task stop, rewind, files, commands, usage) and
 // of handoff.mjs (from a terminal session to a chat and back: one conversation never runs in two places at once).
@@ -40,16 +42,18 @@ import { getAutoSwitch } from '../autoswitch.mjs';
 import { rememberFolderProvider } from '../defaultprovider.mjs';
 import { stateDir, tilde } from '../paths.mjs';
 import { archivedSessions } from './archived.mjs';
+import { chatShells } from './chatshells.mjs';
 import { cleanOthers, ticksOf } from '../models/others.mjs';
 import { deleteRoutes } from './deletes.mjs';
 import { listProfiles, publicProfile, readProfile } from '../profiles.mjs';
 import { removeSettingsLeftovers } from '../runs.mjs';
 import { isSessionId } from '../sessions.mjs';
-import { insideRoots, resolveRoots } from '../server/folders.mjs';
+import { insideRoots, refuseSecretStart, resolveRoots } from '../server/folders.mjs';
 import { DEFAULT_UPLOADS_DIR, DEFAULT_UPLOAD_MAX_MB, saveUpload, uploadsDirName } from '../server/uploads.mjs';
 import { fromHerDoor } from '../server/herdoor.mjs';
 import * as v from '../server/validate.mjs';
 import { Chat } from './chat.mjs';
+import { makeWorktree } from './worktree.mjs';
 import { engineOf } from './engines/index.mjs';
 import { askNote, previewText } from './events.mjs';
 import { readTurns } from './turns.mjs';
@@ -59,7 +63,8 @@ import { handoffRoutes, terminals } from './handoff.mjs';
 import { liveRoutes, stateOf } from './live.mjs';
 import { limitMark } from './providerlimit.mjs';
 import { readTitles } from '../titles.mjs';
-import { BYPASS, bypassAllowed, gateModes, ROOT_BYPASS_LINE, runsAsRoot } from '../bypassgate.mjs';
+import { ALL, ALL_ROOT_LINE, BYPASS, allAllowed, bypassAllowed, gateModes, ownerModes, ROOT_BYPASS_LINE, runsAsRoot } from '../bypassgate.mjs';
+import { allError, allRefusal } from '../allguard.mjs';
 import { assertHerToolBound } from '../codetools/start.mjs';
 import { chatTool, chatToolList, choicesOf, conversationIdOk, modeFor, modelOk, modelRefusal, providerOk, serves, toolOffWords } from './tools.mjs';
 import { replaceFile } from '../replacefile.mjs';
@@ -110,6 +115,9 @@ export function chatFeature(ctx, o = {}) {
   let partsConfig = null; // "Use other providers": the lead's one tool at its start (src/models/partdoor.mjs)
   let handedOf = null; // and the parts a lead handed to other providers (for who did what)
   const shut = new Map(); // the chats closed since the start (the last 100): id → { cwd, conversationId, title, tool, terminal? }
+  const shells = chatShells({ file: () => path.join(path.dirname(file()), 'chat-shells.json') });
+  // The shells made for chat `id` end with it (the pane's own ending of them, in the page, may come first or after: harmless).
+  const endShells = (id) => Promise.all(shells.take(id).map((n) => Promise.resolve(ctx.backend.kill(n)).catch(() => {})));
   const archived = archivedSessions({ file: () => path.join(path.dirname(file()), 'chat-archived.json'), openChatOf: (id) => openChatOf(id) });
   let loaded = false;
   let stopPurge = () => {};
@@ -189,7 +197,9 @@ export function chatFeature(ctx, o = {}) {
     const engineOpts = paid ? { ...(o.engineOpts || {}), maxBudgetUsd: partBudget(rec.maxBudgetUsd, () => c) } : o.engineOpts;
     // Its process ended (hear.mjs exited, run.mjs stop): its budget hold is settled, so what it cost counts, no more.
     const ended = paid ? { processEnded: ({ cut = false } = {}) => settleChat(c, { cut }) } : {};
-    const c = new Chat({ ...rec, ...ended, handsOffConfig: () => cfg(), allowBypass: () => bypassAllowed(cfg(), asRoot), titles: () => cfg().sessionTitles !== false, turnsDir: path.join(path.dirname(file()), 'chat-turns'), command: o.command, resolveEnv: o.resolveEnv, spawnImpl: o.spawnImpl, engineOpts, idleMs: o.idleMs, stopGraceMs: o.stopGraceMs, owedMs: o.owedMs , partsConfig: (x) => (partsConfig ? partsConfig(x) : null) });
+    const c = new Chat({ ...rec, ...ended, handsOffConfig: () => cfg(), allowBypass: () => bypassAllowed(cfg(), asRoot), allEverything: () => allAllowed(cfg(), asRoot), titles: () => cfg().sessionTitles !== false, turnsDir: path.join(path.dirname(file()), 'chat-turns'), command: o.command, resolveEnv: o.resolveEnv, spawnImpl: o.spawnImpl, engineOpts, idleMs: o.idleMs, stopGraceMs: o.stopGraceMs, owedMs: o.owedMs , partsConfig: (x) => (partsConfig ? partsConfig(x) : null) });
+    // Tia's, or one that came back as hers, never holds Allow everything (its saved mode, a dashboard that started again).
+    if (c.permissionMode === ALL && (c.byTia || c.hers || c.restoredMark)) c.permissionMode = BYPASS;
     c.setMaxListeners(200); // one per page that waits for news
     c.on('status', () => ctx.poke?.()); // Home and the notifications see a new state at once
     c.on('turn', save);
@@ -255,7 +265,7 @@ export function chatFeature(ctx, o = {}) {
     // ownFolder (publicProfile): the page's Sign in again signs in only the default folder, so it is not offered then.
     return p ? publicProfile(p) : { name, label: name, kind: 'unknown' };
   }
-  // The saved values a check keeps accepting (the default of Settings → New-session defaults); the provider's own list
+  // The saved values a check keeps accepting (the default of Settings → New sessions); the provider's own list
   // comes from src/models/catalog.mjs (chat/tools.mjs choicesOf).
   const models = () => {
     const saved = (cfg().sessionDefaults || {}).model;
@@ -269,9 +279,18 @@ export function chatFeature(ctx, o = {}) {
   };
   /** The chips' choices of chat `c` (its coding tool's, on its provider); a list that comes later is sent then. */
   // Bypass permissions only where the owner allowed it (bypassgate.mjs): not in a chat's modes, its menu or Shift+Tab.
-  const gated = (ch) => ({ ...ch, modes: gateModes(ch.modes, cfg(), asRoot) });
+  // Allow everything (bypassgate.mjs ALL) is Claude Code's only, and comes right after Bypass in the owner's lists.
+  const gated = (ch, tool = 'claude') => ({ ...ch, modes: (tool === 'claude' ? ownerModes : gateModes)(ch.modes, cfg(), asRoot) });
   // The chat's own saved model counts as saved too: shown (marked when its provider's list left it), never replaced.
-  const choices = (c) => gated(choicesOf(c.engine.id, c.profile, () => [...models(), ...(c.model ? [c.model] : [])], () => c.emit('state')));
+  const choices = (c) => gated(choicesOf(c.engine.id, c.profile, () => [...models(), ...(c.model ? [c.model] : [])], () => c.emit('state')), c.engine.id);
+  // Choosing Allow everything for chat `c` (the mode route, a plan's answer): only the owner's own page, never for a chat of
+  // Tia's, after the acknowledgement. Any other mode is not asked here.
+  const modeCheck = (req, c, mode) => {
+    if (mode !== ALL) return;
+    const hers = !!(c.byTia || c.hers || c.restoredMark);
+    const why = allRefusal({ cfg: cfg(), root: asRoot, page: ctx.caller(req) === 'page' && !fromTia(req), hers });
+    if (why) throw allError(HttpError, why);
+  };
   const pickModel = (val, tool, ch) => {
     if (val === undefined) return undefined;
     if (val === null || val === '') return null;
@@ -327,6 +346,7 @@ export function chatFeature(ctx, o = {}) {
       cwd: c.cwd, short: tilde(c.cwd), profile: profileView(c.profile), status, statusAt: c.statusAt, activity: c.statusAt,
       byTia: c.byTia, // Tia started this chat: her rules let her answer its OKs (src/assistant/core.mjs facts)
       created: c.openedAt, attached: false, panes: 0, sessionId: c.conversationId, canSwitch: false,
+      endedInError: c.lastEnd === 'error', // the list says the same as the line under the chips: an error end is no Finished
       lastMessage: previewText(c.lastText), // plain words: a card shows no Markdown marks
       running: !!c.session, // its process runs on the provider now (idle care keeps that provider's gateway up)
       costTotal: Number.isFinite(c.costTotal) ? c.costTotal : null, // what its coding tool reported it has cost so far (Tia's daily limit for paid use reads it)
@@ -395,7 +415,7 @@ export function chatFeature(ctx, o = {}) {
   /**
    * Open a chat (POST /api/chats; the schedules too). b: { dir, profile?, model?, effort?, permissionMode?, ultracode?,
    * sessionId?, text?, defaults?, byTia? }. What is left out: as the last chat in that folder ran, else the folder's
-   * default provider (ctx.defaultProvider) and Settings. defaults: true (Tia, a schedule) takes Settings → New-session
+   * default provider (ctx.defaultProvider) and Settings. defaults: true (Tia, a schedule) takes Settings → New sessions
    * defaults and not the folder's last chat, as a terminal session they start does: a mode the owner chose for himself
    * (bypass) is not carried into a chat nobody watches. A conversation an open chat already runs gives that chat, as it is.
    * byTia: true (Tia's start_chat, from her door only) marks the chat this call creates as hers, and no other: not an
@@ -472,6 +492,7 @@ export function chatFeature(ctx, o = {}) {
     if (b.ultracode !== undefined && b.ultracode !== null && typeof b.ultracode !== 'boolean') throw bad('ultracode is true or false');
     if (b.byTia !== undefined && typeof b.byTia !== 'boolean') throw bad('byTia is true or false');
     if (b.lead !== undefined && b.lead !== null && typeof b.lead !== 'boolean') throw bad('lead is true or false');
+    if (b.worktree !== undefined && b.worktree !== null && typeof b.worktree !== 'boolean') throw bad('worktree is true or false');
     // "Also open": checked here (server.mjs checkWith), and again at every start. A context without the check takes none.
     const withs = ctx.checkWith ? await ctx.checkWith(b.with, dir) : [];
     if (!ctx.checkWith && b.with !== undefined && b.with !== null) throw bad('"with" is not taken here');
@@ -479,8 +500,15 @@ export function chatFeature(ctx, o = {}) {
     if (b.title !== undefined && b.title !== null && typeof b.title !== 'string') throw bad('the title is text');
     const title = typeof b.title === 'string' ? v.chatTitle(b.title) : '';
     const d = cfg().sessionDefaults || {};
-    const ch = gated(choicesOf(tool, profile, models));
-    // Left out: as the last chat in this folder; never chosen there: Settings → New-session defaults (Claude Code's
+    const ch = gated(choicesOf(tool, profile, models), tool);
+    // Allow everything: only a start on the owner's own page (`run.page`, from POST /api/chats), never the body's word. A start
+    // that asks for it by name and is not that is refused; one that only takes it from the defaults or the folder's last
+    // chat (a schedule, Work, Tia's door, a plan) starts in Bypass permissions.
+    if (tool === 'claude' && b.permissionMode === ALL) {
+      const why = allRefusal({ cfg: cfg(), root: asRoot, page: run.page === true && !hers && b.byTia !== true, hers: hers || b.byTia === true });
+      if (why) throw allError(HttpError, why);
+    }
+    // Left out: as the last chat in this folder; never chosen there: Settings → New sessions (Claude Code's
     // words: another tool takes what it has of them).
     const kept = (k, chosen, fallback) => (chosen !== undefined ? chosen : k in last ? last[k] : fallback);
     const model = kept('model', pickModel(b.model, tool, ch), tool === 'claude' ? d.model || null : null);
@@ -489,8 +517,12 @@ export function chatFeature(ctx, o = {}) {
     // open: the answer says why. A person who opens one gets the mode that asks (the page says why).
     if (asRoot && b.permissionMode === BYPASS) throw Object.assign(new HttpError(409, ROOT_BYPASS_LINE), { details: { code: 'root-bypass' } });
     if (asRoot && tool === 'claude' && (!owners || b.byTia === true) && b.permissionMode === undefined && d.permissionMode === BYPASS) throw Object.assign(new HttpError(409, ROOT_BYPASS_LINE), { details: { code: 'root-bypass' } });
-    const permissionMode = kept('permissionMode', pick(b.permissionMode, ch.modes, 'permission mode'), d.permissionMode || null);
-    const ultracode = kept('ultracode', b.ultracode ?? undefined, false) === true;
+    if (asRoot && tool === 'claude' && (!owners || b.byTia === true) && b.permissionMode === undefined && d.permissionMode === ALL) throw Object.assign(new HttpError(409, ALL_ROOT_LINE), { details: { code: 'root-bypass' } });
+    let permissionMode = kept('permissionMode', pick(b.permissionMode, ch.modes, 'permission mode'), d.permissionMode || null);
+    // Not chosen by name: the default's or the last chat's Allow everything counts only for a start on his own page.
+    if (permissionMode === ALL && b.permissionMode !== ALL && !(run.page === true && !hers && b.byTia !== true && allAllowed(cfg(), asRoot))) permissionMode = bypassAllowed(cfg(), asRoot) ? BYPASS : null;
+    // Never from the folder's last chat: the chip costs thousands of tokens in every request, so a new chat has it on only when chosen.
+    const ultracode = b.ultracode === true;
     const { lead, others } = leadOf({ tool, last, profile, chose, owners }, b, d);
     let id = crypto.randomUUID();
     let conversationId = null;
@@ -520,10 +552,12 @@ export function chatFeature(ctx, o = {}) {
       old.close();
       old.emit('gone'); // its page shows it as not open (live.mjs)
     }
+    // Worktree: a new conversation of Claude Code on a branch of its own (worktree.mjs); where git cannot, it starts as usual and says so.
+    const wt = b.worktree === true && tool === 'claude' && !conversationId ? await makeWorktree(dir) : null;
     const budget = run && Number.isFinite(run.maxBudgetUsd) && run.maxBudgetUsd > 0 ? run.maxBudgetUsd : null;
     const c = make({
       ...(budget ? { maxBudgetUsd: budget, paidBudget: true } : {}),
-      id, ...(conversationId && conversationId !== id ? { conversationId } : {}), engine: tool, cwd: dir, profile,
+      id, ...(conversationId && conversationId !== id ? { conversationId } : {}), engine: tool, cwd: wt && wt.dir ? wt.dir : dir, profile,
       // a model the computer stopped offering is not forced on a new chat
       model: model && modelOk(tool, model, ch) ? model : null, effort: ch.efforts.includes(effort) ? effort : null,
       // A chat on an existing conversation is never hers, whoever asks: its history holds the owner's own instructions
@@ -534,19 +568,23 @@ export function chatFeature(ctx, o = {}) {
       ...(hers ? { hers: true } : {}),
       ...(title ? { title, named: true } : {}), ...(withs.length ? { withs } : {}),
     });
+    if (wt && wt.why) c.push({ kind: 'notice', level: 'warning', text: wt.why });
+    else if (wt) c.push({ kind: 'notice', level: 'info', text: `This chat works on its own copy of the project, on the branch ${wt.branch}. Its changes stay there until you merge them.${wt.note ? ` ${wt.note}` : ''}` });
+    // Asked for, the answer says what came of it (an older computer answers without it, and the page tells the owner).
+    const wtSaid = b.worktree === true ? { worktree: wt ? (wt.why ? { why: wt.why } : { branch: wt.branch }) : { why: 'only a new chat of Claude Code can work on a branch of its own' } } : {};
     save();
     if (owners) remember(c); // the folder's last chat is the owner's own choice, not Tia's or a schedule's
-    if (!text) return { id };
+    if (!text) return { id, ...wtSaid };
     let first;
     try {
       first = await sendOne(c, () => c.send(text));
     } catch (e) {
       // The chat is open all the same (it reads along): a caller is told the message did not go, not that nothing opened.
-      if (e.code === 'in-terminal') return { id, sent: false, why: 'a terminal session runs this conversation' };
-      if (e.code === 'in-chat') return { id, sent: false, why: 'another chat runs this conversation right now' };
+      if (e.code === 'in-terminal') return { id, ...wtSaid, sent: false, why: 'a terminal session runs this conversation' };
+      if (e.code === 'in-chat') return { id, ...wtSaid, sent: false, why: 'another chat runs this conversation right now' };
       throw e;
     }
-    return { id, sent: true, ...(first && typeof first.id === 'string' ? { messageId: first.id } : {}) };
+    return { id, ...wtSaid, sent: true, ...(first && typeof first.id === 'string' ? { messageId: first.id } : {}) };
   }
 
   /** A message to an open chat from the dashboard itself (a schedule): queued by the chat while Claude works. */
@@ -568,11 +606,13 @@ export function chatFeature(ctx, o = {}) {
     }],
     ['POST', /^\/api\/chats$/, async (req) => {
       const b = await ctx.readJson(req);
+      const page = ctx.caller(req) === 'page' && !fromTia(req);
       if (b && b.byTia === true && !fromTia(req)) b.byTia = false;
       // Every chat her door opens is hers for her safety (the mark, her git sign-in), also one on an existing
       // conversation whose OKs stay the owner's; never from the body.
       if (b && typeof b === 'object') b.hers = fromTia(req);
-      return openChat(b);
+      if (b && typeof b === 'object') await refuseSecretStart(ctx, req, v.absPath(b.dir)); // only his own page starts a chat in a secret place
+      return openChat(b, { page });
     }],
     // What a start of the owner's in a folder would take for "Lead model" and its ticks when he leaves them as they are
     // (the new-session sheet draws its switch from it): the folder's last chat, else Settings, for the provider given
@@ -586,7 +626,7 @@ export function chatFeature(ctx, o = {}) {
       return { profile: base.profile, ...leadOf({ ...base, owners: true }, b, cfg().sessionDefaults || {}) };
     }],
     ['GET', /^\/api\/chats\/archived$/, async () => ({ list: archived.list() })],
-    ['GET', /^\/api\/chats\/tools$/, async () => ({ tools: chatToolList(cfg()).map((t) => (t.modes ? { ...t, modes: gateModes(t.modes, cfg(), asRoot) } : t)) })],
+    ['GET', /^\/api\/chats\/tools$/, async () => ({ tools: chatToolList(cfg()).map((t) => (t.modes ? { ...t, modes: (t.id === 'claude' ? ownerModes : gateModes)(t.modes, cfg(), asRoot) } : t)) })],
     ['GET', new RegExp(`^/api/chats/${ID}$`), async (req, m, q, res) => {
       const c = chatOr404(m[1]);
       if (c.loading) await c.loading; // its first read, in pieces at the start: the page draws what it read
@@ -653,6 +693,7 @@ export function chatFeature(ctx, o = {}) {
       }
       const message = typeof b.message === 'string' ? b.message.slice(0, 1000) : '';
       const mode = b.mode === undefined || b.mode === null ? null : pick(b.mode, choices(c).modes, 'permission mode');
+      modeCheck(req, c, mode);
       if (b.always !== undefined && b.always !== null && typeof b.always !== 'boolean' && b.always !== 'project') throw bad('always is true, false or "project"');
       if (b.key !== undefined && (typeof b.key !== 'string' || b.key.length > 64)) throw bad('bad key');
       c.answer(b.request, { allow: b.allow, always: b.always === 'project' ? 'project' : b.always === true, answers, mode, message, key: b.key ?? null });
@@ -735,12 +776,14 @@ export function chatFeature(ctx, o = {}) {
       chats.delete(c.id);
       save();
       const ended = c.close();
+      const shellsEnded = endShells(c.id);
       c.emit('gone'); // closed for good: its page shows it as not open, without asking again (live.mjs)
-      await ended;
+      await Promise.all([ended, shellsEnded]);
       const kept = shut.get(c.id); // what 'closed' found of its conversation
       archived.add({ id: c.id, cwd: c.cwd, conversationId: kept ? kept.conversationId : null, title: c.currentTitle(), tool: c.engine.id, profile: c.profile });
       ctx.poke?.();
-      return { ok: true };
+      // What opens it again (POST /api/chats): the page's Undo. Null when nothing was said yet: there is nothing to put back.
+      return { ok: true, restore: kept && kept.conversationId ? { dir: c.cwd, tool: c.engine.id, profile: c.profile, sessionId: kept.conversationId } : null };
     }],
   ];
 
@@ -750,7 +793,7 @@ export function chatFeature(ctx, o = {}) {
   // A chat's own id for conversation `id`: the same where it is free (its link reads as the conversation), else new.
   const freeId = (id) => (chats.has(id) ? crypto.randomUUID() : id);
   routes.push(...handoffRoutes(ctx, { chats, make, save, load, chatOr404, memory, models, openChatOf, freeId, terminalOf, claim, serial, forget, auto: { name: AUTO.name, on: autoOn }, handedFile: () => path.join(path.dirname(file()), 'chat-handed.json'), handedTo: (id, name) => shut.has(id) && typeof name === 'string' && (shut.get(id).terminal = name) }));
-  const live = liveRoutes(ctx, { chatOr404, toolStillOn, save, remember, bad, choices, pickModel, folderOf: (c) => uploadsOf(c).cwd, uploadsDir: (c) => uploadsOf(c).dir, openChatOf, about, terminalOf: terminalView, shutOf: (id) => shut.get(id) || null, openNow: (c) => chats.get(c.id) === c,
+  const live = liveRoutes(ctx, { chatOr404, toolStillOn, save, remember, bad, choices, modeCheck, pickModel, folderOf: (c) => uploadsOf(c).cwd, uploadsDir: (c) => uploadsOf(c).dir, openChatOf, about, terminalOf: terminalView, shutOf: (id) => shut.get(id) || null, openNow: (c) => chats.get(c.id) === c,
     // Who did what: the parts this chat handed to other providers, each with its own session's folder and conversation.
     handed: (c) => (handedOf ? handedOf(c.id) : []).map((p) => {
       const x = chats.get(p.id);
@@ -762,7 +805,7 @@ export function chatFeature(ctx, o = {}) {
   const closeChat = async (c) => {
     chats.delete(c.id);
     save();
-    const ended = c.close();
+    const ended = Promise.all([c.close(), endShells(c.id)]);
     // Its page learns it was deleted (in the trash), and offers no Continue of a conversation that is not there.
     const kept = shut.get(c.id);
     if (kept) Object.assign(kept, { conversationId: null, deleted: true });
@@ -803,7 +846,7 @@ export function chatFeature(ctx, o = {}) {
       load();
       let n = 0;
       for (const c of chats.values()) {
-        if (c.permissionMode !== 'bypassPermissions') continue;
+        if (c.permissionMode !== 'bypassPermissions' && c.permissionMode !== ALL) continue;
         n++;
         await c.setSettings({ mode: 'manual' });
         if (c.session) {
@@ -864,6 +907,10 @@ export function chatFeature(ctx, o = {}) {
      * Start a terminal on conversation `id` (server.mjs: New session, Tia) with `start()` → { name }, unless something
      * runs it already: → { name } of the new one, or { existing: { terminal: { name } } | { chat } } (handoff.mjs claim).
      */
+    /** Shell `name` was made for chat `id` (the terminal pane): archiving the chat ends it. */
+    madeShell(id, name) {
+      shells.add(id, name);
+    },
     async startTerminal(id, start, tool = 'claude') {
       load();
       const r = await claim(id, start, { tool });

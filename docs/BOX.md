@@ -123,7 +123,7 @@ One failing trial is a "no", with that trial named.
   folders denied for writing, no network, signals only to its own processes, and a real temporary home and `/tmp`
   removed afterwards. The profile's text is tested; **the box has not yet been run on a Mac**, and there the self-test
   decides.
-- **Windows:** no box yet. Run Hoprig inside WSL 2 and install bubblewrap there.
+- **Windows:** the box is not offered on Windows: work that needs it runs on a Linux or Mac computer of yours.
 
 ## What it costs
 

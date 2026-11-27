@@ -399,6 +399,15 @@ export function bytes(n) {
 const ASK_TEXT = { question: 'Needs your answer', plan: 'Needs your approval', mcp: 'Needs your answer' };
 
 /** What a session is doing, in plain words, and how urgent it is (lower = needs you sooner). */
+/**
+ * A chat's own worktree (<project>/.claude/worktrees/<name>, branch worktree-<name>), from its folder: { project (the
+ * project's folder), name, branch }, or null. Either separator.
+ */
+export function worktreeOf(cwd) {
+  const m = /^(.*?)[\\/]\.claude[\\/]worktrees[\\/]([^\\/]+)(?:[\\/].*)?$/.exec(String(cwd || ''));
+  return m ? { project: m[1], name: m[2], branch: `worktree-${m[2]}` } : null;
+}
+
 export function stateOf(s) {
   if (s.limit || s.runLimit) return { key: 'limit', text: 'Limit reached', rank: 1 };
   // The coding tool ended at its start (src/startfail.mjs): its terminal is back at the shell, but this is no terminal.
@@ -411,11 +420,13 @@ export function stateOf(s) {
   switch (s.status) {
     // A notice is Claude Code's own question before it starts (src/askcard.mjs): nothing to allow, so not "OK".
     case 'attention': return { key: 'attention', text: (s.ask && ASK_TEXT[s.ask.type]) || (s.askCard && s.askCard.kind === 'notice' ? (s.askCard.notice && s.askCard.notice.type === 'trust' ? 'Trust this folder?' : 'Asks you first') : 'Needs your OK'), rank: 0 };
-    case 'waiting': return { key: 'waiting', text: 'Waiting for your next message', rank: 2 };
+    // Finished: its turn is over and nothing runs. Ready: nothing of Claude yet (a new chat, a terminal not yet given a
+    // prompt), so it has finished nothing.
+    case 'waiting': return { key: 'waiting', text: s.endedInError ? 'Stopped with an error' : s.lastMessage ? 'Finished' : 'Ready', rank: 2 };
     case 'starting': return { key: 'starting', text: 'Starting', rank: 3 };
     // `background`: the reply ended, but subagents or a workflow go on and Claude continues when they finish.
     case 'working': return { key: 'working', text: s.background ? 'Working in the background' : 'Working', rank: 4 };
-    case 'ended': return { key: 'ended', text: 'Finished', rank: 5 };
+    case 'ended': return { key: 'ended', text: 'Ended', rank: 5 };
     default: return { key: 'shell', text: s.status || 'Unknown', rank: 6 };
   }
 }
@@ -425,7 +436,7 @@ export const needsYou = (s) => ['attention', 'limit', 'failed'].includes(stateOf
 
 /**
  * A session waiting for the owner, while a command it started still runs in the background (the run record's
- * bgCommands, hook.mjs): one plain line for the card. The state stays "Waiting for your next message" — the owner
+ * bgCommands, hook.mjs): one plain line for the card. The state stays Finished — the owner
  * must still message it — and this line only says a command may carry on by itself. null when there is none.
  */
 export const BG_COMMAND_LINE = 'A command it started still runs in the background. It may go on by itself when that ends.';

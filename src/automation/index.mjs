@@ -79,6 +79,13 @@ export function createAutomation(ctx) {
   const conversationExists = ctx.conversationExists || realConversationExists;
 
   let booted = false;
+  // tmux seen gone while this dashboard runs (an out-of-memory kill, `tmux kill-server`): the restore then runs as at a
+  // start, once per 10 minutes. `tmuxUp`: the last look found its server; a session the owner closed himself (the
+  // backend's `closedAt`) is not a death: a tmux server ends by itself when its last session is closed.
+  let tmuxUp = false;
+  let tmuxRestoredAt = -Infinity;
+  const TMUX_RESTORE_GAP_MS = 10 * 60_000;
+  const CLOSE_GRACE_MS = 2 * 60_000;
   let running = null; // the tick in progress
   let closed = false;
   let timer = null;
@@ -87,7 +94,7 @@ export function createAutomation(ctx) {
   // The address of the AI brain's git server, or null: decides "save a change of the map" when the owner never did.
   const brainRemote = ctx.brainRemote || (() => remoteOf(brainDir()));
   const saveSettings = (s) => saveConfig({ automation: s });
-  // The old Claude-only update setting is read once into Settings → Updates (./updates.mjs).
+  // The old Claude-only update setting is read once into Settings → Version and updates (./updates.mjs).
   try {
     updates.migrateUpdates(ctx.config() || {}, saveConfig);
   } catch (e) {
@@ -155,6 +162,7 @@ export function createAutomation(ctx) {
   const deck = {
     ...ctx.deck,
     async has(name) {
+      if (ctx.deck.has) return ctx.deck.has(name); // the server's: every chat too, also one the page's list folds away
       return (await ctx.deck.list()).some((c) => c.name === name);
     },
   };
@@ -179,8 +187,22 @@ export function createAutomation(ctx) {
       }
       if (closed) return { skipped: 'closed' };
       const t = at ?? now();
-      const boot = !booted;
+      let boot = !booted;
       booted = true;
+      if (ctx.backend && typeof ctx.backend.serverPid === 'function') {
+        let pid = null;
+        try {
+          pid = await ctx.backend.serverPid();
+        } catch { /* not told: not a death */ pid = undefined; }
+        if (pid !== undefined) {
+          const closedAt = Number(ctx.backend.closedAt) || 0;
+          if (pid == null && tmuxUp && t - closedAt > CLOSE_GRACE_MS && t - tmuxRestoredAt >= TMUX_RESTORE_GAP_MS) {
+            boot = true;
+            tmuxRestoredAt = t;
+          }
+          tmuxUp = pid != null;
+        }
+      }
       const plan = [];
 
       const restoreEnabled = restoreOn(s, ctx.backend);
@@ -234,7 +256,7 @@ export function createAutomation(ctx) {
         store.write('updates', u.data);
         plan.push(['updates', u.actions]);
       }
-      if (s.workspace.sync || s.workspace.map || Object.values(s.workspace.pushBranches || {}).some(Boolean)) {
+      if (s.workspace.sync || s.workspace.map || Object.values(s.workspace.pushBranches || {}).some(Boolean) || Object.values(s.workspace.ffProjects || {}).some(Boolean)) {
         const d = workspaceRule.decide({ data: store.read('workspace', {}), now: t, boot, settings: effectiveSettings(s, brainRemote).workspace });
         store.write('workspace', d.data);
         plan.push(['workspace', d.actions]);
@@ -260,7 +282,7 @@ export function createAutomation(ctx) {
           else if (name === 'items') await itemRuns.apply(actions, { ...common, startItem: ctx.work.startItem });
           else if (name === 'idle') await idleCare.apply(actions, { ...common, addons });
           else if (name === 'workspace') {
-            await workspaceRule.apply(actions, { ...common, workspaceSync: ctx.workspaceSync || workspaceRule.realWorkspaceSync, workspaceMap: ctx.workspaceMap || workspaceRule.realWorkspaceMap, workspaceBranches: ctx.workspaceBranches || workspaceRule.realWorkspaceBranches, workspaceCredentials: ctx.workspaceCredentials || workspaceRule.realWorkspaceCredentials, workspaceOnlyHere: ctx.workspaceOnlyHere || workspaceRule.realWorkspaceOnlyHere, workspaceServers: ctx.workspaceServers || workspaceRule.realWorkspaceServers, data: store.read('workspace', {}), save: (d) => store.write('workspace', d) });
+            await workspaceRule.apply(actions, { ...common, workspaceSync: ctx.workspaceSync || workspaceRule.realWorkspaceSync, workspaceMap: ctx.workspaceMap || workspaceRule.realWorkspaceMap, workspaceBranches: ctx.workspaceBranches || workspaceRule.realWorkspaceBranches, workspaceLook: ctx.workspaceLook || workspaceRule.realWorkspaceLook, workspaceCredentials: ctx.workspaceCredentials || workspaceRule.realWorkspaceCredentials, workspaceOnlyHere: ctx.workspaceOnlyHere || workspaceRule.realWorkspaceOnlyHere, workspaceServers: ctx.workspaceServers || workspaceRule.realWorkspaceServers, data: store.read('workspace', {}), save: (d) => store.write('workspace', d) });
           } else if (name === 'updates') {
             await updates.apply(actions, { ...common, updater, settings: us, now, data: store.read('updates', {}), save: (d) => store.write('updates', d) });
           }
@@ -335,7 +357,7 @@ export function createAutomation(ctx) {
       const t = now();
       const last = store.read('schedules', {});
       return {
-        // `updates.claude`: the old setting's value, for older pages and Tia's rule (Settings → Updates holds it now)
+        // `updates.claude`: the old setting's value, for older pages and Tia's rule (Settings → Version and updates holds it now)
         settings: { ...effectiveSettings(s, brainRemote), updates: { claude: updates.legacyValue(updater.settings()) } }, // commitMap true or false, as it acts
         commitMap: commitMapState(s.workspace, brainRemote()), // and why: chosen, or from the brain's address
         restoreDefault: !(ctx.backend && ctx.backend.capabilities && ctx.backend.capabilities.persistent),
@@ -355,7 +377,7 @@ export function createAutomation(ctx) {
       const old = patch && typeof patch === 'object' ? patch.updates : undefined;
       let up = null;
       if (old !== undefined) {
-        if (!old || typeof old !== 'object' || Object.keys(old).some((k) => k !== 'claude')) throw Object.assign(new Error('updates are set in Settings → Updates'), { status: 400, details: { code: 'updates-moved' } }); // the code of that place (web/errorways.js): the page draws its button
+        if (!old || typeof old !== 'object' || Object.keys(old).some((k) => k !== 'claude')) throw Object.assign(new Error('updates are set in Settings → Version and updates'), { status: 400, details: { code: 'updates-moved' } }); // the code of that place (web/errorways.js): the page draws its button
         if ('claude' in old) up = updates.fromLegacy(old.claude, updater.settings());
       }
       const rest = old === undefined ? patch : Object.fromEntries(Object.entries(patch).filter(([k]) => k !== 'updates'));
@@ -432,5 +454,6 @@ export function createAutomation(ctx) {
     },
   };
 
-  return { tick, start, close, nextDelay, enqueue, api, store, activity, updater };
+  // `deck`: the starts a restart makes; a rule of the Operator reopens a session whose coding tool died through the same one.
+  return { tick, start, close, nextDelay, enqueue, api, store, activity, updater, deck };
 }

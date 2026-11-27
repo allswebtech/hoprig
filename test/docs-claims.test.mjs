@@ -54,19 +54,6 @@ const held = async (line) => {
   return h ? h.kind : null;
 };
 
-/**
- * The states of a session that the page's "needs you" filter keeps (web/lib.js needsYou, used by Home and Today),
- * found by asking it about a session in each state the page knows (stateOf). web/lib.js is a page module: it is
- * loaded with the few stand-ins of a browser it touches when it loads, as test/server/web-bgnote.test.mjs does.
- */
-async function pageFilter() {
-  globalThis.Node ??= class {};
-  globalThis.document ??= { createElement: () => ({ classList: {}, dataset: {}, style: {} }), createTextNode: (t) => ({ text: t }), getElementById: () => null, addEventListener: () => {}, visibilityState: 'visible' };
-  const { needsYou, stateOf } = await import('../web/lib.js');
-  const sessions = [{ limit: true }, { runLimit: true }, { kind: 'shell' }, ...['attention', 'waiting', 'starting', 'working', 'ended', 'other'].map((status) => ({ status }))];
-  return [...new Set(sessions.filter(needsYou).map((s) => stateOf(s).key))];
-}
-
 test('the work-while-you-sleep use case shows Work → Schedules, and the screenshot tool takes that page', () => {
   assert.match(read('tools/screenshots.mjs'), /'work-schedules-desktop-light': async \(\) => view\('#\/work\/schedules'/);
   assert.match(read(SLEEP), /!\[Work → Schedules[^\]]*\]\(\/screenshots\/work-schedules-desktop-light\.webp\)/);
@@ -78,14 +65,14 @@ test('the work-while-you-sleep use case shows Work → Schedules, and the screen
   assert.match(read(SLEEP), /!\[Work → Schedules: two schedules, with the queued messages below\]/);
 });
 
-test('with tmux, Reopen sessions after a restart is off at first, and the pages say so; tmux is explained where it first stands', async () => {
+test('with tmux, Reopen sessions after a restart is on at first, and the pages say so; tmux is explained where it first stands', async () => {
   const { DEFAULTS, restoreOn } = await import('../src/automation/settings.mjs');
-  assert.equal(restoreOn(DEFAULTS, { capabilities: { persistent: true } }), false, 'tmux: off at first');
+  assert.equal(restoreOn(DEFAULTS, { capabilities: { persistent: true } }), true, 'tmux: on at first');
   assert.equal(restoreOn(DEFAULTS, { capabilities: { persistent: false } }), true, 'the built-in terminals: on at first');
   for (const text of [flat(section('It keeps going without you')), flat(read(SLEEP))]) {
     assert.doesNotMatch(text, /survive a restart by themselves/);
-    assert.match(text, /With tmux \(a program that keeps terminals running[^)]*\) it is off at first/);
-    assert.match(text, /not a restart of the computer/);
+    assert.match(text, /with tmux \(a program that keeps terminals running[^)]*\)/);
+    assert.match(text, /after a restart of the computer/);
   }
   const readme = read('README.md');
   const first = readme.search(/\btmux\b/);
@@ -115,7 +102,7 @@ test('what starts by itself: fixed rules start things, and what they start can b
 /**
  * install.sh run for real on a made-up Linux computer with nothing installed but what the script needs to run: a node
  * that reports `node`, an apt-get, sudo and curl that are stand-ins, and no build tools. Without --yes and with no
- * terminal it shows what it would install and ends at its one question; nothing is installed.
+ * terminal it shows what it will install and runs it; the stand-ins make that fail, so nothing is installed.
  */
 function installerAsks(node) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'docs-install-'));
@@ -131,7 +118,7 @@ function installerAsks(node) {
   const home = path.join(dir, 'home');
   fs.mkdirSync(home);
   return new Promise((resolve) => {
-    // Its own session: /dev/tty cannot be opened, so the installer cannot ask and stops before it installs anything.
+    // The stand-in sudo and apt-get fail: the installer says what it installs, then runs it, and ends at that failure.
     const child = spawn('sh', [path.join(ROOT, 'install.sh')], { env: sealed({ PATH: bin, HOME: home, SEAL_FAKE_NODE: node }), detached: true, stdio: ['ignore', 'pipe', 'pipe'] });
     let out = '';
     child.stdout.on('data', (d) => (out += d));
@@ -151,16 +138,16 @@ test('the install paragraph names what install.sh installs, with sudo, and the l
   const [major, minor] = MIN_NODE_TEXT.split('.').map(Number);
   const older = await installerAsks(`${major}.${minor - 1}.9`);
   assert.equal(older.code, 1, older.out);
-  assert.match(older.out, /hoprig installer: no terminal to ask in/, 'it stops at its one question');
-  assert.match(older.out, /To install:\n {2}build-essential python3 {3}\(/, 'the build tools on Linux');
-  if (process.getuid() !== 0) assert.match(older.out, /\(sudo env DEBIAN_FRONTEND=noninteractive apt-get update -q && sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y -q build-essential python3\)/, 'with sudo');
-  assert.match(older.out, /\n {2}Node\.js LTS, for you only, with nvm /, 'an older Node.js is installed again');
+  assert.doesNotMatch(older.out, /no terminal to ask in|Install now/, 'it asks nothing: it says what it installs and does it');
+  assert.match(older.out, /hoprig installer: installing build-essential python3 git tmux did not succeed/, 'it ran the install, which the stand-in refused');
+  assert.match(older.out, /^Hoprig needs a few parts of the system\. If your computer asks for its password, type it and press Enter/m, 'the system parts, with sudo, said in one plain line');
+  assert.match(older.out, /Found Node\.js \S+, older than \S+, the lowest Hoprig runs on: the newest long-term release of Node\.js goes in its place, for you only, with nvm\./, 'an older Node.js is installed again');
   const floor = await installerAsks(MIN_NODE_TEXT.split('.').length === 3 ? MIN_NODE_TEXT : `${MIN_NODE_TEXT}.0`);
-  assert.doesNotMatch(floor.out, /Node\.js LTS/, 'the lowest supported Node.js is kept');
-  assert.match(floor.out, /To install:\n {2}build-essential python3 /);
+  assert.doesNotMatch(floor.out, /Found Node\.js/, 'the lowest supported Node.js is kept');
+  assert.match(floor.out, /^Hoprig needs a few parts of the system\./m);
   const v = MIN_NODE_TEXT.replaceAll('.', '\\.');
   const p = flat(section('Install'));
-  assert.match(p, new RegExp(`It installs what is missing \\(Node\\.js ${v} or newer when it is missing or older, and on Linux the build tools, with sudo\\), after asking once`));
+  assert.match(p, new RegExp(`It says what is missing and installs it without asking \\(Node\\.js ${v} or newer when it is missing or older, and on Linux the build tools and a few system parts, with sudo, which asks for its own password; Ctrl-C stops it\\)`));
   assert.match(flat(read('README.md')), new RegExp(`Requires Node\\.js ${v} or newer \\(`));
   assert.match(read('docs/INSTALL.md'), new RegExp(`\\n- \\*\\*Node\\.js ${v} or newer\\.\\*\\*`));
   // The skill's own package (npx hoprig-skill) says the floor its package.json asks for. Its README is written by
@@ -211,25 +198,28 @@ test('the Operator line: one recommended step, nothing without a tap unless a ru
   const { readDecide } = await import('../src/operator/decide-store.mjs');
   const off = readOperator({});
   assert.equal(off.acts, false);
-  assert.ok(RULE_IDS.length > 0 && RULE_IDS.every((id) => off.rules[id] === false), 'every rule is off at first');
+  // What costs nothing is on from the first run (the mends); what spends usage is off.
+  const { RULES } = await import('../src/operator/rules.mjs');
+  assert.ok(RULE_IDS.length > 0 && RULES.every((r) => off.rules[r.id] === (r.cost === 'none')), 'every rule that spends usage is off at first, the others are on');
+  assert.equal(off.mends, true);
   assert.equal(readDecide({}).on, false, 'Tia decides is off at first');
   // A look starts a session by itself with no rule and no Tia decides: only Tia acts by herself and the look's own switch.
   const { looks, readLook } = await import('../src/operator/look.mjs');
   assert.equal(readLook({}).on, false, 'the looks are off at first');
   const lookDir = fs.mkdtempSync(path.join(os.tmpdir(), 'look-'));
   const only = { operator: { acts: true, look: { on: true } }, assistant: { enabled: true } };
-  assert.ok(RULE_IDS.every((id) => readOperator(only).rules[id] === false) && readDecide(only).on === false);
+  assert.ok(RULES.filter((r) => r.cost === 'usage').every((r) => readOperator(only).rules[r.id] === false) && readDecide(only).on === false);
   assert.equal(looks({ ctx: { config: () => only }, dir: () => lookDir }).enabled(), true, 'a look may start with every rule and Tia decides off');
   fs.rmSync(lookDir, { recursive: true, force: true });
-  // The page's whole sentence (web/operator.js cannot be imported without a browser: its INTRO line is read).
-  const intro = /\nexport const INTRO = '((?:[^'\\]|\\.)*)';\n/.exec(read('web/operator.js'))[1];
-  assert.equal(intro, 'What stopped or is about to, from everything Hoprig watches. One tap does the recommended step. Tia does a step by herself only by a rule you switched on, by "Tia decides", or by a look, when you turned it on.');
+  // The Operator has no page of its own: its cards are rows of Home's Needs you, and the switches of Tia are on Settings, Tia.
+  assert.match(read('web/operator.js'), /#\/operator opens Home/);
+  assert.match(read('web/operator-tia.js'), /fold\('tia-alone', 'What she may do alone'/);
   const what = flat(section('What it does'));
   const op = /- \*\*Operator\*\*:[^\n]*?(?= - \*\*Updates\*\*)/.exec(what)[0];
   assert.match(op, /one recommended step for each/);
   // Both ways Tia acts without a tap are named, as the page names them.
-  assert.match(op, /nothing happens until you tap it, unless you switched on one of Tia's rules, \*\*Tia decides\*\* or \*\*Tia looks into what nobody can explain\*\* \(all are off at first/);
-  assert.match(flat(read('docs/OPERATOR.md')), /nothing happens until you tap it, unless you switch on one of Tia's rules, \*\*Tia decides\*\* or \*\*Tia looks into what nobody can explain\*\* \(below\)\. All of them are off after an install and after an update\./);
+  assert.match(op, /nothing that spends usage happens until you tap it, unless you switched on one of Tia's rules, \*\*Tia decides\*\* or \*\*Tia looks into what nobody can explain\*\* \(all are off at first/);
+  assert.match(flat(read('docs/OPERATOR.md')), /Tia may do any other step by herself only by a rule you switched on or by \*\*Tia decides\*\* \(below\), and only while \*\*Tia acts by herself\*\* is on and Tia herself is on \(Settings → Tia\): those are off after an install and after an update\./);
   assert.match(read('site/content/changelog.md'), /^- \*\*While Tia's rules, Tia decides and her looks are off, nothing happens until you tap\.\*\*/m);
   // Three places name what needs you; each says what it holds that the others do not.
   assert.match(op, /everything Hoprig watches/);
@@ -243,12 +233,9 @@ test('the Operator line: one recommended step, nothing without a tap unless a ru
     { id: 'c', title: 'in a month', status: 'open', date: '2030-04-04', days: 31 },
   ], day);
   assert.deepEqual(v.needsYou.map((it) => it.id).sort(), ['a', 'b']);
-  assert.match(read('web/work.js'), /const list = store\.all\.flatMap\(\(m\) => m\.sessions \|\| \[\]\)\.filter\(needsYou\)/, 'Today adds the sessions that need you');
-  // Which sessions those are is the page's own filter (web/lib.js needsYou), asked of a session in every state.
-  const kept = (await pageFilter()).sort();
-  const words = { attention: 'need an OK', limit: 'reached a usage limit' };
-  assert.deepEqual(kept, Object.keys(words).sort(), 'the README names every state Today keeps, and only those');
-  assert.match(what, new RegExp(`\\*\\*Work\\*\\*: your tasks, and its \\*\\*Today\\*\\* tab that lists what is due this week, what waits for your yes, and the sessions that ${kept.map((k) => words[k]).join(' or ')}\\.`));
+  // The sessions that need an OK are Home's, not Work's any more (Work keeps the tasks).
+  assert.doesNotMatch(read('web/work.js'), /filter\(needsYou\)/);
+  assert.match(what, /\*\*Work\*\*: your tasks, and its \*\*Tasks\*\* tab that lists what waits for your yes first and what is due this week\./);
   assert.doesNotMatch(what, /your own part/);
 });
 
@@ -265,19 +252,20 @@ test('Work, what is not there yet: Do it has a branch of its own now; the OKs ar
   const { todayView } = await import('../src/work/today.mjs');
   assert.deepEqual(Object.keys(todayView([], '2030-03-04')).sort(), ['counts', 'doneLately', 'needsYou', 'toReview', 'today', 'week']);
   assert.match(read('src/work/cli.mjs'), /const t = todayView\(items, store\.today\(\)\);/);
-  assert.match(read('web/work.js'), /const list = store\.all\.flatMap\(\(m\) => m\.sessions \|\| \[\]\)\.filter\(needsYou\)/);
+  assert.match(read('web/home.js'), /cardOrder\(oneCardPerKey/, 'Home lists the sessions that need an OK first');
   const item = flat(/- \*\*Work, what is not there yet\*\*[\s\S]*?(?=\n- \*\*)/.exec(section('Not built, or not proven yet'))[0]);
   assert.doesNotMatch(item, /\(only a run/);
   assert.doesNotMatch(item, /not on a branch of its own/);
-  assert.match(item, /The sessions that need an OK are shown on the dashboard \(Today, Home, the Operator\), not in `hoprig tasks`\./);
+  assert.match(item, /The sessions that need an OK are shown on the dashboard \(Home, under \*\*Needs you\*\*\), not in `hoprig tasks`\./);
 });
 
 test('the automations have the dashboard\'s own names: the queue switch, and no "Restore" for reopening sessions', () => {
   const page = read('web/automation.js');
-  for (const name of ['Send the next queued message', 'Reopen sessions after a restart', 'Try again after a server error']) assert.ok(page.includes(`'${name}'`), name);
-  assert.match(read('web/workschedules.js'), /'Queued messages'/);
+  for (const name of ['Reopen sessions after a restart', 'Try again after a server error']) assert.ok(page.includes(`'${name}'`), name);
+  assert.ok(!read('web/workschedules.js').includes('Queued messages'), 'the queue is on the session, not on Schedules');
   const pages = [section('It keeps going without you'), read(SLEEP)].map(flat);
-  for (const text of pages) assert.match(text, /\*\*Queue\*\* \(the switch \*\*Send the next queued message\*\*, on at first; its list is \*\*Queued messages\*\* in Work → Schedules\)/);
+  // The queue has no switch any more; the README's section may still say it did until its own words are changed.
+  for (const text of pages) assert.match(text, /\*\*Queue\*\* \((the switch \*\*Send the next queued message\*\*, on at first|always on: it acts only on messages you queued); you queue a message on the session itself\)/);
   // "Restore code", "Restore conversation" (Rewind) and `workspace restore` are other things of the same word.
   const oldName = /\bRestore\b(?! code| conversation)/;
   for (const f of ['site/content/use-cases/always-on-coding-machine.md', SLEEP]) assert.doesNotMatch(read(f), oldName, f);
@@ -291,7 +279,7 @@ test('the commands table: a row with subcommands lists all of them, and the tabl
   const { USAGE: SHIP } = await import('../src/ship/cli.mjs');
   for (const sub of [...new Set([...SHIP.matchAll(/hoprig ship ([a-z]+)/g)].map((m) => m[1]))]) assert.match(row('hop ship '), new RegExp(`\\b${sub}\\b`), `ship ${sub}`);
   const service = /service ([a-z|]+)/.exec(read('src/server/cli.mjs'))[1].split('|');
-  assert.deepEqual(service, ['install', 'uninstall', 'status', 'restart']);
+  assert.deepEqual(service, ['install', 'uninstall', 'status', 'start', 'stop', 'restart']);
   for (const sub of service) assert.match(row('hop service '), new RegExp(`\\b${sub}\\b`), `service ${sub}`);
   assert.match(read('bin/hoprig.mjs'), /case 'sync': \{[^}]*ws\.main\(\['sync', \.\.\.rest\]\)/);
   assert.match(row('hop sync '), /= hop workspace sync/);
@@ -465,7 +453,7 @@ test('at a usage limit a task waits until an hour after the first limit, or Tia 
   const { missionSteps } = await import('../src/operator/decide-table.mjs');
   assert.deepEqual(missionSteps('mission-limit', { to: 'gw2', waitMs: 30 * 60_000 }).map((s) => s.id), ['next-provider', 'wait']);
   assert.deepEqual(missionSteps('mission-sent-back', {}), []);
-  assert.match(m, /With \*\*Tia decides\*\* and its switch \*\*Also a mission's choices\*\* on \(Operator page; both off until you turn them on\)/);
+  assert.match(m, /With \*\*Tia decides\*\* and its switch \*\*Also a mission's choices\*\* on \(Settings → Tia, in the fold What she may do alone; both off until you turn them on\)/);
   assert.match(m, /a provider billed by use only at "Hands off"/);
   assert.match(read('web/tiaactivity.js'), /handsoff: 'Hands off'/);
   assert.match(m, /A task sent back twice stays yours/);
@@ -491,7 +479,7 @@ test('the Operator does nothing about a mission session at a limit, stuck, ended
     assert.equal(engineOwns({ kind: k, target: { mission: true } }), true, k);
   }
   const m = missions();
-  assert.match(m, /the Operator page's rules and Tia's decisions there do nothing: only the mission moves its own tasks/);
+  assert.match(m, /the Operator's rules and Tia's decisions there do nothing: only the mission moves its own tasks/);
   assert.doesNotMatch(m, /she does nothing about it by herself yet/);
 });
 
@@ -737,13 +725,13 @@ test('the install guide names Keep Hoprig on root on purpose with the sentence t
   const { STAY_ROOT_SENTENCE, stayRootChoice } = await import('../src/setup/rootfacts.mjs');
   const page = read('web/rootsettings.js');
   assert.match(page, /title: 'Keep Hoprig on root on purpose'/);
-  assert.match(page, /Bypass permissions mode stays unavailable, and doctor and Health then show root as information only/);
+  assert.match(page, /Bypass permissions mode stays unavailable, and the doctor and Setup then show root as information only/);
   assert.throws(() => stayRootChoice({ sentence: 'keep it' }, true), /type the sentence/);
   assert.equal(stayRootChoice({ sentence: ` ${STAY_ROOT_SENTENCE} ` }, true), true);
   assert.equal(stayRootChoice(false, true), false, 'the choice can be taken back');
   const doc = flat(read('docs/INSTALL.md'));
   assert.ok(doc.includes(`**Keep Hoprig on root on purpose**: you type \`${STAY_ROOT_SENTENCE}\`, the choice is kept in this computer's settings and can be taken back there`));
-  assert.match(doc, /bypass permissions mode stays unavailable, and doctor and Health then show root as information only/);
+  assert.match(doc, /bypass permissions mode stays unavailable, and the doctor and Setup then show root as information only/);
 });
 
 // README.md:749-750 "Codex is not part of this version": the one list of offered coding tools leaves it out
@@ -785,7 +773,7 @@ test('the README says a terminal a chat took over stays closed after a restart, 
   assert.equal(decide({ cards: [], data, now: 2, boot: true, enabled: true }).actions.length, 1, 'without a take-over: reopened');
   const r = decide({ cards: [], data, now: 2, boot: true, enabled: true, taken: [{ tool: 'claude', conversation: 'c1', runId: 'r1' }] });
   assert.equal(r.actions.length, 0, 'taken over: not reopened');
-  assert.match(read('src/chat/handoff.mjs'), /takeBack = noteTaken\(\{ tool, conversation: c\.conversationId, runId: term\.run && term\.run\.runId \}\);\n\s+try \{\n\s+await ctx\.deck\.respawn\(/);
+  assert.match(read('src/chat/handoff.mjs'), /takeBack = noteTaken\(\{ tool, conversation: c\.conversationId, runId: term\.run && term\.run\.runId \}\);\n\s+try \{\n(\s+\/\/.*\n)*\s+if \(term\.name && \(await ctx\.deck\.madeAlone\?\.\(term\.name\)\)\) await ctx\.deck\.end\(term\.name, \{ hold \}\);\n\s+else \{\n\s+await ctx\.deck\.respawn\(/);
   assert.match(read('web/chat/page.js'), /'Continue here'\)/);
 });
 
@@ -937,10 +925,10 @@ test('the install guide says what sudo without a password means for the user, an
 test('the operator guide says the token check appears once a file is saved, and where the two settings stand', () => {
   const tia = read('web/tia.js');
   assert.match(tia, /sg\.file \? h\('div\.savebar', btn\('secondary', \{ label: 'Check what this token may do'/, 'the button is drawn only with a file');
-  assert.match(tia, /fold\('tia-advanced', 'Advanced',[\s\S]*?saveBar\('Save'[\s\S]*?return \[box, tiaRights\(\{ isAlive \}\)/, 'the rights box comes after Advanced and the first Save');
+  assert.match(tia, /fold\('tia-rights', 'Rights', tiaRights\(\{ isAlive \}\)\)/, 'the rights box is the Rights fold');
   const t = rights();
   assert.match(t, /\*\*Check what this token may do\*\* \(a button that appears once a token file is saved; it asks on your press only\)/);
-  assert.match(t, /Both stand below that page's first \*\*Save\*\* button and its \*\*Advanced\*\* fold, so scroll on past them\./);
+  assert.match(t, /Both stand in that page's \*\*Rights\*\* fold, closed at first, so open it\./);
 });
 
 // docs/HANDS-OFF.md:43 and :107-112, docs/OPERATOR.md:303, :324, :327-328 words explained where they first stand
@@ -962,7 +950,7 @@ test('HANDS-OFF says when the first-time sheet shows, where it is kept, how to r
   assert.match(t, /The first time you turn on a Hands-off switch in a browser \(a session's, a project's or an App chat's\), a sheet "What Hands-off does" explains/);
   assert.match(t, /It only explains: the switch is already on, and closing the sheet does not turn it off\./);
   assert.match(t, /so you see it once per browser, not once per computer: another browser or a phone shows it again\./);
-  assert.match(t, /To read it again, open Settings → Hands-off and press "Read the first-time summary again"\./);
+  assert.match(t, /To read it again, open Settings → New sessions → Hands-off and press "Read the first-time summary again"\./);
   assert.match(t, /Hands-off costs nothing by itself: it reads the questions by fixed rules, with no model,/);
   const sheet = read('web/handsoff.js');
   assert.match(sheet, /const CONSENT_SEEN = 'handsoff\.firstSeen';/, 'the flag is one per browser');
