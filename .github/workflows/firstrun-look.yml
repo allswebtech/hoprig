@@ -55,6 +55,9 @@ jobs:
           WANT=$(node -p "require('./package.json').version")
           npm pack --silent
           T="$PWD/hoprig-$WANT.tgz"
+          # The demo chat of the build stands in for a signed-in Claude Code; tar reads D: as a host, so by a relative name.
+          mkdir -p "$RUNNER_TEMP/firstrun-pkg"
+          tar -xzf "hoprig-$WANT.tgz" -C "$RUNNER_TEMP/firstrun-pkg" package/src package/package.json
           [ "$RUNNER_OS" = Windows ] && T=$(cygpath -w "$T")
           echo "TGZ=$T" >> "$GITHUB_ENV"
       - name: Walk the first run

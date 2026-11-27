@@ -130,6 +130,8 @@ export function claudeSignIn({ done = () => {}, another = false, email = '', aft
         [h('p', 'The page then shows a code. Copy it and paste it here.'), code]),
       out,
       another ? otherAccountHint() : null,
+      // Windows: Claude Code opens a tab of its own, which finishes without a code; this page then notices by itself.
+      /^Win/i.test(navigator.platform || '') ? h('p.hint', 'Signed in in a tab that opened by itself? Then there is no code to paste: this page notices.') : null,
       h('p.hint', 'The sign-in stays open for 10 minutes.'), terminal(),
       // The sticky action bar is the sheet's last part (style.css .sheet-actions): nothing may sit under it.
       h('div.sheet-actions', h('button.btn.secondary', { type: 'button', onclick: () => close() }, 'Cancel'), go));

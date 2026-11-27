@@ -165,6 +165,7 @@ function moment(name, w) {
 const QUESTION = /(\((?:Y\/n|y\/N)\) |^ {2}> |: |password for [^:]*:\s*)$/;
 const install = openWindow('the install line');
 await waitPrompt(install, 30_000);
+if (!WIN) { install.type(`export PATH="${SHIMS}:$PATH"; clear\r`); await sleep(1500); } // a login shell rebuilds PATH: the stand-ins go first again
 moment('01-before-the-install-line', install);
 install.type(`${LINE}\r`);
 note('install line typed', { detail: LINE });
@@ -206,7 +207,7 @@ if (WIN && LEG === 'admin-stop') {
 }
 const ticks = ['Node.js', 'Hoprig', 'Claude Code'];
 for (const t of ticks) check(`a tick line: ${t}`, new RegExp(`✓ ${t.replace('.', '\\.')}`).test(text), '');
-check('a tick line says Hoprig starts by itself', /✓ Hoprig starts by itself when you (sign in to Windows|log in)/.test(text), '');
+check('a tick line says Hoprig starts by itself', /✓ Hoprig starts by itself when you (sign in to Windows|log in)/i.test(text), '');
 check('the browser is being opened (the words)', /Opening Hoprig in your browser/.test(text), '');
 const link = /(http:\/\/127\.0\.0\.1:\d+\/login#link=[A-Za-z0-9_-]{43})/.exec(text);
 check('the fallback link is on the last screen', !!link, '');
@@ -271,7 +272,7 @@ if (lan) check('the dashboard does not answer on this computer\'s network addres
 else note('no network address to try');
 
 // ---- 5. the pages, in headless Chrome at 1280 by 800, light --------------------------------------------------------------
-if (up && link) {
+if (up && link) try {
   chrome = await launchChrome();
   await chrome.viewport(1280, 800, { theme: 'light' });
   const shot = async (name, wait = 2000) => {
@@ -310,11 +311,19 @@ if (up && link) {
   check('the printed link signs in: Home shows the card', /Welcome to Hoprig/.test(home), home.slice(0, 120));
   check('the card has two steps and no New session button, no providers line, no badge', /Sign in to Claude|Signed in to Claude/.test(home) && /Start your first chat/.test(home) && !/New session/.test(home) && !/provider.*(available|not signed)/.test(home) && !/No sessions yet/.test(home) && !(await chrome.evaluate("!!document.querySelector('.nav-badge') && document.querySelector('.nav-badge').offsetParent !== null").catch(() => false)), home.slice(0, 200));
 
+  // What a newcomer sees when pressing Sign in with the real Claude Code of this computer (no account here, so it only gets
+  // as far as its sheet): the picture and the words.
+  if (await press(/^Sign in$/)) {
+    await sleep(12_000);
+    const sheet = await shot('20b-sign-in-sheet', 500);
+    summary.signInSheet = mask(sheet).slice(0, 600);
+    check('the sign-in sheet shows a step to do and no error', /allow access|Waiting for the sign-in|sign-in page/i.test(sheet) && !/could not|stopped|Use the terminal/i.test(sheet), sheet.replace(/\s+/g, ' ').slice(-220));
+    await press(/^Cancel$/);
+    await sleep(1500);
+  } else check('the card has a Sign in button', false, '');
   // A stand-in for a signed-in Claude Code (a made-up account): auth status says signed in; the chat is the demo's, which
   // talks to no model. Hoprig's own settings point at it, and after the page's one-minute cache the card ticks step 1.
-  const unpack = path.join(process.env.RUNNER_TEMP, 'firstrun-pkg');
-  fs.mkdirSync(unpack, { recursive: true });
-  execFileSync('tar', ['-xzf', path.basename(TGZ), '-C', path.relative(path.dirname(TGZ), unpack) || '.', 'package/src', 'package/package.json'], { stdio: 'ignore', cwd: path.dirname(TGZ) }); // by a relative name: GNU tar reads D: as a host
+  const unpack = path.join(process.env.RUNNER_TEMP, 'firstrun-pkg'); // unpacked from the packed build by the workflow
   const chat = path.join(unpack, 'package', 'src', 'demo', 'chat.mjs');
   const standin = path.join(SHIMS, 'standin-claude.mjs');
   fs.writeFileSync(standin, `import { spawn } from 'node:child_process';
@@ -352,6 +361,8 @@ spawn(process.execPath, [${JSON.stringify(chat)}, ...a], { stdio: 'inherit' }).o
   const after = await shot('24-home-after', 500);
   check('after the first chat the card is gone for good', !/Welcome to Hoprig/.test(after), '');
   pageErrors.push(...chrome.errors.map(mask));
+} catch (e) {
+  check('the page walk ran to the end', false, e.message); // the pictures and words so far are still written
 }
 await finish();
 
