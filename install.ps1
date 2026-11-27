@@ -38,16 +38,16 @@ $script:NodeUnpacked = $false
 $ProgressPreference = 'SilentlyContinue' # Windows PowerShell 5.1 downloads many times slower with its progress bar
 
 function Say($text) { Write-Host $text }
-function Tick($text) { Write-Host "$Tick $text" -ForegroundColor Green; Add-Content -LiteralPath $Log -Value "ok: $text" -ErrorAction SilentlyContinue }
+function Tick($text) { Write-Host "$Tick $text" -ForegroundColor Green; Add-Content -LiteralPath $Log -Value "ok: $text" -Encoding UTF8 -ErrorAction SilentlyContinue }
 # A program run with its words going to the log. Windows PowerShell 5.1 turns a native program's error output into a
 # stopping error while $ErrorActionPreference is Stop: it is Continue for the call only. Returns the exit code.
 function Invoke-Logged($exe, $argv) {
     $old = $ErrorActionPreference
     $ErrorActionPreference = 'Continue'
-    try { & $exe @argv *>> $Log } finally { $ErrorActionPreference = $old }
+    try { & $exe @argv 2>&1 | Out-File -LiteralPath $Log -Append -Encoding utf8 } finally { $ErrorActionPreference = $old }
     return $LASTEXITCODE
 }
-function Note($text) { Add-Content -LiteralPath $Log -Value $text -ErrorAction SilentlyContinue }
+function Note($text) { Add-Content -LiteralPath $Log -Value $text -Encoding UTF8 -ErrorAction SilentlyContinue }
 # A part that did not install: the part, the reason in one line, the way to try again; then the install stops (Stop-Install
 # is caught below, and the window stays open: this script never calls exit).
 function Fail($what, $why, $verb = 'did not install') {

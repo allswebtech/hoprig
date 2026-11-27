@@ -56,7 +56,7 @@ test('one tick line per part, a red cross with the reason on failure, a log', ()
   assert.match(code, /\$verb = 'did not install'/);
   assert.match(code, /\$what \$\{verb\}: \$why/);
   assert.match(code, /install\.log/);
-  assert.match(code, /\*>> \$Log/);
+  assert.match(code, /Out-File -LiteralPath \$Log -Append -Encoding utf8/, 'the log is text, not the UTF-16 that *>> writes in Windows PowerShell 5.1');
 });
 
 test('a Start menu entry opens the page signed in', () => {

@@ -249,6 +249,26 @@ await waitPrompt(fresh, 60_000);
 moment('92-service-status', fresh);
 check('the background service is set up (hoprig service status)', /running|active|loaded|ready/i.test(plain(fresh.buf).split('\n').slice(2).join('\n')), plain(fresh.buf).split('\n').filter((l) => l.trim()).slice(-4).join(' | '));
 
+// ---- the way back another day: the Start menu entry (Windows) or the app menu entry (Linux) -----------------------------------
+if (WIN) {
+  const lnk = path.join(process.env.APPDATA || '', 'Microsoft', 'Windows', 'Start Menu', 'Programs', 'Hoprig.lnk');
+  const there = fs.existsSync(lnk);
+  check('the Start menu entry Hoprig exists', there, '');
+  if (there) {
+    const info = ps(`$s = (New-Object -ComObject WScript.Shell).CreateShortcut('${lnk}'); $s.TargetPath + '|' + $s.Arguments`);
+    const [target, args] = info.split('|');
+    check('the entry runs hoprig link --open in a hidden PowerShell', /powershell\.exe$/i.test(target) && /-WindowStyle Hidden/.test(args) && /link --open/.test(args), info);
+    // The same command with the opening left out: it must print a fresh one-time link of this dashboard.
+    let said = '';
+    try { said = execSync(`"${target}" ${args.replace(' --open', '')}`, { env, encoding: 'utf8', timeout: 60_000 }); } catch (e) { said = String(e.stdout || e.message); }
+    check('the entry\'s command works and gives a one-time link', /http:\/\/127\.0\.0\.1:\d+\/login#link=/.test(said), mask(said).slice(0, 160));
+  }
+} else if (!MAC) {
+  const dir = path.join(os.homedir(), '.local', 'share', 'applications');
+  const names = fs.existsSync(dir) ? fs.readdirSync(dir).filter((f) => /hoprig/i.test(f)) : [];
+  check('the app menu entry Hoprig exists', names.length > 0, names.join(', '));
+}
+
 // ---- 4. the dashboard: this computer only, answering ----------------------------------------------------------------------
 const PORT = Number((link && /:(\d+)\//.exec(link[1])[1]) || 7433);
 const BASE = `http://127.0.0.1:${PORT}`;
@@ -327,15 +347,47 @@ if (up && link) try {
   const unpack = path.join(process.env.RUNNER_TEMP, 'firstrun-pkg'); // unpacked from the packed build by the workflow
   const chat = path.join(unpack, 'package', 'src', 'demo', 'chat.mjs');
   const standin = path.join(SHIMS, 'standin-claude.mjs');
-  fs.writeFileSync(standin, `import { spawn } from 'node:child_process';
+  const standinSource = `import { spawn } from 'node:child_process';
 const a = process.argv.slice(2);
 if (a[0] === 'auth' && a[1] === 'status') { console.log(JSON.stringify({ loggedIn: true, authMethod: 'claude.ai', apiProvider: 'firstParty', email: 'someone@example.invalid', subscriptionType: 'pro' })); process.exit(0); }
 if (a[0] === '--version') { console.log('2.1.332 (Claude Code)'); process.exit(0); }
 process.env.CLAUDE_CONFIG_DIR ||= ${JSON.stringify(path.join(os.homedir(), '.claude'))};
 spawn(process.execPath, [${JSON.stringify(chat)}, ...a], { stdio: 'inherit' }).on('exit', (c) => process.exit(c ?? 0));
+`;
+  let bin = path.join(SHIMS, WIN ? 'claude.exe' : 'claude');
+  if (WIN) {
+    // Hoprig starts Claude Code's program itself (a .cmd file cannot be started that way), so the stand-in is a small .exe
+    // (the C# compiler that comes with Windows): auth status and --version answer; anything else runs the demo chat.
+    const cs = path.join(SHIMS, 'claude.cs');
+    fs.writeFileSync(cs, String.raw`using System; using System.Diagnostics; using System.Text;
+class P {
+  static string Q(string s) {
+    if (s.Length > 0 && s.IndexOfAny(new[] { ' ', '\t', '"' }) < 0) return s;
+    var sb = new StringBuilder("\""); int bs = 0;
+    foreach (char c in s) {
+      if (c == '\\') { bs++; continue; }
+      if (c == '"') { sb.Append('\\', bs * 2 + 1); sb.Append('"'); bs = 0; continue; }
+      sb.Append('\\', bs); bs = 0; sb.Append(c);
+    }
+    sb.Append('\\', bs * 2); sb.Append('"'); return sb.ToString();
+  }
+  static int Main(string[] a) {
+    if (a.Length >= 2 && a[0] == "auth" && a[1] == "status") { Console.WriteLine("{\"loggedIn\":true,\"authMethod\":\"claude.ai\",\"apiProvider\":\"firstParty\",\"email\":\"someone@example.invalid\",\"subscriptionType\":\"pro\"}"); return 0; }
+    if (a.Length >= 1 && a[0] == "--version") { Console.WriteLine("2.1.332 (Claude Code)"); return 0; }
+    var args = Q(@"${chat}");
+    foreach (var x in a) args += " " + Q(x);
+    var psi = new ProcessStartInfo(@"${process.execPath}", args) { UseShellExecute = false };
+    if (Environment.GetEnvironmentVariable("CLAUDE_CONFIG_DIR") == null) psi.EnvironmentVariables["CLAUDE_CONFIG_DIR"] = @"${path.join(os.homedir(), '.claude')}";
+    var p = Process.Start(psi); p.WaitForExit(); return p.ExitCode;
+  }
+}
 `);
-  let bin = path.join(SHIMS, WIN ? 'claude.cmd' : 'claude');
-  fs.writeFileSync(bin, WIN ? `@echo off\r\n"${process.execPath}" "${standin}" %*\r\n` : `#!/bin/sh\nexec "${process.execPath}" "${standin}" "$@"\n`, { mode: 0o755 });
+    const csc = path.join(process.env.WINDIR || 'C:\\Windows', 'Microsoft.NET', 'Framework64', 'v4.0.30319', 'csc.exe');
+    try { execFileSync(csc, ['/nologo', `/out:${bin}`, cs], { stdio: 'pipe' }); note('stand-in claude.exe compiled'); } catch (e) { note('could not compile the stand-in', { detail: String(e.stdout || e.message).slice(0, 300) }); }
+  } else {
+    fs.writeFileSync(path.join(SHIMS, 'standin-claude.mjs'), standinSource);
+    fs.writeFileSync(bin, `#!/bin/sh\nexec "${process.execPath}" "${standin}" "$@"\n`, { mode: 0o755 });
+  }
   const cfgFile = WIN ? path.join(process.env.APPDATA || '', 'hoprig', 'config.json') : path.join(os.homedir(), '.config', 'hoprig', 'config.json');
   try {
     const cfg = JSON.parse(fs.readFileSync(cfgFile, 'utf8'));
