@@ -122,6 +122,18 @@ test('launchd: kept alive always, started again after 3 s, with a watcher job ev
   assert.deepEqual(launchd.launchctlArgs.unloadKeeper().slice(0, 1), ['bootout']);
 });
 
+test('launchd: the argv is built where there is no user id (Windows), and gives the running user where there is one', () => {
+  const had = process.getuid;
+  try {
+    process.getuid = undefined;
+    assert.deepEqual(launchd.launchctlArgs.unloadKeeper(), ['bootout', `gui/0/${launchd.KEEP_LABEL}`]);
+    process.getuid = () => 501;
+    assert.deepEqual(launchd.launchctlArgs.unload(), ['bootout', `gui/501/${launchd.LABEL}`]);
+  } finally {
+    process.getuid = had;
+  }
+});
+
 test('launchd stop takes the job out of launchd (no kill: KeepAlive would start it again) and is remembered', { skip: process.platform === 'win32' && 'the uid' }, async () => {
   const home = tmp();
   const saved = process.env.HOME;

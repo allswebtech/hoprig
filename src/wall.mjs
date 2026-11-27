@@ -1948,56 +1948,87 @@ function bashHeldActs(command, cwd, git, p) {
 // as a whole is no hit: in that mode nothing is held that Hoprig cannot read for certain.
 // → 'home' | 'workspace' | 'projects' | 'disk' | null
 export function wipesWhole({ command, places = null } = {}) {
-  if (typeof command !== 'string' || process.platform === 'win32') return null;
+  if (typeof command !== 'string') return null;
   const commands = readCommands(command);
   if (commands === null) return null;
   const p = places || {};
-  const home = typeof p.home === 'string' && p.home.startsWith('/') ? p.home : os.homedir();
+  // The system whose names the places are (`p.platform`; a test gives Windows' on another system). On Windows the shell
+  // may be Git Bash (`rm`) or PowerShell and cmd (`Remove-Item`, `rd`, `del`): a place is read with Windows' rules
+  // (drive, either separator, case, `/c/x`, the long prefix: inFolder) and a drive's top is the disk.
+  const platform = platformOf(p);
+  const win = platform === 'win32';
+  const P = pathOf(platform);
+  const isAbs = (s) => typeof s === 'string' && s !== '' && (win ? P.isAbsolute(winReal(s)) : s.startsWith('/'));
+  const home = typeof p.home === 'string' && isAbs(p.home) ? p.home : os.homedir();
+  const plain = (d) => (win ? d : path.posix.normalize(d).replace(/(.)\/+$/, '$1'));
   const kept = [
     ['home', [home]],
     ['workspace', [p.workspace]],
     ['projects', Array.isArray(p.projects) ? p.projects : []],
-  ].map(([kind, list]) => [kind, list.filter((d) => typeof d === 'string' && d.startsWith('/')).flatMap((d) => [d, realOrSelf(d)]).map((d) => path.posix.normalize(d).replace(/(.)\/+$/, '$1'))]);
+  ].map(([kind, list]) => [kind, list.filter(isAbs).flatMap((d) => [d, realOrSelf(d, platform)]).map(plain)]);
+  const isRoot = (t) => (win ? P.parse(winReal(t)).root !== '' && winPlace(t) === winPlace(P.parse(winReal(t)).root) : t === '/');
   const holds = (target) => {
-    const ts = [target, realOrSelf(target)];
-    if (ts.includes('/')) return 'disk';
-    for (const [kind, ds] of kept) if (ds.some((d) => ts.some((t) => inFolder(d, t)))) return kind;
+    const ts = [target, realOrSelf(target, platform)];
+    if (ts.some(isRoot)) return 'disk';
+    for (const [kind, ds] of kept) if (ds.some((d) => ts.some((t) => inFolder(d, t, platform)))) return kind;
     return null;
   };
-  let folder = typeof p.cwd === 'string' && p.cwd.startsWith('/') ? path.posix.normalize(p.cwd) : null;
+  // What a Windows shell reads as the person's own folder before the words are read: %USERPROFILE%, $env:USERPROFILE,
+  // $USERPROFILE and ${USERPROFILE} (and HOME alike), the drive the home is on for %SystemDrive% and $env:SystemDrive.
+  const driveOf = /^[A-Za-z]:/.exec(winReal(home));
+  const named = (part) => {
+    if (!win) return part;
+    let t = part.replace(/%(?:USERPROFILE|HOME)%|\$env:(?:USERPROFILE|HOME)\b|\$\{(?:USERPROFILE|HOME)\}|\$(?:USERPROFILE)\b/gi, home);
+    if (driveOf) t = t.replace(/%SystemDrive%|\$env:SystemDrive\b/gi, driveOf[0]);
+    return t;
+  };
+  const WIPERS = new Set(win ? ['rm', 'rd', 'rmdir', 'del', 'erase', 'remove-item', 'ri'] : ['rm']);
+  const CMD_FLAG = /^\/[A-Za-z?]$/; // cmd's switches (`rd /s /q`), not a place: only for the cmd programs
+  let folder = typeof p.cwd === 'string' && isAbs(p.cwd) ? (win ? P.resolve(winReal(p.cwd)) : path.posix.normalize(p.cwd)) : null;
   for (const [j, cmd] of commands.entries()) {
-    const part = commands.line.slice(...commands.spans[j]).trim();
+    const part = named(commands.line.slice(...commands.spans[j]).trim());
     if (!part || cmd.every((t) => t.redirect)) continue;
-    const info = headOf(cmd);
-    const words = shellWords(part, { home }).filter((w) => w.value !== '' || w.unsure);
-    if (info.head === 'rm' && !info.fed && !info.runner) {
-      const at = words.findIndex((w) => !w.unsure && path.posix.basename(w.value) === 'rm');
+    const info = headOf(cmd, platform);
+    const words = (win ? wordsOf(part, home, platform) : shellWords(part, { home })).filter((w) => w.value !== '' || w.unsure);
+    const wiper = win ? info.head.toLowerCase().replace(/\.(exe|com|bat|cmd)$/, '') : info.head;
+    if (WIPERS.has(wiper) && !info.fed && !info.runner) {
+      const nameOf = (w) => (win ? P.basename(winReal(w.value)).toLowerCase().replace(/\.(exe|com|bat|cmd)$/, '') : path.posix.basename(w.value));
+      const at = words.findIndex((w) => !w.unsure && nameOf(w) === wiper);
+      const cmdProgram = win && ['rd', 'rmdir', 'del', 'erase'].includes(wiper);
       let ending = false;
       for (const w of at < 0 ? [] : words.slice(at + 1)) {
         if (!ending && w.value === '--' && !w.unsure) {
           ending = true;
           continue;
         }
-        if (!ending && w.value.startsWith('-') && !w.unsure) continue;
         if (w.unsure) continue;
         let t = w.value;
+        if (!ending) {
+          // PowerShell's `-Path:C:\x` and `-LiteralPath:C:\x` carry the place in the same word; any other option is skipped
+          const named2 = win && /^-(?:literal)?path:(.+)$/i.exec(t);
+          if (named2) t = named2[1];
+          else if (t.startsWith('-') || (cmdProgram && CMD_FLAG.test(t))) continue;
+        }
         if (w.glob) {
-          if (typeof w.fixed !== 'string' || (w.fixed !== '' && !w.fixed.endsWith('/'))) continue;
+          if (typeof w.fixed !== 'string' || (w.fixed !== '' && !/[\\/]$/.test(win ? w.fixed : w.fixed.slice(-1)))) continue;
           t = w.fixed || '.';
         }
-        if (!t.startsWith('/')) {
+        if (win) t = winReal(t).replace(/^([A-Za-z]:)$/, '$1\\'); // a bare drive (`/c`, `C:`) is its top
+        if (!isAbs(t)) {
           if (folder === null) continue;
-          t = path.posix.resolve(folder, t);
+          t = P.resolve(folder, t);
         }
-        const hit = holds(path.posix.normalize(t).replace(/(.)\/+$/, '$1'));
+        const hit = holds(plain(P.normalize(t)));
         if (hit) return hit;
       }
     }
     if (info.head === 'cd' && !info.chdir) {
-      const w = words.length === 2 ? words[1] : null;
-      const ok = w && !w.unsure && !w.glob && !w.value.startsWith('-') && (w.value.startsWith('/') || folder !== null);
-      folder = ok ? path.posix.resolve(folder === null ? '/' : folder, w.value) : null;
-    } else folder = movedTo(folder, cmd, part);
+      // a Windows place is read with its backslashes kept (Bash's own reading drops them): one reading, so one word
+      const cdWords = win && part.includes('\\') ? shellWords(part.replace(/\\/g, '\\\\'), { home, platform }).filter((x) => x.value !== '' || x.unsure) : words;
+      const w = cdWords.length === 2 ? cdWords[1] : null;
+      const ok = w && !w.unsure && !w.glob && !w.value.startsWith('-') && (isAbs(w.value) || folder !== null);
+      folder = ok ? P.resolve(folder === null ? (win ? '\\' : '/') : folder, win ? winReal(w.value) : w.value) : null;
+    } else folder = movedTo(folder, cmd, part, platform);
   }
   return null;
 }

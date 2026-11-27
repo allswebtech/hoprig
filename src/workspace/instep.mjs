@@ -27,6 +27,7 @@ import { gitRead } from '../gitread.mjs';
 import { loadConfig } from '../config.mjs';
 import { readSettings } from '../automation/settings.mjs';
 import { isSecret } from '../editor/paths.mjs';
+import { realOr } from '../server/folders.mjs';
 
 export const LOOK_EVERY_MS = 30 * 60_000;
 export const START_FRESH_MS = 10 * 60_000;
@@ -43,13 +44,6 @@ const noHooks = () => {
 };
 const ENV = () => ({ ...process.env, GIT_TERMINAL_PROMPT: '0' });
 
-const realOf = (p) => {
-  try {
-    return fs.realpathSync(p);
-  } catch {
-    return path.resolve(p);
-  }
-};
 export const instepFile = () => path.join(stateDir(), 'workspace-instep.json');
 const placeKey = (place) => place || PROJECTS_PLACE;
 
@@ -170,7 +164,7 @@ export async function lookProjects({ dir = workspaceDir(), projects = projectsIn
     if (only && t.project !== only) return false;
     if (onlyDirs && !onlyDirs(t)) return false;
     // A secret place (the credentials folder, one set aside, a sign-in folder) is never fetched or moved by the look.
-    if (isSecret(realOf(t.dir))) return false;
+    if (isSecret(realOr(t.dir))) return false;
     return isGitRepo(t.dir) && !isLinkedWorktree(t.dir) && !leaves(t.root, t.dir, { dir, projects });
   });
   const done = await pool(targets, AT_ONCE, async (t) => {

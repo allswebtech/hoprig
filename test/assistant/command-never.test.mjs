@@ -29,6 +29,14 @@ test('run_command refuses a command line or a folder inside the credentials fold
     assert.throws(() => run_command.check({ command: `cat ${path.join(cred, 'shop', 'key.env')}`, folder: home }), /credentials|sign-in/);
     assert.throws(() => run_command.check({ command: `sudo cat ${path.join(cred, 'shop', 'key.env')}`, folder: home }), /credentials|sign-in/, 'an administrator line is read first for the credentials folder');
     assert.doesNotThrow(() => run_command.check({ command: 'ls', folder: home }));
+    if (process.platform === 'win32') {
+      // the spellings of a Windows path: forward slashes, another case, a trailing separator, quotes with a blank, ~ and a name from the environment
+      const key = path.join(cred, 'shop', 'key.env');
+      for (const line of [`cat ${key.replace(/\\/g, '/')}`, `type ${key.toUpperCase()}`, `type ${key.toLowerCase()}`, `type "${key}"`, `dir ${cred}\\`, `type ${key.replace(home, '%HOPRIG_T_HOME%')}`, `gc ${key.replace(home, '$env:HOPRIG_T_HOME')}`, `cat --file=${key}`, 'cd credentials && type shop\\key.env', 'type credentials\\shop\\key.env']) {
+        process.env.HOPRIG_T_HOME = home;
+        assert.throws(() => run_command.check({ command: line, folder: line.startsWith('cd ') || line.startsWith('type credentials') ? home : os.tmpdir() }), /credentials|sign-in/, line);
+      }
+    }
   }
 });
 

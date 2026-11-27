@@ -7,6 +7,10 @@ import path from 'node:path';
 import { claudeDir, configDir, stateDir, tilde } from '../paths.mjs';
 import { isSecret } from '../editor/paths.mjs';
 
+// The real path of an existing place. On Windows the native call also gives a short 8.3 name (RUNNER~1) in full and a
+// folder's case as the disk has it, so a place is the same place however it was typed; the plain one leaves both as written.
+export const realPath = (p) => (process.platform === 'win32' ? fs.realpathSync.native(p) : fs.realpathSync(p));
+
 /** Real paths of the configured roots that exist. */
 export function resolveRoots(roots) {
   const list = Array.isArray(roots) && roots.length ? roots : [os.homedir()];
@@ -14,7 +18,7 @@ export function resolveRoots(roots) {
   for (const r of list) {
     if (typeof r !== 'string' || !path.isAbsolute(r)) continue;
     try {
-      const real = fs.realpathSync(r);
+      const real = realPath(r);
       if (fs.statSync(real).isDirectory() && !out.includes(real)) out.push(real);
     } catch {
       /* a root that does not exist on this machine is skipped */
@@ -55,7 +59,7 @@ export function insideRoots(p, roots) {
   if (typeof p !== 'string' || !path.isAbsolute(p) || p.includes('\0')) return null;
   let real;
   try {
-    real = fs.realpathSync(p);
+    real = realPath(p);
     if (!fs.statSync(real).isDirectory()) return null;
   } catch {
     return null;
@@ -78,7 +82,7 @@ export function realOr(p) {
   let at = path.resolve(p);
   for (;;) {
     try {
-      return path.join(fs.realpathSync(at), ...rest);
+      return path.join(realPath(at), ...rest);
     } catch {
       const up = path.dirname(at);
       if (up === at) return path.resolve(p);
