@@ -241,7 +241,7 @@ test('install.ps1 follows the same rule (read, not run: no PowerShell here)', ()
   assert.match(ps, /\$npmMajor -ge 12 -and -not \(Test-Path -LiteralPath \$Source\)/);
   assert.match(ps, /\$npmAllow = @\('--allow-git=root'\)/);
   assert.match(ps, /\$npmAllow = @\('--allow-remote=root'\)/);
-  assert.match(ps, /Invoke-Logged 'npm\.cmd' \(@\('install', '-g'\) \+ \$npmAllow \+ @\('--no-audit', '--no-fund', \$Source\)\)/);
+  assert.match(ps, /Invoke-Logged 'npm\.cmd' \(@\('install', '-g'\) \+ \$npmPrefix \+ \$npmAllow \+ @\('--no-audit', '--no-fund', \$Source\)\)/);
 });
 
 test('install.sh: a readable os-release that does not parse is read past, not fatal', { skip: posixOnly }, async () => {

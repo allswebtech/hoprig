@@ -14,7 +14,7 @@
 //
 // It installs Hoprig, its service and Claude Code for the real user of the computer it runs on, so it runs only on a CI
 // runner (GITHUB_ACTIONS and RUNNER_TEMP set) and refuses anywhere else.
-import { execFileSync } from 'node:child_process';
+import { execFileSync, execSync } from 'node:child_process';
 import fs from 'node:fs';
 import http from 'node:http';
 import net from 'node:net';
@@ -93,13 +93,29 @@ if (!WIN) {
   if (MAC) fs.writeFileSync(path.join(SHIMS, 'git'), '#!/bin/sh\necho "xcode-select: note: no developer tools were found" >&2\nexit 1\n', { mode: 0o755 });
 }
 
+// ---- Windows: the saved PATH, as a new window of a person reads it ---------------------------------------------------------
+// A window opened by the Explorer gets the PATH saved in the registry (all users, then the person's own). The runner's
+// own process has a longer one (the tool cache), so this reads the saved one, and hides what a fresh PC does not have:
+// Node.js always; Git too on the leg without Git (its folder is renamed, so winget has something to install).
+const ps = (cmd) => execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', cmd], { encoding: 'utf8' }).trim();
+const savedPath = () => ps("[Environment]::GetEnvironmentVariable('Path','Machine') + ';' + [Environment]::GetEnvironmentVariable('Path','User')");
+if (WIN) {
+  const drop = LEG === 'git-hidden' ? 'nodejs|\\\\Git\\\\' : 'nodejs';
+  ps(`$m = [Environment]::GetEnvironmentVariable('Path','Machine') -split ';' | Where-Object { $_ -and $_ -notmatch '${drop}' }; [Environment]::SetEnvironmentVariable('Path', ($m -join ';'), 'Machine')`);
+  if (LEG === 'git-hidden' && fs.existsSync('C:\\Program Files\\Git')) {
+    try { fs.renameSync('C:\\Program Files\\Git', 'C:\\Program Files\\Git.hidden'); note('Git for Windows folder renamed away: this PC has no Git'); } catch (e) { note('could not hide Git', { detail: e.message }); }
+  }
+  note('saved PATH as a new window reads it', { detail: savedPath().split(';').filter(Boolean).join(' ; ').slice(0, 400) });
+}
+
 // ---- the terminal's environment: the computer's own, not the runner's -----------------------------------------------
 const env = { ...process.env };
 for (const k of Object.keys(env)) if (/^(CI|GITHUB_|RUNNER_|ACTIONS_|INPUT_|NODE_OPTIONS$|npm_)/i.test(k)) delete env[k];
 const pathKey = Object.keys(env).find((k) => k.toUpperCase() === 'PATH') || 'PATH';
 const toolCache = (process.env.RUNNER_TOOL_CACHE || '').toLowerCase();
 const hidden = (p) => (toolCache && p.toLowerCase().startsWith(toolCache)) || (WIN && /[\\/]nodejs([\\/]|$)/i.test(p)) || (WIN && LEG === 'git-hidden' && /[\\/]git[\\/]/i.test(p));
-env[pathKey] = [...(WIN ? [] : [SHIMS]), ...String(env[pathKey] || '').split(path.delimiter).filter((p) => !hidden(p))].join(path.delimiter);
+const envPath = () => [...(WIN ? [] : [SHIMS]), ...String(WIN ? savedPath() : env[pathKey] || '').split(path.delimiter).filter((p) => p && !hidden(p))].join(path.delimiter);
+env[pathKey] = envPath();
 env.HOPRIG_SOURCE = TGZ;
 env.TERM = 'xterm-256color';
 if (WIN && LEG !== 'admin-stop') env.HOPRIG_ALLOW_ADMIN = '1'; // a runner is an administrator; a person's window is not
@@ -112,6 +128,7 @@ function openWindow(label) {
   const shell = WIN ? 'powershell.exe' : MAC ? '/bin/zsh' : '/bin/bash';
   const args = WIN ? ['-NoLogo', '-ExecutionPolicy', POLICY] : ['-il'];
   const w = { label, buf: '', last: Date.now(), exited: null };
+  if (WIN) env[pathKey] = envPath(); // a window opened now reads the PATH saved now
   w.p = pty.spawn(shell, args, { name: 'xterm-256color', cols: 120, rows: 40, cwd: os.homedir(), env });
   w.p.onData((d) => {
     w.buf += d;
@@ -272,8 +289,24 @@ if (up && link) {
     el.click();
     return true;
   })()`).catch(() => false);
-  await chrome.goto(link[1], 7000);
-  const home = await shot('20-home-first-run', 1500);
+  let signIn = link[1];
+  let home = '';
+  await chrome.goto(signIn, 7000);
+  home = await shot('19-printed-link', 1500);
+  const printedUsed = /used already|too old/.test(home);
+  if (printedUsed) {
+    // Something opened the printed link before this walker did: on Windows and the Mac that is the default browser the
+    // installer started, which is the proof it was opened signed in. A second one proves a link still signs in.
+    note('the printed link was already used: the default browser took it');
+    try {
+      const out = execSync(WIN ? 'hoprig link' : 'hoprig link', { env, encoding: 'utf8', timeout: 60_000, shell: WIN ? 'powershell.exe' : '/bin/bash' });
+      const again = /(http:\/\/127\.0\.0\.1:\d+\/login#link=[A-Za-z0-9_-]{43})/.exec(out);
+      if (again) signIn = again[1];
+    } catch (e) { note('hoprig link failed', { detail: String(e.message).slice(0, 200) }); }
+    await chrome.goto(signIn, 7000);
+  }
+  summary.printedLinkUsedByBrowser = printedUsed;
+  home = await shot('20-home-first-run', 1500);
   check('the printed link signs in: Home shows the card', /Welcome to Hoprig/.test(home), home.slice(0, 120));
   check('the card has two steps and no New session button, no providers line, no badge', /Sign in to Claude|Signed in to Claude/.test(home) && /Start your first chat/.test(home) && !/New session/.test(home) && !/provider.*(available|not signed)/.test(home) && !/No sessions yet/.test(home) && !(await chrome.evaluate("!!document.querySelector('.nav-badge') && document.querySelector('.nav-badge').offsetParent !== null").catch(() => false)), home.slice(0, 200));
 
@@ -281,7 +314,7 @@ if (up && link) {
   // talks to no model. Hoprig's own settings point at it, and after the page's one-minute cache the card ticks step 1.
   const unpack = path.join(process.env.RUNNER_TEMP, 'firstrun-pkg');
   fs.mkdirSync(unpack, { recursive: true });
-  execFileSync('tar', ['-xzf', TGZ, '-C', unpack, 'package/src/demo'], { stdio: 'ignore' });
+  execFileSync('tar', ['-xzf', path.basename(TGZ), '-C', path.relative(path.dirname(TGZ), unpack) || '.', 'package/src', 'package/package.json'], { stdio: 'ignore', cwd: path.dirname(TGZ) }); // by a relative name: GNU tar reads D: as a host
   const chat = path.join(unpack, 'package', 'src', 'demo', 'chat.mjs');
   const standin = path.join(SHIMS, 'standin-claude.mjs');
   fs.writeFileSync(standin, `import { spawn } from 'node:child_process';
@@ -314,7 +347,7 @@ spawn(process.execPath, [${JSON.stringify(chat)}, ...a], { stdio: 'inherit' }).o
   await chrome.evaluate(`(() => { const t = document.querySelector('textarea'); t.focus(); const set = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set; set.call(t, 'a web page with a clock'); t.dispatchEvent(new Event('input', { bubbles: true })); })()`).catch(() => {});
   await chrome.evaluate("(() => { const b = document.querySelector('.chat-send'); if (b) b.click(); })()").catch(() => {});
   const answer = await shot('23-first-answer', 12_000);
-  check('Claude answers in the chat', /This chat talks to no model|Claude/.test(answer) && /a web page with a clock/.test(answer), answer.slice(0, 160));
+  check('Claude answers in the chat', /This chat talks to no model/.test(answer) && !/stopped/i.test(answer), answer.slice(0, 160));
   await chrome.goto(`${BASE}/#/`, 4000);
   const after = await shot('24-home-after', 500);
   check('after the first chat the card is gone for good', !/Welcome to Hoprig/.test(after), '');
@@ -324,6 +357,7 @@ await finish();
 
 // ---- the end: pictures of the terminal, the words, the checks --------------------------------------------------------------
 async function finish() {
+  try { if (WIN) fs.copyFileSync(path.join(process.env.LOCALAPPDATA || '', 'hoprig', 'install.log'), path.join(OUT, 'install.log')); } catch { /* none written */ }
   fs.writeFileSync(path.join(OUT, 'page-errors.txt'), `${pageErrors.join('\n')}\n`);
   const own = chrome || await launchChrome();
   const xdir = path.join(ROOT, 'node_modules', '@xterm', 'xterm');

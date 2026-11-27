@@ -41,6 +41,15 @@ jobs:
           node-version: 24
       - name: The walker's own modules (node-pty, ws, xterm from the checkout; not the install)
         run: npm ci --no-audit --no-fund
+      # node-pty's helper program on macOS arrives without its run bit from the install, and the terminal cannot start.
+      - name: macOS, the terminal module's helper may run
+        if: runner.os == 'macOS'
+        run: chmod +x node_modules/node-pty/prebuilds/*/spawn-helper
+      # A runner is a cloud machine, and Hoprig treats a cloud machine as a server (no browser to open). A person's own
+      # Ubuntu desktop is not one: its hardware files are hidden here, so this leg walks the desktop path.
+      - name: Ubuntu, a desktop and not a cloud machine
+        if: runner.os == 'Linux'
+        run: sudo mount -t tmpfs tmpfs /sys/devices/virtual/dmi/id
       - name: Pack the build a person installs
         run: |
           WANT=$(node -p "require('./package.json').version")

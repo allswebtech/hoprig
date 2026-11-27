@@ -34,6 +34,7 @@ $Log = Join-Path $Home_ 'install.log'
 $NodeDir = Join-Path $Home_ 'node'
 $Tick = [string][char]0x2713
 $Cross = [string][char]0x2717
+$script:NodeUnpacked = $false
 $ProgressPreference = 'SilentlyContinue' # Windows PowerShell 5.1 downloads many times slower with its progress bar
 
 function Say($text) { Write-Host $text }
@@ -49,8 +50,8 @@ function Invoke-Logged($exe, $argv) {
 function Note($text) { Add-Content -LiteralPath $Log -Value $text -ErrorAction SilentlyContinue }
 # A part that did not install: the part, the reason in one line, the way to try again; then the install stops (Stop-Install
 # is caught below, and the window stays open: this script never calls exit).
-function Fail($what, $why) {
-    Write-Host "$Cross $what did not install: $why" -ForegroundColor Red
+function Fail($what, $why, $verb = 'did not install') {
+    Write-Host "$Cross $what ${verb}: $why" -ForegroundColor Red
     Write-Host ''
     Write-Host 'Paste the same line again to try once more.'
     Write-Host "Details: $Log"
@@ -71,6 +72,9 @@ function Update-PathFromSystem {
     $machine = [Environment]::GetEnvironmentVariable('Path', 'Machine')
     $user = [Environment]::GetEnvironmentVariable('Path', 'User')
     $env:Path = "$machine;$user"
+    # Windows puts the all-users folders before your own: an older Node.js installed for everyone would win over the one
+    # unpacked into your own folder a moment ago.
+    if ($script:NodeUnpacked) { $env:Path = "$NodeDir;$env:Path" }
 }
 
 # A folder at the front of your own PATH (saved) and of this window's.
@@ -115,6 +119,7 @@ function Install-NodeZip {
     Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue
     # Windows' default setting does not let PowerShell run script files: npm.ps1 and npx.ps1 are not wanted, the .cmd files are.
     foreach ($f in 'npm.ps1', 'npx.ps1') { Remove-Item -LiteralPath (Join-Path $NodeDir $f) -Force -ErrorAction SilentlyContinue }
+    $script:NodeUnpacked = $true
     Add-UserPath $NodeDir
     Note "node: $name unpacked into $NodeDir, sha256 $got"
 }
@@ -169,8 +174,12 @@ function Install-Hoprig {
         elseif ($Source -match '^https?://') { $npmAllow = @('--allow-remote=root') }
     }
     # The terminal module's install script is not run by npm 12 in a global install: `hoprig setup` below builds it.
-    if ((Invoke-Logged 'npm.cmd' (@('install', '-g') + $npmAllow + @('--no-audit', '--no-fund', $Source))) -ne 0) { Fail 'Hoprig' 'npm could not install it' }
-    $prefix = (& npm.cmd prefix -g).Trim()
+    # With the Node.js unpacked into your own folder, hoprig goes beside it: its hoprig.cmd then starts that node.exe,
+    # whatever older Node.js comes first on the PATH.
+    $npmPrefix = @(); if ($script:NodeUnpacked) { $npmPrefix = @('--prefix', $NodeDir) }
+    if ((Invoke-Logged 'npm.cmd' (@('install', '-g') + $npmPrefix + $npmAllow + @('--no-audit', '--no-fund', $Source))) -ne 0) { Fail 'Hoprig' 'npm could not install it' }
+    $prefix = if ($script:NodeUnpacked) { $NodeDir } else { (& npm.cmd prefix -g).Trim() }
+    Note "hoprig installed under $prefix with $((Get-Command npm.cmd).Source)"
     # npm writes hoprig.ps1 and hop.ps1 beside the .cmd files; PowerShell takes a .ps1 before a .cmd and Windows'
     # default setting then refuses it. Taken away, typing hoprig runs hoprig.cmd.
     foreach ($f in 'hoprig.ps1', 'hop.ps1') { Remove-Item -LiteralPath (Join-Path $prefix $f) -Force -ErrorAction SilentlyContinue }
@@ -181,7 +190,7 @@ function Install-Hoprig {
 
     # Claude Code, the dashboard, its start at sign-in and the browser: setup (a first run asks nothing and prints a tick each).
     & $bin setup @SetupArgs
-    if ($LASTEXITCODE -ne 0) { Fail 'Hoprig setup' 'a part of it did not finish (its lines above say which)' }
+    if ($LASTEXITCODE -ne 0) { Fail 'Hoprig set-up' 'a part of it did not finish (its lines above say which)' 'did not finish' }
     New-StartMenuEntry $bin
 }
 

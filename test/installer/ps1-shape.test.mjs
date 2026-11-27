@@ -53,7 +53,8 @@ test('npm runs by its .cmd name, and the .ps1 shims are taken away', () => {
 
 test('one tick line per part, a red cross with the reason on failure, a log', () => {
   for (const part of ['Node.js', 'Git', 'Hoprig']) assert.match(code, new RegExp(`Tick '${part}'`));
-  assert.match(code, /did not install: \$why/);
+  assert.match(code, /\$verb = 'did not install'/);
+  assert.match(code, /\$what \$\{verb\}: \$why/);
   assert.match(code, /install\.log/);
   assert.match(code, /\*>> \$Log/);
 });
@@ -66,4 +67,11 @@ test('a Start menu entry opens the page signed in', () => {
 
 test('it asks nothing', () => {
   assert.doesNotMatch(code, /Read-Host|\$Host\.UI\.Prompt|Confirm-|PromptForChoice/);
+});
+
+test('an older Node.js for all users never wins over the one unpacked for the person', () => {
+  // Windows reads the all-users PATH before the person's own: after the PATH is read again, and for npm itself, the
+  // unpacked folder is put first, and hoprig is installed beside that node.exe.
+  assert.match(code, /if \(\$script:NodeUnpacked\) \{ \$env:Path = "\$NodeDir;\$env:Path" \}/);
+  assert.match(code, /@\('--prefix', \$NodeDir\)/);
 });
