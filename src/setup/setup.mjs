@@ -1,12 +1,18 @@
 // `hoprig setup`: from a fresh machine to a dashboard you open by scanning a QR code. It finds out, does, and
-// prints one line per step. It asks at most two things, and only when they are not decided yet:
-//   1. Claude Code is missing: install it now?
-//   2. who may open the dashboard: this computer, devices on the network (default), or Tailscale
-// Everything else has one sensible answer and is just done: a profile for the stored login, a generated
-// dashboard password (kept in a private file; the QR sign-in link means it is rarely typed), the background
-// service. Running it again changes nothing that is already in place.
+// prints one line per step. On a fresh desktop it asks about 7 things, each only when it is not decided yet:
+//   1. who may open the dashboard: this computer, devices on the network (default), or Tailscale
+//   2. the one list of installs for this computer (Node.js, the build tools, GitHub's tool ...), with sudo's own password
+//   3. the GitHub sign-in, in the browser; the commit name and e-mail then come from GitHub
+//   4. keeping the workspace in a new private GitHub repository
+//   5. a name for this computer in the workspace
+//   6. keeping the map up to date by itself
+//   7. a first project (Enter skips)
+// Everything else has one sensible answer and is just done, without a question: Claude Code, a profile for the
+// stored login, a generated dashboard password (kept in a private file; the QR sign-in link means it is rarely typed),
+// the background service, Hoprig's own reviewed skills. The working rules are one optional press on Get started.
+// Running it again changes nothing that is already in place and asks nothing new.
 //
-//   --yes                  answer both questions with their defaults
+//   --yes                  answer every question with its default
 //   --dry-run              ask nothing, change nothing, only report
 //   --access local|network|tailscale   choose (or change) who may open it, without the question
 //   --no-service           do not install the background service
@@ -20,6 +26,7 @@ import { claudeInfo, claudeInstall, claudeLoginStatus, resolveClaude } from '../
 import { configFile, configDir, tilde } from '../paths.mjs';
 import { loadConfig, saveConfig } from '../config.mjs';
 import { listProfiles } from '../profiles.mjs';
+import { enabledToolIds } from '../codetools/index.mjs';
 import {
   APP, DEFAULT_HOST, DEFAULT_PORT, appRoot, appVersion, hasBuildTools, nodeCheck, passwordCheck, probe, ptyCause, ptyFix,
   ptyRepairArgv, ptyState, ptyWorks, ptyWorksNow, serviceInstalled, sysInfo, systemdUser, tailscaleState,
@@ -106,7 +113,7 @@ export function installerNeeds(sys) {
   return need;
 }
 
-// ---- Claude Code: the one install question ---------------------------------------------------------------------
+// ---- Claude Code: installed without a question ---------------------------------------------------------------------
 export async function stepClaude(ui, sys, state) {
   const info = await claudeInfo({ env: sys.env });
   if (info.installed) {
@@ -115,8 +122,14 @@ export async function stepClaude(ui, sys, state) {
     return true;
   }
   ui.line('warn', 'Claude Code is not installed.');
-  if (!(await ui.confirm('Install it now?', true))) {
-    if (!ui.dryRun) ui.note(`Later: ${APP} claude install latest`);
+  // Claude Code is a tool this computer uses (Coding tools) and someone is there or said --yes: no question, only what is
+  // about to run (a failure keeps its retry line). Otherwise it is asked, and skipped where nobody can answer.
+  if (ui.dryRun) {
+    ui.line('info', `Would install Claude Code with the official installer (${sys.platform === 'win32' ? 'https://claude.ai/install.ps1' : 'https://claude.ai/install.sh'})`);
+    return false;
+  }
+  if (!(enabledToolIds(loadConfig()).includes('claude') && (ui.interactive || ui.yes)) && !(await ui.confirm('Install it now?', true))) {
+    ui.note(`Later: ${APP} claude install latest`);
     return false;
   }
   const need = installerNeeds(sys);

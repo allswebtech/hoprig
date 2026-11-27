@@ -151,7 +151,7 @@ test('a sentence on Work\'s and Schedules\' files that names another place opens
   const auto = read('automation.js');
   assert.doesNotMatch(auto, /add one under Providers\.'/, 'no "add one under Providers" in words only');
   assert.equal((auto.match(/add one under ', h\('a', \{ href: link\('#\/providers'\) \}, 'Providers'\)|add one under `, h\('a', \{ href: link\('#\/providers'\) \}, 'Providers'\)/g) || []).length, 2);
-  assert.match(auto, /h\('a', \{ href: link\('#\/settings\/updates'\) \}, 'Settings → Updates'\)/);
+  assert.match(auto, /h\('a', \{ href: link\('#\/settings\/updates'\) \}, 'Settings → Version and updates'\)/);
   const doit = read('workdo.js');
   const back = doit.slice(doit.indexOf('export async function sendBack'));
   assert.match(back.slice(0, 600), /h\('a', \{ href: link\('#\/skills\/learned'\) \}, 'Skills → Learned'\)/, 'Send back\'s learning line links Skills → Learned');

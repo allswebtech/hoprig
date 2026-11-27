@@ -1,10 +1,10 @@
-// Home's fold (home.js): the sessions under "Waiting for your next message" that have waited for more than 6 hours
+// Home's fold (home.js): the sessions under "Finished" that have waited for more than 6 hours
 // stand under one line, so the ones of the last hours are not lost in a long row of work that finished long ago.
 // Nothing here ends a session: ending them is the owner's own press in the sheet of closesheet.js.
 import { span, stateOf } from './lib.js';
 
 export const FOLD_AFTER_MS = 6 * 3600_000;
-// The states of Home's group "Waiting for your next message" (home.js GROUPS): waiting, and finished.
+// The states of Home's group "Finished" (home.js GROUPS): finished (waiting) and ended.
 const WAITS = ['waiting', 'ended'];
 
 /** Since when the session has been in its state (ms): its state time, else its last activity; 0 when not known. */
@@ -34,8 +34,8 @@ export function splitWaiting(list, now = Date.now()) {
   return { recent, old };
 }
 
-/** The fold's line: "12 sessions have waited for more than 6 hours". */
-export const foldLine = (n) => `${n} session${n === 1 ? ' has' : 's have'} waited for more than 6 hours`;
+/** The fold's line: "Finished more than 6 hours ago: 12". */
+export const foldLine = (n) => `Finished more than 6 hours ago: ${n}`;
 
 /** How long it has waited, in the unit the card's "1 day ago" uses (lib.js span): "7 h", "1 day". */
 export function waitedFor(s, now = Date.now()) {

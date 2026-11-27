@@ -359,7 +359,7 @@ button.row.wk-repeat { width: 100%; text-align: left; font: inherit; color: inhe
 /* A time field's picker button takes a Tab stop of its own, inside the field: the ring is the field's while any part has focus. */
 .wk-tell-time:focus-within .field { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
 
-/* Settings → Work → Another program (workaccess.js) */
+/* Work → Tasks → Work settings (at the foot) → More → Another program (workaccess.js) */
 .wk-sub-head { font-size: var(--fs-sm); font-weight: 600; margin: 16px 0 6px; }
 .wk-token .wk-main { min-width: 0; flex: 1; }
 .wk-url { display: block; overflow-wrap: anywhere; font-weight: 500; }

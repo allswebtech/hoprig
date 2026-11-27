@@ -87,7 +87,7 @@ export const WORK_OPS = {
   async work({ computer }) {
     this.reads.push({ op: 'work', args: { computer } });
     const w = this.s.work;
-    if (!w) return { problem: 'Work keeps its list in a folder of your workspace: choose where in Settings → Work.', items: [] };
+    if (!w) return { problem: 'Work keeps its list in a folder of your workspace: choose where in Work → Tasks → Work settings (at the foot).', items: [] };
     const items = w.items.map((x, i) => viewOf(w, x, i));
     return { today: w.today, items, projects: [...w.projects], todayView: todayView(items, w.today), runs: {}, doIt: true, ...(w.interrupted ? { interrupted: clone(w.interrupted) } : {}), ...(w.recovered ? { recovered: w.recovered } : {}) };
   },

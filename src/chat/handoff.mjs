@@ -95,10 +95,10 @@ export function handoffRoutes(ctx, o) {
   const { chats, make, save, chatOr404, memory, models, openChatOf, freeId, terminalOf, claim, serial, forget, auto, handedTo = () => {} } = o;
   const bad = (msg) => new HttpError(400, msg);
   const cfg = () => ctx.config();
-  // The chats closed by "Open in terminal", with their titles (handed.mjs: kept over a restart of the dashboard).
+  // The chats closed by "Continue in Terminal", with their titles (handed.mjs: kept over a restart of the dashboard).
   const handed = handedChats(o.handedFile || null);
   const titleOf = (conversation, tool) => handed.titleOf(conversation, tool);
-  // One "Open in terminal" start per conversation: `${tool}:${conversation}` → the promise of the terminal name it is
+  // One "Continue in Terminal" start per conversation: `${tool}:${conversation}` → the promise of the terminal name it is
   // opening in. A second request for the same conversation (a double tap, two tabs) waits for that one and opens in
   // the same terminal, never a second process and never a 404 in the window before the new terminal's record is seen.
   const openingTerminal = new Map();

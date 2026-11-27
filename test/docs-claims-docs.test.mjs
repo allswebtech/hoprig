@@ -218,7 +218,7 @@ test('Workspace: the route list names every route of the workspace feature, and 
     assert.match(page, named, `${method} ${p} is named`);
   }
   // The workspace folders panel is drawn by Settings → Workspace; the Setup part of a computer's page only links there.
-  assert.match(read('web/workspace.js'), /fill\(box, placesPanel\(st, draw\), computerPanel\(\), workspaceFolders\(\)/);
+  assert.match(read('web/workspace.js'), /fill\(box, placesPanel\(st, draw\), workspaceFolders\(\)/);
   assert.match(read('web/pcsetup.js'), /h\('a\.row', \{ href: link\('#\/settings\/workspace'\) \}/);
   assert.match(page, /The workspace folders themselves are in \*\*Settings → Workspace\*\* \(the \*\*Setup\*\* part of a computer's page links there\)\./);
 });

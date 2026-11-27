@@ -1,10 +1,10 @@
 #!/bin/sh
 # hoprig installer for macOS and Linux.
 #
-#   curl -fsSL <address of this file> | sh                 one question if something must be installed
+#   curl -fsSL <address of this file> | sh                 says what it installs, then does it
 #   curl -fsSL <address of this file> | sh -s -- --yes     no questions
 #
-# It finds what is missing, lists it, asks once, installs it, installs hoprig and runs `hoprig setup`.
+# It finds what is missing, lists it, installs it, installs hoprig and runs `hoprig setup`.
 #   Node.js 24.13.1+ for you only (no administrator rights) with nvm, the version manager nodejs.org lists for macOS
 #                 and Linux; on Alpine (musl: nvm has no ready-made Node there) with `apk add nodejs npm`.
 #   system bits   only on Linux, with the system package manager: curl when there is no downloader, libatomic
@@ -261,7 +261,7 @@ main() {
     PKG_CMD="${SUDO:+$SUDO }$(printf '%s' "$PKG_CMD" | sed "s/SUDO/${SUDO:+$SUDO }/g")"
   fi
 
-  # ---- one question for all of it ---------------------------------------------------------------------------------
+  # ---- what will be installed: said, then done (sudo asks for its own password; Ctrl-C stops it) ----------------------
   if [ "$WORK" = 1 ]; then
     work_plan
     if [ "$DRY_RUN" = 1 ]; then
@@ -273,12 +273,6 @@ main() {
     say "To install:"
     [ -n "$PKG_CMD" ] && say "  $PKGS   ($PKG_CMD)"
     [ "$NODE_NVM" = 1 ] && say "  Node.js LTS, for you only, with nvm $NVM_VERSION in $NVM_DIR"
-    if [ "$YES" != 1 ]; then
-      can_ask || die "no terminal to ask in. Run it again with --yes:  curl -fsSL <address> | sh -s -- --yes"
-      printf 'Install now? [Y/n] ' >/dev/tty
-      read -r answer </dev/tty || answer=n
-      case $answer in '' | y | Y | yes | Yes | YES) ;; *) die "nothing was installed." ;; esac
-    fi
   fi
 
   if [ -n "$PKG_CMD" ]; then

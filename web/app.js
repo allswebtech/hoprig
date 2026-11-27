@@ -47,7 +47,7 @@ let stopView = () => {};
  */
 export const PAGE_ADDRESSES = [
   '#/', '#/new', '#/more',
-  '#/work', '#/work/tasks', '#/work/plans', '#/work/schedules', '#/work/activity', '#/work/team',
+  '#/work', '#/work/tasks', '#/work/plans', '#/work/schedules', '#/work/activity', '#/work/team', '#/work/golive',
   '#/workspace', '#/new-project', '#/get-project',
   '#/providers',
   '#/computers', '#/computers/add', '#/computer', '#/computer/setup', '#/computer/advanced',
@@ -57,7 +57,7 @@ export const PAGE_ADDRESSES = [
   '#/operator',
   '#/code',
   '#/desktop', '#/desktop/sessions', '#/desktop/terminal', '#/desktop/files', '#/desktop/editor', '#/desktop/tasks', '#/desktop/services', '#/desktop/logs',
-  '#/settings', '#/settings/new-sessions', '#/settings/root', '#/settings/work', '#/settings/automations', '#/settings/golive', '#/settings/workspace', '#/settings/notifications', '#/settings/appearance', '#/settings/security', '#/settings/public-link', '#/settings/tia', '#/settings/editor', '#/settings/addons', '#/settings/codingtools', '#/settings/updates', '#/settings/learn', '#/settings/about',
+  '#/settings', '#/settings/new-sessions', '#/settings/root', '#/settings/work', '#/settings/automations', '#/settings/workspace', '#/settings/notifications', '#/settings/appearance', '#/settings/security', '#/settings/public-link', '#/settings/tia', '#/settings/editor', '#/settings/addons', '#/settings/codingtools', '#/settings/updates', '#/settings/about',
 ];
 
 /** Old addresses (and the screens Tia links to) → where that lives now. */
@@ -89,6 +89,8 @@ export const ALIASES = {
   '/settings/quick': '/settings/appearance',
   '/settings/terminals': '/settings/appearance',
   '/settings/claude': '/settings/updates',
+  '/settings/golive': '/work/golive',
+  '/settings/learn': '/skills/learned',
   '/settings/folders': '/settings/new-sessions',
   '/settings/vscode': '/settings/editor',
   '/settings/uploads': '/settings/new-sessions',

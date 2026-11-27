@@ -87,7 +87,7 @@ three lists) and `POST /api/skillhub/fit/choice` (`{ project, fit }`).
 ## Skills learned from your work
 
 A computer can also draft skills from what you do in **Work**. It is off until you turn it on in
-**Settings → Learn skills** ("Learn skills from my work"), where you choose the provider and model that do the
+**Skills → Learned** ("Learn skills from my work", the panel at the top of that tab), where you choose the provider and model that do the
 looking (a look costs usage there; the page says what the last one cost: dollars for a provider billed by use,
 otherwise the tokens, which count toward your plan's usage limit) and how many looks a week are allowed
 (1 to 20, 5 by default). At most three drafts are made a week, whatever that number says. Looks started at the same
@@ -175,7 +175,7 @@ comes first:
 - `why`, `numbers` (`whole`, `heldout`, `tokens_per_turn`, `fresh`, `cost`), `gates`, `created`, and an optional
   `issue`: a text for a coding session when the change is to code. It is shown, never applied.
 
-Settings → Skills → Proposals shows each one with what would change and the numbers, compared here, never taken from
+Skills → Proposals shows each one with what would change and the numbers, compared here, never taken from
 the file. **Accept** for a skill puts its new text in Tia's own skills folder. For a tool's description or a prompt
 section it writes the text into `<state>/assistant/accepted/` (`tools/<tool>.description.txt` or
 `prompt/<section>.md`, each with a `.json` record of the hash of Hoprig's own text it was measured against). Tia
@@ -201,7 +201,7 @@ its skill folders (nothing is checked out or run). It keeps each skill's name, d
 them under `metadata.hermes.tags`) in Hoprig's state folder, with the commit they were read from. A skill fits a
 project when one of its tags or a word of its name is one of the project's technology words (its dependencies and
 stacks, the same reading as the suggestions; no AI), and the reason says so: "because shop's package.json has
-next". The skills that fit show as **Worth adding** at the top of the Skills page, each with where it comes from,
+next". The skills that fit show as **Worth adding**, the first part of the **Suggested** tab (its number is on the tab), each with where it comes from,
 the reason and **Review**. A collection that cannot be read is one line there; the look goes on. The search (Find)
 also lists the skills the last look read.
 

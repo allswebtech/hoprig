@@ -51,3 +51,9 @@ test('a family is described in one place only: the subscription\'s data, which t
   assert.deepEqual(holders, [], 'a second list of family labels');
 });
 
+
+test('the note under a subscription\'s list names no Claude Code version: the computer may have another', () => {
+  const src = fs.readFileSync(path.join(WEB, 'modelpicker.js'), 'utf8');
+  assert.doesNotMatch(src, /read for version/);
+  assert.match(src, /The models Claude Code offers a subscription\./);
+});

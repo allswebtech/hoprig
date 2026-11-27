@@ -10,7 +10,7 @@
 //                                                         how many runs that end by themselves at once (1 to 4)
 //   restore    { enabled }                               null = on for the built-in terminals, off for tmux
 //   retry      { enabled, max, firstMinutes, prompt }    default off
-//   (updates have their own top-level key "updates": ./updates.mjs, Settings → Updates)
+//   (updates have their own top-level key "updates": ./updates.mjs, Settings → Version and updates)
 //   idle       { shells, shellHours, gateway, gatewayMinutes } default off
 //   workspace  { map, commitMap, memory, sync, push, pushBranches, everyHours }
 //                                                         map on (it acts only where a map exists, and writes only

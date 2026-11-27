@@ -87,7 +87,7 @@ export function createAutomation(ctx) {
   // The address of the AI brain's git server, or null: decides "save a change of the map" when the owner never did.
   const brainRemote = ctx.brainRemote || (() => remoteOf(brainDir()));
   const saveSettings = (s) => saveConfig({ automation: s });
-  // The old Claude-only update setting is read once into Settings → Updates (./updates.mjs).
+  // The old Claude-only update setting is read once into Settings → Version and updates (./updates.mjs).
   try {
     updates.migrateUpdates(ctx.config() || {}, saveConfig);
   } catch (e) {
@@ -335,7 +335,7 @@ export function createAutomation(ctx) {
       const t = now();
       const last = store.read('schedules', {});
       return {
-        // `updates.claude`: the old setting's value, for older pages and Tia's rule (Settings → Updates holds it now)
+        // `updates.claude`: the old setting's value, for older pages and Tia's rule (Settings → Version and updates holds it now)
         settings: { ...effectiveSettings(s, brainRemote), updates: { claude: updates.legacyValue(updater.settings()) } }, // commitMap true or false, as it acts
         commitMap: commitMapState(s.workspace, brainRemote()), // and why: chosen, or from the brain's address
         restoreDefault: !(ctx.backend && ctx.backend.capabilities && ctx.backend.capabilities.persistent),
@@ -355,7 +355,7 @@ export function createAutomation(ctx) {
       const old = patch && typeof patch === 'object' ? patch.updates : undefined;
       let up = null;
       if (old !== undefined) {
-        if (!old || typeof old !== 'object' || Object.keys(old).some((k) => k !== 'claude')) throw Object.assign(new Error('updates are set in Settings → Updates'), { status: 400, details: { code: 'updates-moved' } }); // the code of that place (web/errorways.js): the page draws its button
+        if (!old || typeof old !== 'object' || Object.keys(old).some((k) => k !== 'claude')) throw Object.assign(new Error('updates are set in Settings → Version and updates'), { status: 400, details: { code: 'updates-moved' } }); // the code of that place (web/errorways.js): the page draws its button
         if ('claude' in old) up = updates.fromLegacy(old.claude, updater.settings());
       }
       const rest = old === undefined ? patch : Object.fromEntries(Object.entries(patch).filter(([k]) => k !== 'updates'));

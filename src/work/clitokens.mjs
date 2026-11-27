@@ -1,5 +1,5 @@
 // hoprig tasks tokens: the Work tokens for other programs (access.mjs), listed and revoked from a terminal. They are
-// made only on the dashboard's page (Settings → Work), where the token is shown once.
+// made only on the dashboard's page (Work → Tasks → Work settings (at the foot)), where the token is shown once.
 import { listWebhooks, listWorkTokens, revokeWorkToken } from './access.mjs';
 
 const when = (ms) => (ms ? new Date(ms).toISOString().slice(0, 16).replace('T', ' ') : 'never');
@@ -14,7 +14,7 @@ export function tokensCommand(word, name, { show, dryRun = false }) {
         `${t.id}  ${t.name}  made ${when(t.created)}  last used ${when(t.lastUsed)}`,
         ...hooks.filter((h) => h.token === t.id).map((h) => `    webhook ${h.id}: ${h.url} (${h.events.join(', ')})`),
       ])
-      : ['No Work tokens. Make one in the dashboard: Settings → Work → Another program.'];
+      : ['No Work tokens. Make one in the dashboard: Work → Tasks → Work settings (at the foot) → More → Another program.'];
     show({ tokens, webhooks: hooks }, lines.join('\n'));
     return 0;
   }

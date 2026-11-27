@@ -238,9 +238,9 @@ body.has-nav .page { padding-bottom: calc(150px + env(safe-area-inset-bottom)); 
 }
 .pill .dot, .acct-state .dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; flex: none; }
 .pill-time { font-weight: 500; opacity: 0.85; }
-.st-working.pill { background: var(--ok-soft); color: var(--ok); }
+.st-working.pill { background: var(--accent-soft); color: var(--accent-soft-text); }
 .st-working.pill .dot { animation: pulse 1.4s ease-in-out infinite; }
-.st-waiting.pill { background: var(--accent-soft); color: var(--accent-soft-text); }
+.st-waiting.pill { background: var(--ok-soft); color: var(--ok); } /* Finished and Ready: green */
 .st-attention.pill { background: var(--warn-soft); color: var(--warn); }
 .st-starting.pill { background: var(--info-soft); color: var(--info); }
 .st-limit.pill { background: var(--danger-soft); color: var(--danger); }
@@ -262,8 +262,8 @@ body.has-nav .page { padding-bottom: calc(150px + env(safe-area-inset-bottom)); 
   transition: box-shadow var(--tick);
 }
 article.card::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: var(--border-strong); }
-article.card.st-working::before { background: var(--ok-solid, var(--ok)); }
-article.card.st-waiting::before { background: var(--accent); }
+article.card.st-working::before { background: var(--accent); }
+article.card.st-waiting::before { background: var(--ok-solid, var(--ok)); }
 article.card.st-attention::before { background: var(--warn-solid, var(--warn)); }
 article.card.st-limit::before { background: var(--danger-solid, var(--danger)); }
 article.card.st-failed::before { background: var(--danger-solid, var(--danger)); }
@@ -732,7 +732,7 @@ input.switch:focus-visible { box-shadow: 0 0 0 3px var(--accent-soft); border-ra
 .acct-test svg { flex: none; margin-top: 2px; }
 .acct-test.test-ok svg { color: var(--ok); }
 .acct-test.test-bad svg { color: var(--danger); }
-/* Settings → Coding tools */
+/* Settings → New sessions → Coding tools */
 .ct-scope { margin: 0 0 12px; }
 .row.row-busy { cursor: progress; opacity: .85; }
 .row.row-busy .row-end svg { display: none; }

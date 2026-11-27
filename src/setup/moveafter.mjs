@@ -57,7 +57,7 @@ export function onceLines(configDir) {
   const cfg = readJson(path.join(configDir, 'config.json')) || {};
   const out = [];
   if (cfg.sessionDefaults?.permissionMode === 'bypassPermissions' && cfg.allowBypass !== true) {
-    out.push('Your default for new sessions is bypass permissions mode, and its switch is off: turn it on once in Settings → New-session defaults (it was refused as root).');
+    out.push('Your default for new sessions is bypass permissions mode, and its switch is off: turn it on once in Settings → New sessions (it was refused as root).');
   }
   const tia = cfg.assistant || {};
   if (tia.enabled === true && typeof tia.runsOn === 'string' && !(Number.isFinite(tia.dailyCapUsd) && tia.dailyCapUsd > 0)) {

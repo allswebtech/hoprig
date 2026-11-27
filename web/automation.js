@@ -2,15 +2,13 @@
 // their own any more (fewer pages): their parts live where a person looks for them.
 //   Schedules  Work → Schedules (#/work/schedules, web/workschedules.js): the list, "Add schedule" (this file's form,
 //              a sentence that says what will happen), and the queue below it
-//   Rules      Settings → Automations (#/settings/automations, below): one switch per automation; "Pause all
-//              automations", rarely used, under Advanced
+//   Rules      Settings → While you are away (#/settings/automations, below): one switch per automation; "Pause all
+//              automations", rarely used, under Advanced. The schedules' own two settings are on top of Work → Schedules.
 //   Activity   Work → Activity (#/work/activity): what the automations did, under the runs of the tasks
 // The same file brings the session view's "Queue" button and the "3 queued" badge on Home's session cards.
 import { icon } from './icons.js';
 import { TOOL_NAMES, ago, api, at, btn, chooseSheet, confirmSheet, fill, h, isCodingCard, link, machine, needsYouFirst, openSheet, servesTool, stateOf, tildePath, toast } from './lib.js';
 
-// The queue's switch on Settings → Automations, opened at the switch itself (showpart.js).
-export const QUEUE_SWITCH = '#/settings/automations?show=queue';
 import { chatTools } from './chat/start.js';
 import { registerCardBadge, registerSessionAction, registerSettingsPage } from './registry.js';
 import { emptyState, errorBox, fold, groupHead, panel, savedMark, toggle } from './shell.js';
@@ -146,33 +144,27 @@ const loading = (text = 'Loading…') => h('div.empty.compact.au-loading', h('di
 // ---------- Schedules ----------
 
 export function schedulesPart(st, { reload, addSchedule, rows = null, computers = [] }) {
-  const off = !st.settings.schedules.enabled;
-  const turnOn = async () => {
-    try {
-      await saveSettings({ schedules: { enabled: true } });
-      toast('Schedules are on again');
+  // The two settings of the schedules, on top of the list they are about (they were in Settings → While you are away).
+  const settings = h('div.card.au-sched-settings',
+    toggle('Run schedules', st.settings.schedules.enabled, async (v) => {
+      await saveSettings({ schedules: { enabled: v } });
       reload();
-    } catch {
-      /* said why */
-    }
-  };
-  const offBanner = off
-    ? h('div.banner.info.au-inline', icon('info', { size: 18 }), h('span', 'Schedules are turned off, so none of these runs.'), btn('small secondary', { label: 'Turn schedules on', onclick: turnOn }))
-    : null;
+    }, 'Off: nothing starts at a set time, not a schedule and not the run time of a task.'),
+    atOnceRow(st, () => reload()));
   if (!st.schedules.length && !(rows && rows.length)) {
     const example = {
       label: 'Morning dependency check',
       when: { kind: 'weekly', time: '08:30', days: [1, 2, 3, 4, 5] },
       prompt: 'Check for outdated dependencies and write a short summary',
     };
-    return [offBanner, h('div.au-empty',
+    return [settings, h('div.au-empty',
       emptyState('clock', 'No schedules yet. A schedule lets the AI work by itself, starts a session or sends a message at a set time, for example:'),
       h('p.au-example', '“Weekdays at 08:30, let the AI work by itself in my project and check for outdated dependencies.”'),
       btn('secondary', { icon: 'pencil', label: 'Start from this example', onclick: () => addSchedule(example) }))];
   }
   const list = st.schedules.map((s) => scheduleRow(s, reload, st.timeZone, computers));
   return [
-    offBanner,
+    settings,
     groupHead('Schedules and repeating tasks', st.schedules.length + (rows ? rows.length : 0)),
     h('div.rows', list, rows || []),
     h('p.hint.au-foot', `Times are this computer's clock${st.timeZone ? ` (${st.timeZone})` : ''}. A run that ends by itself works in a separate copy of the project, so your project is not changed until you accept; a message waits in the session's queue, so it never interrupts a reply. A run missed while the computer was off still runs if it is less than ${st.settings.schedules.lateHours} hours late. A run on another computer that cannot be reached at its time is missed and runs nowhere else; at its time limit a run is stopped and keeps what it did.`),
@@ -474,7 +466,9 @@ export function queuePart(st, reload) {
   const rows = Object.entries(st.queues || {}).filter(([, q]) => q.count || q.paused).sort((a, b) => b[1].count - a[1].count);
   const off = !st.settings.queue.enabled;
   return [
-    off ? h('p.banner.info', icon('info', { size: 18 }), h('span', 'Sending the next queued message is turned off in Settings → Automations, so queued messages wait. ', h('a', { href: link(QUEUE_SWITCH) }, 'Open the switch'))) : null,
+    // The queue has no switch any more (it acts only on messages you queued). A file that still says off keeps it off.
+    off ? h('p.banner.info', icon('info', { size: 18 }), h('span', 'Sending the next queued message is turned off, so queued messages wait.'),
+      btn('small secondary', { label: 'Turn it on', onclick: () => saveSettings({ queue: { enabled: true } }).then(reload, () => {}) })) : null,
     h('div.savebar.start', btn('primary', { icon: 'plus', label: 'Queue a message', onclick: () => queueFor(reload) })),
     rows.length
       ? [groupHead('Sessions with a queue', rows.length),
@@ -556,16 +550,14 @@ function rulesPart(st, after) {
   idleShells.hidden = !s.idle.shells;
   idleGateway.hidden = !s.idle.gateway;
   return [
-    panel({ icon: 'clock', title: 'While you are away', desc: 'Keep the work going when you are not watching.' },
-      Object.assign(rule('Send the next queued message', s.queue.enabled, (v) => ({ queue: { enabled: v } }),
-        'Each time a reply ends, the next message from that session\'s queue is sent.'), { id: 'queue' }),
+    panel({ icon: 'clock', title: 'Keep the work going', desc: 'What happens when you are not watching.' },
       rule('Try again after a server error', s.retry.enabled, (v) => ({ retry: { enabled: v } }),
         { line: 'In a Claude Code session: when the provider\'s servers are busy or the connection breaks, it sends "continue" after a short wait.',
           more: 'Up to three times; never at a usage limit. Other coding tools\' sessions are left as they are.' }),
       rule('Reopen sessions after a restart', !!st.restoreOn, (v) => ({ restore: { enabled: v } }),
         { line: 'Claude Code and OpenCode sessions lost when the computer or the dashboard restarts come back with their conversation.',
           more: 'Nothing is typed into them. Another coding tool\'s session is not reopened.' })),
-    panel({ icon: 'settings', title: 'Housekeeping', desc: ['Keep the computer tidy. New versions have a page of their own: ', h('a', { href: link('#/settings/updates') }, 'Settings → Updates'), '.'] },
+    panel({ icon: 'settings', title: 'Housekeeping', desc: ['Keep the computer tidy. New versions have a page of their own: ', h('a', { href: link('#/settings/updates') }, 'Settings → Version and updates'), '.'] },
       rule('Close idle terminals', s.idle.shells, (v) => ({ idle: { shells: v } }),
         { line: 'Closes a plain terminal that has been quiet for a while; a coding tool\'s session is never closed.',
           more: 'Only a terminal that nobody uses.' }, (v) => (idleShells.hidden = !v)),
@@ -598,14 +590,15 @@ export function pausedBanner(st, after) {
     : null;
 }
 
-/** "Runs by themselves at once": how many runs that end by themselves this computer runs side by side. */
+/** "At most this many at once": how many runs that end by themselves this computer runs side by side. */
 function atOnceRow(st, after) {
-  return choiceRow('Runs by themselves at once', st.settings.schedules.atOnce || 1, [1, 2, 3, 4].map((n) => [n, String(n)]),
+  return choiceRow('At most this many at once', st.settings.schedules.atOnce || 1, [1, 2, 3, 4].map((n) => [n, String(n)]),
     async (v) => after(await saveSettings({ schedules: { atOnce: Number(v) } })),
     'Never two of one project; a run that has to wait starts when a place is free.');
 }
 
-// Settings → Automations: the switches of what the dashboard does by itself (the schedules are in Work → Schedules).
+// Settings → While you are away: the switches of what the dashboard does by itself (the schedules' own two settings are
+// on top of Work → Schedules).
 function automationSettings() {
   const box = h('div.au-settings', loading());
   const paint = (st) => {
@@ -613,12 +606,8 @@ function automationSettings() {
     const again = (next) => paint(next);
     fill(box,
       pausedBanner(st, again),
-      panel({ icon: 'clock', title: 'Schedules', desc: 'What starts at a set time: the list is in Work → Schedules.' },
-        toggle('Run schedules', st.settings.schedules.enabled, async (v) => again(await saveSettings({ schedules: { enabled: v } })),
-          'The master switch of everything that starts by itself at a time: schedules and the run times of tasks.'),
-        atOnceRow(st, again),
-        h('p.hint', h('a', { href: link('#/work/schedules') }, 'Open the schedules'))),
       rulesPart(st, again),
+      h('p.hint', 'Schedules: ', h('a', { href: link('#/work/schedules') }, 'Work → Schedules')),
       fold('automations-advanced', 'Advanced', panel({}, pauseRow(st, again))));
   };
   const seen = cache.get(keyOf());
@@ -627,8 +616,8 @@ function automationSettings() {
   return box;
 }
 registerSettingsPage({
-  id: 'automations', title: 'Automations', icon: 'zap', order: 18, desc: 'What the dashboard does by itself, by fixed rules, without AI: schedules, the queue, reopening sessions, trying again, housekeeping.',
-  summary: () => (cache.get(keyOf()) && cache.get(keyOf()).settings.paused ? 'Paused' : 'Schedules, queue, restart, housekeeping'), render: automationSettings,
+  id: 'automations', title: 'While you are away', icon: 'zap', order: 18, desc: 'What the dashboard does by itself, by fixed rules, without AI: trying again, reopening sessions, housekeeping.',
+  summary: () => (cache.get(keyOf()) && cache.get(keyOf()).settings.paused ? 'Paused' : 'Retry, restart, housekeeping'), render: automationSettings,
 });
 
 // ---------- Activity ----------

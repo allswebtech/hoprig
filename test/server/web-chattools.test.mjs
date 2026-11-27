@@ -38,8 +38,15 @@ const lists = {
   '/m/laptop/api/chats/tools': [{ id: 'claude', name: 'Claude Code' }, { id: 'opencode', name: 'OpenCode' }],
   '/m/box3/api/chats/tools': [{ id: 'claude', name: 'Claude Code' }],
 };
-globalThis.fetch = async (url) => {
+const posted = [];
+let answerOf = null; // what the fake POST /api/chats answers
+globalThis.location = { hash: '', pathname: '/', replace() {} };
+globalThis.fetch = async (url, init = {}) => {
   asked.push(url);
+  if (init.method === 'POST') {
+    posted.push(JSON.parse(init.body));
+    return { ok: true, status: 200, json: async () => answerOf };
+  }
   return { ok: true, status: 200, json: async () => ({ tools: lists[url] || [] }) };
 };
 
@@ -69,4 +76,24 @@ test('"Open as chat" on another tool\'s terminal: offered until the computer is 
   assert.equal(S.opensAsChat(claude, 'box3'), true, 'Claude Code\'s always');
   await S.chatTools('laptop');
   assert.equal(S.opensAsChat(oc, 'laptop'), true);
+});
+
+test('a worktree start on a computer that does not answer with it (an older version) says so; an answer with it says nothing', async () => {
+  const lib = await import('../../web/lib.js');
+  const toasts = [];
+  const orig = globalThis.document.createElement;
+  // toast() builds its box from the page's own helpers; its text is what the owner reads: collect the text nodes it makes
+  globalThis.document.createTextNode = (t) => (toasts.push(String(t)), { text: t });
+  answerOf = { id: 'old1' };
+  await S.startChat('/p/shop', { worktree: true });
+  assert.equal(posted.at(-1).worktree, true);
+  assert.ok(toasts.some((t) => /does not offer a branch of its own yet/.test(t)), 'the owner is told: ' + toasts.join('|'));
+  toasts.length = 0;
+  answerOf = { id: 'new1', worktree: { branch: 'worktree-chat-aaaaaa' } };
+  await S.startChat('/p/shop', { worktree: true });
+  answerOf = { id: 'plain1' };
+  await S.startChat('/p/shop', {});
+  assert.deepEqual(toasts.filter((t) => /branch of its own/.test(t)), [], 'no notice when it was answered, or not asked for');
+  globalThis.document.createElement = orig;
+  assert.ok(lib);
 });

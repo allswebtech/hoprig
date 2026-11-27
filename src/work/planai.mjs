@@ -64,7 +64,7 @@ export function planRunner(o) {
   const settling = new Set();
   let timer = null;
 
-  // The saved values a check keeps accepting (the default of Settings → New-session defaults); the provider's own list
+  // The saved values a check keeps accepting (the default of Settings → New sessions); the provider's own list
   // comes from src/models/catalog.mjs (chat/tools.mjs choicesOf).
   const models = () => {
     const saved = (cfg().sessionDefaults || {}).model;
@@ -96,7 +96,7 @@ export function planRunner(o) {
     return {
       projects: [...names.keys()], project, tools: chatToolList(cfg()).map(({ id, name }) => ({ id, name })), tool, providers: providersFor(tool), provider,
       models: ch.models, efforts: ch.efforts, model: tool === 'claude' && d.model && ch.models.includes(d.model) ? d.model : null, effort: d.effort && ch.efforts.includes(d.effort) ? d.effort : null,
-      // "Lead model": Settings → New-session defaults; leadLine says which models it uses on this provider, or why not.
+      // "Lead model": Settings → New sessions; leadLine says which models it uses on this provider, or why not.
       lead: tool === 'claude' && d.lead === true, leadLine: leadLineFor(provider, tool), others: ticksOf(d.others).filter((n) => n !== provider),
     };
   }
@@ -121,7 +121,7 @@ export function planRunner(o) {
     if (c.model && !modelOk(tool, c.model, ch)) throw fail(400, modelRefusal(c.model, ch));
     if (c.effort && !ch.efforts.includes(c.effort)) throw fail(400, `the effort must be one of: ${ch.efforts.join(', ')}`);
     if (c.lead !== undefined && c.lead !== null && typeof c.lead !== 'boolean') throw fail(400, 'lead is true or false');
-    // A choice wins over Settings → New-session defaults; only Claude Code can lead.
+    // A choice wins over Settings → New sessions; only Claude Code can lead.
     const lead = tool === 'claude' && (typeof c.lead === 'boolean' ? c.lead : (cfg().sessionDefaults || {}).lead === true);
     let others = [];
     try {

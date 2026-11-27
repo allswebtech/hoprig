@@ -29,13 +29,17 @@ export function stateWords(v) {
     if (v.activity && ACTIVITY[v.activity]) return `${ACTIVITY[v.activity](who)}…`;
     if ((v.live || []).some((b) => b.kind === 'text' && !b.agent)) return `${who} is writing…`;
     if ((v.live || []).some((b) => b.kind === 'thinking' && !b.agent)) return `${who} is thinking…`;
-    const bg = (v.tasks || []).filter((t) => t.status === 'running' && t.background).length;
-    if (!turnRuns(v)) return bg ? `Working in the background: ${bg === 1 ? '1 task' : `${bg} tasks`}` : 'Working in the background…';
+    // How many, and what, is the Background tasks part above the box (agents.js): here only the state.
+    if (!turnRuns(v)) return 'Working in the background';
     return 'Working…';
   }
+  if (v.status === 'ended') return 'Ended';
   if (v.lastEnd === 'stopped') return 'Stopped';
   if (v.lastEnd === 'limit' || (v.limit && !v.lastError)) return 'Stopped at the usage limit';
-  return v.lastError ? 'Stopped with an error' : 'Ready';
+  if (v.lastError) return 'Stopped with an error';
+  // Ready: nothing was sent yet (a new chat); Finished: a turn is over and nothing runs. An older computer that does not
+  // say whether a message was sent has Finished.
+  return v.hasMessage === false ? 'Ready' : 'Finished';
 }
 
 /**
@@ -45,7 +49,7 @@ export function stateWords(v) {
 export function statusKey(v) {
   if (v.terminal) return 'terminal';
   if (v.toolOff && v.status !== 'working') return 'stopped'; // the coding tool is off on this computer
-  if (v.status !== 'waiting') return v.status;
+  if (v.status !== 'waiting') return v.status; // working, attention, ended (grey)
   if (v.lastError) return 'error';
   if (v.lastEnd === 'stopped') return 'stopped';
   if (v.lastEnd === 'limit' || v.limit) return 'limit';

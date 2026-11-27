@@ -48,6 +48,7 @@
     "web",
     "templates",
     "skills",
+    "roles",
     "docs/*.md",
     "test/assistant/eval/*.mjs",
     "test/assistant/eval/baseline.json",

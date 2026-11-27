@@ -68,8 +68,8 @@ a.tia-c-item:hover { background: var(--surface-2); }
 .tia-c-label { font-weight: 600; }
 .tia-c-state { flex: none; color: var(--text-2); font-size: var(--fs-xs); }
 .tia-c-dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
-.tia-c-dot.st-working { background: var(--ok-solid); }
-.tia-c-dot.st-waiting { background: var(--accent); }
+.tia-c-dot.st-working { background: var(--accent); }
+.tia-c-dot.st-waiting { background: var(--ok-solid); }
 .tia-c-dot.st-attention { background: var(--warn-solid); }
 .tia-c-dot.st-limit { background: var(--danger-solid); }
 /* numbers */

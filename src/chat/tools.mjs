@@ -38,7 +38,7 @@ export const chatTools = (cfg) => enabledToolIds(cfg).filter((id) => engineIds()
  * it is on. Claude Code is never off.
  */
 export const toolOffWords = (tool, cfg) => (tool === 'claude' || chatTools(cfg).includes(tool) ? null
-  : `${findTool(tool).name} is off on this computer: turn it on under Settings → Coding tools to go on with this chat`);
+  : `${findTool(tool).name} is off on this computer: turn it on under Settings → New sessions → Coding tools to go on with this chat`);
 
 /**
  * The same for the page's choice: [{ id, name, modes?, modeWords?, efforts? }] of the ones installed too (Claude Code

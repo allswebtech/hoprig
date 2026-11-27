@@ -51,7 +51,7 @@ export function modelPicker(o) {
     const n = view.models.length;
     const left = value && marked(view, value) && !view.models.some((m) => m.id === value);
     note.textContent = [
-      view.why || (view.source === 'endpoint' || view.source === 'tool' ? `${n} model${n === 1 ? '' : 's'} this provider lists.` : view.source === 'subscription' ? `The models Claude Code offers a subscription (read for version ${view.read ? view.read.version : '?'}).` : view.note || ''),
+      view.why || (view.source === 'endpoint' || view.source === 'tool' ? `${n} model${n === 1 ? '' : 's'} this provider lists.` : view.source === 'subscription' ? 'The models Claude Code offers a subscription.' : o.quiet ? '' : view.note || ''),
       left ? `The saved model "${value}" is ${NOT_LISTED}; it stays chosen until you pick another.` : '',
     ].filter(Boolean).join(' ');
     typed.classList.toggle('hidden', !view.typed);

@@ -5,8 +5,8 @@
 // through another computer's page.
 import { APP_NAME } from './brand.js';
 import { icon } from './icons.js';
-import { ago, api, btn, confirmSheet, copyText, fill, h, insecure, link, machinePill, openSheet, promptSheet, toast } from './lib.js';
-import { errorBox, field, fold, panel, skeletonRows, steps, toggle } from './shell.js';
+import { ago, api, at, btn, confirmSheet, copyText, fill, h, insecure, link, machine, machinePill, openSheet, promptSheet, toast } from './lib.js';
+import { errorBox, field, fold, okBox, panel, skeletonRows, steps, toggle } from './shell.js';
 import { plainHost } from './health.js';
 
 const G = (p) => `~/api/gateways${p}`;
@@ -59,7 +59,7 @@ export function gatewayPageLink(page, { title = 'The gateway', pageHost = '', si
     return { text: `${title}'s own page opens only in a browser on the computer this dashboard runs on, at ${u.href}` };
   }
   const host = plainHost(own, signedIn);
-  if (!host) return { text: `You are signed in to this dashboard under both localhost and 127.0.0.1, so a link to ${title} would hand it your sign-in. Sign out under one of them (Settings → About → This device) to get its link.` };
+  if (!host) return { text: `You are signed in to this dashboard under both localhost and 127.0.0.1, so a link to ${title} would hand it your sign-in. Sign out under one of them (Settings → Security and sign-in → This device) to get its link.` };
   u.hostname = host;
   return { href: u.href };
 }
@@ -80,6 +80,7 @@ export function gatewayLine(c, g) {
   return [
     g.running ? 'Running' : 'Installed, not running',
     g.version ? `version ${g.version}` : null,
+    g.restart || null,
     g.shared ? (c.machine ? 'shared' : 'shared with your other computers') : null,
     c.machine && !g.ready ? `not set up as a provider on ${c.label} yet` : null,
     g.usedAs ? `used here as ${g.usedAs.label}` : null,
@@ -253,4 +254,60 @@ export function gatewaysPanel({ useLocal, changed }) {
   }
   load();
   return panel({ id: 'gateways', icon: 'swap', title: 'Gateways on your computers', desc: 'A gateway lets Claude Code use AI accounts of other companies. Use one on this computer or on another of yours.' }, box);
+}
+
+/**
+ * Providers → Other providers → a gateway Hoprig sets up itself: one press ("Set up"). The confirmation names the
+ * computer; Hoprig installs the gateway when it is missing, starts it, makes the key for the sessions and saves the
+ * provider, and the lines of that job show here as they come (src/addons/gatewayhost.mjs POST …/setup). Every failure
+ * ends in one sentence with the next step. `done()` draws the provider list again after it worked; `after`: what to
+ * show under a success (the link to the gateway's own page, where its providers are added).
+ */
+export function setupBlock(g, { done, after = null, secondary = null } = {}) {
+  const out = h('pre.output.hidden', { 'aria-live': 'polite' });
+  const msg = h('div');
+  // The question is asked here, in the block: a second sheet would take this sheet (and the lines below) away.
+  const run = async (computer) => {
+    fill(msg);
+    out.classList.remove('hidden');
+    fill(out);
+    try {
+      await api(at(machine.current, `/api/gatewayhost/${g.id}/setup`), { confirm: computer });
+      let from = 0;
+      for (;;) {
+        await new Promise((r) => setTimeout(r, 1000));
+        const j = await api(at(machine.current, `/api/gatewayhost/${g.id}/setup/job?from=${from}`));
+        if (j.lines.length) fill(out, `${out.textContent}${j.lines.join('\n')}\n`);
+        from = j.next;
+        out.scrollTop = out.scrollHeight;
+        if (!j.running) {
+          if (j.result && !j.result.ok) throw new Error(j.result.error || `${g.title} could not be set up`);
+          fill(msg, okBox(`${g.title} is set up on ${computer}.`), after ? after() : null);
+          done && done();
+          return;
+        }
+      }
+    } catch (e) {
+      go.disabled = false;
+      go.classList.remove('hidden');
+      fill(msg, errorBox(e));
+    }
+  };
+  const go = btn('primary block', { icon: 'play', label: `Set up ${g.title}`, onclick: async () => {
+    go.disabled = true;
+    fill(msg);
+    try {
+      const computer = (await api(at(machine.current, '/api/gatewayhost'))).computer;
+      go.classList.add('hidden');
+      fill(msg, h('div',
+        h('p.sheet-text', `Hoprig installs ${g.title} on ${computer} when it is missing, starts it, makes a key for your sessions and saves it as a provider. Its lines show here as they come.`),
+        h('div.sheet-actions',
+          btn('secondary', { label: 'Cancel', onclick: () => { fill(msg); go.classList.remove('hidden'); go.disabled = false; } }),
+          btn('primary', { label: `Set up on ${computer}`, onclick: (e) => { e.currentTarget.disabled = true; run(computer); } }))));
+    } catch (e) {
+      go.disabled = false;
+      fill(msg, errorBox(e));
+    }
+  } });
+  return h('div', go, out, msg, secondary);
 }

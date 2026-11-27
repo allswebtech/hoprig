@@ -6,7 +6,7 @@ import { modelPicker } from './modelpicker.js';
 import { LEAD_TERMINAL, leadSwitch } from './leadswitch.js';
 import { otherToolOptions, select } from './newsession-tools.js';
 import { autoSlowLine, defaultWords } from './newsession-words.js';
-// The same plain words as Settings → New-session defaults (sessiondefaults.js).
+// The same plain words as Settings → New sessions (sessiondefaults.js).
 import { BYPASS_MEANS, EFFORT, MODES } from './sessiondefaults.js';
 
 export const LEAD_SAME = 'Left as it is: Lead on or off as your last session in the project, else as in Settings; the providers ticked as in Settings.';
@@ -66,6 +66,13 @@ export function optionsFor({ st, where: m, run, info, toolName, onplain }) {
     st.permissionMode = v;
     drawLead();
   };
+  // Worktree: only Claude Code's App chat; a new conversation on a branch of its own. A folder that is no git repository
+  // starts as usual and the chat says so.
+  const worktree = app ? h('div.ns-worktree',
+    h('label.toggle-line',
+      h('input', { type: 'checkbox', checked: st.worktree === true, 'data-startctl': '', 'data-key': 'worktree', onchange: (e) => (st.worktree = e.target.checked) }),
+      h('span', 'Work on a branch of its own (worktree)')),
+    h('p.hint', 'A new branch and a separate copy of the project\'s files, so this chat\'s changes stay apart. Only in a git folder, and only for a new conversation.')) : null;
   return [
     select('Provider', st.profile, [['', defaultWords(m, profiles, app ? same : null, 'claude', st.dir)], ...profiles.map((p) => [p.name, p.virtual ? `${p.label} · uses your providers in order` : `${p.label} · ${kindLabel(p)} · ${profileState(p).text}`])], (v) => {
       st.profile = v;
@@ -79,6 +86,7 @@ export function optionsFor({ st, where: m, run, info, toolName, onplain }) {
     // A model for this one session: try something cheaper without changing the setting for every session.
     modelSlot,
     leadSlot,
+    worktree,
     conversation,
     plain,
   ];

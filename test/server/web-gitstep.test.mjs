@@ -69,7 +69,7 @@ test('changed files, commits to upload and commits to get leave the set-up step 
     assert.equal(step.action, null, 'no button on a done step');
     assert.doesNotMatch(step.detail, /changed|upload|to get|in step/);
   }
-  assert.equal(withGitStep(onb, brain({ changes: 6 })).done, 2);
+  assert.equal(withGitStep(onb, brain({ changes: 6 })).done, onb.done, 'an optional step: the count of required steps does not move');
 });
 
 test('the step is open only for what set-up lacks, and names only that', () => {

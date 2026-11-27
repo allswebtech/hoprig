@@ -173,6 +173,9 @@ export function claudeFolders(limit = 30) {
   return out;
 }
 
+/** The tail of a path that is a chat's worktree: /.claude/worktrees/<name> and anything inside it. */
+const WORKTREE_TAIL = /[\\/]\.claude[\\/]worktrees[\\/][^\\/]+(?:[\\/].*)?$/;
+
 /**
  * Recent folders for the picker: live sessions first, then Claude Code's own history; existing and inside roots.
  * `live`: the folders sessions run in, as paths or { cwd, session } (a terminal) or { cwd, chat } (a chat at work); a
@@ -183,7 +186,9 @@ export function recentFolders(live, roots, limit = 12) {
   const out = [];
   const own = ownRoots();
   const add = (p, isLive, session = null, chat = null) => {
-    const real = insideRoots(p, roots);
+    // A chat's own worktree (<project>/.claude/worktrees/<name>) is never a project: its project's folder is offered, so a
+    // new session there starts in the project, and a chat running in the worktree counts as running in its project.
+    const real = insideRoots(typeof p === 'string' ? p.replace(WORKTREE_TAIL, '') : p, roots);
     if (!real || seen.has(real) || own.some((r) => within(real, r))) return;
     seen.add(real);
     out.push({ path: real, short: tilde(real), name: path.basename(real) || real, live: isLive, ...(session ? { session } : {}), ...(chat ? { chat } : {}) });

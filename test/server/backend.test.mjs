@@ -63,15 +63,27 @@ test('tmux calls are argument arrays (recorded)', async () => {
   assert.deepEqual(calls[2][0].slice(0, 3), ['paste-buffer', '-p', '-d']);
   calls.length = 0;
   await b.respawn('%7', '/w#{pane_id}', ['n', 'p2', '--resume', 'id']);
+  // The shell a new pane of the session starts is asked for first: the respawn always names it, so tmux never runs the
+  // command the pane was created with again (respawn-adopted.test.mjs). tmux names none here: a login /bin/sh.
+  assert.deepEqual(calls[0][0], ['display-message', '-p', '-t', '%7', '#{default-shell}\t#{default-command}']);
   // What runs under the pane's shell ends first (here tmux names no shell: nothing to end; ending.test.mjs).
-  assert.deepEqual(calls[0][0], ['display-message', '-p', '-t', '%7', '#{pane_dead} #{pane_pid}']);
-  assert.deepEqual(calls[1][0], ['respawn-pane', '-k', '-t', '%7', '-c', '/w##{pane_id}', ...env]);
-  assert.deepEqual(calls[2][0], ['clear-history', '-t', '%7']);
-  assert.deepEqual(calls[3][0], ['send-keys', '-t', '%7', '-l', '--', `${CLEAR}; n p2 --resume id`]);
+  assert.deepEqual(calls[1][0], ['display-message', '-p', '-t', '%7', '#{pane_dead} #{pane_pid}']);
+  assert.deepEqual(calls[2][0], ['respawn-pane', '-k', '-t', '%7', '-c', '/w##{pane_id}', ...env, '/bin/sh', '-l']);
+  assert.deepEqual(calls[3][0], ['clear-history', '-t', '%7']);
+  assert.deepEqual(calls[4][0], ['send-keys', '-t', '%7', '-l', '--', `${CLEAR}; n p2 --resume id`]);
   calls.length = 0;
   // A run of "#" before "[" is a style to tmux, copied through as it is: left alone, or the folder would be another one.
   await b.respawn('%7', '/w/notes #[draft] a##[b ##(x) #', ['n', 'p2']);
-  assert.deepEqual(calls[1][0].slice(4, 6), ['-c', '/w/notes #[draft] a##[b ####(x) ##']);
+  assert.deepEqual(calls[2][0].slice(4, 6), ['-c', '/w/notes #[draft] a##[b ####(x) ##']);
+  calls.length = 0;
+  // The session's own shell, and its default-command when it has one, are what a respawn starts.
+  b.run = async (args) => (calls.push([args]), args[0] === 'display-message' && args[4].startsWith('#{default-shell}') ? '/usr/bin/zsh\t\n' : '');
+  await b.respawn('%7', '/w', ['n']);
+  assert.deepEqual(calls[2][0].slice(-2), ['/usr/bin/zsh', '-l']);
+  calls.length = 0;
+  b.run = async (args) => (calls.push([args]), args[0] === 'display-message' && args[4].startsWith('#{default-shell}') ? '/bin/bash\texec fish\n' : '');
+  await b.respawn('%7', '/w', ['n']);
+  assert.deepEqual(calls[2][0].slice(-1), ['exec fish']);
   calls.length = 0;
   await assert.rejects(b.respawn('%7', '/w', ['n', 'a\u0015b']), (e) => e.status === 400);
   assert.deepEqual(calls, [], 'refused before what runs there is stopped, or its programs are ended');

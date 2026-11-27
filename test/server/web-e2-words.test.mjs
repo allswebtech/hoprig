@@ -22,7 +22,7 @@ test('words: the old words are gone from what the page shows', () => {
 
 test('words: the plain words stand in their place', () => {
   assert.match(read('skillhub.js'), /'Each skill is first downloaded to a place apart, kept at the exact version you saw, and shown in full before you install it\.'/);
-  assert.match(read('settings.js'), /\['json', 'For a program of your own \(JSON\)'\]/);
+  assert.doesNotMatch(read('settings.js'), /For a program of your own \(JSON\)/, 'the push format is no choice on the page any more; an old value stays');
   assert.match(read('settings.js'), /'Hoprig picks tmux when it is installed, else its own terminals\.'/);
   assert.match(read('updates.js'), /the helper for the public link \(cloudflared\)/);
   assert.match(read('workdo.js'), /'Done with it: remove its copy of the project'/);

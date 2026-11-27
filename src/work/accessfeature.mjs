@@ -1,4 +1,4 @@
-// Settings → Work → "Another program": the owner's routes for Work tokens, webhooks and their limits (access.mjs).
+// Work → Tasks → Work settings (at the foot) → "Another program": the owner's routes for Work tokens, webhooks and their limits (access.mjs).
 //
 //   GET  /api/work/access                                      { tokens, webhooks, limits } (never a hash or a secret)
 //   POST /api/work/access/tokens { name, confirmed? }          make a token: first the question, then with

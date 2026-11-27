@@ -404,7 +404,7 @@ page on GitHub.
 
 ## What Tia can do, and what she cannot
 
-Every act of Hoprig is one row of `src/assistant/inventory.json`: 338 in all (43 commands, 288 changes in the dashboard, 7 skills). Tia does 101 of them with a tool of hers, 7 more by another route of the same effect, and 230 are not hers. A test holds the file to the code: a new command or route without a row fails it.
+Every act of Hoprig is one row of `src/assistant/inventory.json`: 356 in all (43 commands, 306 changes in the dashboard, 7 skills). Tia does 101 of them with a tool of hers, 7 more by another route of the same effect, and 248 are not hers. A test holds the file to the code: a new command or route without a row fails it.
 
 ### What she does
 
@@ -526,10 +526,12 @@ Every act of Hoprig is one row of `src/assistant/inventory.json`: 338 in all (43
 
 ### What stays yours
 
-**Money and prices: what a provider costs, which provider billed by use or model is used** (8):
+**Money and prices: what a provider costs, which provider billed by use or model is used** (10):
 
 - `POST /api/profiles/<id>/available`: Marking a provider usable again decides which provider spends next.
 - `POST /api/gateways/use`: Which gateway a provider goes through decides what is paid and to whom.
+- `POST /api/gatewayhost/<id>/combos/make`: A combo decides which provider answers a model name, and so what is spent.
+- `POST /api/gatewayhost/<id>/combos/<id>/remove`: A combo decides which provider answers a model name, and so what is spent.
 - `POST /api/accounts/<id>/model`: A provider's model and its place in Auto mode decide what is spent.
 - `POST /api/accounts/<id>/auto`: A provider's model and its place in Auto mode decide what is spent.
 - `POST /api/skills/learned/look`: A look at your work for skills is a paid model call you start yourself.
@@ -537,7 +539,7 @@ Every act of Hoprig is one row of `src/assistant/inventory.json`: 338 in all (43
 - `POST /api/providers/<id>/mend`: A provider's model map decides which paid model its sessions use.
 - `POST /api/providers/<id>/map`: Turning a provider's model map on or off decides which paid model its sessions use.
 
-**A sign-in, a password, a key or a token, and who may control this computer** (67):
+**A sign-in, a password, a key or a token, and who may control this computer** (79):
 
 - `hoprig add`: Adding a provider handles its key or its sign-in.
 - `hoprig rm`: Removing a provider deletes the file that holds its key or sign-in.
@@ -558,7 +560,19 @@ Every act of Hoprig is one row of `src/assistant/inventory.json`: 338 in all (43
 - `POST /api/gateways/<id>/keys`: Sharing a gateway makes and removes the keys other computers sign in with.
 - `POST /api/gateways/keys/<id>/remove`: Sharing a gateway makes and removes the keys other computers sign in with.
 - `POST /api/gateways/add`: Sharing a gateway makes and removes the keys other computers sign in with.
+- `POST /api/gatewayhost/<id>/password`: A gateway's own password is set by you, on its Health row.
 - `POST /api/gatewayhost/<id>/first`: A gateway's first password is shown once, to you, on its page.
+- `POST /api/gatewayhost/<id>/accounts/<id>/test`: An account of the gateway holds a provider key or sign-in: testing, turning it off and removing it are your own presses on Providers.
+- `POST /api/gatewayhost/<id>/accounts/<id>/on`: An account of the gateway holds a provider key or sign-in: testing, turning it off and removing it are your own presses on Providers.
+- `POST /api/gatewayhost/<id>/accounts/<id>/remove`: An account of the gateway holds a provider key or sign-in: testing, turning it off and removing it are your own presses on Providers.
+- `POST /api/gatewayhost/<id>/add/key`: Adding an account to the gateway hands it a provider key or a sign-in, so it is your own step on Providers.
+- `POST /api/gatewayhost/<id>/add/code`: Adding an account to the gateway hands it a provider key or a sign-in, so it is your own step on Providers.
+- `POST /api/gatewayhost/<id>/add/poll`: Adding an account to the gateway hands it a provider key or a sign-in, so it is your own step on Providers.
+- `POST /api/gatewayhost/<id>/add/link`: Adding an account to the gateway hands it a provider key or a sign-in, so it is your own step on Providers.
+- `POST /api/gatewayhost/<id>/add/finish`: Adding an account to the gateway hands it a provider key or a sign-in, so it is your own step on Providers.
+- `POST /api/gatewayhost/<id>/add/cancel`: Adding an account to the gateway hands it a provider key or a sign-in, so it is your own step on Providers.
+- `POST /api/gatewayhost/<id>/keys/<id>/remove`: A key of the gateway lets a program use it: removing one is your own press on Providers.
+- `POST /api/gatewayhost/<id>/open`: The one-time link signs you in to the gateway's own page, so it is made only on your press.
 - `POST /api/accounts/probe`: Adding, testing, naming or removing a provider handles its key or its sign-in.
 - `POST /api/accounts/test`: Adding, testing, naming or removing a provider handles its key or its sign-in.
 - `POST /api/accounts/save`: Adding, testing, naming or removing a provider handles its key or its sign-in.
@@ -607,12 +621,13 @@ Every act of Hoprig is one row of `src/assistant/inventory.json`: 338 in all (43
 - `POST /api/accounts/own-endpoint/restore`: It puts a gateway's address and key back into the coding tool's own settings file.
 - `POST /api/accounts/own-endpoint/takeover`: It reads a gateway's key from the coding tool's settings file into a provider of its own.
 
-**A push or a merge into a default branch** (4):
+**A push or a merge into a default branch** (5):
 
 - `POST /api/workspace/map/commit`: Saving the map commits it into the brain's history, which is yours to decide.
 - `POST /api/workspace/onlyhere/push`: Pushing your other branches is your own press on the page Before you format this computer; it never pushes a default branch.
 - `POST /api/work/save`: Save commits the Work file and sends it to its repository.
 - `POST /api/work/save/drop`: Save commits the Work file and sends it to its repository.
+- `POST /api/chats/<id>/pr/merge`: Merging a pull request is seen by others; it is your own press in the chat's rail, behind a confirmation.
 
 **A release** (11):
 
@@ -637,8 +652,9 @@ Every act of Hoprig is one row of `src/assistant/inventory.json`: 338 in all (43
 - `POST /api/field/settings`: A field report may be sent out of the computer, only by your choice.
 - `POST /api/field/report/<id>/(send|dont-send)`: A field report may be sent out of the computer, only by your choice.
 
-**A delete outside a session's own folder** (18):
+**A delete outside a session's own folder** (19):
 
+- `POST /api/addons/<id>/remove`: Removing a gateway's copy deletes a program and its service from this computer: your own press, naming the computer.
 - `POST /api/workspace/drop`: A drop removes a project from the computer; her drop card only opens your sheet, where you type the name yourself.
 - `POST /api/work/alone/release`: Releasing a schedule's run removes its worktree, outside any session of hers.
 - `POST /api/work/items/<id>/remove-branch`: Removing a task's branch deletes a branch and its worktree, outside any session of hers.
@@ -658,7 +674,7 @@ Every act of Hoprig is one row of `src/assistant/inventory.json`: 338 in all (43
 - `POST /api/adopt/retire/check`: It opens the sheet that removes your old folders after Arrange, and that sheet is yours alone on your own page.
 - `POST /api/adopt/retire`: Removing your old folders cannot be undone, so only you do it, on your own page, with the project's name typed.
 
-**Administrator rights** (16):
+**Administrator rights** (18):
 
 - `hoprig gateways`: A gateway of your own is a program the dashboard will run.
 - `hoprig move-to-user`: Moving Hoprig from root to an ordinary user stops root's dashboard and changes which user its services run as.
@@ -668,6 +684,8 @@ Every act of Hoprig is one row of `src/assistant/inventory.json`: 338 in all (43
 - `POST /api/gateways/defined/confirm`: A gateway of your own is a program the dashboard will run on this computer.
 - `POST /api/gateways/defined/remove`: A gateway of your own is a program the dashboard will run on this computer.
 - `POST /api/gatewayhost/<id>/(start|stop)`: A gateway of your own is a program this computer runs; its start and stop on Health are your own presses.
+- `POST /api/gatewayhost/<id>/restart`: Restarting a gateway stops and starts a program of this computer: your own press on Health.
+- `POST /api/gatewayhost/<id>/setup`: Setting up a gateway installs and starts a program and makes a key for it: your own press, naming this computer.
 - `POST /api/gatewayhost/<id>/service`: Making or removing a gateway's service changes what this computer starts by itself.
 - `POST /api/gatewayhost/linger`: Turning lingering on runs a command with administrator rights.
 - `POST /api/health/line`: A line that needs administrator rights is put in a terminal only for you, and only you press Enter on it.

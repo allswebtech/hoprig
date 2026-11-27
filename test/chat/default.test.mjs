@@ -91,7 +91,7 @@ test('the chat is the default: the folder\'s last settings, Home\'s card, the re
   assert.equal(first.status, 200, JSON.stringify(first.json));
   const v1 = await view(first.json.id);
   assert.equal(v1.profile.name, recommended, 'no provider chosen: the one recommended now');
-  assert.equal(v1.permissionMode, 'manual', 'Settings → New-session defaults');
+  assert.equal(v1.permissionMode, 'manual', 'Settings → New sessions');
   assert.equal(v1.model, null);
 
   // the owner changes the chat's chips: provider, mode, model, effort, ultracode

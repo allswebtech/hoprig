@@ -10,7 +10,7 @@ document.getElementById('name').textContent = APP_NAME;
   document.getElementById('mark').replaceWith(mark);
 }
 /** Said under a wrong password: a device that is signed in already lets this one in by a code. */
-export const NO_PASSWORD_WAY = 'Signed in on another device, such as your computer? There, open Settings → Security and sign-in and press Show a sign-in code: then no password is needed here.';
+export const NO_PASSWORD_WAY = 'Signed in on another device, such as your computer? There, open Settings → Security and sign-in and press Show a sign-in code: then no password is needed here. Or, on the computer Hoprig runs on, type hoprig link: it prints a one-time sign-in link and a QR code.';
 const form = document.getElementById('form');
 const input = document.getElementById('password');
 const error = document.getElementById('error');

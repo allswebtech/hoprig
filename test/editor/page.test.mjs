@@ -34,7 +34,7 @@ globalThis.document ??= {
 
 const { badgeOf, codeHash, cursorText, indentText } = await import('../../web/editor/workbench.js');
 const { folderName } = await import('../../web/editor/places.js');
-const { _codeTarget, editorButton } = await import('../../web/editor/index.js');
+const { _codeTarget, editorButton, editorPanel } = await import('../../web/editor/index.js');
 const { fuzzy, matchSpan } = await import('../../web/editor/search.js');
 const { workerFor } = await import('../../web/editor/monaco.js');
 const { changeCount, inside, markClass, marksOf } = await import('../../web/editor/scm.js');
@@ -86,19 +86,18 @@ test('git\'s letters for the Explorer and the lists: conflicts first, then not s
   assert.equal(marksOf({ repo: true, staged: [{ path: 'a', x: 'M' }, { path: 'n', from: 'o', x: 'R' }], changes: [{ path: 'a', y: 'M' }], untracked: [], conflicts: [] }).size, 2);
 });
 
-test('what it registers: the page (not in the navigation), Settings → Editor in VS Code\'s old place, "Open code" for a session', async () => {
+test('what it registers: the page (not in the navigation), the editor card of Settings → Appearance, "Open code" for a session', async () => {
   const p = pageById('code');
   assert.ok(p && p.group === null && p.navAs === 'workspace' && p.perComputer);
   const ids = registeredSettingsPages().map((x) => x.id);
-  assert.ok(ids.includes('editor'));
-  const s = registeredSettingsPages().find((x) => x.id === 'editor');
-  assert.match(String(s.summary()), /^\d+ px · tab \d/);
+  assert.ok(!ids.includes('editor'), 'no page of its own: its choices are the Code editor card of Appearance');
+  assert.equal(typeof editorPanel, 'function');
   const a = registeredSessionActions().find((x) => x.id === 'editor');
   assert.ok(a && a.label === 'Open code');
   assert.equal(await a.describe({ name: 'nope', machine: null }), null, 'a session whose folder is not known: no row');
   assert.equal(editorButton(''), null);
   const app = fs.readFileSync(path.join(WEB, 'app.js'), 'utf8');
-  assert.match(app, /'\/settings\/vscode': '\/settings\/editor'/, 'the old Settings → VS Code address lands on Settings → Editor');
+  assert.match(app, /'\/settings\/vscode': '\/settings\/editor'/, 'the old Settings → VS Code address lands on Settings → Editor (settings.js sends it on to Appearance)');
   assert.match(app, /page\.render\(\{ frame, connectionBanner, sub: p\[2\] \|\| '', query \}\)/, 'the router hands the page its query');
   assert.match(fs.readFileSync(path.join(WEB, 'index.html'), 'utf8'), /href="editor\/editor\.css"/);
 });

@@ -92,6 +92,6 @@ test('Work: "No tasks of your own yet", the button the interrupted save names, t
   for (const f of ['src/work/planstore.mjs', 'src/work/resume.mjs']) assert.ok(read(f).includes('press "Drop the record" on the Work page, or run hoprig tasks save --drop-interrupted'), f);
   const { wayOf } = await import('../../web/errorways.js');
   assert.equal(wayOf({ code: 'interrupted' }).label, 'Work');
-  assert.equal(wayOf({ code: 'work-place-gone' }).label, 'Settings → Work');
-  assert.equal(wayOf({ code: 'owner-id' }).label, 'Settings → Work');
+  assert.equal(wayOf({ code: 'work-place-gone' }).label, 'Work settings');
+  assert.equal(wayOf({ code: 'owner-id' }).label, 'Work settings');
 });

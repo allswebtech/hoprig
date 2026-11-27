@@ -83,7 +83,7 @@ test('POST /api/pcsetup/tool: a job in the page, the tool turned on; strict inpu
     'OpenCode 2.3.0 is installed and turned on.',
   ]);
   assert.deepEqual(cfg.codingTools, ['claude', 'opencode'], 'installing turns it on');
-  await assert.rejects(call('POST', '/api/pcsetup/tool', { id: 'opencode' }), (e) => e.status === 409 && /Settings → Updates/.test(e.message));
+  await assert.rejects(call('POST', '/api/pcsetup/tool', { id: 'opencode' }), (e) => e.status === 409 && /Settings → Version and updates/.test(e.message));
   // The real registry refuses Codex: it is not part of this version.
   const real = pcsetupFeature(sctx, { projectsDir: () => path.join(tmp, 'projects') });
   const route = real.routes.find(([m, re]) => m === 'POST' && re.test('/api/pcsetup/tool'))[2];

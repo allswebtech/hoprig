@@ -33,10 +33,10 @@ test('a mission\'s tasks run one after another at first; Sessions at once lets u
   assert.match(whyNot({ ...c, running: 4, slots: 4 }), /at most 4 at once/);
   // The page's names are the dashboard's.
   assert.match(read('web/mission.js'), /num\('Sessions at once', 'atOnce'/);
-  assert.match(read('web/automation.js'), /choiceRow\('Runs by themselves at once'/);
+  assert.match(read('web/automation.js'), /choiceRow\('At most this many at once'/);
   const page = flat(read(SLEEP));
   assert.doesNotMatch(page, /in a mission whose plan you accepted, one after another/);
-  assert.match(page, /Her tasks run one after another at first\. \*\*Sessions at once\*\* on Work → Team lets up to four run side by side, never more than \*\*Runs by themselves at once\*\* in Settings → Automations \(also one at first\)\./);
+  assert.match(page, /Her tasks run one after another at first\. \*\*Sessions at once\*\* on Work → Team lets up to four run side by side, never more than \*\*At most this many at once\*\* on Work → Schedules \(also one at first\)\./);
 });
 
 test('the index: the tests run on the systems and Node.js versions of the workflow; what is new was tried by hand on Linux only', () => {

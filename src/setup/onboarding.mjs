@@ -6,7 +6,7 @@
 //         id:       "claude" | "tools" | "rules" | "project" | "skills" | "phone" | "account2" | "computer",
 //         title:    string,            one line, plain words
 //         done:     boolean,
-//         optional: boolean,           true for "account2" and "computer": shown, never counted as missing
+//         optional: boolean,           true for "rules", "phone", "skills", "account2" and "computer": shown, never counted as missing
 //         detail:   string,            what is there now (never a key, a token, a password or an e-mail)
 //         action:   null | { kind: "page", target: string }          the part of the page to open:
 //                                       "pc/setup" | "pc/projects" | "settings/skills" | "settings/signin-device"
@@ -109,7 +109,7 @@ export function onboardingSteps(f) {
       action: f.tools.missing.length ? page('pc/setup') : null,
     },
     {
-      id: 'rules', title: 'Working rules', optional: false, done: !!f.rules.installed,
+      id: 'rules', title: 'Working rules', optional: true, done: !!f.rules.installed,
       detail: f.rules.installed ? `${f.rules.edited ? 'your edited copy' : 'added'}` : 'a good set of rules, yours to edit: one press adds them as a file of their own in Claude Code\'s rules folder (your own files are not changed)',
       // The button says what one press does (it writes the file at once, with no sheet).
       action: f.rules.installed ? null : { kind: 'request', method: 'POST', path: '/api/pcsetup/rules', body: { action: 'add' }, label: 'Add the rules' },
@@ -121,12 +121,12 @@ export function onboardingSteps(f) {
     },
     // The phone before the skills: it is the step a newcomer came for, and Skills is the one he understands least.
     {
-      id: 'phone', title: 'Your phone signed in', optional: false, done: f.sessions >= 2,
+      id: 'phone', title: 'Your phone signed in', optional: true, done: f.sessions >= 2,
       detail: f.sessions >= 2 ? `${f.sessions} browsers signed in` : 'scan a code with the phone: no password to type',
       action: f.sessions >= 2 ? null : page('settings/signin-device'),
     },
     {
-      id: 'skills', title: 'Skills', optional: false, done: f.skills.length > 0,
+      id: 'skills', title: 'Skills', optional: true, done: f.skills.length > 0,
       detail: f.skills.length ? `${f.skills.length} that Claude Code uses` : 'none yet: the one that comes with Hoprig is a good start',
       action: f.skills.length ? null : page('settings/skills'),
     },

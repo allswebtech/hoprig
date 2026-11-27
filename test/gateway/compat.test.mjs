@@ -13,7 +13,7 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, '..', '..');
 const before = JSON.parse(fs.readFileSync(path.join(root, 'test', 'fixtures', 'gateway-0.2.6.json'), 'utf8'));
 
-const { SHIPPED } = await import('../../src/addons/gateways.mjs');
+const { SHIPPED, GATEWAY_PIN } = await import('../../src/addons/gateways.mjs');
 
 /**
  * The decided differences, applied to the 0.2.6 answer: what this version answers instead. Only GET /api/accounts
@@ -24,30 +24,52 @@ const { SHIPPED } = await import('../../src/addons/gateways.mjs');
  * left (both null here: the home names none).
  */
 function CHANGED(old) {
-  // The gateway is installed and updated with the options its README names, and an install says in one line that two
-  // of its parts build a helper (decided for 0.2.x: the README's own install line).
-  const flags = '--allow-scripts=tls-client-node,koffi --loglevel=error';
-  old.disk.npm = old.disk.npm.map((l) => l.replace(/^install -g /, `install -g ${flags} `));
+  // An install says in one line that two of the gateway's parts build a helper (decided for 0.2.x: the README's own
+  // install line); in the own folder those parts are named in that folder's package.json, which npm reads instead of
+  // the --allow-scripts flag it refuses there.
+  // Install and Update (the owner's own press) put it into Hoprig's own folder, pinned (Install) or the newest npm
+  // resolves (Update), never `npm install -g`: the first of the decided differences of the own folder.
+  const own = `install --prefix <HOME>/state/tools/trouteai --save-exact --no-audit --no-fund --update-notifier=false --loglevel=error`;
+  old.disk.npm = old.disk.npm.map((l) => `${own} ${l.endsWith('@latest') ? 'trouteai@latest' : `trouteai@${GATEWAY_PIN}`}`);
+  // The command's usage names the new `remove`.
+  for (const c of old.commands) if (c.stderr.includes('hoprig addons install|update|start|stop|status <id>\n')) c.stderr = c.stderr.replace('hoprig addons install|update|start|stop|status <id>\n', `hoprig addons install|update|start|stop|status <id>\n       hoprig addons remove <id>         take its copy out of Hoprig's folder (its data is kept)\n`);
   // A gateway Hoprig starts listens no wider than the dashboard: this home's dashboard is on this computer only (its
   // default), so each start by Hoprig also passes the definition's --host 127.0.0.1. The first and the fifth start are
   // the home's own (compat-home.mjs starts the program itself: one running before, one as 0.2.6 started it).
-  old.disk.gatewayArgs = old.disk.gatewayArgs.map((l, i) => (i === 0 || i === 4 ? l : `${l} --host 127.0.0.1`));
+  // And every start by Hoprig names the folder of the gateway's data (--data-dir: the folder its own rule picks, so a
+  // service and a session cannot choose two); a copy that is on the computer takes it from 1.0.11 on (this stand-in says 9.8.7).
+  old.disk.gatewayArgs = old.disk.gatewayArgs.map((l, i) => (i === 0 || i === 4 ? l : `${l} --host 127.0.0.1 --data-dir <HOME>/.trouteai`));
+  // `hoprig addons setup trouteai` asks nothing now (no terminal needed): it installs, starts, waits until the gateway is
+  // ready and makes its key itself (src/gateway/trouteai.mjs). This home's gateway keeps no command token, so it ends in
+  // one sentence with the next step, where 0.2.6 ended with the words for a terminal.
+  Object.assign(old.commands.find((c) => c.args === 'addons setup trouteai'), {
+    code: 1,
+    stdout: '  Starting TRouteAI…\n  Waiting until TRouteAI is ready…\n',
+    stderr: "TRouteAI's command token could not be used (it is missing, or other users can read it). Next step: stop TRouteAI, start it again from Hoprig as your own user, then press Set up again.\n",
+  });
   const install = old.commands.find((c) => c.args === 'addons install trouteai');
   const builds = 'Two of its parts (tls-client-node, koffi) build a helper program each on this computer while it installs.';
-  install.stdout = `${builds}\n${install.stdout}`;
+  // The install now runs npm into the own folder and checks the program (the stand-in has no program running).
+  install.stdout = `${builds}\n  $ npm ${own} trouteai@${GATEWAY_PIN}\n${install.stdout}  TRouteAI 9.8.7 is installed in Hoprig's tools folder.\n  TRouteAI is running from the copy that was there before: it uses this one from its next start.\n`;
+  // Update: a running gateway is stopped, the newest installed into the own folder, and started again.
+  const update = old.commands.find((c) => c.args === 'addons update trouteai');
+  update.stdout = `  Stopping TRouteAI…\n  $ npm ${own} trouteai@latest\n${update.stdout}  TRouteAI 9.8.7 is installed in Hoprig's tools folder.\n  Starting TRouteAI…\n`;
   // The page's list carries that line and the install command for its Install confirmation: two fields added, every
   // field 0.2.6 sent kept.
-  Object.assign(old.routes.addons.gateway, { builds, installCommand: `npm install -g ${flags} trouteai` });
+  // Its Install command is the own folder's; `copy` says which copy runs (the one npm -g made).
+  Object.assign(old.routes.addons.gateway, { builds, installCommand: `npm install --prefix <HOME>/state/tools/trouteai --save-exact --loglevel=error trouteai@${GATEWAY_PIN}`, copy: 'global' });
   // It is marked as a gateway, so the page asks before an install or update, naming the computer: one field added.
   old.routes.addons.gateway.gateway = true;
   // The owner's page reads what `hoprig gateways` says of each gateway (what it runs, why it waits) from GET
   // /api/gateways, so a missing program is explained on the page: two fields added there only, every field kept.
-  for (const g of old.routes.gateways.json.gateways) Object.assign(g, { needsConfirm: null, runs: ['trouteai', '--port', '<PORT>', '--host', '127.0.0.1'] });
+  for (const g of old.routes.gateways.json.gateways) Object.assign(g, { needsConfirm: null, runs: ['trouteai', '--port', '<PORT>', '--host', '127.0.0.1', '--data-dir', '<HOME>/.trouteai'] });
   for (const k of ['accounts', 'after']) {
     const j = old.routes[k].json;
     for (const a of j.accounts) a.viaGateway = a.viaTrouteai ? { id: 'trouteai', title: 'TRouteAI' } : null;
+    j.trouteai.copy = 'global';
     const { baseUrl, ...state } = j.trouteai;
-    j.gateways = [{ id: 'trouteai', title: 'TRouteAI', words: SHIPPED[0].words, page: state.url, installable: true, ...state, defaults: { ...j.defaults.trouteai, baseUrl } }];
+    // Also added: `setup`, true for the gateway Hoprig sets up itself, so the page offers one press (Set up) in place of the key step.
+    j.gateways = [{ id: 'trouteai', title: 'TRouteAI', words: SHIPPED[0].words, page: state.url, installable: true, setup: true, ...state, defaults: { ...j.defaults.trouteai, baseUrl } }];
     j.ownEndpoint = null;
     j.ownBackup = null;
     // Also added: `signedIn`, the loopback names this dashboard is signed in under (here the test's own sign-in on

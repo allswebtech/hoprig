@@ -19,8 +19,8 @@ export const openAsDefault = (saved) => (OPEN_AS.some((o) => o.id === saved) ? s
  * tools a chat can run there (on and installed) count as ready (`providers` left out).
  */
 export function toolState(t, m = null) {
-  if (t.managed && !t.installed) return { ready: false, why: 'Not installed', fix: 'install it in Settings', href: link('#/settings/codingtools', m) };
-  if (t.on === false) return { ready: false, why: 'Turned off', fix: 'turn it on in Settings', href: link('#/settings/codingtools', m) };
+  if (t.managed && !t.installed) return { ready: false, why: 'Not installed', fix: 'install it in Settings', href: link('#/settings/new-sessions?show=coding-tools', m) };
+  if (t.on === false) return { ready: false, why: 'Turned off', fix: 'turn it on in Settings', href: link('#/settings/new-sessions?show=coding-tools', m) };
   if (Array.isArray(t.providers) && !t.providers.length) return needsProvider(m);
   return { ready: true };
 }

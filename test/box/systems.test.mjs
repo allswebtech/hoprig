@@ -60,9 +60,9 @@ test('macOS: sandbox-exec starts the command only after the profile, with the bo
   assert.equal(fs.existsSync(path.dirname(c.env.HOME)), false);
 });
 
-test('Windows: no box yet, with the one step that would help, as words', async () => {
+test('Windows: no box, said once, with no step and no word of another system', async () => {
   const m = findMeans('win32');
-  assert.deepEqual(m, { kind: null, why: 'Windows has no box in Hoprig yet', step: 'run Hoprig inside WSL 2 and install bubblewrap there' });
+  assert.deepEqual(m, { kind: null, why: 'the box is not offered on Windows: work that needs it runs on a Linux or Mac computer of yours', step: '' });
   const r = await checkWith({ platform: 'win32', run: async () => assert.fail('nothing is started on Windows') });
   assert.equal(r.ok, false);
   assert.equal(r.step, m.step);

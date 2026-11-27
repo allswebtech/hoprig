@@ -1,4 +1,4 @@
-// Updates: look for new versions of everything Settings → Updates lists (./updateitems.mjs) every 6 hours (never
+// Updates: look for new versions of everything Settings → Version and updates lists (./updateitems.mjs) every 6 hours (never
 // while a session is working: it waits for the next quiet tick), and
 //   manual (the default)  tell the owner once per new version when "notify" is on; nothing is ever installed by
 //                         itself. With notify off nothing looks in the background: the page looks when it is opened
@@ -19,7 +19,7 @@ import { busy } from './cards.mjs';
 export const CHECK_EVERY_MS = 6 * 3600_000;
 export const RETRY_MS = 10 * 60_000;
 export const UPDATE_MODES = ['manual', 'auto'];
-/** What Settings → Updates lists (./updateitems.mjs realItems): the coding tools are the offered ones. */
+/** What Settings → Version and updates lists (./updateitems.mjs realItems): the coding tools are the offered ones. */
 export const UPDATE_ITEMS = Object.freeze(['hoprig', ...TOOL_IDS, 'cloudflared']);
 const LEGACY = ['off', 'notify', 'auto'];
 
@@ -153,7 +153,7 @@ export async function apply(actions, ctx) {
   for (const a of found.actions) {
     if (a.type === 'tell') {
       ctx.record({ automation: 'updates', did: `${a.title} ${a.latest} is available (you have ${a.current})`, outcome: 'told the owner' });
-      ctx.notify({ title: `${a.title} ${a.latest} is available`, message: `You have ${a.current}. Settings → Updates installs it.`, session: '' });
+      ctx.notify({ title: `${a.title} ${a.latest} is available`, message: `You have ${a.current}. Settings → Version and updates installs it.`, session: '' });
       continue;
     }
     // Look again right before: a session may have started meanwhile (the updater asks the item with fresh cards).

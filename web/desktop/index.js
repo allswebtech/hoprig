@@ -11,7 +11,7 @@
 //   files.js (with files-parts.js, files-ops.js), tasks.js, services.js, logs.js  the native apps
 //   desktop.css its look
 import { icon } from '../icons.js';
-import { BARE, WINDOW, api, at, confirmSheet, fill, h, link, machine, openSheet, prefs, tildePath, toast } from '../lib.js';
+import { BARE, WINDOW, api, at, confirmSheet, fill, h, link, machine, openSheet, prefs, toast } from '../lib.js';
 import { registerHeadTool, registerPage } from '../registry.js';
 import { panel, savedMark } from '../shell.js';
 import { pageNotify, store } from '../store.js';
@@ -350,17 +350,17 @@ registerHeadTool(() => (/^#(\/m\/[^/]+)?\/computer(\/|$)/.test(location.hash) ? 
 // ---------- Settings → Security: how far Files reach ----------
 
 /**
- * How far Files and the editor reach on this computer: the allowed folders (New-session defaults → Folders; the home
- * folder unless changed) or everything this user can open. New sessions, Tia and automations keep to the allowed
- * folders either way, and Hoprig's own folders and the files that hold a sign-in stay locked.
+ * How far Files and the editor reach on this computer: the allowed folders (Settings → Security and sign-in, the home
+ * folder unless changed) or every folder this user can open. New sessions, Tia and automations keep to the allowed
+ * folders either way, and Hoprig's own folders and the files that hold a sign-in stay locked. → a node, drawn under
+ * the folder list.
  */
-export function reachSettings(settings) {
+export function reachRow(settings) {
   const s = (settings && settings.server) || {};
-  const tops = Array.isArray(s.roots) ? s.roots : [];
   const mark = savedMark();
   const err = h('p.form-error', { role: 'alert' });
-  const seg = h('div.segmented', { role: 'radiogroup', 'aria-label': 'Files reach' });
-  const paint = (cur) => fill(seg, [['home', 'Allowed folders'], ['everything', 'Everything']].map(([v, label]) =>
+  const seg = h('div.segmented', { role: 'radiogroup', 'aria-label': 'How far Files and the editor reach' });
+  const paint = (cur) => fill(seg, [['home', 'Only these folders'], ['everything', 'Every folder my user can open']].map(([v, label]) =>
     h('button.seg', { type: 'button', role: 'radio', 'aria-checked': String(cur === v), onclick: async () => {
       if (cur === v) return;
       if (v === 'everything' && !(await confirmSheet({ title: 'Let Files open everything?', text: 'Files and the editor can then open, change and delete anything your user can on this computer, as a terminal can. Hoprig\'s own folders and sign-in files stay locked.', ok: 'Open everything' }))) return;
@@ -374,9 +374,9 @@ export function reachSettings(settings) {
       }
     } }, label)));
   paint(s.reach === 'everything' ? 'everything' : 'home');
-  return panel({ id: 'reach', icon: 'folder', title: 'Files reach', desc: 'What Files and the editor can open on this computer.' },
-    h('div.fieldrow', h('span.field-label', 'Reach', mark), seg,
-      h('span.hint', `Allowed folders: ${tops.map((t) => tildePath(t)).join(', ') || 'your home folder'} (the home folder unless changed in `, h('a', { href: link('#/settings/new-sessions?show=folders') }, 'New-session defaults'), `). Everything: every folder your user can open on this computer, as a terminal can. New sessions, Tia and automations stay inside the allowed folders either way, and Hoprig's own folders and sign-in files stay locked.`)),
+  return h('div.reach-row', { id: 'reach' },
+    h('div.fieldrow', h('span.field-label', 'What Files and the editor can open', mark), seg,
+      h('span.hint', 'Only these folders: the list above (your home folder if it is empty). Every folder my user can open: as a terminal can. Hoprig\'s own folders and sign-in files stay locked either way.')),
     err);
 }
 

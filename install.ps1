@@ -1,9 +1,9 @@
 # hoprig installer for Windows (PowerShell 5.1 or 7).
 #
-#   irm <address of this file> | iex                                            asks before each change
-#   & ([scriptblock]::Create((irm <address of this file>))) --yes               takes every default
+#   irm <address of this file> | iex                                            says what it installs, then does it
+#   & ([scriptblock]::Create((irm <address of this file>))) --yes               the same, and passes --yes on to setup
 #
-# What it does, asking first each time:
+# What it does:
 #   1. Node.js 24.13.1 or newer. When missing it is installed with WinGet (built into Windows 10 1809+ and 11), as the
 #      official "Node.js LTS" package (OpenJS.NodeJS.LTS) that nodejs.org lists for Windows. Windows may ask for
 #      permission once (the Node.js installer is for all users).
@@ -20,17 +20,10 @@ $MinNode = '24.13.1' # the same as src/nodefloor.mjs (major.minor.patch)
 # Until the package is on npm the default is the repository's main branch as a tarball, which npm installs directly.
 # The same address as hoprigSource() in src/paths.mjs, which the update and its version lookup read.
 $Source = if ($env:HOPRIG_SOURCE) { $env:HOPRIG_SOURCE } else { 'https://github.com/allswebtech/hoprig/archive/refs/heads/main.tar.gz' }
-$Yes = ($env:HOPRIG_YES -eq '1') -or ($SetupArgs -contains '--yes') -or ($SetupArgs -contains '-y')
 
 function Say($text) { Write-Host $text }
 function Step($text) { Write-Host ''; Write-Host $text -ForegroundColor Cyan }
 function Fail($text) { Write-Host "hoprig installer: $text" -ForegroundColor Red; exit 1 }
-
-function Confirm-Step($question) {
-    if ($Yes) { Say "$question yes (--yes)"; return $true }
-    $answer = Read-Host "$question [Y/n]"
-    return ($answer -eq '' -or $answer -match '^(y|yes)$')
-}
 
 # The version of the node on PATH, or $null when there is none (or it does not start). Compared as a [version], so
 # major, minor and patch all count: 24.13.0 is too old, 24.13.1 and 25.0 are not.
@@ -62,7 +55,7 @@ if (Test-NodeOk $found) {
     }
     $cmd = 'winget install --id OpenJS.NodeJS.LTS --exact --source winget --accept-package-agreements --accept-source-agreements'
     Say "  command: $cmd"
-    if (-not (Confirm-Step 'Install Node.js LTS with WinGet?')) { Fail "Node.js $MinNode or newer is needed. Get it from https://nodejs.org." }
+    Say 'Installing Node.js LTS with WinGet...'
     & winget install --id OpenJS.NodeJS.LTS --exact --source winget --accept-package-agreements --accept-source-agreements
     # WinGet exits non-zero when the package is already installed but older; the version check below decides.
     Update-PathFromSystem

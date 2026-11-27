@@ -178,7 +178,7 @@ export async function sendNotification(cfg, ev, { fetchImpl = fetch, timeoutMs =
 }
 
 const WORDS = {
-  waiting: 'is waiting for you',
+  waiting: 'has finished',
   attention: 'needs your OK',
   limit: 'reached a usage limit',
   ended: 'has finished (Claude exited)',
@@ -186,6 +186,8 @@ const WORDS = {
 };
 
 /** A human title and message for an event about session `name`. */
-export function describe(status, name, extra = '') {
-  return { title: `${name} ${WORDS[status] || status}`, message: extra };
+export function describe(status, name, extra = '', { error = false } = {}) {
+  // A chat turn that ended in an error is still the event "waiting" (a chosen list matches), in words that say it failed.
+  const words = error && status === 'waiting' ? 'stopped with an error' : WORDS[status] || status;
+  return { title: `${name} ${words}`, message: error && status === 'waiting' ? '' : extra };
 }

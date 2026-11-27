@@ -145,11 +145,16 @@ test('structure: the main pages, the second group, the Settings pages, and old a
     const first = a.slice(2).split('/')[0];
     assert.ok(first === '' || ['new', 'more'].includes(first) || ids.has(first), `${a} leads to a page`);
   }
-  const settingsPages = [...pageFiles().map(src).join('\n').matchAll(/registerSettingsPage\(\{\s*id: '([a-z-]+)', title: ([^,]+), icon: '[a-z]+', order: (\d+)/g)]
-    .sort((a, b) => a[3] - b[3]).map((m) => m[1]);
-  assert.deepEqual(settingsPages, ['new-sessions', 'root', 'workspace', 'work', 'automations', 'golive', 'notifications', 'handsoff', 'appearance', 'security', 'public-link', 'tia', 'editor', 'learn', 'addons', 'codingtools', 'updates', 'field', 'about']);
+  // The Settings pages, in the order of the list (registry.js SETTINGS_ORDER wins over a file's own number): the design's
+  // order, nothing else. Editor, Coding tools, About, Work and Field reports are cards of other pages now.
+  const order = /export const SETTINGS_ORDER = Object\.freeze\(\{([\s\S]*?)\}\);/.exec(src('registry.js'))[1];
+  const rank = Object.fromEntries([...order.matchAll(/'?([a-z-]+)'?: (\d+)/g)].map((m) => [m[1], Number(m[2])]));
+  const fileOrder = [...pageFiles().map(src).join('\n').matchAll(/registerSettingsPage\(\{\s*id: '([a-z-]+)', title: ([^,]+), icon: '[a-z]+', order: (\d+)/g)].map((m) => [m[1], Number(m[3])]);
+  const settingsPages = fileOrder.map(([id, o]) => [id, rank[id] ?? o]).sort((a, b) => a[1] - b[1]).map((m) => m[0]);
+  assert.deepEqual(settingsPages, ['new-sessions', 'root', 'notifications', 'appearance', 'security', 'public-link', 'handsoff', 'workspace', 'automations', 'tia', 'updates', 'addons']);
+  for (const gone of ['editor', 'codingtools', 'about', 'work', 'field', 'golive', 'learn']) assert.ok(!settingsPages.includes(gone), `${gone} is not a page of its own`);
   const app = src('app.js');
-  for (const [from, to] of [['/pc', '/computer'], ['/pc/projects', '/workspace'], ['/settings/accounts', '/providers'], ['/settings/computers', '/computers'], ['/settings/skills', '/skills'], ['/settings/signin', '/settings/security'], ['/settings/auto', '/providers'], ['/tia-settings', '/settings/tia'], ['/settings/claude', '/settings/updates']]) {
+  for (const [from, to] of [['/pc', '/computer'], ['/pc/projects', '/workspace'], ['/settings/accounts', '/providers'], ['/settings/computers', '/computers'], ['/settings/skills', '/skills'], ['/settings/signin', '/settings/security'], ['/settings/auto', '/providers'], ['/tia-settings', '/settings/tia'], ['/settings/claude', '/settings/updates'], ['/settings/golive', '/work/golive'], ['/settings/learn', '/skills/learned']]) {
     assert.ok(app.includes(`'${from}': '${to}'`), `${from} → ${to}`);
   }
   for (const f of ['shell.js', 'home.js', 'newsession.js', 'accounts.js', 'settings.js']) {
@@ -328,7 +333,7 @@ test('session view: the header holds back, name and state, the account and one m
 // ---------- Home ----------
 test('Home: groups by what the session needs, plain terminals last, and one plain line about the providers', async () => {
   const { GROUPS, groupOf, accountsLine } = await import('../../web/home.js');
-  assert.deepEqual(GROUPS.map((g) => g[1]), ['Needs you', 'Working', 'Waiting for your next message', 'Terminals']);
+  assert.deepEqual(GROUPS.map((g) => g[1]), ['Needs you', 'Working', 'Finished', 'Terminals']);
   assert.equal(groupOf({ status: 'attention' }), 'needs');
   assert.equal(groupOf({ status: 'waiting', limit: { text: 'x' } }), 'needs', 'a limit needs you');
   assert.equal(groupOf({ status: 'waiting' }), 'waiting', 'a finished turn only waits for the next message');
@@ -340,7 +345,7 @@ test('Home: groups by what the session needs, plain terminals last, and one plai
   // Subagents go on after the reply ended: it is in the Working group and says where the work is.
   assert.equal(groupOf({ status: 'working', background: 2 }), 'working');
   assert.deepEqual([stateOf({ status: 'working', background: 2 }).text, stateOf({ status: 'working' }).text], ['Working in the background', 'Working']);
-  assert.match(fs.readFileSync(path.join(WEB, 'sessionitem.js'), 'utf8'), /chip\(s, \{ text: st\.key !== heading \|\| Boolean\(s\.background\) \}\)/, 'the card says so under the Working heading too');
+  assert.match(fs.readFileSync(path.join(WEB, 'sessionitem.js'), 'utf8'), /chip\(s, \{ text: st\.key !== heading \|\| Boolean\(s\.background\) || st\.text === .Ready. \}\)/, 'the card says so under the Working heading too');
   assert.deepEqual([{ name: 't', kind: 'shell', activity: 9 }, { name: 'c', kind: 'claude', status: 'waiting', activity: 1 }].sort(needsYouFirst).map((s) => s.name), ['c', 't'], 'after the Claude sessions');
   const { markStarting } = await import('../../web/newsession.js');
   markStarting(null, 'fresh');
@@ -809,8 +814,8 @@ test('workspace: one line about it, the map in groups, commands that still work 
   const auto = whole.slice(whole.indexOf('function autoPanel('));
   const drawn = auto.slice(auto.indexOf('fill(box,'));
   assert.match(auto, /const commit = toggle\('Save a change of the map/);
-  const order = ['Keep the map up to date', 'commit,', 'Keep the workspace in step', 'Also upload', 'Every how many hours'].map((t) => drawn.indexOf(t));
-  assert.ok(order.every((x, k) => x > 0 && (k === 0 || x > order[k - 1])), 'four switches in that order, then the hours');
+  const order = ['Keep the map up to date', 'Keep the workspace in step', 'Also upload', 'commit,', 'Every how many hours'].map((t) => drawn.indexOf(t));
+  assert.ok(order.every((x, k) => x > 0 && (k === 0 || x > order[k - 1])), 'four switches in that order, then the rest under More, the hours last');
   assert.match(auto, /commit\.querySelector\('input'\)\.disabled = !w\.map/, 'saving the map needs the map kept up to date');
   const g = mapGroups(map);
   assert.deepEqual(g.map((x) => x.id), ['brain', 'project', 'other', 'tool']);
@@ -844,7 +849,8 @@ test('Git and GitHub: three rows, done only when all are; a step of Get started'
   const { withGitStep, actionLabel } = await import('../../web/getstarted.js');
   const onb = { steps: [{ id: 'claude', done: true }], done: 1, total: 1 };
   const w = withGitStep(onb, out);
-  assert.deepEqual([w.done, w.total, w.steps[1].id, w.steps[1].action.kind], [1, 2, 'git', 'git']);
+  assert.deepEqual([w.done, w.total, w.steps[1].id, w.steps[1].action.kind], [1, 1, 'git', 'git']);
+  assert.equal(w.steps[1].optional, true, 'not needed for a first session');
   assert.equal(withGitStep(onb, null), onb, 'an older computer: the list as it came');
   assert.equal(actionLabel({ kind: 'git' }), 'Set up git and GitHub');
 });
@@ -855,7 +861,7 @@ test('Get started: the brain\'s unlinked skills reopen the skills step with the 
   assert.equal(withBrainSkills(onb, 0), onb, 'nothing in the brain alone: as it came');
   assert.equal(withBrainSkills(null, 3), null);
   const w = withBrainSkills(onb, 2);
-  assert.deepEqual([w.done, w.total], [1, 2]);
+  assert.deepEqual([w.done, w.total], [2, 2], 'skills is optional: the counts do not move');
   assert.equal(w.steps[1].detail, 'Claude Code knows 1 extra skill (a ready-made way of working). 2 more are stored but not switched on.');
   assert.deepEqual(w.steps[1].action, { kind: 'link-brain' });
   assert.equal(actionLabel(w.steps[1].action), 'Switch on');
@@ -1423,17 +1429,13 @@ test('a sentence that sends him to a switch in Settings opens the page at that s
   const { BYPASS_SWITCH } = await import('../../web/home.js');
   assert.equal(BYPASS_SWITCH, '#/settings/new-sessions?show=bypass');
   assert.match(fs.readFileSync(path.join(WEB, 'home.js'), 'utf8'), /href: BYPASS_SWITCH, onclick: \(\) => seen\(\) \}, 'Open the switch'/);
-  assert.match(fs.readFileSync(path.join(WEB, 'settings.js'), 'utf8'), /const part = partOf\(query\);\n\s*if \(part\) showPart\(part, \{ alive: isAlive \}\);/);
+  assert.match(fs.readFileSync(path.join(WEB, 'settings.js'), 'utf8'), /const part = partFor\(sub, partOf\(query\), pages\);\n\s*if \(part\) showPart\(part, \{ alive: isAlive \}\);/);
 });
 
-test('the queue\'s banner and the sign-in code\'s banner open the switch they name', async () => {
-  const { QUEUE_SWITCH } = await import('../../web/automation.js');
+test('the sign-in code\'s banner opens the switch it names', async () => {
   const { PUBLIC_LINK_SWITCH } = await import('../../web/computers.js');
-  assert.equal(QUEUE_SWITCH, '#/settings/automations?show=queue');
   assert.equal(PUBLIC_LINK_SWITCH, '#/settings/public-link?show=public-link-switch');
   const src = (f) => fs.readFileSync(path.join(WEB, f), 'utf8');
-  assert.match(src('automation.js'), /so queued messages wait\. ', h\('a', \{ href: link\(QUEUE_SWITCH\) \}, 'Open the switch'\)\)/);
-  assert.match(src('automation.js'), /rule\('Send the next queued message'[^\n]*\n[^\n]*\), \{ id: 'queue' \}\)/);
   assert.match(src('computers.js'), /by its network address\. ', h\('a', \{ href: link\(PUBLIC_LINK_SWITCH\) \}, 'Open the switch'\)/);
   assert.match(src('publiclink.js'), /return panel\(\{ id: 'public-link-switch' \},\n\s*h\('label\.switchrow\.pl-switch'/);
 });

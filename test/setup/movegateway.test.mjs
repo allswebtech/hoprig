@@ -118,3 +118,76 @@ test("the gateway's data copy never writes through a link a user process put at 
   // What is already there is never written over.
   assert.match((await sys.copyData(path.join(rootHome, '.local/share/madeupgw'), path.join(uhome, '.local/share/madeupgw'))).error, /already there/);
 });
+
+test("a failed copy of the gateway's data takes away only what this call made", { skip: (process.platform === 'win32' || process.getuid?.() === 0) && 'Linux only, and not as root (root reads every file)' }, async () => {
+  const { realGatewaySys } = await import('../../src/setup/movegatewaysys.mjs');
+  const uhome = path.join(s.tmp, 'gwfail-home');
+  const rootHome = path.join(s.tmp, 'gwfail-root');
+  fs.mkdirSync(path.join(rootHome, 'data'), { recursive: true });
+  fs.writeFileSync(path.join(rootHome, 'data/a.json'), '{}');
+  fs.writeFileSync(path.join(rootHome, 'data/b.json'), '{}');
+  fs.chmodSync(path.join(rootHome, 'data/b.json'), 0); // unreadable: the copy fails after it has begun
+  fs.mkdirSync(uhome, { recursive: true });
+  const me = { name: 'hoprig', uid: process.getuid(), gid: process.getgid(), home: uhome };
+  const sys = realGatewaySys({ user: me, oldHome: rootHome, dirs: { config: path.join(rootHome, '.config/hoprig') } });
+  const to = path.join(uhome, '.gw');
+  const c = await sys.copyData(path.join(rootHome, 'data'), to);
+  assert.equal(c.ok, false, JSON.stringify(c));
+  assert.match(c.error, /half-made copy .* was removed/);
+  assert.equal(fs.existsSync(to), false, 'nothing is left of the failed copy, so a later move is not refused');
+  // A folder that was there before the call is refused and stays as it is.
+  fs.mkdirSync(to);
+  fs.writeFileSync(path.join(to, 'mine.json'), '1');
+  const again = await sys.copyData(path.join(rootHome, 'data'), to);
+  assert.match(again.error, /already there/);
+  assert.deepEqual(fs.readdirSync(to), ['mine.json']);
+});
+
+test('realGatewaySys.stop returns only once the process has ended, not when its port closes', async () => {
+  const { realGatewaySys } = await import('../../src/setup/movegatewaysys.mjs');
+  const plan = { user, oldHome, dirs: { config: path.join(oldHome, '.config/hoprig') } };
+  let after = -1; // readProc calls since the kill
+  const mk = (kill) => realGatewaySys(plan, {
+    kill,
+    readProc: () => {
+      after += 1;
+      if (after >= 3) throw Object.assign(new Error('gone'), { code: 'ENOENT' });
+      return 'Name:\tnode\nUid:\t0\t0\t0\t0\n';
+    },
+  });
+  await mk(() => { after = 0; }).stop(4343);
+  assert.equal(after, 3, 'it asked until the process was gone');
+  after = -1;
+  await mk(() => { throw Object.assign(new Error('no such process'), { code: 'ESRCH' }); }).stop(4343);
+  assert.equal(after, -1, 'a kill that fails returns at once');
+});
+
+// The shipped gateway has a copy of its own in Hoprig's folder (src/addons/owncopy.mjs): the user gets one installed
+// again as the user (never root's), and the data folder is the one Hoprig computes by the gateway's own rule.
+test("a gateway with a copy of its own: its data folder by the gateway's rule, its program installed again as the user, and the move undone when that fails", async () => {
+  const ownGw = { id: 'madeupgw', title: 'Made-up gateway', port: 29999, dataDir: '.madeupgw', own: true };
+  fs.rmSync(path.join(user.home, '.trouteai'), { recursive: true, force: true });
+  fs.mkdirSync(path.join(oldHome, '.trouteai'), { recursive: true });
+  fs.writeFileSync(path.join(oldHome, '.trouteai/accounts.json'), '{"made":"up"}');
+  const asked = [];
+  const { sys, calls } = standIn();
+  const start = sys.startAsUser;
+  sys.startAsUser = async (id, opts) => (asked.push(opts), start(id));
+  const lines = [];
+  const r = await G.moveGateways({ user, oldHome }, [ownGw], { sys, say: (l) => lines.push(l) });
+  assert.equal(r.moved[0].ok, true, lines.join('\n'));
+  assert.deepEqual(asked, [{ own: true }], 'the sys is told it is a copy of its own');
+  assert.equal(fs.readFileSync(path.join(user.home, '.trouteai/accounts.json'), 'utf8'), '{"made":"up"}', 'root\'s data folder by the rule, not the definition\'s dataDir');
+  assert.match(lines.join('\n'), /its program is installed for hoprig in hoprig's own Hoprig folder/);
+  assert.deepEqual(calls.slice(0, 2), ['stop 4711', 'copy']);
+});
+
+test('the real start as the user installs the own copy first and does not start without it', async () => {
+  const { realGatewaySys } = await import('../../src/setup/movegatewaysys.mjs');
+  const ran = [];
+  const run = async (argv) => (ran.push(argv.join(' ')), { ok: !argv.includes('install'), stdout: '', stderr: 'no network' });
+  const sys = realGatewaySys({ user: { name: 'hoprig', uid: 1001, home: user.home }, oldHome, dirs: { config: path.join(oldHome, '.config/hoprig') } }, { run, has: () => true });
+  await sys.startAsUser('madeupgw', { own: true });
+  assert.equal(ran.length, 1, ran.join(' | '));
+  assert.match(ran[0], /addons install madeupgw/);
+});

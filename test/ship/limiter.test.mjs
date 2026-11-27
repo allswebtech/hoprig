@@ -1,4 +1,4 @@
-// The limiter's field in Settings → Go live (src/ship/feature.mjs, web/ship.js): the owner's own words, confirmed for
+// The limiter's field in Work → Go live (src/ship/feature.mjs, web/ship.js): the owner's own words, confirmed for
 // exactly what the sheet showed him (a change asks again), kept per computer; empty clears it. Only from his page.
 import assert from 'node:assert/strict';
 import test from 'node:test';

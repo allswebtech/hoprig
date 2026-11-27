@@ -28,7 +28,8 @@ const P = {
   // A branch: two commits on a line and one off it (git).
   git: ['M6 3v12', 'M6 21a3 3 0 1 0 0-6 3 3 0 0 0 0 6z', 'M18 9a3 3 0 1 0 0-6 3 3 0 0 0 0 6z', 'M18 9a9 9 0 0 1-9 9'],
   zap: ['M13 3L5 14h6l-1 7 8-11h-6z'],
-  stop: ['M7 7h10v10H7z'],
+  // A filled rounded square (FILLED below): a stop sign, not an empty box.
+  stop: ['M8 5.5h8A2.5 2.5 0 0 1 18.5 8v8a2.5 2.5 0 0 1-2.5 2.5H8A2.5 2.5 0 0 1 5.5 16V8A2.5 2.5 0 0 1 8 5.5z'],
   send: ['M12 19V5', 'M6 11l6-6 6 6'],
   paperclip: ['M20 11.5l-7.8 7.8a5 5 0 0 1-7.1-7.1l8.5-8.5a3.3 3.3 0 0 1 4.7 4.7l-8.5 8.5a1.7 1.7 0 0 1-2.4-2.4L15 6.9'],
   more: ['M5 12h.01', 'M12 12h.01', 'M19 12h.01'],
@@ -54,6 +55,7 @@ const P = {
   text: ['M5 6h14', 'M5 10h14', 'M5 14h10', 'M5 18h7'],
   play: ['M8 5l11 7-11 7z'],
   terminalGo: ['M14 5H4a1 1 0 0 0-1 1v12a1 1 0 0 0 1 1h16a1 1 0 0 0 1-1v-5', 'M7 10l3 2-3 2', 'M16 3h5v5', 'M21 3l-7 7'], // a terminal, an arrow out: the conversation goes there
+  panelLeft: ['M4 5h16a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1z', 'M9 5v14'], // a panel at the left
   rail: ['M4 5h16a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1z', 'M15 5v14'], // a panel at the right
   code: ['M8 7l-5 5 5 5', 'M16 7l5 5-5 5', 'M13.5 5l-3 14'],
   // A screen on a stand (the desktop); one square and two stacked ones (a window's maximise and restore).
@@ -81,6 +83,8 @@ const P = {
 };
 
 const NS = 'http://www.w3.org/2000/svg';
+// Pictures drawn solid, not as an outline.
+const FILLED = new Set(['stop']);
 
 /** An icon as an <svg> element. `label` makes it visible to screen readers; otherwise it is decorative. */
 export function icon(name, { size = 20, label = '' } = {}) {
@@ -88,7 +92,7 @@ export function icon(name, { size = 20, label = '' } = {}) {
   svg.setAttribute('viewBox', '0 0 24 24');
   svg.setAttribute('width', String(size));
   svg.setAttribute('height', String(size));
-  svg.setAttribute('fill', 'none');
+  svg.setAttribute('fill', FILLED.has(name) ? 'currentColor' : 'none');
   svg.setAttribute('stroke', 'currentColor');
   svg.setAttribute('stroke-width', '1.8');
   svg.setAttribute('stroke-linecap', 'round');

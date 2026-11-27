@@ -43,7 +43,7 @@ body.term-mode { overflow: hidden; }
   display: inline-flex; align-items: center; justify-content: center; gap: 4px;
   min-width: 0; height: 40px; padding: 0 4px; border: 1px solid var(--border); border-radius: 10px;
   /* Noto Sans Symbols2 after the list: on Linux it draws the ⇧ of ⇧Tab at this weight (the bold mono faces lack it). */
-  background: var(--surface-2); color: var(--text); font: 600 13px var(--mono), "Noto Sans Symbols2"; cursor: pointer; white-space: nowrap; overflow: hidden;
+  background: var(--surface-2); color: var(--text); font: 600 13px var(--mono), "Noto Sans Symbols2"; cursor: pointer; white-space: normal; line-height: 1.05; text-align: center; overflow: hidden; /* a two-word key takes two lines in a narrow pane, never cut */
   touch-action: manipulation; -webkit-tap-highlight-color: transparent;
 }
 .key:active, .key[aria-pressed='true'] { background: var(--accent-soft); border-color: var(--accent); }

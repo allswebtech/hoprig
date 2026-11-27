@@ -1,4 +1,4 @@
-// The one place an update runs. Settings → Updates ("Check now", "Update now", "Update all"), the command line and
+// The one place an update runs. Settings → Version and updates ("Check now", "Update now", "Update all"), the command line and
 // the automatic rule (./updates.mjs) all go through it: one update at a time, one output log, and every result in
 // the activity log.
 //

@@ -1,4 +1,4 @@
-// Settings → Updates in the demo: sample versions, and an "update" that only prints a line. Nothing here looks at
+// Settings → Version and updates in the demo: sample versions, and an "update" that only prints a line. Nothing here looks at
 // the real computer or asks a server (the demo must never show or change the owner's own installs).
 import { ALL_TOOLS, TOOL_IDS } from '../codetools/index.mjs';
 import { HOPRIG, TOOLS, newer } from './versions.mjs';
@@ -23,7 +23,7 @@ const item = (id, title, whenRunning, info, o = {}) => ({
 export function demoUpdateItems() {
   const shown = (i) => !ALL_TOOLS.some((t) => t.id === i.id) || TOOL_IDS.includes(i.id);
   return [
-    item('hoprig', 'Hoprig', 'The new version is used after the dashboard restarts: sessions kept by tmux go on through the restart, sessions in the built-in terminals end then (their conversations can be continued). Hoprig never updates itself: Automatic tells you, and you choose the moment.',
+    item('hoprig', 'Hoprig', 'The new version is used after the dashboard restarts: sessions kept by tmux (a program that keeps terminals running) go on through the restart, sessions in the built-in terminals end then (their conversations can be continued). Hoprig never updates itself: Automatic tells you, and you choose the moment.',
       row({ installed: HOPRIG, latest: HOPRIG }, 'npm')),
     item('claude', 'Claude Code', 'Running sessions keep the version they started with and use the new one when they start again. Automatic updates wait until no Claude Code session is working.',
       row(TOOLS.claude, 'official installer')),

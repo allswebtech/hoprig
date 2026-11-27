@@ -81,7 +81,7 @@ export function createTabs(wb) {
     return diff;
   }
 
-  /** The settings of Settings → Editor, again (they changed while the page was open). */
+  /** The settings of Settings → Appearance → Code editor, again (they changed while the page was open). */
   function applyPrefs() {
     const p = editorPrefs();
     const o = { fontSize: p.fontSize, wordWrap: p.wordWrap ? 'on' : 'off' };
@@ -503,7 +503,7 @@ export function createTabs(wb) {
     for (const t of [...tabs]) if (t.path === path || t.path.startsWith(`${path}/`)) close(t, { ask: false });
   }
 
-  // Settings → Editor as they are now, also for the plain box shown first (before any change of them).
+  // Settings → Appearance → Code editor as they are now, also for the plain box shown first (before any change of them).
   applyPrefs();
 
   return {

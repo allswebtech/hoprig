@@ -8,13 +8,13 @@
 // control (menu.js). Up in an empty box brings back the last message (keys.js), Escape stops Claude.
 import { icon } from '../icons.js';
 import { api, fill, h, openSheet, prefs, toast, until } from '../lib.js';
-import { createAttachments, queuedLine } from './attach.js';
+import { createAttachments, messageFiles, queuedLine } from './attach.js';
 import { bangOf, createShellRuns } from './bang.js';
 import { recall } from './keys.js';
 import { closeMenu, openMenu } from './menu.js';
 import { createMenus, ownSlash } from './popovers.js';
 import { micButton } from '../voice.js';
-import { MODE, boxWords, canCompact, modeMenu, caps, contextPercent, effortName, failText, hasPlan, kilo, modeChip, modeInfo, modeOf, modelName, modelWords, nextMode, planWindows, ringOf, toolWord, touchScreen, turnRuns, modelSub } from './words.js';
+import { MODE, backWords, boxWords, canCompact, modeMenu, caps, contextPercent, effortName, failText, hasPlan, kilo, modeChip, modeInfo, modeOf, modelName, modelWords, nextMode, planWindows, ringOf, toolWord, touchScreen, turnRuns, modelSub } from './words.js';
 
 // Enter sends unless the screen is touched (a phone's Enter makes a new line; its Send button sends).
 const finePointer = () => !touchScreen();
@@ -44,8 +44,8 @@ export function createComposer(o) {
   const leadBtn = h('button.chip.chat-chip.chat-lead', { type: 'button', 'aria-pressed': 'false', onclick: () => toggleLead() }, icon('stack', { size: 13 }), h('span.chat-chip-k', 'Lead'), leadWord);
   const ring = h('button.chat-ring', { type: 'button', onclick: () => usageSheet() }, h('span.chat-ring-pie', { 'aria-hidden': 'true' }), h('span.chat-ring-text'));
   // The desktop's order: the mode at the left, the model picker toward the right with the ring next to it; ultracode and Lead
-  // are Hoprig's own and go first, so they break none.
-  const chips = h('div.chat-chips', ultraBtn, leadBtn, modeBtn, h('span.chat-chips-gap'), modelBtn, ring);
+  // are Hoprig's own and sit just left of the model chip.
+  const chips = h('div.chat-chips', modeBtn, h('span.chat-chips-gap'), ultraBtn, leadBtn, modelBtn, ring);
   // Speak instead of typing: the words go into the box, and the owner sends them (voice.js).
   const mic = micButton(textarea);
   // A message that did not arrive: why, and Retry (its words and files are still in the box).
@@ -100,6 +100,15 @@ export function createComposer(o) {
     paintButtons();
     menus.update();
   });
+  // "Attach as context" on a path in a reply (pathmenu.js): its @path goes into the box, for the owner to send.
+  const attachPath = (e) => {
+    const p = e && e.detail && typeof e.detail.path === 'string' ? e.detail.path.trim() : '';
+    if (!p || readOnly()) return;
+    const t = textarea.value;
+    setText(`${t}${t && !/\s$/.test(t) ? ' ' : ''}@${p} `);
+    textarea.focus();
+  };
+  document.addEventListener('chat-attach-path', attachPath);
   // The caret moved without typing (a click, the arrow keys): the menu follows it.
   textarea.addEventListener('click', () => menus.update());
   textarea.addEventListener('keyup', (e) => {
@@ -122,6 +131,12 @@ export function createComposer(o) {
       setMode(nextMode(modeOf(v), v.choices ? v.choices.modes : undefined));
     } else if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && !e.shiftKey && textarea.selectionStart === textarea.selectionEnd) {
       const atEdge = e.key === 'ArrowUp' ? !textarea.value.slice(0, textarea.selectionStart).includes('\n') : !textarea.value.slice(textarea.selectionEnd).includes('\n');
+      // Up in an empty box: the last message waiting to be read comes back to be changed (Claude Code's own key).
+      if (e.key === 'ArrowUp' && !textarea.value && queued.length) {
+        e.preventDefault();
+        const m = queued[queued.length - 1];
+        return takeBack(m, queuedLine(m), true);
+      }
       const t = atEdge ? (e.key === 'ArrowUp' ? sent.up(textarea.value) : sent.down(textarea.value)) : null;
       if (t !== null) {
         e.preventDefault();
@@ -202,20 +217,55 @@ export function createComposer(o) {
   }
 
   // ---------- the messages sent while Claude works ----------
+  /** Text back into the box, before what is there (a message taken back, the message a rewind went back to). */
+  function putText(text) {
+    const t = String(text || '');
+    if (!t) return;
+    setText(textarea.value.trim() ? `${t}\n\n${textarea.value}` : t);
+    textarea.focus();
+  }
+  const QUEUED_STATE = () => `Not read yet · ${toolWord(v)} reads it after its current step`;
+  const opened = new Set(); // the queued messages shown whole ("Show all")
+  let queued = [];
+  let queueKey = '';
+  // Take a message back before it is read: Remove drops it, Edit puts its words back in the box (its files are said,
+  // as after Stop: they are attached again).
+  async function takeBack(m, line, edit) {
+    try {
+      await api(`${o.A}/unqueue`, { id: m.id });
+    } catch (err) {
+      return toast(failText(err), { from: err, kind: 'error' });
+    }
+    if (!edit) return;
+    putText(line.text);
+    if (line.names.length) toast(backWords(1, line.names.length));
+  }
   function paintQueue(q) {
-    // As its bubble will read: its words and its files by name (attach.js queuedLine), never the upload paths.
-    fill(queueBox, (q || []).map((m) => [m, queuedLine(m)]).map(([m, line]) => h('li.chat-queued',
-      icon('clock', { size: 14 }),
-      h('span.chat-queued-text', line.text, line.names.map((n) => h('span.chip.small.chat-queued-file', icon('paperclip', { size: 12 }), n))),
-      h('span.chat-queued-state', m.state === 'sent' ? `sent: read after the current step` : 'sent next'),
-      h('button.btn.icon.ghost.chat-unqueue', { type: 'button', 'aria-label': `Take back the message: ${line.label.slice(0, 60)}`, title: 'Take back: it is not read yet', onclick: async (e) => {
-        e.currentTarget.disabled = true;
-        try {
-          await api(`${o.A}/unqueue`, { id: m.id });
-        } catch (err) {
-          toast(failText(err), { from: err, kind: 'error' });
-        }
-      } }, icon('x', { size: 16 })))));
+    queued = Array.isArray(q) ? q : [];
+    // The state comes often: only a change of the queue (or of one message's "Show all") is drawn again.
+    const key = JSON.stringify([queued.map((m) => [m.id, m.text, m.state, (m.attachments || []).length, opened.has(m.id)]), toolWord(v)]);
+    if (key === queueKey) return;
+    queueKey = key;
+    // As its bubble will read, faded and dashed: its words and its files (attach.js queuedLine), never the upload paths.
+    fill(queueBox, queued.map((m) => [m, queuedLine(m)]).map(([m, line]) => {
+      const long = line.text.length > 180 || line.text.split('\n').length > 3;
+      const whole = opened.has(m.id);
+      return h('li.chat-queued',
+        h('div.chat-queued-bubble', h(`div.chat-queued-text${long && !whole ? '.chat-queued-clip' : ''}`, line.text), messageFiles(line.files, o.A),
+          long ? h('button.chat-queued-more', { type: 'button', 'aria-expanded': String(whole), onclick: () => {
+            if (opened.has(m.id)) opened.delete(m.id);
+            else opened.add(m.id);
+            paintQueue(queued);
+          } }, whole ? 'Show less' : 'Show all') : null),
+        h('div.chat-queued-foot',
+          h('span.chat-queued-state', QUEUED_STATE()),
+          h('span.chat-queued-acts',
+            h('button.chat-queued-act.chat-edit-queued', { type: 'button', 'aria-label': `Edit the message: ${line.label.slice(0, 60)}`, title: 'Take it back into the box to change it', onclick: () => takeBack(m, line, true) }, 'Edit'),
+            h('button.btn.icon.ghost.chat-unqueue', { type: 'button', 'aria-label': `Take back the message: ${line.label.slice(0, 60)}`, title: 'Take back: it is not read yet', onclick: (e) => {
+              e.currentTarget.disabled = true;
+              takeBack(m, line, false);
+            } }, icon('x', { size: 16 })))));
+    }));
   }
 
   fileInput.addEventListener('change', () => {
@@ -227,7 +277,7 @@ export function createComposer(o) {
   // The box's placeholder (words.js boxWords): short enough for one line also beside the diff pane.
   function paintPlaceholder() {
     if (!v) return;
-    const words = boxWords(v, { readOnly: readOnly() });
+    const words = boxWords(v, { readOnly: readOnly(), touch: touchScreen() });
     if (textarea.placeholder !== words) {
       textarea.placeholder = words;
       grow(); // an empty box is as high as its placeholder
@@ -418,13 +468,13 @@ export function createComposer(o) {
   function paintButtons() {
     const busy = turnRuns(v); // background work alone is no turn: Send sends, and its Stop is in the agents strip
     const hasText = !!textarea.value.trim() || files.count() > 0 || shell.count() > 0;
-    stopBtn.classList.toggle('hidden', !busy);
-    // While Claude works: Stop is the main button; Send stays for a message to queue.
+    // One button place, as Claude Code has it: Stop while a turn runs and the box is empty; Send as soon as the box holds
+    // something (it goes to the queue). Esc stops either way, and the box's words and Send's title say so.
+    stopBtn.classList.toggle('hidden', !busy || hasText);
     sendBtn.classList.toggle('hidden', !!busy && !hasText);
     fill(sendBtn, icon('send', { size: 20 }));
-    // While Claude works a message is still sent, as in the desktop app: it is read when the current step ends.
     sendBtn.setAttribute('aria-label', 'Send');
-    sendBtn.title = busy ? `Send: ${toolWord(v)} reads it after its current step` : 'Send';
+    sendBtn.title = busy ? `Send: ${toolWord(v)} reads it after its current step. Esc stops ${toolWord(v)}` : 'Send';
   }
 
   shell.adopt(); // a "!" command running since before this page opened (a reload, another window) shows, with Stop
@@ -433,7 +483,10 @@ export function createComposer(o) {
     textarea,
     commands: () => menus.commands(), // the coding tool's / commands, for /help
     /** The page is left: the microphone stops, so nothing heard later reaches this box or its saved draft. */
-    destroy: () => mic.dispose(),
+    destroy: () => {
+      mic.dispose();
+      document.removeEventListener('chat-attach-path', attachPath);
+    },
     focus: () => textarea.focus(),
     /** Esc Esc with words in the box (keys.js), as the terminal does: they go, and Up brings them back. */
     clearDraft() {
@@ -445,12 +498,7 @@ export function createComposer(o) {
       giveBack(); // words put aside by Slash commands come back in the emptied box, never only in the saved draft
     },
     /** Text back into the box (a message taken back by Stop, the message a rewind went back to), before what is there. */
-    putBack(text) {
-      const t = String(text || '');
-      if (!t) return;
-      setText(textarea.value.trim() ? `${t}\n\n${textarea.value}` : t);
-      textarea.focus();
-    },
+    putBack: (text) => putText(text),
     /** Files dropped on the page, or chosen elsewhere: to go with the next message. */
     addFiles: (list) => {
       files.take(list);

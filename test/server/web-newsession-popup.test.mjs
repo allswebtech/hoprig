@@ -172,8 +172,8 @@ test('App or Terminal: this browser\'s last choice, the App the very first time'
 });
 
 test('a coding tool that is not ready says what is missing, links there, and is no choice', () => {
-  assert.deepEqual(C.toolState({ managed: true, installed: null, on: true, providers: ['k'] }), { ready: false, why: 'Not installed', fix: 'install it in Settings', href: '#/settings/codingtools' });
-  assert.deepEqual(C.toolState({ managed: true, installed: '1', on: false, providers: ['k'] }, 'laptop'), { ready: false, why: 'Turned off', fix: 'turn it on in Settings', href: '#/m/laptop/settings/codingtools' });
+  assert.deepEqual(C.toolState({ managed: true, installed: null, on: true, providers: ['k'] }), { ready: false, why: 'Not installed', fix: 'install it in Settings', href: '#/settings/new-sessions?show=coding-tools' });
+  assert.deepEqual(C.toolState({ managed: true, installed: '1', on: false, providers: ['k'] }, 'laptop'), { ready: false, why: 'Turned off', fix: 'turn it on in Settings', href: '#/m/laptop/settings/new-sessions?show=coding-tools' });
   assert.deepEqual(C.toolState({ on: true, providers: [] }), { ready: false, why: 'Needs a provider first', fix: 'Add provider', href: '#/providers', button: true });
   assert.deepEqual(C.toolState({ on: true, providers: ['k'] }), { ready: true });
   assert.deepEqual(C.toolState({ id: 'claude', name: 'Claude Code' }), { ready: true }, 'an older computer\'s list: what a chat runs is ready');
@@ -187,7 +187,7 @@ test('a coding tool that is not ready says what is missing, links there, and is 
   assert.equal(off.attrs.role, undefined, 'and no radio');
   assert.match(text(off), /OpenCode Turned off: turn it on in Settings/);
   const a = find(off, (x) => x.tag === 'a');
-  assert.equal(a.attrs.href, '#/settings/codingtools');
+  assert.equal(a.attrs.href, '#/settings/new-sessions?show=coding-tools');
   a.fire('click');
   assert.deepEqual(left, [1], 'following the link closes the popup');
   assert.equal(tile(row, 'claude').attrs['aria-checked'], 'true');

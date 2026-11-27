@@ -57,7 +57,13 @@ export const navPages = (group) =>
 /** Every registered page, shown or not. */
 export const allPages = () => [...pages];
 export const pageById = (id) => pages.find((p) => p.id === id) || null;
-export const registeredSettingsPages = () => [...settingsPages].sort((a, b) => a.order - b.order);
+// The order of the Settings list, kept in one place: what a person looks for first on top, the pages that apply only
+// sometimes (Runs as root, Hands-off) next to what they belong with. A page not named here keeps its own `order`.
+export const SETTINGS_ORDER = Object.freeze({
+  'new-sessions': 10, root: 12, notifications: 20, appearance: 30, security: 40, 'public-link': 45, handsoff: 47, workspace: 50,
+  automations: 55, tia: 60, updates: 70, addons: 80,
+});
+export const registeredSettingsPages = () => settingsPages.map((p) => (Object.hasOwn(SETTINGS_ORDER, p.id) ? { ...p, order: SETTINGS_ORDER[p.id] } : p)).sort((a, b) => a.order - b.order);
 
 // Small pieces a feature adds to the session screens.
 const sessionActions = [];

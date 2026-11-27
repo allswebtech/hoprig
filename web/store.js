@@ -145,10 +145,10 @@ document.addEventListener('visibilitychange', () => {
 // ---------- notifications in the page ----------
 
 const EVENT_TEXT = {
-  waiting: 'is waiting for you',
+  waiting: 'has finished',
   attention: 'needs your OK',
   limit: 'reached a usage limit',
-  ended: 'finished',
+  ended: 'has ended',
 };
 
 export const pageNotify = {

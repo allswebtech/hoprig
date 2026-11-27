@@ -1,4 +1,4 @@
-// Tia and the coding tools of a computer (Settings → Coding tools, Settings → Updates): what she may look at, and the
+// Tia and the coding tools of a computer (Settings → New sessions → Coding tools, Settings → Updates): what she may look at, and the
 // three actions of manage_computer that change them. They follow the checklist at the top of tools.mjs:
 //
 //   look (L0)          get_computer_status with coding_tools: true — which coding tools are on and installed, the

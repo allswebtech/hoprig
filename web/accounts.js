@@ -23,7 +23,8 @@ import {
   add, ago, api, at, btn, speedWords, confirmSheet, copyText, fill, h, insecure, isPaid, kindLabel, link, machine, openSheet, profileState, promptSheet,
   servesClaude, startOrder, subscriptionsNote, toast, toolsText, until,
 } from './lib.js';
-import { gatewayPageLink, gatewaysPanel, programFacts } from './gateways.js';
+import { gatewayPageLink, gatewaysPanel, programFacts, setupBlock } from './gateways.js';
+import { trouteaiPanel } from './trouteai.js';
 import { ownBackupPanel, ownEndpointPanel, ownNote } from './ownendpoint.js';
 import { providerHealth } from './providerhealth.js';
 import { registerPage } from './registry.js';
@@ -280,6 +281,7 @@ function viewAccounts({ frame, sub, query }) {
           here ? btn('primary', { icon: 'plus', label: 'Add provider', onclick: () => addWizard(data, refresh) }) : null),
       here ? null : h('p.hint', `Providers of ${openLabel()} are added on that computer's own page: a key or a sign-in never travels through this one.`),
       here ? gatewaysPanel({ useLocal: (g) => addWizard(data, refresh, { start: g.id }), changed: () => refresh() }) : null,
+      here ? trouteaiPanel({ changed: () => refresh() }) : null, // the shipped gateway's accounts, limits, combos and keys, once it is installed
       fold('accounts', 'Advanced', fixedPanel(settings.autoSwitch)));
     // "?show=<part>" (e.g. the gateways panel an error names): brought into view once, on the first draw.
     const part = shownOnce ? null : partOf(query);
@@ -333,7 +335,7 @@ function codexSigninBox(a, d) {
   if (a.signedIn === true) return h('p.acct-works', icon('check', { size: 15 }), h('span', 'Codex is signed in on this computer.'));
   if (a.signedIn == null) {
     return h('div.banner.warn.mbanner', icon('alert', { size: 18 }), h('span', 'Codex is not installed on this computer yet.'),
-      h('a.btn.small.primary', { href: link('#/settings/codingtools') }, 'Coding tools'));
+      h('a.btn.small.primary', { href: link('#/settings/new-sessions?show=coding-tools') }, 'Coding tools'));
   }
   return h('div.banner.warn.mbanner', icon('alert', { size: 18 }), h('span', 'Codex cannot use this provider until it is signed in.'),
     d.full ? btn('small primary', { icon: 'user', label: 'Sign in', onclick: async (e) => {
@@ -798,6 +800,20 @@ function addWizard(data, done, { signIn = null, start = null } = {}) {
           add(panel, errorBox(e));
         }
       };
+      // The gateway Hoprig sets up itself: one press does the install, the start, the key and the provider.
+      if (g.setup) {
+        const pageLink = () => gatewayPageLink(g.page, { title: g.title, pageHost: location.hostname, signedIn, other: Boolean(machine.current) }); // looked up when it is running
+        return fill(panel, back(),
+          h('p.sheet-text', g.words.what),
+          setupBlock(g, {
+            done: () => done(),
+            after: () => { const gpSetup = pageLink(); return h('div', h('p', g.words.add), gpSetup && gpSetup.href ? h('div.btnrow', h('a.btn.secondary', { href: gpSetup.href, target: '_blank', rel: 'noopener noreferrer' }, icon('external', { size: 18 }), h('span', `Open ${g.title}`))) : null); },
+            secondary: h('div.savebar.start', btn('small ghost', { label: 'Paste a key you made yourself instead', onclick: () => pasteKey(g, signedIn, again, missing, job, run) })),
+          }));
+      }
+      return pasteKey(g, signedIn, again, missing, job, run);
+    }
+    function pasteKey(g, signedIn, again, missing, job, run) {
       if (!g.installed) {
         // A program that is not a package (the owner's own gateway) is not installed from here: it is there or not.
         // Its sentence says it is on this computer, so a missing program gets its own words, and Try again looks again.

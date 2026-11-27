@@ -189,7 +189,7 @@ test('through the hoprig command, as a person types it', async () => {
   assert.deepEqual(JSON.parse(out).items.map((i) => i.id), ['write-the-release-notes']);
   assert.equal(JSON.parse(out).items[0].title, 'Release notes, written here');
   const help = execFileSync(process.execPath, [bin, 'help'], { encoding: 'utf8', env: process.env });
-  assert.match(help, /hoprig tasks {16}Work: your tasks/);
+  assert.match(help, /hoprig tasks {16}your tasks and what needs you today/);
   // "work" stays free for a provider of that name (hoprig work -c starts it, as before).
   const { validName } = await import('../../src/profiles.mjs');
   assert.equal(validName('work'), true);

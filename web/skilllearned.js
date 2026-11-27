@@ -1,10 +1,9 @@
-// Skills → Learned (#/skills/learned) and Settings → Learn skills (#/settings/learn): drafts of skills made from
+// Skills → Learned (#/skills/learned), with its learn panel at the top: drafts of skills made from
 // the owner's own work in Work (src/skillhub/learnfeature.mjs). A draft says where it came from, what would change,
 // what the scan found and how a cheap model answered its test requests without it and with it; nothing is installed
 // until he presses Install, and a risky draft cannot be installed at all. Installed, it is one commit in his AI
 // brain; Undo takes it back.
-import { api, btn, confirmSheet, fill, h, link, toast } from './lib.js';
-import { registerSettingsPage } from './registry.js';
+import { api, btn, confirmSheet, fill, h, toast } from './lib.js';
 import { emptyState, errorBox, field, panel, savedMark, skeletonRows as skeleton, toggle } from './shell.js';
 import { icon } from './icons.js';
 import { money } from './chat/words.js';
@@ -34,6 +33,7 @@ const cost = (c) => (!c || !(c.usd || c.tokens) ? ''
  * Skills page calls stop() before it paints another part into the same box, or leaves.
  */
 export function paintLearned(box, kit) {
+  const list = h('div'); // the drafts: drawn again at every look; the panel above it is drawn once
   let data = null;
   let notice = null; // { text, undoId } after an install or an undo
   let timer = null;
@@ -58,7 +58,7 @@ export function paintLearned(box, kit) {
     try {
       data = await api('/api/skills/learned');
     } catch (e) {
-      if (alive()) fill(box, errorBox(e));
+      if (alive()) fill(list, errorBox(e));
       return;
     }
     if (!alive()) return;
@@ -170,9 +170,9 @@ export function paintLearned(box, kit) {
     const banner = notice ? h('div.banner.ok-box.sk-notice', { role: 'status', tabindex: '-1' }, icon('check', { size: 18 }), h('span', notice.text), undoBtn) : null;
     const last = data.recent && data.recent[0];
     const focused = document.activeElement && box.contains(document.activeElement) && document.activeElement.getAttribute ? document.activeElement.getAttribute('data-key') : null;
-    fill(box,
+    fill(list,
       banner,
-      data.on ? null : h('div.banner.lr-off', icon('info', { size: 18 }), h('span', 'Learning from Work is off, so no drafts come from your work (a session\'s way round still comes). '), h('a', { href: link('#/settings/learn') }, 'Turn it on in Settings')),
+      data.on ? null : h('div.banner.lr-off', icon('info', { size: 18 }), h('span', 'Learning from Work is off, so no drafts come from your work (a session\'s way round still comes). Turn it on above.')),
       h('p.hint', 'A draft comes from your own work in Work (a result you sent back with your words, or a task you accepted and marked “Learn from this”) or from a coding session that wrote down a way round after a Hoprig command failed. Nothing is installed until you press Install.'),
       data.looking ? h('p.lr-looking', { role: 'status' }, icon('refresh', { size: 16 }), 'Looking at a run of your work…') : null,
       waiting.length ? [h('p.field-label', `Waiting for you (${waiting.length})`), h('div.lr-list', waiting.map((d, i) => card(d, i)))]
@@ -187,7 +187,8 @@ export function paintLearned(box, kit) {
     notice = null;
   }
 
-  fill(box, skeleton(2));
+  fill(list, skeleton(2));
+  fill(box, learnPanel(() => load()), list);
   load();
   return {
     refresh: load,
@@ -198,9 +199,9 @@ export function paintLearned(box, kit) {
   };
 }
 
-// ---------- Settings → Learn skills ----------
+// ---------- The learn panel, at the top of Learned ----------
 
-function learnPanel() {
+function learnPanel(onSaved) {
   const slot = h('div', skeleton(2));
   const paintIt = (v) => {
     const s = v.settings;
@@ -210,6 +211,7 @@ function learnPanel() {
         const next = await api('/api/skills/learn/settings', patch);
         mark.show();
         Object.assign(v.settings, next);
+        if (onSaved) onSaved();
         return next;
       } catch (e) {
         toast(e, { kind: 'error' });
@@ -245,18 +247,11 @@ function learnPanel() {
       field('Model for the look', model, 'The test requests always use the cheapest model.'),
       field('Looks per week, at most', perWeek, `At most ${v.draftsPerWeek} drafts are made a week, whatever this says.`),
       h('p.hint', `${last} This week: ${v.looksThisWeek} of ${s.perWeek} looks, ${v.draftsThisWeek} of ${v.draftsPerWeek} drafts.`),
-      h('p.hint', mark, ' A draft waits in ', h('a', { href: link('#/skills/learned') }, 'Skills → Learned'), ' until you press Install or Discard.'));
+      h('p.hint', mark, ' A draft waits below until you press Install or Discard.'));
   };
   api('/api/skills/learn').then(paintIt, (e) => fill(slot, errorBox(e)));
   return panel({ icon: 'sparkle', title: 'Skills from your own work', desc: 'Drafts of skills from what you corrected or kept in Work. You read each one; nothing is installed by itself.' }, slot);
 }
-
-registerSettingsPage({
-  id: 'learn', title: 'Learn skills', icon: 'sparkle', order: 58,
-  desc: 'Drafts of skills from your own work in Work. Off until you turn it on.',
-  summary: async () => ((await api('/api/skills/learn')).settings.on ? 'On' : 'Off'),
-  render: () => [learnPanel()],
-});
 
 /** The number of drafts waiting, for the Skills page's tab; null when it cannot be read. Never throws. */
 export const waitingCount = () => api('/api/skills/learned').then((v) => v.drafts.filter((d) => ['trying', 'ready', 'installing'].includes(d.state)).length, () => null);

@@ -145,8 +145,9 @@ export async function launchChrome({ port, realHome = false } = {}) {
       }
       await sleep(wait);
     },
-    async viewport(width, height, { mobile = false, scale = mobile ? 2 : 1, theme = 'light' } = {}) {
+    async viewport(width, height, { mobile = false, scale = mobile ? 2 : 1, theme = 'light', touch = false } = {}) {
       await send('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: scale, mobile });
+      await send('Emulation.setTouchEmulationEnabled', { enabled: !!touch, maxTouchPoints: 5 });
       await send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-color-scheme', value: theme }, { name: 'prefers-reduced-motion', value: 'reduce' }] });
     },
     /** PNG or JPEG bytes of the viewport (or a clip { x, y, width, height }). */

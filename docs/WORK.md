@@ -81,7 +81,7 @@ lets you change it first:
 - the **project** and the **folder** in it: the project's own folder or one of its code repositories (`code/<name>`).
   The task's project is the default; a task without a project asks for one;
 - the **provider** (the folder's own, as New session picks it), the **model** and the **effort** (Settings →
-  New-session defaults), and the coding tool when more than one is on;
+  New sessions), and the coding tool when more than one is on;
 - **Where it works**, for a project that is a git repository: **On a branch of its own** (`work/<task id>`, the
   default) or **In the project's folder itself**, with one line that says which;
 - one line: "A session starts in <folder> (or its own copy of <folder>, on a branch of its own) with this brief. It
@@ -204,7 +204,7 @@ a milestone that still has tasks is refused: move them first.
 
 **Plan with AI** opens a sheet: your goal in your own words, the project it is about (and others it is also about), and
 the provider, model and effort (the defaults as Do it has them), and **Lead model** with **Use other providers** (see
-the README; their defaults are in Settings → New-session defaults). **Plan** starts an App session in that project (you
+the README; their defaults are in Settings → New sessions). **Plan** starts an App session in that project (you
 can watch it) whose first message asks it to research (the project's files, the web where the coding tool has it)
 and to answer with a research note and a draft plan with milestones and dated tasks, in one exact JSON shape. Its
 method is the skill **plan-work**, which ships with Hoprig (it is also offered under Skills for your coding tools);
@@ -266,7 +266,7 @@ own state, never in the repository.
 
 Clock changes: a time that does not exist on the day summer time starts runs at the same distance after the jump; a time
 that happens twice runs once. A slot missed while the computer was off runs once when it is at most "how late" hours
-late (Settings → Automations; only the newest missed slot counts), else it is recorded as missed. A schedule made or
+late (2 by default; only the newest missed slot counts), else it is recorded as missed. A schedule made or
 changed after today's time starts next time.
 
 **A schedule on another computer** runs there only: at the slot this dashboard asks that computer over the existing link
@@ -290,15 +290,17 @@ provider, model and effort chosen, and a **time limit** (default 30 minutes, 1 t
   commits on its branch and the files it left changed. For a task, the task goes to **review** (or back to open with
   the reason). **Accept** removes the copy when nothing in it is left uncommitted; the branch stays.
 - **Limits**: only what you set starts; never two runs of one project at once; at most "runs by themselves at once" on
-  one computer (Settings → Automations, 1 to 4, default 1). A run that has to wait is kept and starts when a place is
+  one computer (the top of Work → Schedules, 1 to 4, default 1). A run that has to wait is kept and starts when a place is
   free. The schedules switch is the master switch of all of it.
 - **Tell me**: "only when there is something to report" (the default) or "every time". Nothing to report means it ended
   well, made no commit, left no file changed, and its answer starts with "Nothing to report." (the prompt asks for that
   line). A failure, the time limit or a refused step is always told.
 
-The rest of what was the Automations page is in **Settings → Automations**: the schedules switch, how many runs by
-themselves at once, sending the next queued message, trying again after a server error, reopening sessions after a
-restart, the housekeeping, and (under Advanced) pausing all of them. The old addresses (`#/automations…`) land on the
+What was the Automations page is split by where it belongs: the schedules switch and how many runs by themselves at
+once are at the top of **Work → Schedules**; trying again after a server error, reopening sessions after a restart,
+the housekeeping, and (under Advanced) pausing all of them are in **Settings → While you are away**. Sending the next
+queued message has no switch any more (a queue always sends; an old switch that was off is still honoured, and the
+queue's banner then has a Turn it on button). The old addresses (`#/automations…`) land on the
 new places.
 
 ## Progress, how long, and being told
@@ -320,7 +322,7 @@ pieces.
 - **The estimate** comes only from what finished here: for the same kind of work (a run's project and kind of work,
   a schedule, a workflow's name), the last ten that ended well give the range, shortest to longest, rounded to five
   minutes, always with its basis: "about 5 h 30 to 8 h 30, from 4 like it", and for one that runs "done by about
-  09:30 to 12:30" (in the time zone of Settings → Work, else this computer's). With fewer than two, a run gets no number: Work's
+  09:30 to 12:30" (in the time zone of Work settings, else this computer's). With fewer than two, a run gets no number: Work's
   Today tab says it once, under the count of what runs ("No estimate yet: nothing like it has finished here."), and
   the digest says "no estimate yet" beside the run. A duration below zero or over seven days (a clock set back, a lost end) does
   not count. One that runs longer than any like it says so ("longer than any like it (the longest took 2 h)"), and
@@ -378,7 +380,7 @@ Activity notes it.
 
 A script or another product can add a task to your list and hear its result. It gets nothing else.
 
-**A Work token** is made in **Settings → Work → Another program**, by you, on this dashboard's own page: you name it
+**A Work token** is made in **Work → Tasks → Work settings → More → Another program**, by you, on this dashboard's own page: you name it
 (the program it is for), the page asks once, and the token is shown **once** (`hwt_…`). Hoprig keeps only its SHA-256,
 in `work-access.json` in its config folder (mode 0600), never in the Work repository or the brain. The list shows each
 token's name, when it was made and when it was last used; **Revoke** ends it at once (also a request already on its
@@ -415,7 +417,7 @@ another token or one of yours is "not found" to it. An answer is JSON; a refusal
 | 500 | `internal` | an error on the dashboard's computer |
 
 **Limits** per token, set on the same page: 60 requests a
-minute and 100 tasks a day (counted by Work's day: the time zone in Settings → Work, else this computer's clock;
+minute and 100 tasks a day (counted by Work's day: the time zone in Work settings, else this computer's clock;
 `Retry-After` counts to that midnight); one token's requests never count for another.
 
 **A task from a token is someone else's words.** It carries the token's name (`from` in the file: its id, name and
@@ -710,7 +712,7 @@ and Tia's decisions there do nothing: only the mission moves its own tasks.
 
 ## Where the data lives
 
-One file in a git repository of your workspace, chosen in **Settings → Work** ("Work data lives in"):
+One file in a git repository of your workspace, chosen in **Work settings** (the fold at the foot of **Work → Tasks**; "Where your tasks are kept"):
 
 - **The AI brain** (the default): `ai_brain/work/tasks.json`. The brain is on every computer of yours, so every
   computer sees the same list after a sync.
@@ -747,7 +749,7 @@ what was decided.
 **A planning tool's list** in the same shape (items with `owner` and `brands`, the owner's own id for "you") is
 opened as it is: `owner` is read as who does it. When the file does not use your id yet, the page says once that it
 is a planning tool's file and asks for **your id in this file**, filled with the id the file uses most (also
-**Settings → Work** and `hoprig tasks owner <id>`); until you say it, Work writes nothing that would put its own word
+**Work settings** (More) and `hoprig tasks owner <id>`); until you say it, Work writes nothing that would put its own word
 for "you" into that file (adding a task, "who does it: me"). That tool knows the statuses open, done and dropped and
 counts only "open" as open work: in its file a task set to waiting, review or doing is written as `status: "open"`
 with the real one in Work's own key `state`, which Work reads back as the status, so both tools show it as open.
@@ -777,7 +779,7 @@ at a time (a lock in Hoprig's state folder, never next to your file), through a 
 lock names its process (its pid and when it started), so a writer that still runs keeps it however long it takes; a
 lock whose process has ended is taken at once, and one whose process cannot be told is taken after 60 seconds
 without the refresh its holder makes every 5 seconds. "Today" is counted on this computer's clock, or in the time
-zone named in Settings → Work.
+zone named in Work settings.
 
 ## Save
 

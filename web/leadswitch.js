@@ -1,4 +1,4 @@
-// "Lead model": one switch with one line of help, wherever a Claude Code session is set up (Settings → New-session
+// "Lead model": one switch with one line of help, wherever a Claude Code session is set up (Settings → New sessions
 // defaults, the new-session sheet, Plan with AI, Settings → Tia). On, it shows more lines from the server
 // (GET /api/models/lead): which models it uses on the chosen provider, or why it cannot lead there. Under it, while Lead
 // is on, "Use other providers": on, the lead may hand a part to a provider ticked in the list right under it
@@ -7,15 +7,15 @@ import { api, fill, h, link } from './lib.js';
 import { MODE } from './chat/words.js';
 import { helpParts } from './helpline.js';
 
-export const LEAD_LABEL = 'Lead model';
+export const LEAD_LABEL = 'Split work across models';
 export const OTHERS_LABEL = 'Use other providers';
 export const OTHERS_HELP = 'The lead may also hand a part to a provider you tick below.';
 export const OTHERS_NONE = 'Tick at least one provider: with none ticked, this stays off.';
 // What Lead costs, as measured on a small task of three parts: 3.3 times the tokens of the same task without it, and
 // 5.7 times with one part handed to another provider. The cost stands in the one line under the switch (never folded
 // away); how it works is under "More".
-export const LEAD_COST = 'on a small task it costs more, three to six times in our tests.';
-export const LEAD_HELP = `Your model hands parts to other models; ${LEAD_COST}`;
+export const LEAD_COST = 'on a small task it costs 3 to 6 times more, so leave it off unless the work is big.';
+export const LEAD_HELP = `Hands smaller parts to other models; ${LEAD_COST}`;
 export const LEAD_MORE = 'The model you chose plans the work and hands easy parts to a faster model, code to a strong one. It pays on work with parts that can be done apart.';
 // A terminal session of Claude Code: Hoprig sees a part's model and tokens in Claude Code's records, but not what it
 // cost (only the App reads Claude Code's cost), and a part on another provider is an App session of the lead's App

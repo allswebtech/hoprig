@@ -158,8 +158,7 @@ test('a tick on a provider that is no longer one (removed, or another computer\'
 
 test('under Lead: one line of what it costs, true to what was measured; under Use other providers: the mode parts run in', async () => {
   const L = await import('../../web/leadswitch.js');
-  assert.match(L.LEAD_COST, /costs more/);
-  assert.match(L.LEAD_COST, /three to six times/);
+  assert.match(L.LEAD_COST, /costs 3 to 6 times more/);
   assert.doesNotMatch(L.LEAD_COST, /sav/i, 'no promise of saving');
   const n = L.leadSwitch({ value: true, provider: 'team', onchange: () => {}, others: ['alpha'], onothers: () => {}, partMode: 'bypassPermissions', modes: ['manual', 'bypassPermissions'] });
   await settle();

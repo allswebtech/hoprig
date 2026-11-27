@@ -58,7 +58,7 @@ export async function startSession(f, { st, pc, way, info, toolName, busy, faile
       // What is not chosen here is left out: the server takes what the last session in the App had in this folder.
       // Lead and its ticks too, unless the owner changed them here (st.leadTouched).
       const permissionMode = own && !((info && info.modes) || []).includes(st.permissionMode) ? '' : st.permissionMode;
-      await startChat(f.path, { tool, sessionId, profile: st.profile, permissionMode, effort: st.effort, model: own ? '' : st.model, ...(!own && st.leadTouched && typeof st.lead === 'boolean' ? { lead: st.lead, ...(st.lead && Array.isArray(st.others) ? { others: st.others } : {}) } : {}), with: own ? [] : alsoOf(st) }, st.m);
+      await startChat(f.path, { tool, sessionId, profile: st.profile, permissionMode, effort: st.effort, model: own ? '' : st.model, ...(!own && st.leadTouched && typeof st.lead === 'boolean' ? { lead: st.lead, ...(st.lead && Array.isArray(st.others) ? { others: st.others } : {}) } : {}), with: own ? [] : alsoOf(st), ...(!own && !sessionId && st.worktree === true ? { worktree: true } : {}) }, st.m);
     } catch (e) {
       failed(e);
     }

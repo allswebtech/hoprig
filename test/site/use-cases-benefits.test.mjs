@@ -192,7 +192,7 @@ test('every press these sections name is a word of the dashboard, where the page
   for (const w of presses) assert.ok(new RegExp(`['"\`]${w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}['"\`]`).test(web), `"${w}" is a word of web/`);
   // The ways to them: the tabs and pages as the sections say.
   assert.match(read('web/skillhub.js'), /\['suggested', 'Suggested'\].*\['learned', 'Learned'\]/);
-  assert.match(read('web/skilllearned.js'), /id: 'learn', title: 'Learn skills'/);
+  assert.match(read('web/skilllearned.js'), /fill\(box, learnPanel\(\(\) => load\(\)\), list\)/); // the learn panel sits at the top of Skills → Learned
   assert.match(read('web/workspace.js'), /registerSettingsPage\(\{ id: 'workspace', title: 'Workspace'/);
   assert.match(read('web/pc.js'), /\{ id: 'setup', title: 'Setup'/);
   assert.match(read('web/work.js'), /\['plans', 'Plans', '[a-z]+'\]/);

@@ -345,7 +345,7 @@ export function itemSheet(it, ctx) {
         toast(it ? 'Task changed' : 'Task added');
         close(true);
       } catch (x) {
-        // Its code's place (a planning tool's file needs his id: Settings → Work) is one press away; the sheet closes
+        // Its code's place (a planning tool's file needs his id: Work settings, at the foot of Tasks) is one press away; the sheet closes
         // first, so the place is not opened behind it.
         const way = wayLink(x);
         if (way) way.addEventListener('click', () => close(false));

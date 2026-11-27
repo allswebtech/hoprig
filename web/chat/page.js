@@ -19,12 +19,13 @@ import { limitCard } from './limit.js';
 import { handsOffBar, openConsentSheet } from '../handsoff.js';
 import { createRail, folderNews } from './rail.js';
 import { partsSheet } from './parts.js';
-import { createSidebar, deletableHere, nameOf } from './sidebar.js';
+import { archiveSession, createSidebar, deletableHere, nameOf, sideFits } from './sidebar.js';
 import { createDiffPane } from './diffpane.js';
 import { openNewSession } from '../newsession-popup.js';
 import { chooseRewind, historySheet, rewindSheet } from './sheets.js';
 import { deleteNow, pickToDelete, trashSheet } from './deletes.js';
 import { createStatusLine } from './statusline.js';
+import { createTermPane } from './termpane.js';
 import { follow } from './stream.js';
 import { createTimeline } from './timeline.js';
 import { opensAsChat } from './start.js';
@@ -106,17 +107,18 @@ function viewChat({ sub }) {
         toast(e, { kind: 'error' });
       }
     },
+    // Archive (the session menu): no question, a toast with Undo (sidebar.js archiveSession); a question only for a working
+    // session, or a branch of its own with changes not committed.
     async close() {
-      if (!(await confirmSheet({ title: 'Archive this session?', text: `${toolWord(v)} stops if it is working, and the session leaves Home. The conversation is kept: continue it later from Earlier conversations in a session of this folder, or New session → Options → Conversation.`, ok: 'Archive' }))) return;
-      try {
-        await api(`${A}/close`, {});
-        store.refresh();
-        forgetHere();
-        if (inWindow !== null) location.hash = way.hash;
-        else if (!closeWindow()) gone();
-      } catch (e) {
-        toast(failText(e), { from: e, kind: 'error' });
-      }
+      await archiveSession({
+        chatId: id, cwd: v && v.cwd, working: !!(v && (v.working || v.pending.length)),
+        refresh: () => store.refresh(),
+        gone: () => {
+          forgetHere();
+          if (inWindow !== null) location.hash = way.hash;
+          else if (!closeWindow()) gone();
+        },
+      });
     },
     // Delete (the session menu): to the trash, with Undo on the toast; the page goes Home as after Archive.
     parts: () => partsSheet(A), // Lead model: who did what, at every width
@@ -133,6 +135,9 @@ function viewChat({ sub }) {
       const r = await pickToDelete(deletableHere(store), nameOf, { after: () => store.refresh() });
       if (r && r.deleted.some((x) => x.chat === id) && !machine.current) location.hash = link('#/');
     },
+    // The title bar's Terminal button and Ctrl+`: a shell under the chat (termpane.js). The hand-off to a terminal
+    // session is terminal() below (the session menu's Open in > Continue in Terminal).
+    termPane: () => termPane.toggle(),
     async terminal() {
       // A terminal runs the conversation already: that is where it goes on (the server never starts a second one).
       if (v && v.terminal) {
@@ -202,7 +207,18 @@ function viewChat({ sub }) {
     },
   };
   const railCtl = { hidden: () => rail.hidden(), toggle: () => rail.toggle() };
-  const header = createHeader({ A, way: inWindow === null ? null : way, act, view, rail: railCtl });
+  // The session list's Hide / Show (sidebar.js), remembered in this browser as chat.side = off; the head's first button.
+  let sideOver = false; // the list is open over the chat (narrower than its width)
+  const sideCtl = BARE ? null : {
+    hidden: () => (sideFits() ? prefs.get('chat.side', 'on') === 'off' : !sideOver),
+    toggle() {
+      if (!sideFits()) return side.overlay(); // narrower than the list's width: over the chat (sidebar.js), not remembered
+      prefs.set('chat.side', this.hidden() ? 'on' : 'off');
+      wrap.classList.toggle('chat-side-off', this.hidden());
+      header.paintSide();
+    },
+  };
+  const header = createHeader({ A, way: inWindow === null ? null : way, act, view, rail: railCtl, side: sideCtl });
   const notes = h('div.chat-notes'); // a terminal runs it, a limit
   const conn = h('div.chat-conn'); // the connection
   const scroll = h('div.chat-scroll', { role: 'region', 'aria-label': 'Conversation', tabindex: '-1' });
@@ -218,7 +234,7 @@ function viewChat({ sub }) {
   });
   add(scroll, timeline.el);
   const todos = h('div.chat-todos');
-  const strip = agentsStrip({ stop: (taskId) => act.stopTask(taskId), canStop: () => !v || caps().stopTask !== false, jump: (toolId) => timeline.jump(toolId) });
+  const strip = agentsStrip({ stop: (taskId) => act.stopTask(taskId), canStop: () => !v || caps().stopTask !== false, jump: (toolId) => timeline.jump(toolId), output: (taskId) => api(`${A}/tasks/${taskId}/output`) });
   // The page's own "/" commands (popovers.js lists them with the coding tool's, by name, as Claude Code's / menu): its
   // words where Claude Code has the command, and what each does here where that differs (/clear opens a new session,
   // /config Hoprig's Settings). One with a hint goes into the box first, for its argument (/compact's focus).
@@ -249,7 +265,7 @@ function viewChat({ sub }) {
   const rail = createRail({
     A, view: () => timeline.view(), computer: () => (store.data && store.data.machineLabel) || 'This computer',
     stop: (taskId) => act.stopTask(taskId), canStop: () => !v || caps().stopTask !== false, jump: (toolId) => timeline.jump(toolId),
-    changes: () => act.diff(), providers: () => header.providerMenu(), tasks: () => strip.open(),
+    changes: () => act.diff(), send: (text) => api(`${A}/send`, { text }), providers: () => header.providerMenu(), tasks: () => strip.open(),
     onToggle: (off) => {
       wrap.classList.toggle('chat-rail-off', off);
       if (v) header.paint(v); // its Hide / Show button says the other now
@@ -257,15 +273,19 @@ function viewChat({ sub }) {
   });
   // The session list at the left on a wide screen (sidebar.js), not inside a window of the desktop (its own Sessions
   // app lists them there). At its right the head, the chat and its dock in one column, and the session rail (rail.css).
-  const side = BARE ? null : createSidebar({ store, current: { chat: id, machine: machine.current ?? null }, newSession: () => openNewSession({ m: machine.current ?? null }) });
+  const side = BARE ? null : createSidebar({ store, current: { chat: id, machine: machine.current ?? null }, newSession: () => openNewSession({ m: machine.current ?? null }), onOverlay: (on) => {
+    sideOver = on;
+    header.paintSide();
+  } });
   // The diff pane (diffpane.js): beside the chat, in the rail's place while it is open; comments go as one message.
   const diffPane = createDiffPane({
     A, send: (text) => api(`${A}/send`, { text }), editor: () => v && openEditor(v.cwd, 'changes'),
     onToggle: (on) => wrap.classList.toggle('chat-diff-open', on),
   });
+  const termPane = createTermPane({ id, cwd: () => (v ? v.cwd : ''), onToggle: (on) => header.paintTerm(on) });
   const pane = h('div.chat-pane', header.el, notes, conn,
-    h('div.chat-body', h('div.chat-main', h('div.chat-mid', scroll, timeline.downBtn), dock), diffPane.el, rail.el));
-  const wrap = h(`div.chat-wrap${rail.hidden() ? '.chat-rail-off' : ''}${side ? '.chat-has-side' : ''}`, side && side.el, pane);
+    h('div.chat-body', h('div.chat-main', h('div.chat-mid', scroll, timeline.downBtn), dock, termPane.el), diffPane.el, rail.el));
+  const wrap = h(`div.chat-wrap${rail.hidden() ? '.chat-rail-off' : ''}${side ? '.chat-has-side' : ''}${side && sideCtl.hidden() ? '.chat-side-off' : ''}`, side && side.el, pane);
   fill(app, wrap);
   fill(timeline.el.querySelector('.chat-list'), h('div.chat-loading', h('div.spinner', { 'aria-hidden': 'true' })));
 
@@ -317,7 +337,7 @@ function viewChat({ sub }) {
     wrap.classList.toggle('chat-tool-off', !!v.toolOff);
     fill(notes,
       v.toolOff ? h('div.banner.warn.chat-banner', { role: 'status' }, icon('alert', { size: 18 }), h('span', `${v.toolOff}.`),
-        h('span.chat-banner-actions', h('a.btn.small.secondary', { href: link('#/settings/codingtools') }, 'Coding tools'))) : null,
+        h('span.chat-banner-actions', h('a.btn.small.secondary', { href: link('#/settings/new-sessions?show=coding-tools') }, 'Coding tools'))) : null,
       ro ? h('div.banner.warn.chat-banner', icon('terminal', { size: 18 }),
         h('span', v.terminal.name ? `This conversation runs in the terminal session "${v.terminal.name}". You can read along here; to write, continue it here.` : 'This conversation runs in a terminal outside the dashboard. You can read along here; to write, continue it here.'),
         h('span.chat-banner-actions',
@@ -334,7 +354,7 @@ function viewChat({ sub }) {
     composer.paint(v);
     status.paint(v, { view: timeline.view() });
     rail.paint(v);
-    strip.paint(v.tasks);
+    strip.paint(v.tasks, v.skew);
     timeline.tasks(v.tasks);
     timeline.liveState(v.live);
     timeline.billed(billed(v));
@@ -434,9 +454,12 @@ function viewChat({ sub }) {
     menu: (what) => (v && !v.terminal && !v.toolOff ? (what === 'mode' ? composer.chooseMode() : composer.choose(what, { byKey: true })) : null),
     view: nextView,
     diff: () => (diffPane.isOpen() ? diffPane.close() : act.diff()),
+    terminal: () => act.termPane(),
+    newSession: () => openNewSession({ m: machine.current ?? null }),
     rewind: () => canRewind() && act.rewind(),
     clearDraft: () => composer.clearDraft(),
     go: (d) => side && side.el.isConnected && side.go(d), // the session list is drawn from 900 px wide only
+    side: () => sideCtl && sideFits() && sideCtl.toggle(),
   });
   const dropHint = h('div.chat-drop.hidden', { 'aria-hidden': 'true' }, h('div.chat-drop-box', icon('paperclip', { size: 28 }), h('p', 'Drop to send with your message')));
   add(wrap, dropHint);
@@ -465,6 +488,7 @@ function viewChat({ sub }) {
   return () => {
     composer.destroy(); // its microphone
     status.stop();
+    strip.stopClock();
     rail.stop();
     side?.stop();
     header.stop(); // its session menu, drawn on the page's body

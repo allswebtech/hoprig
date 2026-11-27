@@ -1116,7 +1116,7 @@ function tiaRights({ isAlive }) {
       fold('tia-rights-stays-more', 'Details: her sessions, and what Hoprig cannot check',
         h('p.hint.tia-rights-stays', STAYS_HERS),
         h('p.hint.tia-rights-stays', TOOLS_UNHELD)),
-      signinBlock);
+      fold('tia-signin-advanced', 'Advanced', signinBlock));
   }
   paint();
   return box;
@@ -1159,7 +1159,7 @@ function tiaSettings({ isAlive }) {
         paint();
         return false;
       }
-    }, v.help.answersHers, { key: 'tia-answers-hers' }) : null;
+    }, { line: 'When a Work task she started asks for an OK, she answers it, only to look inside the project or run its checks.', more: v.help.answersHers }, { key: 'tia-answers-hers' }) : null;
     const levelWords = { ask: ['Ask me', v.help.levelAsk], work: ['Do the work', v.help.levelWork], handsoff: ['Hands off', v.help.levelHandsoff] };
     // What each level means in one short line; the full text of the chosen one under a closed "More".
     const short = v.help.levelShort || {};

@@ -50,7 +50,7 @@ Find your case. Each page says who it is for, what Hoprig does step by step with
 ## How it works
 
 :::steps
-1. **Install.** Paste one line into a terminal. It adds what is missing, after a few questions, each asked once, and ends with a QR code (on a server: how to reach it from your own computer).
+1. **Install.** Paste one line into a terminal. It adds what is missing, asks a few questions (about 7 on a fresh desktop, each asked once), and ends with a QR code (on a server: how to reach it from your own computer).
 2. **Open the dashboard.** Scan the QR code with your phone, or open it on the computer. Until everything is set up, Home shows a Get started list.
 3. **Code in a chat.** Pick a project and start a chat with Claude Code or OpenCode. You see each change and press **Allow** or **Do not allow**, at your desk or on your phone.
 :::

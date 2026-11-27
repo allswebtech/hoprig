@@ -1,4 +1,4 @@
-// What Settings → Updates looks after: Hoprig itself, the coding tools this version offers and the tunnel helper (cloudflared, for
+// What Settings → Version and updates looks after: Hoprig itself, the coding tools this version offers and the tunnel helper (cloudflared, for
 // the public link). One item each, all with the same shape, so the page, the command line and the automatic rule
 // treat them alike:
 //
@@ -63,7 +63,7 @@ export function hoprigItem(deps = {}) {
     id: 'hoprig',
     title: 'Hoprig',
     whenRunning:
-      'The new version is used after the dashboard restarts: sessions kept by tmux go on through the restart, sessions in the built-in terminals end then (their conversations can be continued). Hoprig never updates itself: Automatic tells you, and you choose the moment.',
+      'The new version is used after the dashboard restarts: sessions kept by tmux (a program that keeps terminals running) go on through the restart, sessions in the built-in terminals end then (their conversations can be continued). Hoprig never updates itself: Automatic tells you, and you choose the moment.',
     installable: false,
     async info() {
       const [{ installKind, newestVersion }, { appRoot, appVersion }] = await Promise.all([sel(), chk()]);

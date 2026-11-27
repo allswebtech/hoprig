@@ -74,3 +74,60 @@ test('"started by Hoprig" is its pid file in the state folder; the shipped gatew
   assert.deepEqual(r.map((c) => [c.id, c.status]), [[`gateway-${id}`, 'fail']]);
   assert.ok(r[0].fix.startsWith(`hoprig addons stop ${id} && hoprig addons start ${id}`), r[0].fix);
 });
+
+// ---- the gateway with a copy of its own (ownGatewayChecks) ----
+const own = (over = {}) => ({
+  id: 'alpha', title: 'Gateway alpha', ownCopy: true,
+  copyInfo: () => (over.status?.installed === false ? null : { copy: 'own', version: '1.0.11', ...over.status }),
+  answering: async () => ({ up: Boolean(over.status?.running || over.status?.foreign), mine: Boolean(over.status?.running), ...(over.status?.foreign ? { otherUser: true } : {}) }),
+  ready: async () => over.ready !== false,
+  folders: () => ({ copy: over.copy || path.join(s.tmp, 'tools', 'alpha'), data: over.data || path.join(s.tmp, 'alpha-data'), global: over.global ?? null }),
+});
+
+test('doctor: nothing is said for a gateway that is not installed and not running, or one with no copy of its own', async () => {
+  assert.deepEqual(await G.ownGatewayChecks([own({ status: { installed: false } })]), []);
+  assert.deepEqual(await G.ownGatewayChecks([gw('plain', 20001)]), []);
+});
+
+test('doctor: the own copy and its data folder are this user\'s, and it answers its health route', async () => {
+  const copy = path.join(s.tmp, 'tools', 'alpha');
+  const data = path.join(s.tmp, 'alpha-data');
+  fs.mkdirSync(copy, { recursive: true });
+  fs.mkdirSync(data, { recursive: true });
+  fs.writeFileSync(path.join(data, 'cli-token'), 'x');
+  const r = await G.ownGatewayChecks([own({ status: { running: true } })]);
+  assert.deepEqual(r.map((x) => [x.id, x.status]), [['gateway-alpha-copy', 'ok'], ['gateway-alpha-data', 'ok'], ['gateway-alpha-health', 'ok']]);
+  assert.match(r[0].detail, /1\.0\.11.*Hoprig's own folder/);
+  const down = await G.ownGatewayChecks([own({ status: { running: true }, ready: false })]);
+  assert.equal(down.at(-1).status, 'warn');
+  assert.match(down.at(-1).fix, /hoprig addons stop alpha && hoprig addons start alpha/);
+  const foreign = await G.ownGatewayChecks([own({ status: { running: false, foreign: true } })]);
+  assert.equal(foreign.at(-1).status, 'warn');
+  assert.match(foreign.at(-1).detail, /another user/);
+});
+
+test('doctor: a copy or data folder of another user (root) is named plainly with the next step', async () => {
+  const copy = path.join(s.tmp, 'tools', 'alpha');
+  const data = path.join(s.tmp, 'alpha-data');
+  const me = process.getuid?.() ?? 1000;
+  const r = await G.ownGatewayChecks([own()], { uid: me + 1 }); // as if the folders were another user's
+  const byId = Object.fromEntries(r.map((x) => [x.id, x]));
+  assert.equal(byId['gateway-alpha-copy'].status, 'fail');
+  assert.match(byId['gateway-alpha-copy'].detail, /belongs to another user/);
+  assert.ok(byId['gateway-alpha-copy'].fix.includes(copy) && /chown|hoprig addons install alpha/.test(byId['gateway-alpha-copy'].fix));
+  assert.equal(byId['gateway-alpha-data'].status, 'fail');
+  assert.ok(byId['gateway-alpha-data'].detail.includes(data));
+  assert.match(byId['gateway-alpha-data'].fix, /chown -R .* /);
+  const asRoot = await G.ownGatewayChecks([own()], { uid: me + 1, owner: (st) => (st.uid === me ? 'root' : null) });
+  assert.match(asRoot.find((x) => x.id === 'gateway-alpha-data').detail, /root/);
+});
+
+test('doctor: a global copy is said to be used until Install is pressed, a root-owned one plainly', async () => {
+  const r = await G.ownGatewayChecks([own({ status: { copy: 'global', version: '1.0.8' }, global: '/usr/lib/node_modules/gw/bin/gw' })]);
+  const c = r.find((x) => x.id === 'gateway-alpha-copy');
+  assert.equal(c.status, 'ok');
+  assert.match(c.detail, /global copy.*1\.0\.8.*until/);
+  assert.match(c.fix || c.detail, /hoprig addons install alpha/);
+  const broken = await G.ownGatewayChecks([own({ status: { problem: 'its copy is damaged' } })]);
+  assert.equal(broken.find((x) => x.id === 'gateway-alpha-copy').status, 'fail');
+});

@@ -12,6 +12,10 @@ curl -fsSL https://raw.githubusercontent.com/allswebtech/hoprig/main/install.sh 
 
 Windows (PowerShell):
 
+```powershell
+irm https://raw.githubusercontent.com/allswebtech/hoprig/main/install.ps1 | iex
+```
+
 On Windows (natively, without WSL) the main paths were used by hand on one Windows 11 computer: setup, doctor, the
 computer setup with winget, projects, the background service and the dashboard with sessions and a chat. That first
 run needed ways round (a new project needed a global git identity, programs winget installed stayed "missing", the
@@ -26,10 +30,6 @@ running), and a scheduled run whose coding tool could not be ended switches its 
 again in Work → Schedules (a schedule that names another computer is not switched off). Hands-off and the box are not
 offered on Windows, and `install.ps1` itself was not tried.
 
-```powershell
-irm https://raw.githubusercontent.com/allswebtech/hoprig/main/install.ps1 | iex
-```
-
 **2. Scan.** At the end you see a QR code. Scan it with your phone's camera: the dashboard opens.
 
 That's it.
@@ -43,32 +43,43 @@ That's it.
 
 ### What the one run does
 
+The install line first says what is missing (Node.js 24.13.1 or newer when it is missing or older, and on Linux the
+build tools and a few system parts, with sudo) and installs it without asking; sudo asks for its own password and
+Ctrl-C stops it. It was run from a packed build, as a plain user with sudo, on arm64 in Debian 12, Fedora 45, Alpine
+3.24 and Ubuntu 24.04 containers, up to a dashboard whose sign-in page answers (Alpine uses its own Node.js 24, the
+others get Node.js 26 through nvm). Arch, openSUSE and RHEL are written, not run. Windows and macOS were not run with
+the installer.
+
 The installer ends in `hoprig setup`, and setup takes the computer from here to coding in one run. On a
 machine that already has things, it first shows what is there and proposes only what is missing; when nothing is
 missing it says so in one line and asks nothing.
 
-1. **Claude Code and the dashboard.** Node.js, Claude Code (*install it now?* when it is missing), the sign-in
+1. **Claude Code and the dashboard.** Node.js, Claude Code (installed for you, without a question, when it is missing), the sign-in
    (when no account is signed in it says so in one line and goes on), a dashboard password (made for you, kept in a
    private file), who may open the dashboard (*the second question*, below), and the dashboard running in the
    background so it starts with the computer.
 2. **This computer for coding.** git, Node.js, Python, GitHub's `gh`, tmux and the rest: it shows what is there,
-   lists the exact commands for what is missing, asks once ([PC-SETUP.md](PC-SETUP.md)). In a terminal it also
-   offers working rules for Claude Code (a file in `~/.claude/rules/`, yours to edit; your own `CLAUDE.md` is
-   never touched).
-3. **Git and GitHub.** The GitHub sign-in in the terminal (`gh auth login`, then `gh auth setup-git` so plain git
-   uses it), git's name and e-mail when missing (GitHub's no-reply address suggested), and *is there a workspace
+   lists the exact commands for what is missing, asks once ([PC-SETUP.md](PC-SETUP.md)). Working rules for Claude
+   Code (a file in `~/.claude/rules/`, yours to edit; your own `CLAUDE.md` is never touched) are not asked in the
+   terminal: Get started has one optional press for them.
+3. **Git and GitHub.** The GitHub sign-in in the terminal, once (`gh auth login`, then `gh auth setup-git` so plain
+   git uses it), git's name and e-mail taken from GitHub (its no-reply address) and said in one line, asked only when
+   GitHub is not signed in, and *is there a workspace
    of yours on GitHub already?*: restore it, start a new one in a private repository, or later
    ([WORKSPACE.md](WORKSPACE.md#git-and-github)).
 4. **The workspace.** On a new computer, `~/Workspace` with its AI brain ([WORKSPACE.md](WORKSPACE.md)); where
    it is there, only a report.
 5. **A project.** When you have none: type a new name, `owner/repo` or a Git address, or press Enter to skip.
-6. **Skills for it.** The skill that comes with Hoprig first, then what fits the project, each shown before it
-   is added ([SKILLS.md](SKILLS.md)).
+6. **Skills for it.** Hoprig's own reviewed skills are added without a question (one with a blocking finding is
+   never added); what fits the project comes after, each shown before it is added ([SKILLS.md](SKILLS.md)).
 7. **A QR code.** Scan it with your phone to sign in.
 
 Before all of it, setup makes the `hoprig` and `hop` commands work in every shell, also `ssh <computer> hoprig …`
 where nvm's Node.js is not loaded: two small scripts in `~/.local/bin` and that folder on PATH in your shell's start
 files, added once ([WORKSPACE.md](WORKSPACE.md#the-command-in-every-shell)).
+
+Get started on Home asks for three steps for a first session: Claude Code, the tools for coding and a first project.
+Working rules, the phone, skills and Git and GitHub are optional there.
 
 One part that fails does not stop the next ones: at the end, setup names it with the command to try again.
 

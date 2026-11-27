@@ -24,7 +24,7 @@ class FakeElement extends FakeNode {
 }
 globalThis.Node = FakeNode;
 globalThis.document ??= { createElement: (t) => new FakeElement(t), createElementNS: (ns, t) => new FakeElement(t), createTextNode: (t) => t, getElementById: () => null, addEventListener: () => {}, visibilityState: 'visible' };
-const { addressWarning, gatewayPageLink } = await import('../../web/gateways.js');
+const { addressWarning, gatewayLine, gatewayPageLink } = await import('../../web/gateways.js');
 
 const PAGE = 'http://localhost:4123/dashboard';
 const read = (f) => fs.readFileSync(new URL(`../../web/${f}`, import.meta.url), 'utf8');
@@ -83,4 +83,11 @@ test('the warning under a key\'s address says exactly where another address come
   for (const a of ['https://shop.example.com/gateway/alpha', 'http://box2.local:7000/gateway/alpha', 'http://192.168.1.20:7000/gateway/alpha']) assert.equal(addressWarning(a), null, a);
   const src = read('gateways.js');
   assert.doesNotMatch(src, /Open this page by the computer\\'s name on your network or by its public link/, 'the old sentence promised the name always works');
+});
+
+test('the line under a gateway says its copy was updated after it started, beside the version', () => {
+  const note = 'The copy on this computer was updated after TRouteAI was started: restart it to run 1.0.11';
+  const c = { machine: null, label: 'here' };
+  assert.equal(gatewayLine(c, { installed: true, running: true, version: '1.0.11', restart: note }), `Running · version 1.0.11 · ${note}`);
+  assert.equal(gatewayLine(c, { installed: true, running: true, version: '1.0.11' }), 'Running · version 1.0.11');
 });

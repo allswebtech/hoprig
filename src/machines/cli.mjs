@@ -23,7 +23,7 @@ export const USAGE = `usage:
                                          phone is signed in, no password to type (works once, 15 minutes)
 
   hoprig pair                         show a one-time code (10 min) that lets another computer's dashboard
-                                         control this one: there, Settings → Computers → Add by address
+                                         control this one: there, Computers → Add by address
   hoprig pair --json [--name NAME] [--hub]
                                       for another dashboard that logs in here by SSH: make a token for NAME
                                       (--hub: that dashboard is your main computer, which adds this one)
@@ -111,7 +111,7 @@ async function pair(args) {
   const running = await listening(addr);
   const { id, code, expires } = createCode();
   console.log(`\n  Pairing code:  ${code}\n`);
-  console.log(`On the other computer's dashboard: Settings → Computers → Add by address,`);
+  console.log(`On the other computer's dashboard: Computers → Add by address,`);
   console.log(`then enter this computer's dashboard address and the code. It works once, for ${CODE_TTL_MS / 60000} minutes.`);
   if (!running) console.log(`\nThis computer's dashboard is not running (nothing answers on ${addr.host}:${addr.port}). Start it, or the code cannot be used: hoprig serve`);
   if (!process.stdout.isTTY) return 0; // scripted: print and go

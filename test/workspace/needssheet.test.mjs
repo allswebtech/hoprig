@@ -84,7 +84,8 @@ test('docs/WORKSPACE.md and the help say what needs and --with are, and that it 
   const { DROP_USAGE } = await import('../../src/workspace/dropcli.mjs');
   assert.match(DROP_USAGE, /when another project here names it in "needs", drop asks first \(--check and --json: neededBy\)/);
   assert.match(fs.readFileSync(path.join(WEB, '..', 'src', 'workspace', 'cli.mjs'), 'utf8'), /names each project's "needs" that are not on this computer/);
-  const help = fs.readFileSync(path.join(WEB, '..', 'bin', 'hoprig.mjs'), 'utf8');
+  // The short top help left it out; it stands in "hoprig help all" (src/helpall.mjs).
+  const help = fs.readFileSync(path.join(WEB, '..', 'src', 'helpall.mjs'), 'utf8');
   assert.match(help, /hoprig <profile> --with <name> {2}also let this session read another project/);
   assert.match(fs.readFileSync(path.join(WEB, '..', 'src', 'pcsetup', 'getproject.mjs'), 'utf8'), /--with-needs {2}also get what the project names in "needs"/);
 });

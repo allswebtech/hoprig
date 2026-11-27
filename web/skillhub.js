@@ -113,6 +113,7 @@ function viewSkills({ frame, sub }) {
   let alive = true;
   let data = null; // GET /api/skillhub
   let suggest = null; // GET /api/skillhub/suggest
+  let worth = null; // GET /api/skillhub/worth: the hub skills that fit your projects, the first part of Suggested
   let corrected = {}; // his corrections per skill this week (GET /api/operator/corrections): shown only
   let updates = new Map(); // "user:name" | "project:name" → the check's answer
   let notice = null; // { text, undo } after a remove or an update
@@ -133,21 +134,21 @@ function viewSkills({ frame, sub }) {
     title: 'Skills',
     page: 'skills',
     intro: 'A skill teaches your coding tools one kind of work, like testing a web app or writing Flutter code. Add the ones that fit you and your projects.',
-    body: [h('div.sk-for', h('label.sk-for-label', { for: 'sk-for' }, 'Skills for:'), picker),
+    body: [tabs, h('div.sk-for', h('label.sk-for-label', { for: 'sk-for' }, 'Skills for:'), picker),
       // The brain's skills, not read by Claude Code until its skills folder is linked: the same button as the AI brain page.
       project ? null : linkBrainNote({ only: ['skills'], text: (todo) => `The skills in your AI brain are not used by ${toolNames(todo)} yet.`, after: () => load(), switchOn: true }),
-      project ? null : proposalsBox, tabs, partBox, advanced],
+      project ? null : proposalsBox, partBox, advanced],
   });
 
   if (!project) paintProposals(proposalsBox, { diffView, tag });
-  if (!project) paintWorth(proposalsBox, { startReview });
 
   const scopeName = () => (project ? (projects.find((p) => p.path === project) || {}).name || project.split(/[\\/]/).pop() : '');
   const installedCount = () => (data ? data.user.skills.length + (data.project ? data.project.skills.length : 0) : 0);
   const openCount = () => (suggest ? suggest.suggestions.filter((x) => !x.installed).length : 0);
+  const worthCount = () => (worth ? worth.results.length : 0);
 
   function paintTabs() {
-    const n = { installed: data ? installedCount() : null, suggested: suggest ? openCount() : null, find: null, learned: learnedCount };
+    const n = { installed: data ? installedCount() : null, suggested: suggest ? openCount() + worthCount() : null, find: null, learned: learnedCount };
     tabs.update(PARTS.map(([id, label]) => ({ id, label, href: addr(id), count: n[id] ?? undefined })), part);
   }
   function show(id) {
@@ -263,6 +264,7 @@ function viewSkills({ frame, sub }) {
     const seen = Object.keys(suggest.stacks || {}).filter((k) => k !== 'code');
     const reviewBtn = (x) => btn('small primary', { icon: 'download', label: 'Review', onclick: (e) => startReview({ spec: x.id, project, scope: x.scope }, e.currentTarget) });
     fill(partBox,
+      worthPanel(worth, { startReview, reload: loadWorth }),
       h('p.hint', project ? `Picked for ${scopeName()} from what is in it${seen.length ? `: ${seen.join(', ')}` : ''}.` : 'Useful for you in every project. Pick a project above for the skills that fit it.'),
       suggest.suggestions.length
         ? h('div.rows', suggest.suggestions.map((x) => h('div.row.static.col.mrow.sk-row',
@@ -370,8 +372,20 @@ function viewSkills({ frame, sub }) {
     if (!alive) return;
     paintTabs();
     if (part === 'suggested') paintSuggested();
+    if (!project) loadWorth();
     const waiting = await waitingCount();
     if (alive && waiting !== null) countLearned(waiting);
+  }
+
+  async function loadWorth() {
+    try {
+      worth = await api('/api/skillhub/worth');
+    } catch {
+      worth = null; // another computer, or an older one: nothing to show
+    }
+    if (!alive) return;
+    paintTabs();
+    if (part === 'suggested' && suggest) paintSuggested();
   }
 
   /** The selector: the projects of this computer first, then other folders Claude worked in. */
@@ -456,32 +470,20 @@ registerPage({ id: 'skills', title: 'Skills', icon: 'book', group: 'more', order
 /** The review request of a hub skill: the hub, its folder and the commit the weekly look read. */
 const hubBody = (x, project) => ({ hub: x.hub, path: x.path, commit: x.commit, ...(project ? { project, scope: 'project' } : { scope: 'user' }) });
 
-/** "Worth adding" on the top Skills page, put right after `before`: each card names the skill, its hub and why it fits. */
-function paintWorth(before, { startReview }) {
-  const box = h('div.sk-worth');
-  before.after(box);
-  const load = async () => {
-    let w;
-    try {
-      w = await api('/api/skillhub/worth');
-    } catch {
-      return fill(box); // another computer, or an older one: nothing to show
-    }
-    if (!box.isConnected) return;
-    if (!w.results.length && !w.lines.length) return fill(box);
-    fill(box, panel({ icon: 'sparkle', title: 'Worth adding', desc: 'New skills from the reviewed hubs that fit your projects, found by the weekly look. Nothing is added until you review one and install it.' },
-      w.results.length ? h('div.rows', w.results.map((x) => h('div.row.static.col.mrow.sk-row',
-        h('div.mrow-top', h('span.row-icon', icon('sparkle')),
-          h('span.row-main',
-            h('span.row-title', x.name, h('span.badge.soft', `from ${x.hubName}`)),
-            x.description ? h('span.row-sub.sk-wrap', x.description) : null,
-            h('span.row-sub.sk-wrap.sk-why', `Why: ${x.why.join('; ')}`)),
-          h('span.sk-act', btn('small primary', { icon: 'download', label: 'Review', onclick: (e) => startReview(hubBody(x, x.project), e.currentTarget).then(load) }))))))
-        : null,
-      w.lines.length ? h('p.hint.sk-wrap', `Not read this time: ${w.lines.join('; ')}`) : null,
-      h('p.hint', `Only skills are taken from a hub, never its tools or code.${w.at ? ` Last look: ${new Date(w.at).toLocaleDateString()}.` : ''}`)));
-  };
-  load();
+/** "Worth adding", the first part of the Suggested tab: each card names the skill, its hub and why it fits. null when there is nothing. */
+function worthPanel(w, { startReview, reload }) {
+  if (!w || (!w.results.length && !w.lines.length)) return null;
+  return panel({ icon: 'sparkle', title: 'Worth adding', desc: 'New skills from the reviewed hubs that fit your projects, found by the weekly look. Nothing is added until you review one and install it.' },
+    w.results.length ? h('div.rows', w.results.map((x) => h('div.row.static.col.mrow.sk-row',
+      h('div.mrow-top', h('span.row-icon', icon('sparkle')),
+        h('span.row-main',
+          h('span.row-title', x.name, h('span.badge.soft', `from ${x.hubName}`)),
+          x.description ? h('span.row-sub.sk-wrap', x.description) : null,
+          h('span.row-sub.sk-wrap.sk-why', `Why: ${x.why.join('; ')}`)),
+        h('span.sk-act', btn('small primary', { icon: 'download', label: 'Review', onclick: (e) => startReview(hubBody(x, x.project), e.currentTarget).then(reload) }))))))
+      : null,
+    w.lines.length ? h('p.hint.sk-wrap', `Not read this time: ${w.lines.join('; ')}`) : null,
+    h('p.hint', `Only skills are taken from a hub, never its tools or code.${w.at ? ` Last look: ${new Date(w.at).toLocaleDateString()}.` : ''}`));
 }
 
 /** The hub skills a search found among the ones the last weekly look read, each with Review. */

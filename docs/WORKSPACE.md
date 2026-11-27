@@ -503,7 +503,7 @@ into the look. **Push my other branches** pushes the committed work of every bra
 branch, in every repository of the map, through the same gates as the upkeep's push; it never pushes a default
 branch. Only your own page may press it, and two presses never run at once.
 
-Two looks can run by themselves, both off until you turn them on (Settings → Workspace → By itself). **Look once a
+Two looks can run by themselves, both off until you turn them on (Settings → Workspace → By itself → More). **Look once a
 day at what is only on this computer** runs this check without asking any git server and keeps only how many things
 it found, by kind: never a name or a path. When that number changes it writes one line in Work → Activity, and it
 tells you when something exists only here. **Look once a week at the git servers** asks the git server of each
@@ -531,7 +531,8 @@ The routes: `GET /api/workspace/leave` (starts the whole check, or polls it with
 
 - **The label** is your own short name for the computer (lower-case letters, digits, `-` and `_`), asked once at
   set-up; the host name is only offered as a suggestion and is never stored without your word. `hoprig workspace
-  label <name>` gives it later, and Settings → Workspace → **Your computers** in the dashboard. There, a name another
+  label <name>` gives it later, and so does this computer's name field in **Settings → Workspace → Where things are**. On the
+  **Workspace** page's computers list, a name another
   computer's file holds asks "Is this computer <name>, set up again?", and **Yes, this is <name>** is the page's
   `--again`. After **Bring my workspace from git**, a computer with no name yet gets one line that leads there.
 - **The id** is made once, at random. A label whose file holds another id (in the brain here or on its git server)
@@ -1029,7 +1030,7 @@ repository's name (the last part of the address). No option skips this, and with
   plan that changed since you looked ("This changed since you looked: look again."), asks the visibility again right
   before the push and runs the step as the page's background job. Only your own page can do it, never Tia. With a
   map of version 1 the line says to upgrade the map first.
-- **The upkeep's switch on the Workspace page.** Settings → Workspace, By itself, shows **Save and upload the
+- **The upkeep's switch on the Workspace page.** Settings → Workspace, By itself, under More, shows **Save and upload the
   credentials by itself** beside the other switches, only when the credentials folder is a repository, and off until
   you turn it on. Its sentence: "At each look of the upkeep, every change in the credentials folder is saved and
   uploaded to its repository, by itself, only while that repository is private. Whoever can read that repository

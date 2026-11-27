@@ -7,7 +7,7 @@ import path from 'node:path';
 import { test } from 'node:test';
 import { pathToFileURL } from 'node:url';
 import { fakeClaudeNode as fakeClaude, fakeNodeBin, pathWith, scratch } from './helpers.mjs';
-import { sealed } from '../seal.mjs';
+import { closedGateways, sealed } from '../seal.mjs';
 
 if (process.platform === 'win32') process.env.HOPRIG_SEAL_REAL = [process.env.HOPRIG_SEAL_REAL, 'whoami'].filter(Boolean).join(','); // seal: doctor as its own process may ask this account's SID of the system's whoami by its full path when it reads who owns its folders; it only reads
 
@@ -44,7 +44,7 @@ async function home(name, { password = false, programs = {} } = {}) {
   fs.mkdirSync(env.HOPRIG_CONFIG_DIR, { recursive: true, mode: 0o700 });
   const server = { port: await freePort() };
   if (password) server.passwordHash = await hashPassword('correct horse battery');
-  fs.writeFileSync(path.join(env.HOPRIG_CONFIG_DIR, 'config.json'), JSON.stringify({ server }));
+  fs.writeFileSync(path.join(env.HOPRIG_CONFIG_DIR, 'config.json'), JSON.stringify({ server, addons: closedGateways() }));
   return env;
 }
 
@@ -121,8 +121,8 @@ test('doctor: a fix that needs administrator rights is phrased for this user (su
     workspace: async () => ({ id: 'workspace', label: 'Workspace', status: 'ok', detail: 'here', fix: '' }),
   };
   const fixFor = async (over) => {
-    // The checks run in this process, on its settings (no port in them): the port is answered here, not asked.
-    const list = await overview({ sys: sysInfo({ env: { ...process.env, ...env }, platform: 'linux', pm: 'apt', probe: async () => 0, running: async () => null, ...over }), offline: true, parts });
+    // The checks run in this process, on its settings (no port in them): the port is answered here, not asked, and no gateway's copy is looked for.
+    const list = await overview({ sys: sysInfo({ env: { ...process.env, ...env }, platform: 'linux', pm: 'apt', probe: async () => 0, running: async () => null, ownGateways: false, ...over }), offline: true, parts });
     return list.find((c) => c.id === 'extras.tmux').fix;
   };
   // No systemd here: what this test reads is the phrasing, and the look at systemd would start the computer's own.

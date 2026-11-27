@@ -289,6 +289,7 @@ test('the sign-in page: a wrong password says where the way in without one is', 
   assert.ok(way, 'the line is there');
   assert.match(way[1], /Settings → Security and sign-in/);
   assert.match(way[1], /Show a sign-in code/);
+  assert.match(way[1], /on the computer Hoprig runs on, type hoprig link: it prints a one-time sign-in link and a QR code/, 'and for someone with no other device');
   assert.ok(read('web/settings.js').includes("title: 'Security and sign-in'"), 'the page it names is called that');
   assert.ok(read('web/computers.js').includes("label: 'Show a sign-in code'"), 'the button it names is called that');
 });

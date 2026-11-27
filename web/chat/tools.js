@@ -7,6 +7,7 @@ import { fill, h } from '../lib.js';
 import { mdView } from '../mdtext.js';
 import { taskLine, taskStop, workflowView } from './agents.js';
 import { addedView, diffView, hunkCounts, hunksOf } from './diff.js';
+import { pathButton, repathButton } from './pathmenu.js';
 import { exitCode, inFolder, lineCount, toolLine } from './words.js';
 
 const SHOW_LINES = 12;
@@ -37,10 +38,17 @@ function editInput(name, i) {
  * A path as the owner reads it: inside the chat's folder, relative to it. It keeps the whole path (data-path), so the
  * page can say it again once it knows the folder (rePaths): a card drawn before the first state has no folder yet.
  */
-export const pathText = (p, cwd) => h('span.chat-p', { dataset: { path: String(p || '') } }, inFolder(p, cwd));
+/** A folder (a search's "in"): the text only, not a button (the editor opens files). */
+export const pathPlain = (p, cwd) => h('span.chat-p', { dataset: { path: String(p || '') } }, inFolder(p, cwd));
+export const pathText = (p, cwd, line = 0) => pathButton(p, { cwd, line, shown: inFolder(p, cwd) }) || h('span.chat-p', { dataset: { path: String(p || '') } }, inFolder(p, cwd));
 /** Every path drawn under `root`, said again relative to `cwd`. */
 export function rePaths(root, cwd) {
-  for (const el of root.querySelectorAll('[data-path]')) el.textContent = inFolder(el.dataset.path, cwd);
+  for (const el of root.querySelectorAll('[data-path], [data-pathfile]')) {
+    if (el.dataset.pathfile !== undefined) {
+      repathButton(el, cwd);
+      el.textContent = inFolder(el.dataset.pathfile, cwd);
+    } else el.textContent = inFolder(el.dataset.path, cwd);
+  }
 }
 
 /** What a tool call was given, as a person reads it. */
@@ -58,10 +66,10 @@ export function inputView(ev, cwd) {
         i.run_in_background ? h('p.chat-hint', icon('clock', { size: 13 }), ' Runs in the background') : null,
       ];
     case 'read':
-      return i.file_path ? h('p.chat-path', pathText(i.file_path, cwd), i.offset ? ` · from line ${i.offset}` : '', i.limit ? ` · ${i.limit} lines` : '') : null;
+      return i.file_path ? h('p.chat-path', pathText(i.file_path, cwd, Number(i.offset) || 0), i.offset ? ` · from line ${i.offset}` : '', i.limit ? ` · ${i.limit} lines` : '') : null;
     // The head already names the pattern, the address or the query: here only what it adds.
     case 'search':
-      return i.path || i.glob ? h('p.chat-path', i.path ? ['in ', pathText(i.path, cwd)] : '', i.path && i.glob ? ' · ' : '', i.glob || '') : null;
+      return i.path || i.glob ? h('p.chat-path', i.path ? ['in ', pathPlain(i.path, cwd)] : '', i.path && i.glob ? ' · ' : '', i.glob || '') : null;
     case 'web':
       return i.prompt ? h('p.chat-hint', i.prompt) : null;
     case 'agent':
@@ -191,7 +199,7 @@ export function toolCard(ev, o = {}) {
     // The to-do list is in the dock; a question's answers and a plan's approval are on their own card.
     if ((kind === 'todo' || kind === 'plan' || kind === 'question') && r.ok) return fill(out);
     if (kind === 'read' && r.ok) {
-      fill(end, `${lineCount(r.text)} lines`);
+      fill(end, (n => `${n} ${n === 1 ? 'line' : 'lines'}`)(lineCount(r.text)));
       return fill(out, h('details.chat-prompt', h('summary', 'What it read'), outputView(r.text, { cls: 'chat-code' })));
     }
     if (kind === 'agent' && r.ok) return fill(out, r.text ? h('details.chat-prompt', h('summary', 'Its report'), h('div.chat-agent-answer', mdView(r.text))) : null);

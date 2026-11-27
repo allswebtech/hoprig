@@ -458,7 +458,7 @@ test('README: Tia runs on, Automatic is the first subscription that can answer n
 test('README: the Providers picture and the Settings picture say only what they show', () => {
   const page = read('README.md');
   assert.match(page, /<img src="docs\/screenshots\/accounts-desktop-light\.webp" alt="The Providers page: four providers, the first two numbered in Auto mode's order, Claude Max with its 5-hour and weekly limits, and a Sign in button for one that is not signed in"/);
-  assert.match(page, /<img src="docs\/screenshots\/settings-desktop-light\.webp" alt="Settings: one row per page, most with their current state in one line, and New-session defaults open beside them"/);
+  assert.match(page, /<img src="docs\/screenshots\/settings-desktop-light\.webp" alt="Settings: one row per page, most with their current state in one line, and New sessions open beside them"/);
   const acc = read('web/accounts.js');
   // The number is the place in Auto mode's order, drawn only while Auto mode is on, and not for a provider billed by
   // use while pay-per-use is off. The demo's order is max, api; its api key goes straight to Anthropic, so it is
@@ -476,9 +476,7 @@ test('README: the Providers picture and the Settings picture say only what they 
   assert.match(acc, /h\('span', 'Sign in'\)/);
   assert.match(acc, /'This plan does not report its usage\.'/);
   assert.match(read('src/demo/index.mjs'), /writeProfile\('max', \{ label: 'Claude Max'/);
-  // Go live draws no state line in the list.
-  assert.match(read('web/ship.js'), /summary: \(\) => '', render: limiterPage,/);
-  assert.match(read('web/sessiondefaults.js'), /title: 'New-session defaults'/);
+  assert.match(read('web/sessiondefaults.js'), /title: 'New sessions'/);
 });
 
 test('README and RELEASING: every head cell of a table begins with a capital letter (a phone shows them as card labels)', () => {
@@ -592,7 +590,7 @@ test('README: cloudflared is "the helper for the public link", as the Updates li
   assert.doesNotMatch(page, /tunnel helper/);
   assert.match(page, /- \*\*Updates\*\* of Hoprig, the coding tools and the helper for the public link \(cloudflared\) on one page, Manual by default\./);
   assert.match(page, /The helper for the public link \(cloudflared\) installs itself the first time\./);
-  assert.match(page, /\*\*Settings → Updates\*\* is one page for Hoprig, Claude Code, OpenCode and the helper for the public link \(cloudflared\): each row shows the/);
+  assert.match(page, /\*\*Settings → Version and updates\*\* is one page for Hoprig, Claude Code, OpenCode and the helper for the public link \(cloudflared\): each row shows the/);
   assert.match(page, /OpenCode when none of its sessions is open, the helper for the public link when the link is off\./);
   assert.match(page, /the helper for the public link, when Hoprig downloads it, is checked against its known SHA-256 before it is used \(one already on the computer's PATH, or installed with Homebrew on a Mac, is used as it is\)\./);
   assert.doesNotMatch(page, /the helper for the public link is checked against its known SHA-256/);

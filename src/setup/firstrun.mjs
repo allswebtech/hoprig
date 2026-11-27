@@ -35,7 +35,7 @@ const real = {
 };
 
 /** The skills meant for the user (the bundled `hoprig` skill): added when there is no project to suggest for. */
-export async function userSkills({ ui, yes = false, dryRun = false }) {
+export async function userSkills({ ui, dryRun = false }) {
   const hub = await import('../skillhub/hub.mjs');
   const st = await hub.skillsStatus({ check: false });
   const todo = st.user.suggested;
@@ -45,18 +45,27 @@ export async function userSkills({ ui, yes = false, dryRun = false }) {
     ui.say('Skills: the ones that come with Hoprig are installed.');
     return { ok: true, added, skipped };
   }
+  // Without a question only on a first run (none of Hoprig's skills is there yet). On a computer that has some, a missing
+  // one may have been refused or removed on purpose: asked at a terminal, skipped without one.
+  const { loadCatalog } = await import('../skillhub/catalog.mjs');
+  const first = todo.length === loadCatalog().entries.filter((e) => e.scope === 'user').length;
   for (const x of todo) {
     ui.say(`  ${x.id} (for you): ${x.for}`);
     if (dryRun) {
       skipped.push({ id: x.id, why: 'dry run' });
       continue;
     }
+    if (!first && !(await ui.confirm(`Add "${x.id}" for you?`))) {
+      skipped.push({ id: x.id, why: 'not asked for' });
+      continue;
+    }
     try {
       const review = await hub.prepare(x.id, {});
-      const go = !review.counts.block && review.pinned && (yes || (await ui.confirm(`Add "${review.name}" for you?`)));
+      // Hoprig's own skills come pinned and reviewed: added without a question; one with a blocking finding never is.
+      const go = !review.counts.block && review.pinned;
       if (!go) {
         hub.cancel(review.id);
-        skipped.push({ id: x.id, why: review.counts.block ? 'the review found a blocking problem' : 'not approved' });
+        skipped.push({ id: x.id, why: review.counts.block ? 'the review found a blocking problem' : 'not pinned' });
         continue;
       }
       added.push(hub.approve(review.id).name);
@@ -96,8 +105,9 @@ export async function partGit(ui, opts, p = real) {
 export async function partPc(ui, opts, p = real) {
   // runPcSetup prints its own heading ("This computer" and the OS).
   try {
-    // --yes: the default kits, no working rules (they are an opt-in, asked for in a terminal).
-    const r = await p.pc({ ui, yes: opts.yes, dryRun: opts.dryRun, rules: opts.yes ? false : null, projects: false, extraSteps: opts.extraSteps || [], facts: opts.pcFacts });
+    // The working rules are not asked here: Get started offers them as one press. The commit name and the GitHub
+    // sign-in are the Git part's, asked once there (not when that part does not run: --only pc).
+    const r = await p.pc({ ui, yes: opts.yes, dryRun: opts.dryRun, rules: false, signInLater: !opts.only, projects: false, extraSteps: opts.extraSteps || [], facts: opts.pcFacts });
     opts.extraRan = true; // the computer step listed them (setup.mjs then only says what came of them)
     if (opts.afterPc) await opts.afterPc();
     return { part: 'pc', ok: r.ok, note: r.ok ? (r.missing && r.missing.length ? `still missing: ${r.missing.join(', ')}` : '') : 'an install failed: its retry command is above' };

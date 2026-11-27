@@ -1,5 +1,5 @@
-// Settings → Notifications → "Work, by itself" (web/worktell.js): a switch says "Saved" only when it was saved, which
-// needs a push address that was saved; without one (or with one typed and not saved yet) its choice waits for Save.
+// Settings → Notifications, what Work tells (web/worktell.js): its items are lines of the one "Tell me when" list and
+// wait for the page's one Save; the minutes and the digest's words are under More.
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
@@ -34,7 +34,7 @@ globalThis.document ??= { createElement: (t) => new FakeElement(t), createElemen
 globalThis.window ??= { dispatchEvent: () => {}, addEventListener: () => {} };
 globalThis.Event ??= class {};
 
-const { tellNotice, workTellPanel } = await import('../../web/worktell.js');
+const { tellNotice, workTellParts } = await import('../../web/worktell.js');
 const walk = (n, out = []) => {
   if (n instanceof FakeElement) {
     out.push(n);
@@ -42,32 +42,48 @@ const walk = (n, out = []) => {
   }
   return out;
 };
-/** Flip the first switch of the panel; → [saves made, the text its "Saved" mark shows]. */
-async function flip(st) {
-  let saves = 0;
-  const panel = workTellPanel(st, async () => {
-    saves += 1;
-  });
-  const all = walk(panel);
-  const sw = all.find((e) => e.tag === 'input' && String(e.className).includes('switch'));
-  const row = all.find((e) => e.tag === 'label' && walk(e).includes(sw));
-  const mark = walk(row).find((e) => String(e.className).includes('saved-mark'));
-  await sw.listeners.change({ target: { checked: true } });
-  return [saves, mark.textContent || ''];
-}
+const text = (n) => walk(n).flatMap((e) => e.children.filter((c) => c instanceof FakeText).map((c) => c.text)).join(' ');
+const box = (parts, key) => parts.items.flatMap((i) => walk(i)).find((e) => e.attrs['data-key'] === key);
 
-test('no push address saved: a Work switch saves nothing and does not say Saved', async () => {
-  assert.deepEqual(await flip({ url: '', savedUrl: '', work: {} }), [0, '']);
+test("a Work item is one more line of the Tell me when list: a check box that waits for the page's one Save", () => {
+  const st = { url: '', savedUrl: '', work: {} };
+  const parts = workTellParts(st);
+  assert.equal(parts.items.length, 5, 'four things and the digest');
+  box(parts, 'work-finished').listeners.change({ target: { checked: true } });
+  assert.deepEqual(st.work, { finished: true });
+  box(parts, 'work-finished').listeners.change({ target: { checked: false } });
+  assert.deepEqual(st.work, {}, 'what equals the default is not saved');
 });
 
-test('a push address typed but not saved yet: the switch waits for Save as well', async () => {
-  const st = { url: 'https://ntfy.example.invalid/new', savedUrl: 'https://ntfy.example.invalid/old', work: {} };
-  assert.deepEqual(await flip(st), [0, '']);
-  assert.equal(st.work.finished, true, 'the choice is kept for the Save above');
+test('the minutes and the words of the digest are in the More part; a number outside its range is not kept', () => {
+  const st = { work: {} };
+  const parts = workTellParts(st);
+  const words = parts.more.map(text).join(' ');
+  assert.match(words, /Waits for your answer after/);
+  assert.match(words, /A digest every/);
+  assert.match(words, /Tia writes my digest/);
+  const num = parts.more.flatMap((m) => walk(m)).find((e) => e.tag === 'input' && e.className.includes('wk-tell-num'));
+  num.listeners.input({ target: { value: '99999' } });
+  assert.deepEqual(st.work, {});
+  num.listeners.input({ target: { value: '30' } });
+  assert.deepEqual(st.work, { waitsMinutes: 30 });
 });
 
-test('with the push address saved: the switch saves at once and says Saved', async () => {
-  assert.deepEqual(await flip({ url: 'https://ntfy.example.invalid/t', savedUrl: 'https://ntfy.example.invalid/t', work: {} }), [1, 'Saved']);
+test('a teller that cannot keep its record: the notice says so in plain words; when it can, nothing', async () => {
+  assert.equal(tellNotice({ ok: true }), null);
+  assert.equal(tellNotice(null), null);
+  const n = tellNotice({ ok: false, since: '2026-11-19T12:00:00Z', error: 'EISDIR' });
+  assert.match(text(n), /cannot keep its record of what it told you/);
+  assert.doesNotMatch(text(n), /EISDIR/, 'no programmer words');
+  const parts = workTellParts({ work: {} }, { status: async () => ({ ok: false, since: 'x', error: 'y' }) });
+  for (let i = 0; i < 5; i++) await new Promise((r) => setImmediate(r));
+  assert.match(text(parts.notice), /cannot keep its record/);
+});
+
+test('the digest switch says in plain words that Tia writes it', () => {
+  const parts = workTellParts({ work: {} });
+  assert.match(parts.more.map(text).join(' '), /Tia writes my digest/);
+  assert.doesNotMatch(parts.more.map(text).join(' '), /Tia words my digest/);
 });
 
 test('Today\'s Needs you does not say "Nothing needs you" under a Progress that lists what waits for him', async () => {
@@ -76,24 +92,4 @@ test('Today\'s Needs you does not say "Nothing needs you" under a Progress that 
   assert.notEqual(title, 'Nothing needs you right now');
   assert.match(sub, /Progress above/);
   assert.equal(needsNoneWords(0)[0], 'Nothing needs you right now');
-});
-
-test('a teller that cannot keep its record: the panel says so in plain words; when it can, nothing', async () => {
-  const text = (n) => walk(n).flatMap((e) => e.children.filter((c) => c instanceof FakeText).map((c) => c.text)).join(' ');
-  assert.equal(tellNotice({ ok: true }), null);
-  assert.equal(tellNotice(null), null);
-  const n = tellNotice({ ok: false, since: '2026-11-19T12:00:00Z', error: 'EISDIR' });
-  assert.match(text(n), /cannot keep its record of what it told you/);
-  assert.doesNotMatch(text(n), /EISDIR/, 'no programmer words');
-  // The panel asks the dashboard and puts the notice in.
-  const panel = workTellPanel({ url: '', savedUrl: '', work: {} }, async () => {}, { status: async () => ({ ok: false, since: 'x', error: 'y' }) });
-  for (let i = 0; i < 5; i++) await new Promise((r) => setImmediate(r));
-  assert.match(text(panel), /cannot keep its record/);
-});
-
-test('the digest switch says in plain words that Tia writes it', () => {
-  const panel = workTellPanel({ url: '', savedUrl: '', work: {} }, async () => {});
-  const words = walk(panel).flatMap((e) => e.children.filter((c) => c instanceof FakeText).map((c) => c.text)).join(' ');
-  assert.match(words, /Tia writes my digest/);
-  assert.doesNotMatch(words, /Tia words my digest/);
 });

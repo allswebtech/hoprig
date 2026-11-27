@@ -1,4 +1,4 @@
-// Home's fold (web/homefold.js, web/home.js): the sessions of "Waiting for your next message" that have waited for
+// Home's fold (web/homefold.js, web/home.js): the sessions of "Finished" that have waited for
 // more than 6 hours stand under one line, newest first. Never one with a background command, a card, or of another
 // group. The rule is one function, its age from statusAt, else activity.
 import assert from 'node:assert/strict';
@@ -62,8 +62,8 @@ test('the split keeps the recent ones in place and puts the old ones newest firs
 });
 
 test('the line and the time it has waited, in plain words', () => {
-  assert.equal(foldLine(12), '12 sessions have waited for more than 6 hours');
-  assert.equal(foldLine(1), '1 session has waited for more than 6 hours');
+  assert.equal(foldLine(12), 'Finished more than 6 hours ago: 12');
+  assert.equal(foldLine(1), 'Finished more than 6 hours ago: 1');
   assert.equal(waitedFor(waiting(7 * H + 5), NOW), '7 h');
   assert.equal(waitedFor(waiting(30 * H), NOW), '1 day', 'the unit of the card\'s "1 day ago", in a word he knows');
   assert.equal(waitedFor(waiting(50 * H), NOW), '2 days');

@@ -125,7 +125,7 @@ test('every switch of Settings: the help it shows at first is one sentence on on
   let n = 0;
   for (const file of FILES) {
     const found = switches(file);
-    if (file !== 'web/publiclink.js') assert.ok(found.length, `${file}: its switches are found`);
+    if (!['web/publiclink.js', 'web/updates.js'].includes(file)) assert.ok(found.length, `${file}: its switches are found`);
     for (const [where, parts] of found) {
       if (!parts) continue;
       n++;
@@ -136,7 +136,7 @@ test('every switch of Settings: the help it shows at first is one sentence on on
   }
   assert.ok(n >= 20, `the walk found ${n} switches`);
   // Drawn by hand (a checkbox and its line): through helpParts too, or one sentence as it is.
-  assert.equal(read('web/sessiondefaults.js').match(/\.\.\.helpParts\(\{ line:/g).length, 2, 'bypass and session names');
+  assert.equal(read('web/sessiondefaults.js').match(/\.\.\.helpParts\(\{ line:/g).length, 1, 'bypass');
   assert.match(read('web/publiclink.js'), /h\('p\.hint', 'Off until you turn it on: nothing is reachable from outside while it is off\.'\)/);
   assert.match(read('web/tia.js'), /\}, splitHelp\(v\.help\.enabled\)\);/, 'Tia is on: the server\'s first sentence, the rest under More');
   for (const f of ELSEWHERE) assert.ok(!FILES.includes(f));
