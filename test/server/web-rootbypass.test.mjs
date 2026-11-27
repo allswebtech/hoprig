@@ -1,6 +1,6 @@
-// As root, where a person chooses the mode (New session → Options, Settings → New-session defaults), Bypass is not
-// offered, ONE plain line quotes the coding tool's refusal and says what to do, and a default that names Bypass is
-// kept as it is (never changed silently) while the sheet preselects the mode that asks. Driven in a small stand-in for
+// As root, where a person chooses the mode (Settings → New-session defaults), Bypass is not offered, ONE plain line
+// quotes the coding tool's refusal and says what to do, and a default that names Bypass is kept as it is (never changed
+// silently) while a terminal start from New session asks first. Driven in a small stand-in for
 // the browser's document; the computer's answer is handed in.
 import assert from 'node:assert/strict';
 import test from 'node:test';
@@ -94,7 +94,6 @@ globalThis.setTimeout = (fn, ms, ...a) => {
 globalThis.fetch = async () => ({ ok: true, status: 200, json: async () => ({ tools: [] }) });
 
 const { ROOT_BYPASS_LINE } = await import('../../src/bypassgate.mjs');
-const { optionsFor } = await import('../../web/newsession-options.js');
 await import('../../web/sessiondefaults.js');
 const { registeredSettingsPages } = await import('../../web/registry.js');
 
@@ -116,24 +115,29 @@ const optionValues = (sel) => sel.children.filter((c) => c instanceof FakeElemen
 const where = { profiles: [], recommended: null };
 const MODES_AS_ROOT = ['manual', 'acceptEdits', 'plan', 'auto', 'dontAsk'];
 
-test('New session → Options as root: no Bypass, the root line under the choice, and a Bypass default gets the mode that asks', () => {
-  const st = { tool: 'claude', profile: '', permissionMode: '', effort: '', model: '', conversation: 'new', plain: false, modes: MODES_AS_ROOT, rootBypass: ROOT_BYPASS_LINE, rootDefaultBypass: true };
-  const el = wrap(optionsFor({ st, where, run: 'claude', info: null, toolName: 'Claude Code', onplain: () => {} }));
-  const sel = modeSelect(el, 'What Claude Code may do without asking');
-  assert.ok(sel, 'the mode choice');
-  assert.ok(!optionValues(sel).includes('bypassPermissions'), 'not offered');
-  assert.equal(st.permissionMode, 'manual', 'the mode that asks is preselected');
-  assert.ok(text(el).includes(ROOT_BYPASS_LINE), 'the one line says why');
-  // A default that does not name Bypass: nothing is preselected, and the line still says why it is missing.
-  const st2 = { ...st, permissionMode: '', rootDefaultBypass: false };
-  const el2 = wrap(optionsFor({ st: st2, where, run: 'claude', info: null, toolName: 'Claude Code', onplain: () => {} }));
-  assert.equal(st2.permissionMode, '');
-  assert.ok(text(el2).includes(ROOT_BYPASS_LINE));
-  // Not root: as before, no line.
-  const st3 = { ...st, permissionMode: '', modes: [...MODES_AS_ROOT, 'bypassPermissions'], rootBypass: null, rootDefaultBypass: false };
-  const el3 = wrap(optionsFor({ st: st3, where, run: 'claude', info: null, toolName: 'Claude Code', onplain: () => {} }));
-  assert.ok(!text(el3).includes(ROOT_BYPASS_LINE));
-  assert.ok(optionValues(modeSelect(el3, 'What Claude Code may do without asking')).includes('bypassPermissions'));
+test('New session as root: the choice of a mode is gone; a terminal start asks first where the default is Bypass', async () => {
+  const posts = [];
+  const real = globalThis.fetch;
+  globalThis.fetch = async (u, o = {}) => {
+    if (o.method === 'POST') posts.push([String(u).split('?')[0], JSON.parse(o.body)]);
+    return { ok: true, status: 200, json: async () => ({ name: 't1', id: 'c1' }) };
+  };
+  try {
+    assert.doesNotMatch(await import('node:fs').then((fs) => fs.readFileSync(new URL('../../web/newsession-options.js', import.meta.url), 'utf8')), /MODES|BYPASS_MEANS|permissionMode/, 'no mode to choose in More options');
+    const { startSession } = await import('../../web/newsession-start.js');
+    const pc = { profiles: [], recommended: 'max', recommendedIn: {}, toolDefaults: {} };
+    const go = (way, st) => startSession({ path: '/w/a', name: 'a' }, { st: { m: null, tool: 'claude', ...st }, pc, way, toolName: 'Claude Code', busy() {}, failed: (e) => assert.fail(e.message), leave() {}, picking() {} });
+    await go('claude', { rootDefaultBypass: true });
+    assert.equal(posts.at(-1)[0], '/api/sessions');
+    assert.equal(posts.at(-1)[1].permissionMode, 'manual', 'the mode that asks, which the server accepts as root');
+    await go('claude', { rootDefaultBypass: false });
+    assert.equal(posts.at(-1)[1].permissionMode, null, 'otherwise the coding tool\'s own');
+    await go('chat', { rootDefaultBypass: true });
+    assert.equal(posts.at(-1)[0], '/api/chats');
+    assert.equal('permissionMode' in posts.at(-1)[1], false, 'an App start leaves it to the server, which gives a person the mode that asks');
+  } finally {
+    globalThis.fetch = real;
+  }
 });
 
 test('Settings → New-session defaults as root: the one line, no Bypass to choose, and a Bypass default kept as it is', () => {

@@ -3,7 +3,7 @@
    pj-  Projects, a project's page, New project, Get an existing project (projects.js)
    sk-  Skills (skillhub.js); lr-  Skills → Learned (skilllearned.js)
    ws-  Workspace (projects.js, workspace.js) and Workspace folders (brain.js); brain-  the AI brain page (brain.js)
-   ns-  New session's choices on a phone (newsession-popup.js; the cards themselves are in style.css)
+   ns-  New session (newsession-popup.js; its rules are in style.css)
    map-  Settings → Workspace, the map (workspace.js); git-  Git and GitHub (gitsetup.js) */
 
 
@@ -195,15 +195,6 @@
 .bl-tool-row.bl-linked .bl-mark { background: var(--ok-soft); color: var(--ok); }
 .bl-tool-row.bl-left .bl-mark { background: var(--surface-3); color: var(--muted); }
 
-/* New session on a phone: the computers, the ways to open and the coding tools two to a row, so the first project is
-   close to the first screen. */
-@media (max-width: 520px) {
-  /* The large tiles: the icon above the words, so a line has the tile's whole width. */
-  .ns-tile { position: relative; flex-direction: column; align-items: flex-start; gap: 6px; min-height: 0; padding: 10px 12px; }
-  .ns-tile-icon { width: 30px; height: 30px; }
-  .ns-tile-tick { position: absolute; top: 10px; right: 10px; }
-}
-
 /* ---------- New project: the brief and "Start with AI" (newproject.js) ---------- */
 .np-fields { display: grid; gap: 6px; margin-top: 8px; }
 .np-more:not([hidden]) { display: grid; gap: 14px; margin: 6px 0 10px; }
@@ -254,17 +245,6 @@
 .badge.soft.warn { background: var(--warn-soft); color: var(--warn); }
 @media (pointer: coarse) { .ws-q .toggle-line { min-height: 44px; align-items: center; } }
 
-/* ---------- New session: the one line of the choices over the project list (newsession-popup.js) ---------- */
-.ns-choices { margin: 0 0 12px; border: 1px solid var(--border); border-radius: var(--r-lg); background: var(--surface); }
-.ns-choices-line { display: flex; align-items: center; gap: 10px; min-height: 44px; padding: 8px 14px; list-style: none; cursor: pointer; }
-.ns-choices-line::-webkit-details-marker { display: none; }
-.ns-choices-what { flex: 1; min-width: 0; font-weight: 550; }
-.ns-choices-change { flex: none; color: var(--accent); font-weight: 600; }
-.ns-choices-line .icon { flex: none; color: var(--muted); transition: transform 0.15s; }
-.ns-choices[open] > .ns-choices-line .icon { transform: rotate(180deg); }
-.ns-choices-body { padding: 4px 14px 10px; border-top: 1px solid var(--border); }
-/* A project row's own action, in words: Start (a new session there); Continue beside it opens what runs. */
-.ns-startword { display: flex; align-items: center; gap: 4px; color: var(--accent); font-size: var(--fs-sm); font-weight: 600; }
 /* A group's own command (workspacetool.js): its sentences wrap; on a phone its buttons go under them. */
 .ws-tool { align-items: flex-start; }
 .ws-tool .row-sub { white-space: normal; overflow-wrap: anywhere; }

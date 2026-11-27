@@ -4,7 +4,7 @@
 // the server did not count.
 import { icon } from './icons.js';
 import { api, btn, confirmSheet, fill, h, kindLabel, openSheet, toast } from './lib.js';
-import { emptyState, errorBox, field, groupHead, skeletonRows, toggle } from './shell.js';
+import { emptyState, errorBox, field, fold, groupHead, skeletonRows, toggle } from './shell.js';
 import { money } from './chat/words.js';
 import { keepFocus } from './workdo.js';
 import { placeLinks } from './operator-ways.js';
@@ -145,7 +145,8 @@ function teamPart(d) {
     d.team.some((r) => r.costUnknown) ? h('p.hint.ms-hint', '+ : some runs reported no cost; their tokens are counted.') : null);
 }
 
-function settingsPart(d, reload, open) {
+/** The switches and limits as one body (no fold of its own): the master switch, projects, limits, providers, roles. */
+function settingsBody(d, reload) {
   const s = d.settings;
   const save = async (patch) => {
     try {
@@ -214,9 +215,33 @@ function settingsPart(d, reload, open) {
     h('div.card.ms-block', h('h3.ms-h3', 'Roles'),
       h('p.hint.ms-hint', 'A task whose role is off is yours to do.'),
       Object.keys(ROLE_WORDS).map((r) => toggle(ROLE_WORDS[r], !s.rolesOff.includes(r), (v) => save({ rolesOff: v ? s.rolesOff.filter((x) => x !== r) : [...s.rolesOff, r] }), ROLE_SUBS[r], { key: `role:${r}` }))));
+  return body;
+}
+
+function settingsPart(d, reload, open) {
   return h('details.fold.ms-settings', { open },
     h('summary.fold-summary', h('span', 'Tia\'s switches and limits'), icon('chevronDown', { size: 18 })),
-    h('div.fold-body', body));
+    h('div.fold-body', settingsBody(d, reload)));
+}
+
+/**
+ * Settings -> Tia, the fold "Limits and roles": her switches and limits as one body, and her team's numbers in a closed
+ * fold of their own. Reads itself from the missions (the same data Work -> Plans lists); a save draws it again.
+ */
+export function missionLimits() {
+  const box = h('div.ms-limits');
+  async function load() {
+    let d;
+    try {
+      d = await api('/api/work/missions');
+    } catch (e) {
+      return fill(box, errorBox(`Could not load Tia's limits: ${e.message}`, load));
+    }
+    keepFocus(box, () => fill(box, settingsBody(d, load), fold('tia-team', 'Her team: roles and numbers', teamPart(d))));
+  }
+  fill(box, skeletonRows(3));
+  load();
+  return box;
 }
 
 // ---------- one mission ----------

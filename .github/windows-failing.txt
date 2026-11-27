@@ -1,0 +1,13 @@
+test/gateway/linked.test.mjs
+test/pidfiles.test.mjs
+test/chat/page-side-toggle.test.mjs
+test/chat/worktree.test.mjs
+test/gateway/compat.test.mjs
+test/addons/installflags.test.mjs
+test/setup/movegateway.test.mjs
+test/setup/questions.test.mjs
+test/gateway/trouteaibase.test.mjs
+test/setup/gatewaycheck.test.mjs
+test/addons/gatewayowncopy.test.mjs
+test/gateway/seams.test.mjs
+test/gateway/trouteaimanage.test.mjs

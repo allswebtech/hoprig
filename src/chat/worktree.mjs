@@ -46,7 +46,14 @@ export async function makeWorktree(dir) {
   const done = await git(top, ['worktree', 'add', '-b', branch, made]);
   if (done === null) return { why: 'git could not make a worktree here (does the repository have a first commit?), so Worktree was left out' };
   // Where the chat was opened inside the repository (a subfolder), the same place in the worktree.
-  const rel = path.relative(top, dir);
+  // git names the top by its real path (on a Mac /var is a link to /private/var), so the folder is compared by its real path too.
+  let real = dir;
+  try {
+    real = fs.realpathSync(dir);
+  } catch {
+    /* not there: the name as given */
+  }
+  const rel = path.relative(top, real);
   const target = rel && !rel.startsWith('..') ? path.join(made, rel) : made;
   // The copy holds the tracked files only: a folder the repository ignores or has not committed is not in it, and a chat
   // opened there would find no folder. Then the worktree and its branch are taken away again.

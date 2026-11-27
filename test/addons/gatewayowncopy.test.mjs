@@ -67,8 +67,11 @@ function fakeNpm() {
     fs.writeFileSync(path.join(pkg, 'package.json'), JSON.stringify({ name: 'trouteai', version, bin: { trouteai: 'bin/trouteai.mjs' } }));
     fs.writeFileSync(path.join(pkg, 'bin', 'trouteai.mjs'), ENTRY);
     fs.mkdirSync(path.join(prefix, 'node_modules', '.bin'), { recursive: true });
-    fs.rmSync(path.join(prefix, 'node_modules', '.bin', 'trouteai'), { force: true });
-    fs.symlinkSync(path.join('..', 'trouteai', 'bin', 'trouteai.mjs'), path.join(prefix, 'node_modules', '.bin', 'trouteai'));
+    // npm's shim in .bin: a link on POSIX, a .cmd file on Windows (what the product looks for there)
+    const shim = path.join(prefix, 'node_modules', '.bin', process.platform === 'win32' ? 'trouteai.cmd' : 'trouteai');
+    fs.rmSync(shim, { force: true });
+    if (process.platform === 'win32') fs.writeFileSync(shim, '@echo off\r\n');
+    else fs.symlinkSync(path.join('..', 'trouteai', 'bin', 'trouteai.mjs'), shim);
     onLine(`added trouteai@${version}`);
     return { ok: true, code: 0 };
   };

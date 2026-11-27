@@ -421,13 +421,17 @@ test('the lead-in about her rules counts them as the code has them, and its list
   for (const [id, w] of Object.entries(said)) assert.ok(current.get(lead).includes(w), `the item names the rule ${id}`);
 });
 
-test("the Operator's parts are named in the block as the page heads them", () => {
-  // The page's section headings (web/operator.js: h('h2.op-h', '…')); the page cannot be imported without a browser.
-  const heads = [...fs.readFileSync(path.join(ROOT, 'web/operator.js'), 'utf8').matchAll(/h\('h2\.op-h', '([^']+)'\)/g)].map((m) => m[1]);
-  assert.ok(heads.includes('Done by you') && heads.includes('Done by Tia'), heads.join(', '));
-  const named = [...(block + released036 + released035 + released034 + released).matchAll(/one line under \*\*([^*]+)\*\*/g)].map((m) => m[1]);
-  assert.ok(named.length >= 2, 'the blocks say where a step is written');
-  for (const n of named) assert.ok(heads.includes(n), `"${n}" is a part of the Operator page (${heads.join(', ')})`);
+test("the Operator's parts are named in the blocks as the page heads them", () => {
+  // The Operator has no page of its own any more: its parts are headed in web/operator-tia.js (Settings, Tia) and web/operator-rooms.js.
+  const now = ['operator-tia.js', 'operator-rooms.js'].flatMap((f) => [...fs.readFileSync(path.join(ROOT, 'web', f), 'utf8').matchAll(/h\('h[23]\.op-h', '([^']+)'\)/g)].map((m) => m[1]));
+  assert.ok(now.includes('Done by Tia'), now.join(', '));
+  // The released blocks (fixed by their hashes above) name the parts the page had then.
+  const then = [...now, 'Needs you', 'Done by you', 'Watched'];
+  const named = (t) => [...t.matchAll(/one line under \*\*([^*]+)\*\*/g)].map((m) => m[1]);
+  const old = named(released036 + released035 + released034 + released);
+  assert.ok(old.length >= 2, 'the released blocks say where a step is written');
+  for (const n of old) assert.ok(then.includes(n), `"${n}" was a part of the Operator page (${then.join(', ')})`);
+  for (const n of named(block)) assert.ok(now.includes(n), `"${n}" is a part of the Operator now (${now.join(', ')})`);
 });
 
 test('an unreleased heading says so, and RELEASING.md says who writes the date there', () => {

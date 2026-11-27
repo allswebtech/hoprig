@@ -1,31 +1,26 @@
 # Operator: what stopped or is about to
 
-The **Operator** page is one place that says what stopped or is about to, from everything Hoprig already watches, so you do not
-have to look at every page in turn. It recommends one step for each thing; nothing happens until you tap it, unless you switch on one of Tia's rules,
+The **Operator** is what stopped or is about to, from everything Hoprig already watches, so you do not
+have to look at every page in turn. It has no page of its own: its cards are rows of **Home**'s **Needs you** group, and the
+address `#/operator` opens Home. It recommends one step for each thing; nothing happens until you tap it, unless you switch on one of Tia's rules,
 **Tia decides** or **Tia looks into what nobody can explain** (below). All of them are off after an install and after an update.
 
-## The page
+## Where it is
 
-**Operator** is in the sidebar's second group, **More**, with the number of things that need you next to it.
-
-![The Operator page: a list of sessions, providers and repositories that need you, each with one button for the recommended step, and beside it the switches for what Tia may do, all off](screenshots/operator-desktop-light.webp)
-
-- **Needs you**: the attention list. Each item says what it is about, since when, a few facts, and why the step it
-  recommends is the right one. The recommended step is the one button; the other steps and **Not now** are under
-  **More**. Items are in this order: stopped work (a usage limit, a session with no progress, a provider that is
-  signed out or at its limit), what waits for you (a question or an OK), this computer, then information (among it
-  repositories with commits or changes that exist only on this computer: work in progress, said, but it can wait).
-  Inside each group the oldest comes first.
-- **Watched**: every place Hoprig looks at, when it was last read, or why it could not be read
-  ("could not be read: …"). A place that could not be read is never shown as if all were fine.
-- **Computers**: each computer of this dashboard with its room for new work (**Has room**, **Busy**, **Full** or
-  **Not known**) and why, with **Refresh** to read them again. The switch **Look at my other computers too** is off at
+- **Needs you** (on **Home**): the attention list. Each row says what it is about, a fact that matters, and has the
+  recommended step as the one button; the other steps and **Not now** are under **More**. Items are in this order: stopped
+  work (a usage limit, a session with no progress, a provider that is signed out or at its limit), what waits for you (a
+  question or an OK), this computer. What only informs (among it repositories with commits or changes that exist only on this
+  computer: work in progress) is not a row.
+- **Computers**: each computer's room for new work (**Has room**, **Busy**, **Full** or **Not known**) and why, in the
+  computer's own **Overview**, with **Refresh** to read them again. The switch **Look at my other computers too** is off at
   first: then the other computers are read only when you open the page or press Refresh.
-- **What Tia does by herself**: the main switch **Tia acts by herself**, the button **Tia OFF** (shown while she may
-  act), **Tia decides**, her other switches and her five rules (below).
-- **Done by Tia**: every step a rule or a decision of hers did, or was refused, with Undo where the step has one. A line never shows a
-  path or an address, so a word with a slash in it (such as "and/or") may show as "…".
-- **Done by you**: the steps you tapped, with what happened.
+- **What Tia does by herself** (under **Settings**, **Tia**): the main switch **Tia acts by herself**, the button **Tia OFF**
+  (shown while she may act), **Tia decides**, her other switches and her five rules (below).
+- **Done by Tia** (in the same part): every step a rule or a decision of hers did, or was refused, with Undo where the step has one. A line never shows a
+  path or an address, so a word with a slash in it (such as "and/or") may show as "...".
+- Every step you tap is still one line in `operator/timeline.jsonl` of the state folder, and every place Hoprig looks at is still
+  read; one that could not be read is never shown as if all were fine.
 
 ## What it watches
 
@@ -295,8 +290,7 @@ reads her rules (on or off, what is left of their limits), and with `show: "done
 ## Administrator rights and the git sign-in of her sessions
 
 Two settings under **Settings → Tia**, per computer: **Administrator rights on this computer** and **Git sign-in for
-her sessions**. Both stand below that page's first **Save** button and its **Advanced** fold, so scroll on past
-them. Only you change them, on this computer's own signed-in page: never Tia, a token, another computer or a session.
+her sessions**. Both stand in that page's **Rights** fold, closed at first, so open it. Only you change them, on this computer's own signed-in page: never Tia, a token, another computer or a session.
 
 ### Administrator rights: three levels
 

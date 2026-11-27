@@ -222,9 +222,9 @@ test('the Operator line: one recommended step, nothing without a tap unless a ru
   assert.ok(RULE_IDS.every((id) => readOperator(only).rules[id] === false) && readDecide(only).on === false);
   assert.equal(looks({ ctx: { config: () => only }, dir: () => lookDir }).enabled(), true, 'a look may start with every rule and Tia decides off');
   fs.rmSync(lookDir, { recursive: true, force: true });
-  // The page's whole sentence (web/operator.js cannot be imported without a browser: its INTRO line is read).
-  const intro = /\nexport const INTRO = '((?:[^'\\]|\\.)*)';\n/.exec(read('web/operator.js'))[1];
-  assert.equal(intro, 'What stopped or is about to, from everything Hoprig watches. One tap does the recommended step. Tia does a step by herself only by a rule you switched on, by "Tia decides", or by a look, when you turned it on.');
+  // The Operator has no page of its own: its cards are rows of Home's Needs you, and the switches of Tia are on Settings, Tia.
+  assert.match(read('web/operator.js'), /#\/operator opens Home/);
+  assert.match(read('web/operator-tia.js'), /fold\('tia-alone', 'What she may do alone'/);
   const what = flat(section('What it does'));
   const op = /- \*\*Operator\*\*:[^\n]*?(?= - \*\*Updates\*\*)/.exec(what)[0];
   assert.match(op, /one recommended step for each/);
@@ -939,10 +939,10 @@ test('the install guide says what sudo without a password means for the user, an
 test('the operator guide says the token check appears once a file is saved, and where the two settings stand', () => {
   const tia = read('web/tia.js');
   assert.match(tia, /sg\.file \? h\('div\.savebar', btn\('secondary', \{ label: 'Check what this token may do'/, 'the button is drawn only with a file');
-  assert.match(tia, /fold\('tia-advanced', 'Advanced',[\s\S]*?saveBar\('Save'[\s\S]*?return \[box, tiaRights\(\{ isAlive \}\)/, 'the rights box comes after Advanced and the first Save');
+  assert.match(tia, /fold\('tia-rights', 'Rights', tiaRights\(\{ isAlive \}\)\)/, 'the rights box is the Rights fold');
   const t = rights();
   assert.match(t, /\*\*Check what this token may do\*\* \(a button that appears once a token file is saved; it asks on your press only\)/);
-  assert.match(t, /Both stand below that page's first \*\*Save\*\* button and its \*\*Advanced\*\* fold, so scroll on past them\./);
+  assert.match(t, /Both stand in that page's \*\*Rights\*\* fold, closed at first, so open it\./);
 });
 
 // docs/HANDS-OFF.md:43 and :107-112, docs/OPERATOR.md:303, :324, :327-328 words explained where they first stand

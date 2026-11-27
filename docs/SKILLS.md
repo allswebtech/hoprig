@@ -13,8 +13,8 @@ hoprig skills suggest            # what fits this project, and why ("package.jso
 hoprig skills add <id>           # fetch → review → yes → installed
 ```
 
-In the dashboard: **Skills**, pick the project under **Skills for:**, open **Suggested**, **Review** on a
-suggestion, read it, **Install**.
+In the dashboard: **Projects**, then the **Skills** tab (or a project's page, for that project), **Review** on a
+skill under **Worth adding**, read it, **Install**.
 
 ## Commands
 
@@ -201,8 +201,8 @@ its skill folders (nothing is checked out or run). It keeps each skill's name, d
 them under `metadata.hermes.tags`) in Hoprig's state folder, with the commit they were read from. A skill fits a
 project when one of its tags or a word of its name is one of the project's technology words (its dependencies and
 stacks, the same reading as the suggestions; no AI), and the reason says so: "because shop's package.json has
-next". The skills that fit show as **Worth adding**, the first part of the **Suggested** tab (its number is on the tab), each with where it comes from,
-the reason and **Review**. A collection that cannot be read is one line there; the look goes on. The search (Find)
+next". The skills that fit show as **Worth adding**, a group of the one Skills list below **Installed** (its number is on the heading), each with where it comes from,
+the reason and **Review**. A collection that cannot be read is one line there; the look goes on. The search
 also lists the skills the last look read.
 
 Nothing from a collection is added by itself. **Review** fetches the skill at the commit the look read into

@@ -106,7 +106,7 @@ test('doctor: the own copy and its data folder are this user\'s, and it answers 
   assert.match(foreign.at(-1).detail, /another user/);
 });
 
-test('doctor: a copy or data folder of another user (root) is named plainly with the next step', async () => {
+test('doctor: a copy or data folder of another user (root) is named plainly with the next step', { skip: process.platform === 'win32' && 'Windows has no user ids: a folder there is never another user\'s by id' }, async () => {
   const copy = path.join(s.tmp, 'tools', 'alpha');
   const data = path.join(s.tmp, 'alpha-data');
   const me = process.getuid?.() ?? 1000;

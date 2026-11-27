@@ -80,8 +80,8 @@ curl -fsSL https://raw.githubusercontent.com/allswebtech/hoprig/main/install.sh 
   only when you start it. **Missions** (off at first, on Work → Team) let Tia do a goal with roles: a developer,
   tester or ops session may run only the project's tests, its build and its scripts, each in a box with no network.
   [docs/WORK.md](docs/WORK.md)
-- **Operator**: one page with what stopped or is about to, from everything Hoprig watches (a session at its limit,
-  an OK that waits, a disk 85% full, a run that stopped), with one recommended step for each; nothing happens until you tap it, unless you
+- **Operator**: what stopped or is about to, from everything Hoprig watches (a session at its limit,
+  an OK that waits, a disk 85% full, a run that stopped), as rows of **Home**'s **Needs you** group (the address `#/operator` opens Home), with one recommended step for each; Tia's own switches are under **Settings**, **Tia**; nothing happens until you tap it, unless you
   switched on one of Tia's rules, **Tia decides** or **Tia looks into what nobody can explain** (all are off at first; [docs/OPERATOR.md](docs/OPERATOR.md)).
 - **Updates** of Hoprig, the coding tools and the helper for the public link (cloudflared) on one page, Manual by
   default.
@@ -191,12 +191,14 @@ terminals they end, and come back only if "Reopen sessions after a restart" is o
   <img src="docs/screenshots/chat-desktop-light.webp" alt="A chat: the to-do list, a changed file, and Claude Code asking to run the tests, with Allow, Allow in this session, Always allow in this project and Do not allow" width="760">
 </p>
 
-**New session** on Home (or a project's **New session**) opens with one line that says what will be used: the
-computer (on Home, when several are linked), the App or a terminal, and the coding tool. **Change** on that line
-unfolds those choices: the computer (on Home), **App** (a chat, like the Claude Code app) or **Terminal**, and the
-coding tool. Below
-it you pick the project the session starts in. The App takes the
-provider, mode, model and effort of the last session there (the first time: **Settings → New sessions**).
+**New session** on Home opens with **Tap a project to start**: the projects as big rows (**Recent**, then **All
+projects**, then **Another folder…**), and one tap on a row starts an App chat there with nothing else asked. The App
+takes the provider, mode, model and effort of the last session in that folder (the first time: **Settings → New
+sessions**); the chat's own chips change them at any time. Where two or more computers are linked, a row of small
+chips over the projects chooses the computer. **More options** holds only what must be chosen before the start:
+**Open in a terminal** (the coding tool's own screen instead of the chat), **Coding tool** (when two or more are
+ready), **An earlier conversation**, **On a branch of its own** and **Read other projects too**. A project's own
+**New session** has the project set and a **Start** button.
 Every model choice lists the chosen provider's own models: a gateway's or an API key's own list (asked when the
 choice opens, kept ten minutes), or the models Claude Code offers a subscription. When no list can be had, it says
 why, offers opus, sonnet and haiku, and takes an exact model name; a saved model the list leaves out is kept and marked.
@@ -248,7 +250,7 @@ From a terminal on that computer, `hop chat [folder]` prints the chat's address 
   **Terminal**, **Changes** and **Files**: **Terminal** (`` Ctrl+` ``) opens a shell under the chat in the session's folder, with
   **+** for another tab, and hiding it keeps the shell (the bin on a tab ends that tab's shell, and archiving the chat ends the shells made for it, whoever archives it). **Archive** asks nothing: a toast says Archived and has **Undo**; it asks
   ("Archive anyway") only for a session that is working, or for one on a branch of its own with changes not committed.
-  New sessions' options have **Work on a branch of its own (worktree)** for Claude Code: Hoprig makes a new branch and a
+  New session's **More options** has **On a branch of its own (worktree)** for Claude Code: Hoprig makes a new branch and a
   separate copy of the project's files under `.claude/worktrees` (which the project's git leaves out of its changes), and the chat works there (a folder that is not a git
   repository starts as usual and says so; a chat on a branch says its branch in its first line, and its folder is listed under its project). Ctrl+Alt+N (Ctrl+Shift+N on a Mac) opens a new session. A **Home** icon is at the
   top of every chat, and the panel button at the left of the title bar hides and shows the session list (`Ctrl+\`, `Cmd+\` on
@@ -308,7 +310,7 @@ From a terminal on that computer, `hop chat [folder]` prints the chat's address 
 
 ### Lead model: one model plans, others do the parts (Claude Code)
 
-**Lead model** (off by default; in the new-session sheet, Plan with AI, Settings → New sessions and
+**Lead model** (off by default; in the chat's Lead chip, Plan with AI, Settings → New sessions and
 Settings → Tia) makes the model you chose the lead: it plans the task and hands each part to a helper by its kind of
 work. Running and recording (tests, builds, searches, logs, mechanical edits) goes to the provider's fastest model at
 low effort, writing and reviewing code to its strong model, an unknown cause, a design decision or the last check to
@@ -321,8 +323,9 @@ in our tests), and the line under the switch says so. **Who did what** in the ch
 menu at any width) shows each part with its model and its tokens (new, written and read from the cache, apart), and
 one total per tier, read from Claude Code's own records; a Work run that had helpers shows the same under it, in a
 task's runs and in Activity, and a plan shows its tasks' runs per tier. A Lead chip under the message box says whether
-Lead is on. With the switch off a session starts exactly as before. Another coding tool shows the switch off.
-A terminal session shows the switch off: Hoprig cannot see what each part of a terminal session costs, so it cannot
+Lead is on. With the switch off a session starts exactly as before. New session does not ask for it: the Lead chip in the chat and
+Settings → New sessions do. Another coding tool shows the switch off.
+A terminal session has no Lead: Hoprig cannot see what each part of a terminal session costs, so it cannot
 show or count its money in the daily limit for paid use as it does in the App.
 
 **Use other providers** (shown while Lead model is on, off by default) lets the lead also hand a part to another
@@ -344,7 +347,7 @@ Claude Code can do everything here. **OpenCode** is the second coding tool: a ch
 providers that fit it, the shared AI brain and updates. Turn it on in **Settings → New sessions → Coding tools**: **Install**
 puts it into Hoprig's own tools folder at the version this Hoprig is tested with (never globally), and its own
 self-update and its makers' free cloud models are switched off. New session then offers it next to Claude
-Code and keeps the one you chose last; a project's own New session chooses the coding tool that project used
+Code under **More options** and keeps the one you chose last; a project's own New session chooses the coding tool that project used
 last. In a terminal: `hop opencode [provider]`.
 
 OpenCode runs only on a provider that speaks its API: an API key or a gateway, never a Claude subscription (a
@@ -854,7 +857,7 @@ Her administrator rights (Off, Ask each time, Full) and the git sign-in of the s
 ## The menu and the settings
 
 **Home** (every chat and session, the ones that need you first), **Work**, **Workspace**, **Providers**,
-**Computers**, then under **More**: Operator, Skills, AI brain, Tia and Settings. **Settings** is a short list of
+**Computers**, then under **More**: Skills, AI brain, Tia and Settings. **Settings** is a short list of
 pages: New sessions (with the coding tools), Notifications, Appearance (with the code editor), Security and sign-in
 (with the folders Hoprig may open and Log out), Public link, Workspace, While you are away, Tia, Version and updates
 (with the field reports) and Add-ons; Hands-off and Runs as root appear only when they apply. Work's own settings are

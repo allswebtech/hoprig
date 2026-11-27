@@ -143,7 +143,7 @@ test("a failed copy of the gateway's data takes away only what this call made", 
   assert.deepEqual(fs.readdirSync(to), ['mine.json']);
 });
 
-test('realGatewaySys.stop returns only once the process has ended, not when its port closes', async () => {
+test('realGatewaySys.stop returns only once the process has ended, not when its port closes', { skip: process.platform === 'win32' && 'the move to another user is for a Linux server run as root: it has no home path of the user on Windows' }, async () => {
   const { realGatewaySys } = await import('../../src/setup/movegatewaysys.mjs');
   const plan = { user, oldHome, dirs: { config: path.join(oldHome, '.config/hoprig') } };
   let after = -1; // readProc calls since the kill
@@ -182,7 +182,7 @@ test("a gateway with a copy of its own: its data folder by the gateway's rule, i
   assert.deepEqual(calls.slice(0, 2), ['stop 4711', 'copy']);
 });
 
-test('the real start as the user installs the own copy first and does not start without it', async () => {
+test('the real start as the user installs the own copy first and does not start without it', { skip: process.platform === 'win32' && 'the move to another user is for a Linux server run as root: it has no home path of the user on Windows' }, async () => {
   const { realGatewaySys } = await import('../../src/setup/movegatewaysys.mjs');
   const ran = [];
   const run = async (argv) => (ran.push(argv.join(' ')), { ok: !argv.includes('install'), stdout: '', stderr: 'no network' });

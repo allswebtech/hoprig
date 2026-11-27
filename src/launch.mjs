@@ -121,11 +121,15 @@ export function conversationOf(args) {
   return null;
 }
 
-/** The arguments that survive a move to another profile. */
+/**
+ * The arguments that survive a move to another profile. Nothing after "--" is read: that is a first message, and a word
+ * of it that looks like a flag must never reach a later start.
+ */
 export function carryArgs(args) {
   const out = [];
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
+    if (a === '--') break;
     const name = a.startsWith('--') ? a.split('=')[0] : a;
     if (a.includes('=') && a.startsWith('--')) {
       if (CARRY_VALUE.has(name) || CARRY_MANY.has(name) || CARRY_REPEAT.has(name)) out.push(a);

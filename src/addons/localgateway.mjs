@@ -477,7 +477,9 @@ export function localGateway(def, { shipped = false, reason = () => serverReason
         const ticks = statStart(fs.readFileSync(`/proc/${pid}/stat`, 'utf8'));
         started = ticks ? system.bootAt() + Number(ticks) * 10 : 0; // 100 ticks a second
       } else if (process.platform === 'darwin') {
+        // ps names the start to the second, cut down: a copy written in the second the program started is not later than it.
         started = startOf(system.of([pid], { after: await system.refresh([pid]) }).get(pid));
+        if (started) started += 1000;
       }
       return started && fs.statSync(file).mtimeMs > started ? found.version : null;
     } catch {

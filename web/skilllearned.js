@@ -4,7 +4,7 @@
 // until he presses Install, and a risky draft cannot be installed at all. Installed, it is one commit in his AI
 // brain; Undo takes it back.
 import { api, btn, confirmSheet, fill, h, toast } from './lib.js';
-import { emptyState, errorBox, field, panel, savedMark, skeletonRows as skeleton, toggle } from './shell.js';
+import { emptyState, errorBox, field, groupHead, panel, savedMark, skeletonRows as skeleton, toggle } from './shell.js';
 import { icon } from './icons.js';
 import { money } from './chat/words.js';
 
@@ -29,7 +29,8 @@ const cost = (c) => (!c || !(c.usd || c.tokens) ? ''
 
 /**
  * Paint the Learned part into `box`. `kit`: { diffView, tag, onCount(n) } from the Skills page (onCount: the drafts
- * waiting, for the tab). → { refresh(), stop() }: the
+ * waiting, for the tab). `kit.quiet`: the Skills page's one list: no learn panel (it is under Advanced there: see
+ * learnSettings), nothing when no draft waits, the installed ones in a closed fold. → { refresh(), stop() }: the
  * Skills page calls stop() before it paints another part into the same box, or leaves.
  */
 export function paintLearned(box, kit) {
@@ -87,7 +88,7 @@ export function paintLearned(box, kit) {
       const r = await api(`/api/skills/learned/${d.id}/${what}`, {});
       const commit = String(r.commit).slice(0, 7);
       notice = what === 'install' ? { text: isLinked ? `"${d.name}" is installed and saved in your AI brain (commit ${commit}).`
-        : `"${d.name}" is saved in your AI brain (commit ${commit}). Your coding tools use it once you press Switch on, above.`, undoId: d.id }
+        : `"${d.name}" is saved in your AI brain (commit ${commit}). ${kit.quiet ? 'Your coding tools use it once you press Switch on under Memory.' : 'Your coding tools use it once you press Switch on, above.'}`, undoId: d.id }
         : what === 'undo' ? { text: `"${d.name}" is taken back (commit ${commit}).` } : { text: `The draft "${d.name}" is discarded.` };
       await load();
     } catch (e) {
@@ -170,15 +171,17 @@ export function paintLearned(box, kit) {
     const banner = notice ? h('div.banner.ok-box.sk-notice', { role: 'status', tabindex: '-1' }, icon('check', { size: 18 }), h('span', notice.text), undoBtn) : null;
     const last = data.recent && data.recent[0];
     const focused = document.activeElement && box.contains(document.activeElement) && document.activeElement.getAttribute ? document.activeElement.getAttribute('data-key') : null;
+    const quiet = Boolean(kit.quiet);
     fill(list,
       banner,
-      data.on ? null : h('div.banner.lr-off', icon('info', { size: 18 }), h('span', 'Learning from Work is off, so no drafts come from your work (a session\'s way round still comes). Turn it on above.')),
-      h('p.hint', 'A draft comes from your own work in Work (a result you sent back with your words, or a task you accepted and marked “Learn from this”) or from a coding session that wrote down a way round after a Hoprig command failed. Nothing is installed until you press Install.'),
+      quiet || data.on ? null : h('div.banner.lr-off', icon('info', { size: 18 }), h('span', 'Learning from Work is off, so no drafts come from your work (a session\'s way round still comes). Turn it on above.')),
+      quiet ? null : h('p.hint', 'A draft comes from your own work in Work (a result you sent back with your words, or a task you accepted and marked “Learn from this”) or from a coding session that wrote down a way round after a Hoprig command failed. Nothing is installed until you press Install.'),
       data.looking ? h('p.lr-looking', { role: 'status' }, icon('refresh', { size: 16 }), 'Looking at a run of your work…') : null,
-      waiting.length ? [h('p.field-label', `Waiting for you (${waiting.length})`), h('div.lr-list', waiting.map((d, i) => card(d, i)))]
-        : emptyState('sparkle', data.on ? 'No drafts waiting. When a run of your work shows something worth keeping, its draft comes here.' : 'No drafts waiting.'),
-      last && !data.looking ? h('p.hint', `Last look (${shortDay(last.at)}): ${resultWords(last.result, data.looking)}.`) : null,
-      installed.length ? [h('p.field-label', `Installed from your work (${installed.length})`), h('div.rows', installed.map(installedRow))] : null);
+      waiting.length ? [quiet ? groupHead('Drafts from your work', waiting.length) : h('p.field-label', `Waiting for you (${waiting.length})`), h('div.lr-list', waiting.map((d, i) => card(d, i)))]
+        : quiet ? null : emptyState('sparkle', data.on ? 'No drafts waiting. When a run of your work shows something worth keeping, its draft comes here.' : 'No drafts waiting.'),
+      last && !data.looking && !quiet ? h('p.hint', `Last look (${shortDay(last.at)}): ${resultWords(last.result, data.looking)}.`) : null,
+      installed.length ? (quiet ? h('details.lr-more', h('summary', `Installed from your work (${installed.length})`), h('div.rows', installed.map(installedRow)))
+        : [h('p.field-label', `Installed from your work (${installed.length})`), h('div.rows', installed.map(installedRow))]) : null);
     if (banner) banner.focus();
     else if (focused) {
       const again = box.querySelector(`[data-key="${focused}"]`);
@@ -188,7 +191,8 @@ export function paintLearned(box, kit) {
   }
 
   fill(list, skeleton(2));
-  fill(box, learnPanel(() => load()), list);
+  if (kit.quiet) fill(box, list);
+  else fill(box, learnPanel(() => load()), list);
   load();
   return {
     refresh: load,
@@ -200,6 +204,9 @@ export function paintLearned(box, kit) {
 }
 
 // ---------- The learn panel, at the top of Learned ----------
+
+/** The learn settings (a switch, the provider, the model, looks a week): the Skills page keeps them under Advanced. */
+export const learnSettings = (onSaved) => learnPanel(onSaved);
 
 function learnPanel(onSaved) {
   const slot = h('div', skeleton(2));

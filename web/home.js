@@ -11,6 +11,7 @@ import { icon } from './icons.js';
 import { MACHINE_STATE, WINDOW, api, ago, answeredNow, btn, costWords, fill, h, insecure, isPaid, link, nearLimit, needsYouFirst, prefs, stateOf, until, waysOn } from './lib.js';
 import { isStarting } from './newsession.js';
 import { openNewSession } from './newsession-popup.js';
+import { needsYouRows } from './operator.js';
 import { sessionCard } from './sessionitem.js';
 import { connectionBanner, emptyState, frame, groupHead } from './shell.js';
 import { pageNotify, store } from './store.js';
@@ -108,6 +109,7 @@ export function viewHome() {
   const filters = h('div');
   const accountsRow = h('div');
   const list = h('div.home-groups', skeleton());
+  const opRows = h('div.home-op'); // the cards that ask you to act, above the sessions of Needs you (operator.js)
   // "Get started" (getstarted.js): above everything while a step is missing.
   let noSessions = false;
   let paintEmpty = () => {};
@@ -127,7 +129,7 @@ export function viewHome() {
     primaryInHead: true,
     body: [
       insecure() ? h('div.banner.muted', icon('lock', { size: 18 }), h('span', 'Not encrypted. Use only on a network you trust, or put it behind HTTPS.')) : null,
-      top, bypassNote, fixed ? null : fieldLines(), gs.el, filters, accountsRow, list,
+      top, bypassNote, fixed ? null : fieldLines(), gs.el, filters, accountsRow, opRows, list,
     ],
   });
   // Said once: the update kept "Allow bypass permissions mode" on, because this dashboard used bypass (src/bypassgate.mjs).
@@ -252,8 +254,10 @@ export function viewHome() {
         old.length ? waitedFold(old, card) : null);
     }));
   });
+  const stopOp = needsYouRows(opRows);
   return () => {
     unsubscribe();
     gs.stop();
+    stopOp();
   };
 }

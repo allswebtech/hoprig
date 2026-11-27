@@ -102,6 +102,7 @@ const EXAMPLE = {
 
 /** Quoted words that are not a label of today: what it said before, a word of a tool or a person, a value. */
 const NOT_A_LABEL = {
+  'On Workstation · in the App · with Claude Code': 'the folded line of choices of the released 0.3.3 New session, gone since 0.4.0 (a tap on a project starts, More options holds the rest), said as what it was',
   'Name sessions with a short title': 'the switch of a released version; since 0.4.0 a title is always made, said as what it was',
   '22 or newer': 'the old floor, said as what it was',
   'missing': 'the old state of a project only in the map, said as what it was',

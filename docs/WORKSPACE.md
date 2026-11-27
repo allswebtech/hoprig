@@ -321,8 +321,8 @@ tree), it names it in its own `project.json` instead of copying it in:
   into, not even for its links, also when it is itself a link or a link leads into one: Read is denied to the file
   tools on the whole private folder and on such a link instead. The check runs once per start, in small pieces so
   the dashboard stays free; a folder it cannot check within five seconds is not opened ("too large to check").
-- **One session, one more project: `hoprig --with <name>`** (several allowed), or **Also open**, before the project
-  choice in the new-session sheet. It is your own word for that one session, so it needs no yes of its own; the same
+- **One session, one more project: `hoprig --with <name>`** (several allowed), or **Read other projects too**, under
+  **More options** in the new-session sheet. It is your own word for that one session, so it needs no yes of its own; the same
   rules hold; nothing is written to `project.json`. A name that is not on this
   computer is refused with `hoprig get <name>`. A session started with settings of your own (`--settings`) gets no
   extra folder, and is told so.
@@ -333,7 +333,7 @@ tree), it names it in its own `project.json` instead of copying it in:
 | Coding tool | Extra folders | Writing there | Its private folders |
 |---|---|---|---|
 | Claude Code (terminal and App) | yes | refused to its file tools by deny rules; a shell command is not stopped | refused to its file tools by deny rules; a shell command (`grep -r`) is not stopped |
-| OpenCode | none: Hoprig cannot keep them read-only there | (told only: a project's needs are named at the start, `--with` and Also open are refused) | (none opened) |
+| OpenCode | none: Hoprig cannot keep them read-only there | (told only: a project's needs are named at the start, `--with` and Read other projects too are refused) | (none opened) |
 
 ## Drop: a project leaves this computer safely
 

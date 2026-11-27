@@ -9,6 +9,7 @@
 //                                             terminal runs it already → { name, existing: true } (the chat stays)
 import crypto from 'node:crypto';
 import { assertServes, readProfile } from '../profiles.mjs';
+import { BYPASS, bypassAllowed, bypassInArgs, runsAsRoot } from '../bypassgate.mjs';
 import { handsOffOffered } from '../handsoff.mjs';
 import { listRuns, runsConversation, stillRuns } from '../runs.mjs';
 import { toolFlags } from '../codetools/start.mjs';
@@ -95,6 +96,7 @@ export function handoffRoutes(ctx, o) {
   const { chats, make, save, chatOr404, memory, models, openChatOf, freeId, terminalOf, claim, serial, forget, auto, handedTo = () => {} } = o;
   const bad = (msg) => new HttpError(400, msg);
   const cfg = () => ctx.config();
+  const asRoot = ctx.root !== undefined ? ctx.root === true : runsAsRoot(); // as feature.mjs: no bypass as root
   // The chats closed by "Continue in Terminal", with their titles (handed.mjs: kept over a restart of the dashboard).
   const handed = handedChats(o.handedFile || null);
   const titleOf = (conversation, tool) => handed.titleOf(conversation, tool);
@@ -189,7 +191,9 @@ export function handoffRoutes(ctx, o) {
       // Another tool's model: one the provider lists, or (its list not known yet) a well-formed model id.
       const toolModel = [flag('--model'), last.model].find((x) => typeof x === 'string' && modelOk(tool, x, ch)) || null;
       // OpenCode's terminal words for its modes: "ask" is the chat's "manual".
-      const mode = tool === 'claude' ? one('--permission-mode', 'permissionMode', ch.modes) : modeFor(tool, flag('--permission-mode') === 'ask' ? 'manual' : flag('--permission-mode')) || modeFor(tool, last.permissionMode);
+      // A terminal started in bypass (either spelling) goes on in it, while this dashboard allows it; else as before.
+      const mode = tool === 'claude' && bypassInArgs(args) && bypassAllowed(cfg(), asRoot) ? BYPASS
+        : tool === 'claude' ? one('--permission-mode', 'permissionMode', ch.modes) : modeFor(tool, flag('--permission-mode') === 'ask' ? 'manual' : flag('--permission-mode')) || modeFor(tool, last.permissionMode);
       const id = tool === 'claude' ? freeId(run.sessionId) : crypto.randomUUID();
       make({
         id, ...(id !== run.sessionId ? { conversationId: run.sessionId } : {}), engine: tool, cwd: run.cwd, profile: run.profile,

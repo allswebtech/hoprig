@@ -393,28 +393,19 @@ test('OPERATOR: her git sign-in, one truth: gh gets a value that is not a token,
 const readme = () => flat(read('README.md'));
 const notBuilt = () => flat(part('README.md', 'Not built, or not proven yet'));
 
-test('README: New session opens with one line of what will be used, Change unfolds it, then the project', () => {
+test('README: New session opens with the projects as rows, one tap starts, More options holds the rest', () => {
   const page = readme();
-  assert.match(page, /\*\*New session\*\* on Home \(or a project's \*\*New session\*\*\) opens with one line that says what will be used: the computer \(on Home, when several are linked\), the App or a terminal, and the coding tool\. \*\*Change\*\* on that line unfolds those choices: the computer \(on Home\), \*\*App\*\* \(a chat, like the Claude Code app\) or \*\*Terminal\*\*, and the coding tool\. Below it you pick the project the session starts in\./);
+  assert.match(page, /\*\*New session\*\* on Home opens with \*\*Tap a project to start\*\*: the projects as big rows \(\*\*Recent\*\*, then \*\*All projects\*\*, then \*\*Another folder…\*\*\), and one tap on a row starts an App chat there with nothing else asked\./);
+  assert.match(page, /\*\*More options\*\* holds only what must be chosen before the start: \*\*Open in a terminal\*\* \(the coding tool's own screen instead of the chat\), \*\*Coding tool\*\* \(when two or more are ready\), \*\*An earlier conversation\*\*, \*\*On a branch of its own\*\* and \*\*Read other projects too\*\*\./);
   assert.doesNotMatch(page, /asks two things at once/);
   const popup = read('web/newsession-popup.js');
-  // The line names the computer only where several are linked, and says "in the App" or "in a terminal".
-  // A project's New session (st.preset) names no computer on the line and paints no computer under Change.
+  // The computers are chips only where several are linked; a project's New session names no computer.
   assert.match(popup, /const key = store\.multi && !st\.preset \? JSON\.stringify\(/);
   assert.match(popup, /if \(!key\) return paint\(pcSlot\);/);
   assert.match(popup, /preset: project,/);
-  assert.match(popup, /computer: store\.multi && !st\.preset \? \(where\(\) \|\| \{\}\)\.machineLabel \|\| null : null,/);
-  const line = read('web/newsession-choice.js');
-  assert.match(line, /const parts = computer \? \[`On \$\{computer\}`\] : \[\];/);
-  assert.match(line, /openAs === 'terminal' \? 'in a terminal' : 'in the App'/);
-  assert.match(popup, /The computer, App or Terminal and the coding tool: folded under the line that says what is chosen\./);
-  assert.match(popup, /h\('span\.ns-choices-change', 'Change'\)/);
-  assert.match(popup, /h\('div\.ns-choices-body', pcSlot, openAsSlot, toolSlot\)/);
-  // The line comes first, the project below it.
-  assert.match(popup, /h\('div\.ns-root', choices, status, alsoSlot, projSlot,/);
-  const choice = read('web/newsession-choice.js');
-  assert.match(choice, /name: 'App', line: 'A chat, like the Claude Code app'/);
-  assert.match(choice, /name: 'Terminal'/);
+  assert.match(popup, /'Tap a project to start'/);
+  // The line and More options come first, the projects below them.
+  assert.match(popup, /h\('div\.ns-root', intro, moreSlot, opts, pcSlot, status, projSlot,/);
 });
 
 test('README: Tia runs on, Automatic is the first subscription that can answer now, never a paid provider by herself', () => {
@@ -738,14 +729,10 @@ test('README: a part started by your yes counts $0.50 until its turn reports a c
   assert.ok(read('web/tia.js').includes("'a part whose end Hoprig did not see (the dashboard stopped while it ran): Hoprig could not measure what it cost, so the rest of"));
 });
 
-test('README: the New session picture on a phone says one line with Change, as the sheet draws it', () => {
+test('README: the New session picture on a phone shows the recent projects, as the sheet draws them', () => {
   const page = read('README.md');
   assert.ok(page.includes('<img src="docs/screenshots/new-session-phone-light.webp" alt="New session on a phone: one line that names the computer, the App and the coding tool, with Change beside it, and the recent projects"'));
-  const choice = read('web/newsession-choice.js');
-  assert.ok(choice.includes('const parts = computer ? [`On ${computer}`] : [];'), 'the line names the computer');
-  assert.ok(choice.includes("parts.push(openAs === 'terminal' ? 'in a terminal' : 'in the App', !known ? 'looking at the coding tools…' : tool ? `with ${tool}` : 'no coding tool is ready');"), 'the App and the coding tool');
   const popup = read('web/newsession-popup.js');
-  assert.ok(popup.includes("h('summary.ns-choices-line', { 'data-key': 'choices' }, lineText, h('span.ns-choices-change', 'Change'),"), 'Change beside the line');
   assert.ok(popup.includes("groupHead('Recent')"), 'the recent projects');
 });
 

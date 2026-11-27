@@ -136,7 +136,9 @@ test('structure: the main pages, the second group, the Settings pages, and old a
   assert.deepEqual(group('main'), ['work', 'workspace', 'providers', 'computers'], 'Home is the router\'s own, then Work · Workspace · Providers · Computers');
   // Automations has no page of its own any more: Work → Schedules, Settings → Automations, Work → Activity.
   // The menu is Home, Work, Workspace, Providers, Computers and Settings last (shell.js menuItems); no More page.
-  assert.ok(group('more').includes('settings'), 'Settings is a registered page the menu puts last');
+  // Skills and Memory are tabs of Projects (navAs: 'workspace'); Tia has no item of her own (her button and Settings -> Tia).
+  assert.deepEqual(group('more'), ['settings']);
+  assert.match(src('tia.js'), /registerPage\(\{\s*id: 'tia', title: NAME, icon: 'sparkle', navAs: 'settings'/);
   // Every address in PAGE_ADDRESSES (what Tia's open_screen may open) leads to a page that exists.
   const ids = new Set([...pages.map((m) => m[1]), ...[...pageFiles().map(src).join('\n').matchAll(/registerPage\(\{\s*id: '([a-z-]+)'/g)].map((m) => m[1])]);
   const list = /export const PAGE_ADDRESSES = \[([\s\S]*?)\];/.exec(src('app.js'))[1];
@@ -265,7 +267,7 @@ test('AI brain: a file is shown as safe formatting, never as HTML; the list is g
     dailyLogs: { count: 1, items: [item('d1', { date: '2026-11-14' })] },
     projects: [{ name: 'shop', agents: item('agents'), decisions: null, learnings: null, activeContext: null, memory: { count: 0, items: [] } }],
   });
-  assert.deepEqual(g.map((x) => x.title), ['What your coding tools are told everywhere', 'Memory', 'Learnings and current context', 'Daily logs', 'Pending', 'shop']);
+  assert.deepEqual(g.map((x) => x.title), ['What your coding tools are told everywhere', 'What they remembered', 'Learnings and current context', 'Daily logs', 'Pending', 'shop']);
   assert.deepEqual(g[1].rows[1], { item: g[1].rows[1].item, title: 'How I work', sub: 'Short answers', chip: 'about you' });
   assert.equal(g[4].rows.length, 0, 'nothing pending: the group says so instead of an empty box');
   // A coding tool's links to make: the count and the names agree (two to make, two named; the linked one is not).
@@ -699,11 +701,9 @@ test('a computer runs sessions only when online, not a hub, with Claude Code and
   assert.match(runsSessions({ status: 'online', profiles: p }, null).why, /Claude Code is not installed/);
   assert.match(runsSessions({ status: 'online', profiles: [{ name: 'auto', virtual: true }] }).why, /No provider/);
   const src = fs.readFileSync(path.join(WEB, 'newsession-popup.js'), 'utf8');
-  assert.match(src, /groupHead\('Computer'\)/, 'the computer is the first choice');
+  assert.match(src, /computerChips\(\{/, 'the computers are chips over the projects');
   assert.match(src, /prefs\.set\('new\.machine'/, 'the choice is kept for the next time');
-  assert.doesNotMatch(src, /select\('Computer'/, 'not hidden under Options any more');
-  assert.match(fs.readFileSync(path.join(WEB, 'newsession-options.js'), 'utf8'), /modelPicker\(\{\n\s*provider: st\.profile \|\| \(m && m\.recommended\)/, 'a model for this one session, from the provider\'s own list');
-  assert.match(fs.readFileSync(path.join(WEB, 'newsession-start.js'), 'utf8'), /model: st\.model \|\| null/);
+  assert.doesNotMatch(src, /select\('Computer'/, 'not hidden under More options');
   const app = fs.readFileSync(path.join(WEB, 'app.js'), 'utf8');
   assert.match(app, /CODING_PAGES\.includes\(page\.id\) && onHub\(hash\)/, 'a hub opens the coding pages on a computer that codes');
 });
@@ -1014,12 +1014,10 @@ test('the mode that asks nothing says what it means, in the same sentences where
   assert.equal(sd.BYPASS_MEANS, 'Claude Code runs commands and changes files without asking. Use it only for folders you could lose. It still asks you: a question, a plan, a tool your settings say "ask" for, and before some deletes. Where it stops before a delete, Hoprig allows it by itself only when the delete is plainly inside the folder the command runs in (never your home, workspace or projects folder).');
   assert.equal(sd.BYPASS_MEANS.split(/(?<=\.) /).length, 4, 'four sentences');
   assert.equal('BYPASS_IN_CHAT' in sd, false, 'one rule (src/asking.mjs), one sentence: a chat and a terminal are the same');
-  // Settings → New-session defaults (the banner under the choice) and New session → Options (the line under it).
+  // Settings → New-session defaults (the banner under the choice); New session asks for no mode any more.
   assert.match(fs.readFileSync(path.join(WEB, 'sessiondefaults.js'), 'utf8'), /h\('p\.banner\.muted', BYPASS_MEANS\)/);
   const options = fs.readFileSync(path.join(WEB, 'newsession-options.js'), 'utf8');
-  // As root the line under the choice is the root line instead (settings.rootBypass); otherwise nothing.
-  assert.match(options, /select\('What Claude Code may do without asking'[^\n]*\n\s*\(v\) => \(v === 'bypassPermissions' \? BYPASS_MEANS : st\.rootBypass \|\| null\)\)/);
-  assert.doesNotMatch(options, /can run any command and change any file/, 'the sentence of before is gone');
+  assert.doesNotMatch(options, /BYPASS_MEANS|can run any command and change any file/, 'no mode in More options');
   // The text itself is written once: every other page takes it from sessiondefaults.js.
   const holders = fs.readdirSync(WEB, { recursive: true }).filter((f) => f.endsWith('.js') && fs.readFileSync(path.join(WEB, f), 'utf8').includes('Hoprig allows it by itself only when the delete'));
   assert.deepEqual(holders, ['sessiondefaults.js']);
@@ -1051,24 +1049,23 @@ test('new session: what runs in a folder (a terminal session, or a chat at work)
   assert.equal(runningIn({ live: false, session: 'old' }), null, 'nothing runs there: a tap opens a new chat');
   assert.equal(runningIn({ live: true }), null);
   const src = fs.readFileSync(path.join(WEB, 'newsession-popup.js'), 'utf8');
-  // App or Terminal first, then the coding tool, then the project; a plain shell under Options.
-  assert.ok(src.indexOf("groupHead('Open as')") < src.indexOf("groupHead('Coding tool')"), 'App or Terminal before the coding tool');
+  // One quiet line and More options first, then the projects.
+  assert.ok(src.indexOf("'Tap a project to start'") < src.indexOf("groupHead('Recent')"), 'the line before the projects');
   assert.match(src, /row\(f, folderSub\(f, projectsShort\), \(e\) => start\(f, e\.currentTarget\)\)/, 'a tap on a project starts a new session, also where one runs');
   assert.match(src, /leave\(one \? link\(one, st\.m\) : sessionHref\(list\[0\]\)\)/, 'what runs there is its own button (runningIn)');
-  assert.match(fs.readFileSync(path.join(WEB, 'newsession-options.js'), 'utf8'), /'A plain terminal, without a coding tool'/);
+  assert.doesNotMatch(fs.readFileSync(path.join(WEB, 'newsession-options.js'), 'utf8'), /plain terminal/i, 'a plain shell opens from the chat, the Projects page and the editor');
 });
 
 test('new session: repositories by their own name, and a path only where it says more than the name', async () => {
   const { folderSub, repoWords } = await import('../../web/newsession.js');
-  assert.deepEqual(repoWords('code/bookshop-api', 'bookshop'), { name: 'bookshop-api', sub: 'repository in bookshop' });
+  assert.deepEqual(repoWords('code/bookshop-api', 'bookshop'), { name: 'bookshop-api', sub: 'in bookshop' });
   assert.deepEqual(repoWords('.', 'bookshop'), { name: 'bookshop', sub: null }, 'a project\'s own folder: its name, no second line');
   assert.equal(folderSub({ name: 'shop', short: '~/Workspace/projects/shop' }, '~/Workspace/projects'), null, 'no "project" under every row');
   assert.equal(folderSub({ name: 'tool', short: '~/src/tool' }, '~/Workspace/projects'), '~/src/tool');
   assert.equal(folderSub({ name: 'x', short: '~/x' }, null), '~/x', 'projects folder not known: the path');
   const src = fs.readFileSync(path.join(WEB, 'newsession-popup.js'), 'utf8');
   assert.match(src, /sub \? h\('span\.row-sub', sub\) : null/, 'a row without a second line draws none');
-  // On a phone the computers and the coding tools sit two to a row, so the first project is in the first screen.
-  assert.match(fs.readFileSync(path.join(WEB, 'page-projects.css'), 'utf8'), /@media \(max-width: 520px\) \{[^}]*\.ns-tile \{ position: relative; flex-direction: column;/);
+  assert.deepEqual(repoWords('code/tool', null), { name: 'tool', sub: null }, 'a repository of no project: no second line');
 });
 
 test('Home cards: the pill leaves out what the heading says; the folder only when it is not projects/<name>', async () => {

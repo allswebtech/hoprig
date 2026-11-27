@@ -30,7 +30,7 @@ test('a saved model the list leaves out is shown as it is, marked, never replace
 });
 
 test('every picker of the page takes the provider\'s list; none offers the three fixed names', () => {
-  for (const f of ['tia.js', 'workpropose.js', 'workdo.js', 'newsession-options.js', 'sessiondefaults.js']) {
+  for (const f of ['tia.js', 'workpropose.js', 'workdo.js', 'sessiondefaults.js']) {
     const src = fs.readFileSync(path.join(WEB, f), 'utf8');
     assert.match(src, /modelPicker\(\{/, `${f} uses the picker`);
     assert.doesNotMatch(src, /\[\.\.\.MODELS\]|MODELS\.map\(/, `${f}: no fixed list`);

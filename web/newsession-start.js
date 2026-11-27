@@ -1,6 +1,8 @@
-// Starting what the New session popup chose (newsession-popup.js): the App (POST /api/chats through startChat), the
-// coding tool in a terminal (POST /api/sessions) or a plain terminal (POST /api/shells). What each sends is what the
-// New session page sent before it became a popup.
+// Starting what the New session popup chose (newsession-popup.js): the App (POST /api/chats through startChat) or the
+// coding tool in a terminal (POST /api/sessions). The popup asks for no provider, mode, effort, model or Lead: they are
+// left out, so the server takes what the last chat in the folder had, else the folder's default provider and Settings
+// → New sessions. The one exception: a terminal start on a computer that runs as root, whose default is Bypass, asks
+// first (the server refuses Bypass there).
 import { startChat } from './chat/start.js';
 import { ago, api, at, chooseSheet, link, servesTool, toast } from './lib.js';
 import { markStarting } from './newsession.js';
@@ -15,20 +17,10 @@ export const atNewAddress = () => /^#(\/m\/[a-z0-9][a-z0-9_-]{0,31})?\/new(\/her
 
 /**
  * Start in folder `f` ({ path, name }). o: { st (the popup's choices), pc (the computer's state), way ('chat' |
- * 'claude' | 'shell'), info (another tool's modes, or null), toolName, busy(text), failed(error), leave(hash) (close the
- * popup and go there), picking() (the list of conversations takes the popup's place) }.
+ * 'claude'), toolName, busy(text), failed(error), leave(hash) (close the popup and go there), picking() (the list of
+ * conversations takes the popup's place) }.
  */
-export async function startSession(f, { st, pc, way, info, toolName, busy, failed, leave, picking }) {
-  if (way === 'shell') {
-    busy('Opening a terminal…');
-    try {
-      const { name } = await api(at(st.m, '/api/shells'), { dir: f.path });
-      leave(link(`#/s/${encodeURIComponent(name)}`, st.m));
-    } catch (e) {
-      failed(e);
-    }
-    return;
-  }
+export async function startSession(f, { st, pc, way, toolName, busy, failed, leave, picking }) {
   const tool = st.tool;
   if (!tool) return toast('No coding tool is ready on this computer yet.', { kind: 'error', ms: 6000 });
   const own = tool !== 'claude'; // another coding tool, with its own choices (its own body, `tool` named)
@@ -36,29 +28,27 @@ export async function startSession(f, { st, pc, way, info, toolName, busy, faile
   // there last, else the Providers page's order: src/defaultprovider.mjs). An older computer (no `recommendedIn`, no
   // `toolDefaults`) does not choose by itself: it gets its recommended one, or the first that serves the tool.
   const firstServing = pc ? (pc.profiles.find((p) => !p.virtual && servesTool(p, tool)) || {}).name : null;
-  if (!st.profile && !(tool === 'claude' ? pc && pc.recommended : firstServing)) return toast('No provider yet: add one under Providers first.', { kind: 'error', ms: 6000 });
-  let mode = st.conversation === 'pick' ? 'resume' : st.conversation;
+  if (!(tool === 'claude' ? pc && pc.recommended : firstServing)) return toast('No provider yet: add one under Providers first.', { kind: 'error', ms: 6000 });
+  let mode = st.earlier === true ? 'resume' : 'new';
   let sessionId = null;
-  if (mode !== 'new') {
+  if (mode === 'resume') {
     const q = new URLSearchParams({ path: f.path, ...(tool !== 'claude' ? { tool } : {}) });
     const { sessions: convs } = await api(at(st.m, `/api/folders/sessions?${q}`)).catch(() => ({ sessions: [] }));
     if (!convs.length) mode = 'new'; // nothing to continue in this folder: a new conversation
-    else if (mode === 'resume') {
+    else {
       picking();
-      sessionId = await chooseSheet({ title: 'Pick a conversation', subtitle: tool === 'claude' ? f.name : `${f.name} · ${toolName}`, items: convs.map((c) => ({ value: c.id, label: c.title, sub: ago(c.at), icon: 'text' })) });
+      const newest = [...convs].sort((a, b) => (b.at || 0) - (a.at || 0));
+      sessionId = await chooseSheet({ title: 'Pick a conversation', subtitle: tool === 'claude' ? f.name : `${f.name} · ${toolName}`, items: newest.map((c) => ({ value: c.id, label: c.title, sub: ago(c.at), icon: 'text' })) });
       if (!sessionId) {
         if (atNewAddress()) location.replace('#/');
         return;
       }
-    } else if (way === 'chat' || own) sessionId = convs[0].id; // the newest one (Claude Code's terminal finds it itself)
+    }
   }
   if (way === 'chat') {
     busy(`Opening the App in ${f.name}…`);
     try {
-      // What is not chosen here is left out: the server takes what the last session in the App had in this folder.
-      // Lead and its ticks too, unless the owner changed them here (st.leadTouched).
-      const permissionMode = own && !((info && info.modes) || []).includes(st.permissionMode) ? '' : st.permissionMode;
-      await startChat(f.path, { tool, sessionId, profile: st.profile, permissionMode, effort: st.effort, model: own ? '' : st.model, ...(!own && st.leadTouched && typeof st.lead === 'boolean' ? { lead: st.lead, ...(st.lead && Array.isArray(st.others) ? { others: st.others } : {}) } : {}), with: own ? [] : alsoOf(st), ...(!own && !sessionId && st.worktree === true ? { worktree: true } : {}) }, st.m);
+      await startChat(f.path, { tool, sessionId, with: own ? [] : alsoOf(st), ...(!own && !sessionId && st.worktree === true ? { worktree: true } : {}) }, st.m);
     } catch (e) {
       failed(e);
     }
@@ -66,10 +56,11 @@ export async function startSession(f, { st, pc, way, info, toolName, busy, faile
   }
   busy(`Starting ${toolName} in ${f.name}…`);
   try {
-    // Another coding tool asks first unless the owner chose otherwise; Claude Code takes Settings for what is left out.
+    // Another coding tool asks first; Claude Code takes Settings for what is left out (as root with Bypass as the
+    // default: the mode that asks, which the server would otherwise refuse).
     const body = own
-      ? { tool, dir: f.path, profile: st.profile || (pc && !pc.toolDefaults ? firstServing : undefined), mode: sessionId ? 'resume' : mode === 'continue' ? 'continue' : 'new', sessionId, permissionMode: terminalMode(st.permissionMode), effort: st.effort || null }
-      : { dir: f.path, profile: st.profile || (pc && !pc.recommendedIn ? pc.recommended : undefined), mode, sessionId, permissionMode: st.permissionMode || null, effort: st.effort || null, model: st.model || null, ...(alsoOf(st).length ? { with: alsoOf(st) } : {}) };
+      ? { tool, dir: f.path, profile: pc && !pc.toolDefaults ? firstServing : undefined, mode: sessionId ? 'resume' : 'new', sessionId, permissionMode: terminalMode(''), effort: null }
+      : { dir: f.path, profile: pc && !pc.recommendedIn ? pc.recommended : undefined, mode, sessionId, permissionMode: st.rootDefaultBypass ? 'manual' : null, effort: null, model: null, ...(alsoOf(st).length ? { with: alsoOf(st) } : {}) };
     const { name, chat, existing } = await api(at(st.m, '/api/sessions'), body);
     store.refresh();
     // The conversation runs in the App already (one conversation, one process): it goes on there.

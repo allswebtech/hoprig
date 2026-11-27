@@ -383,40 +383,35 @@ article.card:hover { box-shadow: var(--shadow-2); }
 .ns-advice { display: flex; align-items: flex-start; gap: 8px; margin: 0 0 12px; }
 .ns-advice .icon { flex: none; margin-top: 2px; }
 .ns-advice a { font-weight: 600; white-space: nowrap; }
-/* New session, several computers: the computer is the first choice; one that cannot run a session is greyed with why. */
-/* New session's large tiles (newsession-choice.js): App or Terminal, then the coding tool. Side by side, always. */
-.ns-tiles { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-bottom: 6px; }
-.ns-tile { display: flex; align-items: center; gap: 12px; min-height: 68px; padding: 12px 14px; text-align: left; border-radius: var(--r-lg); border: 1px solid var(--border); background: var(--surface); color: var(--text); box-shadow: var(--shadow-1); font: inherit; min-width: 0; }
-button.ns-tile { cursor: pointer; transition: border-color var(--tick), background var(--tick); }
-button.ns-tile:hover:not(:disabled) { border-color: var(--ring); }
-button.ns-tile:disabled { cursor: not-allowed; }
-.ns-tile.ns-is-chosen { border-color: var(--accent); background: var(--accent-soft); box-shadow: 0 0 0 1px var(--accent); }
-.ns-tile.ns-is-off { background: var(--surface-2); box-shadow: none; }
-.ns-tile-icon { width: 38px; height: 38px; border-radius: var(--r); display: grid; place-items: center; background: var(--surface-3); color: var(--text-2); flex: none; }
-.ns-tile.ns-is-chosen .ns-tile-icon { background: var(--surface); color: var(--accent); }
-.ns-tile.ns-is-off .ns-tile-icon { color: var(--muted); }
-.ns-tile-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-.ns-tile-name { font-weight: 650; }
-.ns-tile.ns-is-off .ns-tile-name { color: var(--text-2); }
-.ns-tile-line { font-size: var(--fs-xs); color: var(--muted); line-height: 1.35; }
-.ns-tile-line a, .ns-fix { font-weight: 600; }
+/* New session (newsession-popup.js): one quiet line, More options, the computers as small chips, then big rows. */
+.ns-intro { margin: 0; }
+.ns-more { display: flex; align-items: center; justify-content: flex-end; gap: 8px; width: 100%; min-height: 44px; padding: 0 4px; border: 0; background: none; color: var(--text-2); font: inherit; font-size: var(--fs-sm); font-weight: 600; cursor: pointer; }
+.ns-more-sum { margin-right: auto; color: var(--accent); }
+.ns-more .icon { flex: none; transition: transform 0.15s; }
+.ns-more[aria-expanded="true"] .icon { transform: rotate(180deg); }
+.ns-more-slot:empty, .ns-computers:empty, .newopts:empty { display: none; }
+.newopts { display: flex; flex-direction: column; gap: 6px; padding: 12px 14px; border: 1px solid var(--border); border-radius: var(--r-lg); background: var(--surface); }
+.ns-opt .toggle-line { min-height: 44px; margin-top: 0; }
+.sheet-actions .btn { min-height: 48px; }
+/* A short screen (the keyboard open): the quiet line gives its room to the projects. */
+@media (max-height: 520px) { .ns-intro { display: none; } }
+.ns-opt .hint { margin: 0 0 0 2px; }
+.ns-opt-tool { display: flex; flex-direction: column; gap: 6px; }
+.ns-seg { display: flex; gap: 0; border: 1px solid var(--border); border-radius: var(--r); overflow: hidden; }
+.ns-seg-btn { flex: 1; min-height: 44px; padding: 0 12px; border: 0; background: var(--surface); color: var(--text); font: inherit; font-weight: 550; cursor: pointer; }
+.ns-seg-btn + .ns-seg-btn { border-left: 1px solid var(--border); }
+.ns-seg-btn[aria-checked="true"] { background: var(--accent-soft); color: var(--accent); font-weight: 650; }
+.ns-chips { display: flex; gap: 8px; overflow-x: auto; padding: 2px 0; scrollbar-width: none; }
+.ns-chip { flex: none; min-height: 44px; padding: 0 16px; border-radius: 999px; border: 1px solid var(--border); background: var(--surface); color: var(--text); font: inherit; font-weight: 550; cursor: pointer; white-space: nowrap; }
+.ns-chip.ns-is-chosen { border-color: var(--accent); background: var(--accent); color: var(--accent-text); }
+.ns-chip:disabled { color: var(--muted); background: var(--surface-2); cursor: not-allowed; }
+.ns-projects .row, .ns-projects button.row { min-height: 56px; }
 .ns-room { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin: 2px 0 8px; font-size: var(--fs-sm); color: var(--text); }
-.ns-fix { padding: 0; border: 0; background: none; color: var(--accent); font: inherit; font-weight: 600; cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
-.ns-tile-tick { color: var(--accent); flex: none; align-self: flex-start; }
 .ns-search { margin-bottom: 4px; }
 /* In the popup the rows sit closer: all of it is one form. */
 .sheet-tall .group-head { margin: 8px 2px 8px; }
 .ns-preset .btn { flex: none; }
 .ns-elsewhere { margin-top: 10px; }
-.ns-plain { margin-top: 6px; }
-.ns-also:empty { display: none; }
-/* No band of its own around the fold: the sheet's gap already parts it from the lines above and below. */
-.ns-also { margin-top: 0; }
-.ns-also > .fold { margin: 0; }
-/* Its line is one short label: a compact height, so no empty band stands above and below the words. */
-.ns-also > .fold > .fold-summary { min-height: 32px; }
-/* In the popup the sheet's gap alone parts the choices line from what follows (no margin of its own on top of it). */
-.ns-root > .ns-choices { margin-bottom: 0; }
 .ns-also-needs { margin: 8px 0; }
 .ns-also-head { font-size: var(--fs-sm); color: var(--text-2); margin-bottom: 4px; }
 .ns-also-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; font-size: var(--fs-sm); }
@@ -999,9 +994,6 @@ body.is-demo .page-title::after { display: inline-block; }
   .split.has-page .split-list, .split.no-page .split-pane { display: block; }
   .split-list { position: sticky; top: 96px; }
 }
-
-/* ---------- New session (newsession.js) ---------- */
-.newopts { display: grid; gap: 4px; }
 
 /* ---------- feedback: "Saved" next to what was saved; loading that does not flash ---------- */
 .saved-mark { display: inline-block; margin-left: 8px; font-size: var(--fs-xs); font-weight: 650; color: var(--ok); opacity: 0; transition: opacity 0.2s; vertical-align: 1px; }

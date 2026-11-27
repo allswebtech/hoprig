@@ -124,7 +124,8 @@ function sys() {
   return s;
 }
 
-test('a fresh Linux desktop, the whole set-up: 7 questions of Hoprig, and a second run asks nothing new', SHELL_STANDINS, async () => {
+// Linux only: the walk plays a Linux desktop (apt, systemd, a Linux home), which does not exist on Windows.
+test('a fresh Linux desktop, the whole set-up: 7 questions of Hoprig, and a second run asks nothing new', { ...SHELL_STANDINS, skip: process.platform === 'win32' ? 'a Linux desktop set-up (apt, systemd) does not exist on Windows' : SHELL_STANDINS.skip }, async () => {
   const first = person();
   const code = await SU.setup([], { ui: first.ui, sys: sys(), parts });
   const list = `questions asked:\n${first.asked.map((q, i) => `${i + 1}. ${q}`).join('\n')}\n\n${first.rec.text}`;

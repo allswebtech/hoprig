@@ -317,8 +317,10 @@ test('the rules\' words: what a limit counts, what "two tries" means, a switch n
   assert.ok(failed.includes('the gateway rule tried, and it failed'), failed.join('|'));
 });
 
-test('the page\'s first sentence names "Tia decides" and the looks too', () => {
-  assert.match(page.INTRO, /by a rule you switched on, by "Tia decides", or by a look, when you turned it on\./);
+test('the Tia fold names "Tia decides" and the looks as her ways to act alone', async () => {
+  const tia = await import('../../web/operator-tia.js');
+  const t = texts(tia.tiaPanel(tiaView(decideView), () => {})).join('|');
+  assert.match(t, /Tia decides/);
 });
 
 test('"Tia decides": the confirm says what a decision really costs, not a few hundred tokens', async () => {
@@ -493,4 +495,81 @@ test('the look\'s switch names the model a look runs on, or says in one line why
   assert.match(lw.lookCostWords({ ...base, estimate: est, runsOn: { provider: 'relay', model: 'claude-fable-5-2' } }), /A look now runs on fable-5-2 of relay\./);
   const words = texts(lw.lookPart({ look: { ...base, estimate: est, runsOn: null, cannot: 'relay serves no model of the strongest family (Opus or Fable), so no look starts on it' } }, () => {})).join(' ');
   assert.match(words, /No look can start now: relay serves no model of the strongest family \(Opus or Fable\), so no look starts on it\./);
+});
+
+// ---------- Operator has no page: its act cards are rows on Home, its Tia side a fold in Settings -> Tia ----------
+const tick = () => new Promise((r) => setTimeout(r, 5));
+const attention = (items) => ({ status: 200, body: { items, acts: catalog, needs: items.filter((i) => i.class !== 'info').length, watched: [], timeline: [], hidden: 0, more: 0 } });
+
+test('a Stopped card is a row of Home Needs you with its one button; a card that only informs is not there', async () => {
+  const box = h0();
+  answers.length = 0;
+  answers.push(attention([stuckItem, repoItem]));
+  const stop = page.needsYouRows(box);
+  await tick();
+  stop();
+  const t = texts(box);
+  assert.ok(t.includes('Needs you') && t.includes('session alpha'), t.join('|'));
+  assert.ok(!t.includes('repository shop'), 'a branch that is only here is not a row');
+  assert.ok(!t.includes('For your information') && !t.includes('Watched') && !t.includes('Done by you'), 'no old parts');
+  const primary = all(box, (n) => n.tag === 'a' && n.className.split(' ').includes('primary'));
+  assert.deepEqual(primary.map((n) => n.attrs['aria-label']), ['Open the session: session alpha']);
+  assert.equal(all(box, (n) => n.tag === 'details').length, 1, 'the other steps are behind one closed More');
+  assert.equal(all(box, (n) => n.tag === 'details')[0].open, false);
+});
+
+test('with nothing to act on the box stays empty, and the Home count is the cards that ask', async () => {
+  const box = h0();
+  answers.length = 0;
+  answers.push(attention([repoItem]));
+  const stop = page.needsYouRows(box);
+  await tick();
+  stop();
+  assert.deepEqual(texts(box), []);
+  assert.equal(page.homeCount(), 0);
+  answers.push(attention([stuckItem]));
+  const stop2 = page.needsYouRows(box);
+  await tick();
+  stop2();
+  assert.equal(page.homeCount(), 1);
+});
+
+test('the old address of the Operator opens Home; Home draws the rows with the one call', async () => {
+  const reg = await import('../../web/registry.js');
+  const calls = [];
+  globalThis.location = { pathname: '/', hash: '#/operator', replace: (x) => calls.push(x) };
+  const p = reg.pageById('operator');
+  assert.equal(p.group, null, 'not in the menu');
+  p.render({});
+  assert.deepEqual(calls, ['#/']);
+  const fs = await import('node:fs');
+  const home = fs.readFileSync(new URL('../../web/home.js', import.meta.url), 'utf8');
+  assert.match(home, /import \{ needsYouRows \} from '\.\/operator\.js'/);
+  assert.match(home, /needsYouRows\(opRows\)/);
+  const src = fs.readFileSync(new URL('../../web/operator.js', import.meta.url), 'utf8');
+  assert.match(src, /typeof registry\.registerHomeCount === 'function'/);
+});
+
+test('Settings -> Tia: one closed fold holds her switch, the rules, the looks and what she did', async () => {
+  const tia = await import('../../web/operator-tia.js');
+  answers.length = 0;
+  answers.push({ status: 200, body: { ...attention([]).body, reflexes: tiaView(), byTia: [] } }, { status: 200, body: { lookOthers: false } });
+  const f = tia.tiaAloneFold();
+  await tick();
+  assert.equal(f.tag, 'details');
+  assert.notEqual(f.open, true, 'closed at first');
+  const t = texts(f);
+  assert.ok(t.includes('What she may do alone') && t.includes('Done by Tia'), t.join('|'));
+  assert.ok(switchOf(f, 'master'), 'her switch is inside');
+  assert.ok(t.includes('Look at my other computers too'));
+});
+
+test('a session that asks is not a row while its own card is on Home; one that has no card is', () => {
+  const asks = { ...stuckItem, kind: 'asks', subject: 'session beta' };
+  const card = [{ sessions: [{ name: 'beta', status: 'attention' }] }];
+  assert.equal(page.sameAsCard(asks, card), true);
+  assert.equal(page.sameAsCard(asks, [{ sessions: [{ name: 'gamma', status: 'attention' }] }]), false);
+  const chat = { ...asks, subject: 'chat "Fix it" (99883e68)' };
+  assert.equal(page.sameAsCard(chat, [{ sessions: [{ name: 'x', chatId: '99883e68-aaaa', status: 'attention' }] }]), true, 'a chat is found by its id');
+  assert.equal(page.sameAsCard(stuckItem, [{ sessions: [{ name: 'alpha', status: 'attention' }] }]), false, 'no progress is Working on Home: its row stays');
 });

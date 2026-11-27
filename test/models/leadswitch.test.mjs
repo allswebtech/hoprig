@@ -49,15 +49,14 @@ test('another coding tool: shown off, with one line why', () => {
   assert.equal(lineOf(n), 'Only Claude Code can do this.');
 });
 
-test('Settings, Settings → Tia, the new-session sheet and Plan with AI have the switch and send it', () => {
+test('Settings, Settings → Tia and Plan with AI have the switch and send it; New session does not ask for it', () => {
   const sends = {
     'sessiondefaults.js': /sessionDefaults: \{[^}]*lead: cur\.lead === true/,
     'tia.js': /lead: st\.lead === true, others: st\.lead === true/,
-    'newsession-start.js': /lead: st\.lead/,
     'workpropose.js': /lead: v\.lead/,
   };
   for (const [f, re] of Object.entries(sends)) assert.match(fs.readFileSync(path.join(WEB, f), 'utf8'), re, `${f} sends it`);
-  for (const f of ['sessiondefaults.js', 'tia.js', 'newsession-options.js', 'workpropose.js']) assert.match(fs.readFileSync(path.join(WEB, f), 'utf8'), /leadSwitch\(\{/, `${f} draws it`);
+  for (const f of ['sessiondefaults.js', 'tia.js', 'workpropose.js']) assert.match(fs.readFileSync(path.join(WEB, f), 'utf8'), /leadSwitch\(\{/, `${f} draws it`);
   assert.match(fs.readFileSync(path.join(WEB, 'chat', 'start.js'), 'utf8'), /typeof o\.lead === 'boolean'/, 'the App start passes a choice, true or false');
 });
 
@@ -135,12 +134,11 @@ test('Settings → Tia: her ticks only of the providers she may use, redrawn whe
   assert.match(tia, /billed: \(p\) => p\.kind === 'api' \|\| p\.paid === true/, 'billed by use as her own rule says');
 });
 
-test('the new-session sheet seeds Lead from Settings and sends what it shows; another coding tool shows it off with why', () => {
+test('the new-session sheet draws no Lead and sends none: the server takes the folder\'s last chat, else Settings', () => {
   const popup = fs.readFileSync(path.join(WEB, 'newsession-popup.js'), 'utf8');
-  assert.match(popup, /st\.lead = d\.lead === true/, 'drawn as Settings has it, not off');
-  assert.match(popup, /st\.others = Array\.isArray\(d\.others\)/, 'with Settings\' ticks');
+  assert.doesNotMatch(popup, /st\.lead|leadFor|api\/chats\/lead/);
   const opts = fs.readFileSync(path.join(WEB, 'newsession-options.js'), 'utf8');
-  assert.match(opts, /app \? leadSwitch\(\{ value: false, tool,/, 'another coding tool: the switch, off');
+  assert.doesNotMatch(opts, /leadSwitch/);
 });
 
 test('a tick on a provider that is no longer one (removed, or another computer\'s) is dropped once the list arrives', async () => {

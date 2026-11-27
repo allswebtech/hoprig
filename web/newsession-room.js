@@ -1,9 +1,6 @@
-// The room of each computer where he picks one (the New session sheet, which the App's "+ New" opens too): each
-// computer's tile says its word, and when the chosen one is busy or full while another one has room AND can run this
+// The room of each computer where he picks one (the New session sheet, which the App's "+ New" opens too): when the chosen one is busy or full while another one has room AND can run this
 // start (online, Claude Code there, a provider there), one line says so with a button that picks it. Nothing is picked
 // for him. The rooms are this dashboard's own (GET ~/api/operator/rooms?look=1, src/operator/rooms.mjs).
-
-export const TILE_WORDS = { free: 'has room', busy: 'busy', full: 'full', unknown: 'room not known' };
 
 /** The rooms view keyed as the sheet keys computers: '~' for this one, else the hub's name. */
 export function roomsById(view) {
@@ -12,11 +9,8 @@ export function roomsById(view) {
   return out;
 }
 
-/** A tile's line with its room: "2 providers · has room". */
-export const tileLine = (line, r) => (r ? `${line} · ${TILE_WORDS[r.room] || TILE_WORDS.unknown}` : line);
-
 /**
- * The one line under the tiles, or null. computers: [{ id, name, ok }] (ok: it can run this start), rooms: roomsById,
+ * The one line under the chips, or null. computers: [{ id, name, ok }] (ok: it can run this start), rooms: roomsById,
  * chosen: the chosen id. The other computer offered is this one when it has room, else the first in the list.
  */
 export function roomHint({ computers, rooms, chosen }) {
@@ -32,11 +26,11 @@ export function roomHint({ computers, rooms, chosen }) {
 }
 
 /**
- * The hint's button: picks `id`, then puts the focus on that computer's tile. The button itself goes with the hint, and
- * the sheet would put the focus on the first tile, the computer he just left: one more key would pick it again.
+ * The hint's button: picks `id`, then puts the focus on that computer's chip. The button itself goes with the hint, and
+ * the sheet would put the focus on the first chip, the computer he just left: one more key would pick it again.
  */
 export function useHint(slot, id, choose) {
   choose(id);
-  const tile = slot && slot.querySelector(`[data-choice="${id}"]`);
-  if (tile) tile.focus();
+  const chip = slot && slot.querySelector(`[data-choice="${id}"]`);
+  if (chip) chip.focus();
 }
