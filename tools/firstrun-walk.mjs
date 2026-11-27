@@ -67,7 +67,8 @@ const plain = (s) => s
   .replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, '')
   .replace(/\x1b[@-Z\\-_]/g, '')
   .replace(/\r(?!\n)/g, '\n')
-  .replace(/\r/g, '');
+  .replace(/\r/g, '')
+  .replace(/[^\x08\n]\x08/g, ''); // a typed letter the terminal echoed and took back
 
 // ---- the install scripts, served as the real line fetches them ------------------------------------------------------
 const server = http.createServer((req, res) => {
@@ -317,7 +318,7 @@ if (up && link) try {
     await sleep(12_000);
     const sheet = await shot('20b-sign-in-sheet', 500);
     summary.signInSheet = mask(sheet).slice(0, 600);
-    check('the sign-in sheet shows a step to do and no error', /allow access|Waiting for the sign-in|sign-in page/i.test(sheet) && !/could not|stopped|Use the terminal/i.test(sheet), sheet.replace(/\s+/g, ' ').slice(-220));
+    check('the sign-in sheet shows a step to do and no error', /allow access|Waiting for the sign-in|sign-in page/i.test(sheet) && !/could not|was stopped|Claude Code stopped/i.test(sheet), sheet.replace(/\s+/g, ' ').slice(-220));
     await press(/^Cancel$/);
     await sleep(1500);
   } else check('the card has a Sign in button', false, '');
