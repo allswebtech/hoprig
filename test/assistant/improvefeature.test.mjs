@@ -90,7 +90,7 @@ test('a sign-in on a key billed by use counts as billed by use: no round without
   assert.equal(none.f.current(), null);
   assert.equal(runs().length, 0, 'nothing ran');
   const { f, call } = feature();
-  const st = await call('POST', '/api/assistant/improve/start', { provider: 'console', cap: 2 });
+  const st = await call('POST', '/api/assistant/improve/start', { provider: 'console', cap: 5 }); // the whole eval holds more than 2 dollars now that it has 166 cases
   assert.equal(st.round.paid, true);
   await ended(f);
   const entries = fs.readFileSync(path.join(process.env.HOPRIG_STATE_DIR, 'assistant', 'spend.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l));
@@ -124,7 +124,7 @@ test('each provider has its own estimate: the price of the model it sends the ev
 
 test('one round at a time; Stop ends its eval by its pid', async () => {
   const { f, call } = feature({ env: { STANDIN_SLOW: '1' } });
-  const v = await call('POST', '/api/assistant/improve/start', { provider: 'paid-x', cap: 2 });
+  const v = await call('POST', '/api/assistant/improve/start', { provider: 'paid-x', cap: 5 });
   assert.equal(v.round.running, true);
   // Refused by this dashboard's own round, before the lock file is even looked at.
   await assert.rejects(() => call('POST', '/api/assistant/improve/start', { provider: 'sub', cap: 2 }), (e) => e.status === 409 && e.message === 'a round runs already');

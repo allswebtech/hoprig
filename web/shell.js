@@ -1,6 +1,6 @@
 // The frame every page is drawn in, and the shared parts of a page (style.css names the same components):
-//   sidebar      desktop (>= 900 px): logo and name, the main pages, a divider, the second group
-//   bottombar    phone: Home · Projects · Accounts · Computers · More (More lists the second group)
+//   sidebar      desktop (>= 900 px): logo and name, then one list: Home, Work, Projects, Providers, Computers, Settings
+//   bottombar    phone: Home · Work · Projects · Providers · Computers; Settings is the gear in the page head
 //   pagehead     the page's title, one sentence saying what it is for, at most one primary action
 //   switcher     which computer, on a page that belongs to one computer, only when there are several
 //   panel        a card with an icon, a title and one sentence
@@ -12,8 +12,8 @@
 import { APP_NAME } from './brand.js';
 import { icon } from './icons.js';
 import { helpParts } from './helpline.js';
-import { BARE, MACHINE_STATE, applyPageTheme, errorWords, fill, h, link, machine, prefs, wayLink } from './lib.js';
-import { navPages, pageById, registeredHeadTools } from './registry.js';
+import { BARE, MACHINE_STATE, errorWords, fill, h, link, machine, prefs, wayLink } from './lib.js';
+import { homeCount, navPages, pageById, registeredHeadTools } from './registry.js';
 import { store } from './store.js';
 import { cameFrom, named, startOver, wayBack, windowWay } from './trail.js';
 
@@ -21,6 +21,12 @@ const app = typeof document !== 'undefined' ? document.getElementById('app') : n
 
 /** Home is the router's own page; every other navigation item is a registered page (registry.js). */
 const HOME = { id: 'home', title: 'Home', icon: 'home', perComputer: false, count: 0 };
+
+// The pages of the phone bar and of the menu, and the pages that are tabs of one of them (Skills and Memory under
+// Projects): they have no way back. A way back there is labelled from the history, and says a page that is not its parent.
+const TOP_PAGES = new Set(['home', 'work', 'workspace', 'providers', 'computers', 'settings', 'skills', 'brain']);
+/** A page that shows no way back by itself: a top page whose own parent is not named (a sub-page names its parent). */
+export const isTopPage = (page, parent = null) => !parent && TOP_PAGES.has(page);
 
 /** The navigation item a page lights up: itself, or the item it belongs to (navAs). */
 const currentItem = (pageId) => (pageById(pageId) || {}).navAs || pageId;
@@ -37,20 +43,21 @@ function navItem(p, current, cls) {
     p.count ? h('span.nav-badge', { 'aria-label': badgeLabel(p.count) }, String(p.count)) : null);
 }
 
+/** The menu: one list (Home, the main pages, Settings last) and the phone bar (the same without Settings, which is the gear). */
+export function menuItems() {
+  const home = { ...HOME, count: homeCount() };
+  const bar = [home, ...navPages('main')];
+  const settings = pageById('settings');
+  return { bar, list: settings ? [...bar, { ...settings, count: 0 }] : bar };
+}
+
 function paintNav(side, bottom, pageId) {
   const current = currentItem(pageId);
-  const main = [HOME, ...navPages('main')];
-  const more = navPages('more');
+  const { list, bar } = menuItems();
   fill(side,
     h('a.side-brand', { href: '#/', onclick: startOver }, h('img.side-mark', { src: 'icon.svg', alt: '', width: 36, height: 36 }), h('span.side-name', APP_NAME)),
-    h('div.side-group', main.map((p) => navItem(p, current, 'side-item'))),
-    h('div.side-group', h('div.side-group-title', 'More'), more.map((p) => navItem(p, current, 'side-item'))));
-  const inMore = current === 'more' || more.some((p) => p.id === current);
-  const waiting = more.reduce((n, p) => n + p.count, 0);
-  fill(bottom,
-    main.map((p) => navItem(p, current, 'tab')),
-    h('a.tab', { href: '#/more', 'aria-current': inMore ? 'page' : null, onclick: startOver }, icon('grid', { size: 22 }), h('span', 'More'),
-      waiting ? h('span.nav-badge', { 'aria-label': badgeLabel(waiting) }, String(waiting)) : null));
+    h('div.side-group', list.map((p) => navItem(p, current, 'side-item'))));
+  fill(bottom, bar.map((p) => navItem(p, current, 'tab')));
 }
 
 /** The label of the open computer for titles ("Providers · laptop"), or null on this computer. */
@@ -84,23 +91,9 @@ export function computerSwitcher(target) {
   return h('div.switch-menu', btn, pop);
 }
 
-/** The light/dark button of the page head (the same choice as Settings → Appearance, kept on this device). */
-function themeButton() {
-  const dark = () => (document.documentElement.dataset.theme || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')) === 'dark';
-  const b = h('button.icon-btn', { type: 'button' });
-  const paint = () => {
-    const d = dark();
-    b.title = d ? 'Light colours' : 'Dark colours';
-    b.setAttribute('aria-label', b.title);
-    fill(b, icon(d ? 'sun' : 'moon', { size: 16 }));
-  };
-  b.addEventListener('click', () => {
-    prefs.set('page.theme', dark() ? 'light' : 'dark');
-    applyPageTheme();
-    paint();
-  });
-  paint();
-  return b;
+/** The Settings gear of the page head, on a phone (a wide window has Settings in the list). The light or dark choice lives in Settings, Appearance. */
+function gearButton() {
+  return h('a.icon-btn.gear-btn', { href: link('#/settings'), title: 'Settings', 'aria-label': 'Settings', onclick: startOver }, icon('gear', { size: 22 }));
 }
 
 /** "Connection lost — reconnecting…" while the last poll failed. */
@@ -125,19 +118,19 @@ export function endFrame() {
  * on a phone. `wide`: room for two columns (Settings). `fillWindow`: the page fills the window and its last part
  * stays at the bottom (Tia's chat). `primaryInHead`: a page of cards he reads and answers (Home, Work) keeps its main
  * action in the page head on a phone too, never floating over the first card's text. The page head holds, on the right, the page's tools, its main action, the
- * computer pill (a page of one computer, with several) and the light/dark button.
+ * computer pill (a page of one computer, with several) and, on a phone, the Settings gear.
  */
 export function frame({ title, place = null, intro = null, page = null, back: parent = null, backLabel: parentLabel = 'Back', backOnPhoneOnly: parentOnPhoneOnly = false, introOnPhone = true, actions = [], primary = null, body, extra = [], wide = false, fillWindow = false, primaryInHead = false }) {
   endFrame();
   // The way back is the page that sent you here (trail.js); without one, the page's own parent. `place` is what a
   // link back to this page says, when the title alone would not ("Setup" for a computer's Setup part).
   named(place || (typeof title === 'string' ? title : Array.isArray(title) && typeof title[0] === 'string' ? title[0] : ''));
-  const way = page === 'home' && !parent ? null : wayBack(parent); // Home is where every trail starts
+  const way = isTopPage(page, parent) ? null : wayBack(parent); // a page of the bar or the menu is where a trail starts
   const back = way ? way.hash : parent;
   const backLabel = way ? way.label : parentLabel;
   const backOnPhoneOnly = way ? false : parentOnPhoneOnly;
   // A page whose parent is a list beside it on a desktop (Settings): there the way back stays the page you came from.
-  const from = !way && parentOnPhoneOnly ? cameFrom() : null;
+  const from = !way && parentOnPhoneOnly && !isTopPage(page, parent) ? cameFrom() : null;
   const backLink = (href, label, cls) => h(`a.pagehead-back${cls}`, { href, 'aria-label': `Back to ${label}` }, icon('back', { size: 16 }), h('span.pagehead-back-label', label));
   const reg = page ? pageById(page) : null;
   const switcher = h('div.switcher-slot');
@@ -187,7 +180,6 @@ export function frame({ title, place = null, intro = null, page = null, back: pa
       back ? backLink(back, backLabel, backOnPhoneOnly ? '.phone-only' : '') : null,
       from ? backLink(from.hash, from.label, '.desktop-only') : null,
       h('div.pagehead-title-row',
-        back ? null : h('img.pagehead-mark', { src: 'icon.svg', alt: '', width: 26, height: 26 }),
         h('h1.page-title', title)),
       intro ? h(`p.page-intro${introOnPhone ? '' : '.desktop-only'}`, intro) : null),
     h('div.head-tools', actions.length ? h('div.pagehead-actions', actions) : null, go(primaryInHead ? 'pagehead-primary.head-always' : 'pagehead-primary'), switcher,
@@ -197,7 +189,7 @@ export function frame({ title, place = null, intro = null, page = null, back: pa
         } catch {
           return null;
         }
-      }), themeButton())));
+      }), gearButton())));
   const fab = primary && !primaryInHead ? go('fab') : null;
   fill(app, side, h('div.shell-main', h(`main.page${wide ? '.wide' : ''}${fillWindow ? '.fill' : ''}`, head, body)), extra, fab, bottom);
   document.body.classList.add('has-nav');

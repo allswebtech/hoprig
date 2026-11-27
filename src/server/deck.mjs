@@ -6,6 +6,8 @@ import path from 'node:path';
 import { bypassInArgs, gateCarry, ROOT_BYPASS_LINE, runsAsRoot } from '../bypassgate.mjs';
 import { dedupeFlags, moveArgs } from '../launch.mjs';
 import { binFile, runsDir, stateDir, tilde } from '../paths.mjs';
+import { isMarkedAll } from '../allmark.mjs';
+import { allAllowed } from '../bypassgate.mjs';
 import { isMarkedHers } from '../hermark.mjs';
 import { saveConfig as saveConfigFile, sessionArgs } from '../config.mjs';
 import { readRun } from '../runfile.mjs';
@@ -110,9 +112,22 @@ function readLineReady() {
     return []; // none marked yet
   }
 }
-function writeLineReady(ids) {
+function writeLineReady(ids, file = lineReadyFile()) {
   fs.mkdirSync(stateDir(), { recursive: true, mode: 0o700 });
-  fs.writeFileSync(lineReadyFile(), JSON.stringify(ids), { mode: 0o600 });
+  fs.writeFileSync(file, JSON.stringify(ids), { mode: 0o600 });
+}
+// The same kind of list, kept the same way (a tmux session outlives the dashboard): the terminals the Deck made itself
+// (made.json), and those "Continue here" left as a plain shell (shell-left.json). Keyed by lineKey, so a later
+// terminal that gets a reused tmux pane id is not one of them.
+const madeFile = () => path.join(stateDir(), 'made.json');
+const shellLeftFile = () => path.join(stateDir(), 'shell-left.json');
+function readKeys(file) {
+  try {
+    const ids = JSON.parse(fs.readFileSync(file, 'utf8'));
+    return Array.isArray(ids) ? ids.filter((x) => typeof x === 'string').slice(-200) : [];
+  } catch {
+    return []; // none yet
+  }
 }
 
 export function matchRuns(terms, runs, parentOf = procParent) {
@@ -200,6 +215,8 @@ export class Deck {
     // owner to press Enter on. Nobody but his own page and keys types into them (./lineready.mjs).
     // Kept in a file too: a tmux session outlives the dashboard, and its mark must outlive it as well.
     this.lineReady = new Set(readLineReady());
+    this.made = new Set(readKeys(madeFile())); // see #markMade
+    this.shellLeft = new Set(readKeys(shellLeftFile())); // see markShellLeft
     sweepMarks();
     sweepStartFailures();
     this.#clearStaleMoving();
@@ -376,6 +393,16 @@ export class Deck {
         command: t.command,
       };
       if (run) card.tool = run.tool || 'claude';
+      // The conversation its launcher named, until the tool reports its own (onecard.mjs keys the card by it).
+      if (run && typeof run.conversation === 'string' && run.conversation) card.conversation = run.conversation;
+      // Started on a conversation a moment ago, its launcher's record not written yet (noteLaunch): that one.
+      if (!run) for (const [k, n] of this.launches) if (n.name === name) card.launching = { tool: k.slice(0, k.indexOf(':')), conversation: k.slice(k.indexOf(':') + 1) };
+      // A plain shell "Continue here" left behind (markShellLeft): the page does not list it while it stays one. A
+      // coding tool running there again makes it a terminal like any other.
+      if (ts.some((x) => this.shellLeft.has(lineKey(x)))) {
+        if (run) this.#dropKeys(this.shellLeft, shellLeftFile(), ts.map(lineKey));
+        else card.shellLeft = true;
+      }
       // Its start was stopped before the coding tool ran (#stopped): the page says so until the terminal starts again.
       if (!run && this.stopped.has(name)) card.startStopped = true;
       // The coding tool ended at its start and the terminal is back at its shell (../startfail.mjs): the card says so,
@@ -436,7 +463,7 @@ export class Deck {
         if (card.status === 'waiting' && bgCommands) card.bgCommands = bgCommands;
         // What Hoprig allowed by itself in bypass mode (hook.mjs), the newest last: the session page lists it.
         if (Array.isArray(run.allowed) && run.allowed.length) {
-          card.allowed = run.allowed.slice(-5).map((a) => ({ at: Number(a.at) || 0, tool: String(a.tool || '').slice(0, 80), what: String(a.what || '').slice(0, 200), ...(typeof a.folder === 'string' && a.folder ? { folder: a.folder.slice(0, 200) } : {}) }));
+          card.allowed = run.allowed.slice(-5).map((a) => ({ at: Number(a.at) || 0, tool: String(a.tool || '').slice(0, 80), what: String(a.what || '').slice(0, 200), ...(typeof a.folder === 'string' && a.folder ? { folder: a.folder.slice(0, 200) } : {}), ...(a.by === 'all' ? { by: 'all' } : {}) }));
         }
         // A notice of Claude Code itself that no hook tells (trust this folder), read from the screen only with every
         // fixed part there (askcard.mjs): named as what it is; it is answered in the terminal, never from the page.
@@ -550,25 +577,25 @@ export class Deck {
   /** Start a coding tool (Claude Code unless `tool` says another) under `profile` (full profile object) in `dir`. Returns the session name. */
   // `hers`: the session is Tia's (her door asked for it, or it carries on one of hers): the launch file says so, and
   // the launcher marks it and gives it her git sign-in (launch.mjs). Only the dashboard decides it, never the request.
-  async start({ tool = 'claude', dir, profile, mode = 'new', sessionId = null, prompt = null, flags = [], resetHandsOff = false, hers = false }) {
+  async start({ tool = 'claude', dir, profile, mode = 'new', sessionId = null, prompt = null, flags = [], resetHandsOff = false, hers = false, all = false }) {
     const argv = launchArgv(this.launcher(), { tool, profile, mode, sessionId, prompt, flags });
     // A resumed conversation the dashboard cannot carry Hands-off for (a chat opened in a terminal) starts the new
     // run with its answers stopped (launchfile.mjs reset hand): it is the owner's until he turns it on.
-    return this.create({ base: path.basename(dir), dir, argv, conversation: mode === 'resume' ? sessionId : null, tool, hand: resetHandsOff && handsOffOffered(this.config()) ? { reset: true } : null, hers });
+    return this.create({ base: path.basename(dir), dir, argv, conversation: mode === 'resume' ? sessionId : null, tool, hand: resetHandsOff && handsOffOffered(this.config()) ? { reset: true } : null, hers, all });
   }
 
   /**
    * A new terminal named after `base` that runs the launcher's `argv` in `dir`. `conversation`: the one it starts the
    * coding tool on, noted for the moment before its launcher's record (noteLaunch). Returns the session name.
    */
-  async create({ base, dir, argv, conversation = null, tool = 'claude', hand = null, hers = false }) {
+  async create({ base, dir, argv, conversation = null, tool = 'claude', hand = null, hers = false, all = false }) {
     this.#refuseAsRoot(argv, tool);
     const at = Date.now(); // the clock of the launcher's record (startedAt)
     const mark = conversation ? newMark() : null;
     let name;
     let launch;
     try {
-      ({ name, launch } = await this.terminal({ name: await this.#newName(base), dir, argv, mark, hand, hers }));
+      ({ name, launch } = await this.terminal({ name: await this.#newName(base), dir, argv, mark, hand, hers, all }));
     } catch (e) {
       dropMark(mark);
       throw e;
@@ -597,23 +624,26 @@ export class Deck {
   }
 
   /** What a terminal runs for `argv` in `dir` (./startline.mjs): a folder of one line, the launcher's words in a launch file. */
-  #command(dir, argv, mark = null, hand = null, hers = false) {
+  #command(dir, argv, mark = null, hand = null, hers = false, all = false) {
     assertFolder(dir);
-    return startCommand({ launcher: this.launcher(), dir, argv, mark, hand, hers, platform: this.backend.platform || process.platform });
+    return startCommand({ launcher: this.launcher(), dir, argv, mark, hand, hers, all, platform: this.backend.platform || process.platform });
   }
 
   /**
    * A new terminal `name` in `dir` running `argv` (null: a plain shell) through #command: every terminal the dashboard
    * starts with a command goes through here. Returns the backend's { name, id }.
    */
-  async terminal({ name, dir, argv = null, mark = null, hand = null, hers = false }) {
-    const cmd = this.#command(dir, argv, mark, hand, hers);
+  async terminal({ name, dir, argv = null, mark = null, hand = null, hers = false, all = false }) {
+    const cmd = this.#command(dir, argv, mark, hand, hers, all);
+    let made;
     try {
-      return { ...(await this.backend.create({ name, dir, argv: cmd.argv, ...(mark ? { mark } : {}) })), launch: cmd.file };
+      made = await this.backend.create({ name, dir, argv: cmd.argv, ...(mark ? { mark } : {}) });
     } catch (e) {
       dropLaunch(cmd.file);
       throw e;
     }
+    await this.#markMade(made.name || name);
+    return { ...made, launch: cmd.file };
   }
 
   /**
@@ -622,8 +652,8 @@ export class Deck {
    * conversation, given longer) before the terminal starts anew and the line is typed. `hand`: a move's hand-over of
    * Hands-off's stops, into the launch file only (#handOver).
    */
-  async respawn(id, dir, argv, { mark = null, hold = null, hand = null, hers = false } = {}) {
-    const cmd = this.#command(dir, argv, mark, hand, hers);
+  async respawn(id, dir, argv, { mark = null, hold = null, hand = null, hers = false, all = false } = {}) {
+    const cmd = this.#command(dir, argv, mark, hand, hers, all);
     try {
       await this.backend.respawn(id, dir, cmd.argv, { mark, hold });
     } catch (e) {
@@ -689,6 +719,52 @@ export class Deck {
     writeLineReady([...this.lineReady].slice(-200));
   }
 
+  /** `keys` leave list `set` (kept in `file`), and every key of a terminal that is gone with them. */
+  async #keep(set, file, add = [], drop = []) {
+    const live = new Set((await this.backend.list()).map(lineKey));
+    for (const k of [...set]) if (!live.has(k) || drop.includes(k)) set.delete(k);
+    for (const k of add) set.add(k);
+    writeLineReady([...set].slice(-200), file);
+  }
+
+  #dropKeys(set, file, keys) {
+    if (!keys.some((k) => set.has(k))) return;
+    for (const k of keys) set.delete(k);
+    writeLineReady([...set].slice(-200), file);
+  }
+
+  /** The keys (lineKey) of session `name`'s terminals, as the backend lists them now. */
+  async #keysOf(name) {
+    return (await this.backend.list()).filter((t) => t.session === name).map(lineKey);
+  }
+
+  /**
+   * Terminal session `name` was made by the Deck itself (terminal()): "Continue here" may end it (handoff.mjs take),
+   * where one made outside the dashboard (adopted) keeps its shell.
+   */
+  async #markMade(name) {
+    await this.#keep(this.made, madeFile(), await this.#keysOf(name)).catch(() => {});
+  }
+
+  /** Whether session `name` was made by the Deck (#markMade) and has one terminal only (one tmux pane). */
+  async madeAlone(name) {
+    const ts = (await this.backend.list()).filter((t) => t.session === name);
+    return ts.length === 1 && this.made.has(lineKey(ts[0]));
+  }
+
+  /** Session `name` was left a plain shell by "Continue here": not listed while it stays one (list: shellLeft). */
+  async markShellLeft(name) {
+    await this.#keep(this.shellLeft, shellLeftFile(), await this.#keysOf(name));
+  }
+
+  /**
+   * End terminal session `name`, its programs first (`hold`, the pid that holds the conversation, given its longer
+   * time to save and end, as in a respawn). Backends without `hold` on kill get the plain kill.
+   */
+  async end(name, { hold = null } = {}) {
+    await this.backend.kill(name, { hold });
+  }
+
   /** Whether session `name` (any of its terminals) is one of those. */
   async isLineReady(name) {
     if (!this.lineReady.size) return false;
@@ -726,6 +802,8 @@ export class Deck {
     // from the mark the dashboard wrote for the run it moves from (hermark.mjs), never from what the record says. The
     // owner's own press on switch or restart does not make it his: it is hers until it ends.
     const hers = isMarkedHers(path.join(runsDir(), `${path.basename(String(run.runId || ''))}.json`));
+    // Allow everything goes on in a move only while the switch and the acknowledgement still allow it, and never for hers.
+    const all = !hers && isMarkedAll(path.join(runsDir(), `${path.basename(String(run.runId || ''))}.json`)) && allAllowed(this.config() || {}, this.root);
     // One move at a time, in the conversation's own queue (with its starts and take-overs), on every kind of terminal.
     // `run` is the record the caller saw (two pages, a page and the watcher, however late each one asks): once the
     // terminal was moved away from it, a move of it again is late (409), and starts no second launcher. A move of the
@@ -739,7 +817,7 @@ export class Deck {
       try {
         over = this.#handOver(run);
         // The old launcher holds the conversation until its coding tool has saved and ended: the new one would refuse it.
-        const launch = await this.respawn(term.id, run.cwd, argv, { mark, hold: Number.isInteger(run.pid) ? run.pid : null, hand: over && over.hand, hers });
+        const launch = await this.respawn(term.id, run.cwd, argv, { mark, hold: Number.isInteger(run.pid) ? run.pid : null, hand: over && over.hand, hers, all });
         const note = this.launchOf(run.sessionId, tool);
         if (note && note.mark === mark) note.launch = launch;
         // Every move, whoever asked for it: the Operator's limit rule never moves a session back within the hour.

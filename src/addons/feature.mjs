@@ -3,8 +3,10 @@
 //   GET  /api/addons                         every add-on with its state: { addons: [{ id, title, summary, homepage,
 //                                            installed, version, running, url, job }], skipped: [{ id, error }] (the
 //                                            owner's gateway definitions that were not loaded, and why) }
-//   POST /api/addons/<id>/<action>           install | update | start | stop: runs in the background, one at a time
-//                                            per add-on; answers { started: true }
+//   POST /api/addons/<id>/<action>           install | update | start | stop | remove: runs in the background, one at a
+//                                            time per add-on; answers { started: true }. A gateway's install, update and
+//                                            remove need { confirm: <this computer's name> }; remove is only for one with a
+//                                            copy in Hoprig's own folder (the shipped one): its data and profile are kept
 //   GET  /api/addons/<id>/job?from=N         that job's output: { running, lines, next, result }
 //   POST /api/addons/<id>/do/<action>        one of the add-on's own `actions` (the public link: its fixed address,
 //                                            another service) with the JSON body, as a job like the ones above. Its
@@ -38,7 +40,7 @@ import { noteStarted, noteStopped } from './stopmark.mjs';
 import { publicLink } from './linkaddon.mjs';
 import { linkRoutes } from './linkroutes.mjs';
 
-const ACTIONS = ['install', 'update', 'start', 'stop'];
+const ACTIONS = ['install', 'update', 'start', 'stop', 'remove'];
 const LINES_MAX = 2000;
 const SWEEP_MS = 15_000;
 
@@ -69,7 +71,7 @@ export function addonsFeature(sctx, opts = {}) {
       if (job.lines.length > LINES_MAX) job.lines.splice(0, job.lines.length - LINES_MAX);
     };
     const act = () => (ACTIONS.includes(action)
-      ? (action === 'install' || action === 'update' ? a[action]({ onLine }) : action === 'start' ? a.start({ by }) : a[action]())
+      ? (action === 'install' || action === 'update' || action === 'remove' ? a[action]({ onLine }) : action === 'start' ? a.start({ by }) : a[action]())
       : a.actions[action](body, { onLine, by }));
     // A gateway: the same one press at a time as Health's routes (gatewayhost.mjs), so the two never run beside each other.
     const go = a.gateway ? onePress(a.id, act, () => new Error(`${a.title} is busy with another press: wait until it finishes`)) : act();
@@ -95,6 +97,20 @@ export function addonsFeature(sctx, opts = {}) {
       });
   }
 
+  async function act(req, m, action) {
+    const b = await sctx.readJson(req);
+    const a = addonOf(m);
+    if (!ACTIONS.includes(action)) throw fail(400, 'unknown action');
+    if (action === 'remove' && typeof a.remove !== 'function') throw fail(404, `${a.title} has nothing here to remove`);
+    // A gateway's install, update and remove change what is installed here: the owner's press (start and stop stay as they were).
+    if (a.gateway && (action === 'install' || action === 'update' || action === 'remove')) {
+      ownersPress(sctx, req, b, { name: computer(), what: `${{ install: 'Installing', update: 'Updating', remove: 'Removing' }[action]} ${a.title}`, card: (c) => c.tool === 'manage_computer' && c.input.action === 'addon' && c.input.addon === a.id && c.input.addon_action === action });
+    }
+    if (jobs.get(a.id)?.running || (a.gateway && gatewayBusy(a.id))) throw fail(409, `${a.title} is busy with something else; wait until it finishes`);
+    run(a, action, {}, tokenIdOf(req));
+    return { started: true };
+  }
+
   const routes = [
     ['GET', /^\/api\/addons$/, async () => ({
       computer: computer(), // what the page's confirmation names, and what it sends back as confirm
@@ -109,18 +125,9 @@ export function addonsFeature(sctx, opts = {}) {
         return { id: a.id, title: a.title, summary: a.summary, homepage: a.homepage, ...(a.gateway ? { gateway: true } : {}), ...(a.installable === false ? { installable: false } : {}), ...(a.builds ? { builds: a.builds, installCommand: a.installHint() } : {}), ...(a.defined ? { defined: true, command: a.command(), page: a.page() } : {}), ...st, job: job ? { running: job.running, result: job.result } : null };
       })),
     })],
-    ['POST', /^\/api\/addons\/([^/]+)\/(install|update|start|stop)$/, async (req, m) => {
-      const b = await sctx.readJson(req);
-      const a = addonOf(m);
-      if (!ACTIONS.includes(m[2])) throw fail(400, 'unknown action');
-      // A gateway's install and update change what is installed here: the owner's press (start and stop stay as they were).
-      if (a.gateway && (m[2] === 'install' || m[2] === 'update')) {
-        ownersPress(sctx, req, b, { name: computer(), what: `${m[2] === 'install' ? 'Installing' : 'Updating'} ${a.title}`, card: (c) => c.tool === 'manage_computer' && c.input.action === 'addon' && c.input.addon === a.id && c.input.addon_action === m[2] });
-      }
-      if (jobs.get(a.id)?.running || (a.gateway && gatewayBusy(a.id))) throw fail(409, `${a.title} is busy with something else; wait until it finishes`);
-      run(a, m[2], {}, tokenIdOf(req));
-      return { started: true };
-    }],
+    ['POST', /^\/api\/addons\/([^/]+)\/(install|update|start|stop)$/, (req, m) => act(req, m, m[2])],
+    // Remove has a route of its own: Tia's door and the audit of a linked main computer's presses list the four above.
+    ['POST', /^\/api\/addons\/([^/]+)\/remove$/, (req, m) => act(req, m, 'remove')],
     ['POST', /^\/api\/addons\/([^/]+)\/do\/([a-z-]{1,40})$/, async (req, m) => {
       const body = await sctx.readJson(req);
       const a = addonOf(m);

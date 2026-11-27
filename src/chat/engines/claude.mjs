@@ -74,7 +74,9 @@ class ClaudeSession {
     // The settings go in a file, as a terminal's: the hook's command needs other quoting on every platform, and the
     // hook reads the "ask" rules of this file (hook.mjs sessionFacts).
     const version = o.version !== undefined ? o.version : o.command ? null : claudeVersionQuick({ env });
-    const chatOwnHooks = o.runFile ? chatHooks(version, handsOffOffered(loadConfig()), o.hers === true) : null;
+    // A chat of his may be put in "Allow everything" while it runs: its hook pre-checks the floor behind a mark (launch.mjs wallGate).
+    const floor = o.hers !== true && (process.platform !== 'win32' || o.mode === 'allowEverything');
+    const chatOwnHooks = o.runFile ? chatHooks(version, handsOffOffered(loadConfig()), o.hers === true, floor) : null;
     // The map rides on the chat's settings whichever way they reach Claude Code: in the file below (hooks or extra
     // folders), or as the settings argument when there is no file (a record but a Claude Code too old for the hook).
     const mapped = mapSettings(map, version);
@@ -103,7 +105,8 @@ class ClaudeSession {
     // step may go a little past it. A function is asked at this start, so each new process gets what is left now.
     const usd = typeof o.maxBudgetUsd === 'function' ? o.maxBudgetUsd() : o.maxBudgetUsd;
     const budget = Number.isFinite(usd) && usd > 0 ? ['--max-budget-usd', String(usd)] : [];
-    const args = [...chatArgs({ sessionId: o.sessionId, resume: o.resume, fork: o.fork || null, permissionMode: o.mode, effort: o.effort, model, settings, allowBypass: o.allowBypass !== false, lead: leadArgs(o.lead) }), ...budget];
+    const args = [...chatArgs({ sessionId: o.sessionId, resume: o.resume, fork: o.fork || null, permissionMode: o.mode, effort: o.effort, model, settings, allowBypass: o.allowBypass !== false, lead: leadArgs(o.lead), noWorkflow: !o.ultracode }), ...budget];
+    this.noWorkflow = !o.ultracode; // the process has no Workflow tool: switching the chip on needs a new start (controls.mjs)
     const plan = o.command ? { command: o.command.command, args: [...o.command.args, ...args], options: {} } : claudeCommand(args, env);
     const child = (o.spawnImpl || spawn)(plan.command, plan.args, { cwd: o.cwd, env, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true, ...plan.options });
     this.child = child;

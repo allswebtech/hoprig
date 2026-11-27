@@ -2,7 +2,7 @@
 // terminal, as Claude Code works. The parts are modules of this folder: the session list at the left (sidebar.js), the
 // head (header.js), the conversation
 // (timeline.js with tools.js, diff.js, asks.js), the agents strip (agents.js), the composer (composer.js with its
-// menus, popovers.js, and files, attach.js), the status line (statusline.js), the limit card (limit.js), the sheets of
+// menus, popovers.js, and files, attach.js), the living line (statusline.js), the limit card (limit.js), the sheets of
 // the history and the rewind (sheets.js) and the keys (keys.js); stream.js follows the server (src/chat/feature.mjs,
 // live.mjs). Files dropped anywhere on the page go with the next message.
 // Text from Claude, tools and files is only ever set as text (h(), mdView).
@@ -10,7 +10,8 @@ import { icon } from '../icons.js';
 import { BARE, add, api, closeWindow, confirmSheet, fill, goTo, h, link, machine, prefs, toast } from '../lib.js';
 import { registerPage, registerSessionAction } from '../registry.js';
 import { pageNotify, store } from '../store.js';
-import { forgetHere, named, wayBack, windowWay } from '../trail.js';
+import { forgetHere, handOver, named, wayBack, windowWay } from '../trail.js';
+import { askFirst, terminalWrites } from './handover.js';
 import { agentsStrip } from './agents.js';
 import { createComposer } from './composer.js';
 import { createHeader, openEditor } from './header.js';
@@ -19,16 +20,17 @@ import { limitCard } from './limit.js';
 import { handsOffBar, openConsentSheet } from '../handsoff.js';
 import { createRail, folderNews } from './rail.js';
 import { partsSheet } from './parts.js';
-import { createSidebar, deletableHere, nameOf } from './sidebar.js';
+import { archiveSession, createSidebar, deletableHere, nameOf, sideFits } from './sidebar.js';
 import { createDiffPane } from './diffpane.js';
 import { openNewSession } from '../newsession-popup.js';
 import { chooseRewind, historySheet, rewindSheet } from './sheets.js';
 import { deleteNow, pickToDelete, trashSheet } from './deletes.js';
-import { createStatusLine } from './statusline.js';
+import { createLiveLine } from './statusline.js';
+import { createTermPane } from './termpane.js';
 import { follow } from './stream.js';
 import { createTimeline } from './timeline.js';
 import { opensAsChat } from './start.js';
-import { backWords, beforeState, billed, canCompact, caps as capsOf, failText, goneWords, planModes, toolWord, turnRuns, viewChoices } from './words.js';
+import { backWords, beforeState, billed, canCompact, caps as capsOf, chatState, failText, goneWords, liveWords, planModes, toolWord, turnRuns, viewChoices } from './words.js';
 
 const ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
@@ -106,17 +108,18 @@ function viewChat({ sub }) {
         toast(e, { kind: 'error' });
       }
     },
+    // Archive (the session menu): no question, a toast with Undo (sidebar.js archiveSession); a question only for a working
+    // session, or a branch of its own with changes not committed.
     async close() {
-      if (!(await confirmSheet({ title: 'Archive this session?', text: `${toolWord(v)} stops if it is working, and the session leaves Home. The conversation is kept: continue it later from Earlier conversations in a session of this folder, or New session → Options → Conversation.`, ok: 'Archive' }))) return;
-      try {
-        await api(`${A}/close`, {});
-        store.refresh();
-        forgetHere();
-        if (inWindow !== null) location.hash = way.hash;
-        else if (!closeWindow()) gone();
-      } catch (e) {
-        toast(failText(e), { from: e, kind: 'error' });
-      }
+      await archiveSession({
+        chatId: id, cwd: v && v.cwd, working: !!(v && (v.working || v.pending.length)),
+        refresh: () => store.refresh(),
+        gone: () => {
+          forgetHere();
+          if (inWindow !== null) location.hash = way.hash;
+          else if (!closeWindow()) gone();
+        },
+      });
     },
     // Delete (the session menu): to the trash, with Undo on the toast; the page goes Home as after Archive.
     parts: () => partsSheet(A), // Lead model: who did what, at every width
@@ -133,20 +136,26 @@ function viewChat({ sub }) {
       const r = await pickToDelete(deletableHere(store), nameOf, { after: () => store.refresh() });
       if (r && r.deleted.some((x) => x.chat === id) && !machine.current) location.hash = link('#/');
     },
+    // The title bar's Terminal button and Ctrl+`: a shell under the chat (termpane.js). The hand-off to a terminal
+    // session is terminal() below (the session menu's Open in > Continue in Terminal).
+    termPane: () => termPane.toggle(),
     async terminal() {
       // A terminal runs the conversation already: that is where it goes on (the server never starts a second one).
+      // Its terminal takes the place of the chat (trail.js handOver): Back goes where he was before the conversation.
+      const toTerm = (name) => (BARE ? goTo(`#/s/${encodeURIComponent(name)}`) : handOver(`#/s/${encodeURIComponent(name)}`));
       if (v && v.terminal) {
-        if (v.terminal.name) goTo(`#/s/${encodeURIComponent(v.terminal.name)}`);
+        if (v.terminal.name) toTerm(v.terminal.name);
         else toast('This conversation runs in a terminal outside the dashboard.', { kind: 'error' });
         return;
       }
       const tool = v && v.engine && v.engine.id !== 'claude' ? v.engine.label : 'Claude Code';
-      if (!(await confirmSheet({ title: 'Open in the Terminal?', text: `The same conversation continues in a terminal session, with ${tool} as you know it. The App closes it here; you can open the session in the App again from its menu.`, ok: 'Open in Terminal' }))) return;
+      // Asked only while a reply is being written: else nothing can be lost, and one press does it.
+      if (!(await askFirst(turnRuns(v), { title: 'Open in the Terminal?', text: `The same conversation continues in a terminal session, with ${tool} as you know it. The App closes it here; you can open the session in the App again from its menu.`, ok: 'Open in Terminal' }, confirmSheet))) return;
       try {
         const { name, existing } = await api(`${A}/terminal`, {});
         store.refresh();
         if (!existing) forgetHere(); // the chat closes: the terminal goes back to where the chat would have
-        goTo(`#/s/${encodeURIComponent(name)}`);
+        toTerm(name);
       } catch (e) {
         toast(failText(e), { from: e, kind: 'error' });
       }
@@ -181,7 +190,9 @@ function viewChat({ sub }) {
     shortcuts: () => shortcutsSheet(),
     tasks: () => strip.open(), // the more menu's Background tasks (the strip is made below; called after)
     async take() {
-      if (!(await confirmSheet({ title: 'Continue here?', text: `${toolWord(v)} stops in the terminal (the terminal stays, as a plain shell) and the conversation goes on here in the App. A reply the terminal is writing right now is cut off.`, ok: 'Continue here' }))) return;
+      // Asked only while the terminal writes a reply (its card says Working): else one press does it.
+      const term = v && v.terminal ? { name: v.terminal.name, chatId: id } : null;
+      if (!(await askFirst(terminalWrites(store.data && store.data.sessions, term), { title: 'Continue here?', text: `${toolWord(v)} stops in the terminal and the conversation goes on here in the App. A reply the terminal is writing right now is cut off.`, ok: 'Continue here' }, confirmSheet))) return;
       try {
         await api(`${A}/take`, {});
         toast('The conversation continues here');
@@ -202,7 +213,18 @@ function viewChat({ sub }) {
     },
   };
   const railCtl = { hidden: () => rail.hidden(), toggle: () => rail.toggle() };
-  const header = createHeader({ A, way: inWindow === null ? null : way, act, view, rail: railCtl });
+  // The session list's Hide / Show (sidebar.js), remembered in this browser as chat.side = off; the head's first button.
+  let sideOver = false; // the list is open over the chat (narrower than its width)
+  const sideCtl = BARE ? null : {
+    hidden: () => (sideFits() ? prefs.get('chat.side', 'on') === 'off' : !sideOver),
+    toggle() {
+      if (!sideFits()) return side.overlay(); // narrower than the list's width: over the chat (sidebar.js), not remembered
+      prefs.set('chat.side', this.hidden() ? 'on' : 'off');
+      wrap.classList.toggle('chat-side-off', this.hidden());
+      header.paintSide();
+    },
+  };
+  const header = createHeader({ A, way: inWindow === null ? null : way, act, view, rail: railCtl, side: sideCtl });
   const notes = h('div.chat-notes'); // a terminal runs it, a limit
   const conn = h('div.chat-conn'); // the connection
   const scroll = h('div.chat-scroll', { role: 'region', 'aria-label': 'Conversation', tabindex: '-1' });
@@ -213,12 +235,19 @@ function viewChat({ sub }) {
   const timeline = createTimeline({
     scroll, A, cwd: () => (v ? v.cwd : ''), stopTask: act.stopTask, after: () => store.refresh(), who: () => toolWord(v), provider: () => (v ? { profile: v.profile || null, tool: v.engine && v.engine.id, remote: !!machine.current } : null), canStopTask: () => !v || caps().stopTask !== false,
     modes: () => planModes(v), // a plan's answers: auto mode only once the session showed it has it
+    // The jump-down button says the step while a turn runs (Thinking, Writing, Running) and where an OK waits.
+    down: () => {
+      if (!v) return null;
+      if (v.status === 'attention') return { text: chatState(v).text, attention: true };
+      const w = liveWords(v, { runs: (id) => timeline.runs(id) });
+      return w ? { text: w.word } : null;
+    },
     canRewind: () => !v || canRewind(), // before the first state: drawn, and hidden by the state's class if not
     rewind: (m) => rewindSheet({ A, cwd: v ? v.cwd : '', m, conversation: canFork(), put: (t) => composer.putBack(t) }),
   });
   add(scroll, timeline.el);
   const todos = h('div.chat-todos');
-  const strip = agentsStrip({ stop: (taskId) => act.stopTask(taskId), canStop: () => !v || caps().stopTask !== false, jump: (toolId) => timeline.jump(toolId) });
+  const strip = agentsStrip({ stop: (taskId) => act.stopTask(taskId), canStop: () => !v || caps().stopTask !== false, jump: (toolId) => timeline.jump(toolId), output: (taskId) => api(`${A}/tasks/${taskId}/output`) });
   // The page's own "/" commands (popovers.js lists them with the coding tool's, by name, as Claude Code's / menu): its
   // words where Claude Code has the command, and what each does here where that differs (/clear opens a new session,
   // /config Hoprig's Settings). One with a hint goes into the box first, for its argument (/compact's focus).
@@ -241,15 +270,21 @@ function viewChat({ sub }) {
   ].filter(Boolean);
   // A first look: fewer than three chats on this computer (Home's list), so the composer keeps its row short.
   const firstLook = () => ((store.data && store.data.sessions) || []).filter((s) => s.kind === 'chat').length < 3;
-  const composer = createComposer({ A, id, stop: act.stop, compact: act.compact, own, firstLook });
-  const status = createStatusLine();
+  const composer = createComposer({ A, id, stop: act.stop, compact: act.compact, own, sent: () => timeline.toBottom(true), firstLook });
+  // The living line is the last thing of the conversation while a turn runs (statusline.js); the messages waiting to be
+  // read come after it (the composer makes their list; it is placed here, in the conversation, where they will be read).
+  const live = createLiveLine({ runs: (id) => timeline.runs(id) });
+  add(timeline.tail, live.el);
+  const queueEl = typeof composer.queueEl === 'function' ? composer.queueEl() : composer.queueEl;
+  if (queueEl) add(timeline.tail, queueEl);
+  let turnAt = null; // when the turn began, as this page saw it (a page opened mid-turn counts from its opening)
   // The limit banner sits right above the box, where the eye is when a message does not go (limit.js).
   const limitSlot = h('div.chat-limitslot');
-  const dock = h('div.chat-dock', h('div.chat-col', todos, strip.el, limitSlot, composer.el, status.el));
+  const dock = h('div.chat-dock', h('div.chat-col', todos, strip.el, limitSlot, composer.el));
   const rail = createRail({
     A, view: () => timeline.view(), computer: () => (store.data && store.data.machineLabel) || 'This computer',
     stop: (taskId) => act.stopTask(taskId), canStop: () => !v || caps().stopTask !== false, jump: (toolId) => timeline.jump(toolId),
-    changes: () => act.diff(), providers: () => header.providerMenu(), tasks: () => strip.open(),
+    changes: () => act.diff(), send: (text) => api(`${A}/send`, { text }), providers: () => header.providerMenu(), tasks: () => strip.open(),
     onToggle: (off) => {
       wrap.classList.toggle('chat-rail-off', off);
       if (v) header.paint(v); // its Hide / Show button says the other now
@@ -257,15 +292,19 @@ function viewChat({ sub }) {
   });
   // The session list at the left on a wide screen (sidebar.js), not inside a window of the desktop (its own Sessions
   // app lists them there). At its right the head, the chat and its dock in one column, and the session rail (rail.css).
-  const side = BARE ? null : createSidebar({ store, current: { chat: id, machine: machine.current ?? null }, newSession: () => openNewSession({ m: machine.current ?? null }) });
+  const side = BARE ? null : createSidebar({ store, current: { chat: id, machine: machine.current ?? null }, newSession: () => openNewSession({ m: machine.current ?? null }), onOverlay: (on) => {
+    sideOver = on;
+    header.paintSide();
+  } });
   // The diff pane (diffpane.js): beside the chat, in the rail's place while it is open; comments go as one message.
   const diffPane = createDiffPane({
     A, send: (text) => api(`${A}/send`, { text }), editor: () => v && openEditor(v.cwd, 'changes'),
     onToggle: (on) => wrap.classList.toggle('chat-diff-open', on),
   });
+  const termPane = createTermPane({ id, cwd: () => (v ? v.cwd : ''), onToggle: (on) => header.paintTerm(on) });
   const pane = h('div.chat-pane', header.el, notes, conn,
-    h('div.chat-body', h('div.chat-main', h('div.chat-mid', scroll, timeline.downBtn), dock), diffPane.el, rail.el));
-  const wrap = h(`div.chat-wrap${rail.hidden() ? '.chat-rail-off' : ''}${side ? '.chat-has-side' : ''}`, side && side.el, pane);
+    h('div.chat-body', h('div.chat-main', h('div.chat-mid', scroll, timeline.downBtn), dock, termPane.el), diffPane.el, rail.el));
+  const wrap = h(`div.chat-wrap${rail.hidden() ? '.chat-rail-off' : ''}${side ? '.chat-has-side' : ''}${side && sideCtl.hidden() ? '.chat-side-off' : ''}`, side && side.el, pane);
   fill(app, wrap);
   fill(timeline.el.querySelector('.chat-list'), h('div.chat-loading', h('div.spinner', { 'aria-hidden': 'true' })));
 
@@ -296,8 +335,9 @@ function viewChat({ sub }) {
       todosOpen = !todosOpen;
       prefs.set('chat.todos', todosOpen);
       paintTodos(items);
-    } }, icon(todosOpen ? 'chevronDown' : 'chevronRight', { size: 14 }), h('strong', `To-do ${done}/${items.length}`), now ? h('span.chat-todo-now', now.activeForm || now.content) : null);
-    fill(todos, head, todosOpen ? h('ul.chat-todo-list', items.map((t) => h(`li.t-${t.status}`, h('span.chat-todo-mark', { 'aria-hidden': 'true' }, t.status === 'completed' ? '✓' : t.status === 'in_progress' ? '▸' : '○'), h('span', t.content)))) : null);
+    } }, icon(todosOpen ? 'chevronDown' : 'chevronRight', { size: 14 }), h('strong', 'To-do'), h('span.chat-todo-n', `${done} of ${items.length}`), now ? h('span.chat-todo-now', now.activeForm || now.content) : null,
+    h('span.chat-todo-bar', { 'aria-hidden': 'true' }, h('span.chat-todo-fill', { style: { width: `${Math.round((done / items.length) * 100)}%` } })));
+    fill(todos, head, todosOpen ? h('ul.chat-todo-list', items.map((t) => h(`li.t-${t.status}`, h('span.chat-todo-mark', { 'aria-hidden': 'true' }, t.status === 'completed' ? icon('check', { size: 10 }) : null), h('span', t.content)))) : null);
   }
 
   // ---------- following the server ----------
@@ -317,7 +357,7 @@ function viewChat({ sub }) {
     wrap.classList.toggle('chat-tool-off', !!v.toolOff);
     fill(notes,
       v.toolOff ? h('div.banner.warn.chat-banner', { role: 'status' }, icon('alert', { size: 18 }), h('span', `${v.toolOff}.`),
-        h('span.chat-banner-actions', h('a.btn.small.secondary', { href: link('#/settings/codingtools') }, 'Coding tools'))) : null,
+        h('span.chat-banner-actions', h('a.btn.small.secondary', { href: link('#/settings/new-sessions?show=coding-tools') }, 'Coding tools'))) : null,
       ro ? h('div.banner.warn.chat-banner', icon('terminal', { size: 18 }),
         h('span', v.terminal.name ? `This conversation runs in the terminal session "${v.terminal.name}". You can read along here; to write, continue it here.` : 'This conversation runs in a terminal outside the dashboard. You can read along here; to write, continue it here.'),
         h('span.chat-banner-actions',
@@ -331,12 +371,19 @@ function viewChat({ sub }) {
       }, null, { app: true }) : null);
     fill(limitSlot, limitCard(v, { id, moveProvider: header.providerMenu })); // right above the box, where the eye is
     wrap.classList.toggle('chat-no-rewind', !canRewind());
-    composer.paint(v);
-    status.paint(v, { view: timeline.view() });
+    const tailWas = timeline.tail.offsetHeight;
+    composer.paint(v); // the queue is drawn here (it is in the tail)
+    // The living line: the turn's own clock starts when the page first sees the turn run.
+    if (!turnRuns(v)) turnAt = null;
+    else if (turnAt === null) turnAt = Date.now();
+    wrap.classList.toggle('chat-turn-runs', turnRuns(v));
+    live.paint(v, { since: turnAt });
+    if (timeline.tail.offsetHeight !== tailWas) timeline.settle(); // the end grew or shrank: stay at the bottom
     rail.paint(v);
-    strip.paint(v.tasks);
+    strip.paint(v.tasks, v.skew);
     timeline.tasks(v.tasks);
     timeline.liveState(v.live);
+    timeline.status();
     timeline.billed(billed(v));
     if (Array.isArray(v.pending)) timeline.pending(v.pending);
     paintTodos(v.todos);
@@ -434,9 +481,12 @@ function viewChat({ sub }) {
     menu: (what) => (v && !v.terminal && !v.toolOff ? (what === 'mode' ? composer.chooseMode() : composer.choose(what, { byKey: true })) : null),
     view: nextView,
     diff: () => (diffPane.isOpen() ? diffPane.close() : act.diff()),
+    terminal: () => act.termPane(),
+    newSession: () => openNewSession({ m: machine.current ?? null }),
     rewind: () => canRewind() && act.rewind(),
     clearDraft: () => composer.clearDraft(),
     go: (d) => side && side.el.isConnected && side.go(d), // the session list is drawn from 900 px wide only
+    side: () => sideCtl && sideFits() && sideCtl.toggle(),
   });
   const dropHint = h('div.chat-drop.hidden', { 'aria-hidden': 'true' }, h('div.chat-drop-box', icon('paperclip', { size: 28 }), h('p', 'Drop to send with your message')));
   add(wrap, dropHint);
@@ -464,7 +514,8 @@ function viewChat({ sub }) {
 
   return () => {
     composer.destroy(); // its microphone
-    status.stop();
+    live.stop();
+    strip.stopClock();
     rail.stop();
     side?.stop();
     header.stop(); // its session menu, drawn on the page's body
@@ -496,7 +547,9 @@ registerSessionAction({
   run: async (me) => {
     try {
       const { id } = await api('/api/chats/from-session', { session: me.name });
-      location.hash = link(`#/chat/${id}`, me.machine);
+      // The chat takes the place of the terminal (trail.js handOver): Back goes where he was before the conversation.
+      if (BARE) location.hash = link(`#/chat/${id}`, me.machine);
+      else handOver(`#/chat/${id}`, me.machine);
     } catch (e) {
       toast(failText(e), { from: e, kind: 'error' });
     }

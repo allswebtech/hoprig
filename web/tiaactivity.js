@@ -232,6 +232,20 @@ const TOOLS = {
     detail: [Array.isArray(a.order) ? `order: ${list(a.order, p.provider)}` : '', a.return_to_preferred === true ? 'back to the first provider once it is free' : a.return_to_preferred === false ? 'stays where it moved' : ''].filter(Boolean).join(' · '),
   }),
   change_setting: (a) => ({ what: `change the setting "${SETTING[a.key] || 'another setting'}" to ${valueWords(a.value, UNIT[a.key])}` }),
+  // One tool for the acts that look after Hoprig itself (src/assistant/hoprigact.mjs): each act in its own words.
+  hoprig_act: (a, p) => {
+    const v = a.value && typeof a.value === 'object' && !Array.isArray(a.value) ? a.value : {};
+    const words = {
+      'restart-gateway': `restart the gateway ${said(a.item) ? a.item : ''}`, 'stop-gateway': `stop the gateway ${said(a.item) ? a.item : ''}`, 'restart-hoprig': 'restart Hoprig',
+      'probe-provider': `look whether ${said(a.item) ? a.item : 'a provider'} answers`, 'reopen-session': `reopen ${p.chat(a.session)}`, 'continue-session': `send the carry-on message to ${p.chat(a.session)}`,
+      'hold-starts': a.value === false ? 'release the held starts' : 'hold new starts by schedules and by her', 'clean-own-temp': 'clean Hoprig\'s own old files',
+      'change-plan': a.item ? 'change a plan' : 'make a plan', 'undo-act': 'undo one of her acts', list: 'look up an act',
+      'auto-order': `put ${p.provider(a.item)} in the Auto order`,
+      'auto-mode': v.enabled === false ? 'turn Auto mode off' : v.enabled === true ? 'turn Auto mode on' : 'change Auto mode',
+      'change-setting': `change the setting "${SETTING[a.item] || 'another setting'}" to ${valueWords(a.value, UNIT[a.item])}`,
+    };
+    return { what: words[a.act] || 'look after Hoprig' };
+  },
   run_command: (a) => ({ what: `run a command${folderName(a.folder) ? ` in ${folderName(a.folder)}` : ''}`, quote: a.command }),
   // Tools of an earlier version, in entries written then.
   draft_skill: (a) => ({ what: said(a.name) ? `add the skill "${a.name}"` : 'add a skill' }),

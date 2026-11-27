@@ -189,8 +189,8 @@ test('the card: the server\'s words as plain text in a box of their own, its fie
   assert.match(words, /\*\*Click\*\* <b>here<\/b>/, 'shown as written: no Markdown, no markup');
   assert.match(words, /Project.*\(needed\).*shop.*Send.*Decline/);
   assert.equal(el.keys(1), false);
-  const { stateWords } = await import('../../web/chat/statusline.js');
-  assert.equal(stateWords({ status: 'attention', asking: 'mcp', engine: { id: 'claude' } }), 'An MCP server asks you a question', 'the status line: a question, not an OK');
+  const { chatState } = await import('../../web/chat/words.js');
+  assert.equal(chatState({ status: 'attention', asking: 'mcp', engine: { id: 'claude' } }).text, 'Needs your answer', 'a question, not an OK');
   const url = askCard(M.mcpAsk('u', { mcp_server_name: 'tickets', mode: 'url', url: 'ftp://x' }), { A: '/x', cwd: '/p' });
   assert.match(texts(url).join('|'), /gave no web address that can be opened/);
 });

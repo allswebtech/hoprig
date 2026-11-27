@@ -66,7 +66,7 @@ test('Archived: an archived session can be continued; an empty one is not listed
   assert.deepEqual((await owner('GET', '/api/chats/archived')).json.list, []);
 
   const empty = (await owner('POST', '/api/chats', { dir: proj, profile: 'sub' })).json.id;
-  await owner('POST', `/api/chats/${empty}/close`, {});
+  assert.equal((await owner('POST', `/api/chats/${empty}/close`, {})).json.restore, null, 'nothing to put back, so no Undo');
   assert.deepEqual((await owner('GET', '/api/chats/archived')).json.list, [], 'closed before its first message: nothing to continue');
 
   const id = (await owner('POST', '/api/chats', { dir: proj, profile: 'sub', text: 'hello' })).json.id;
@@ -75,11 +75,13 @@ test('Archived: an archived session can be continued; an empty one is not listed
     return v.events.some((e) => e.kind === 'turn-end') && v.conversationId;
   });
   await owner('POST', `/api/chats/${id}/title`, { title: 'Fix the cart' });
-  await owner('POST', `/api/chats/${id}/close`, {});
+  const closed = await owner('POST', `/api/chats/${id}/close`, {});
+  assert.deepEqual(closed.json.restore, { dir: fs.realpathSync(proj), tool: 'claude', profile: 'sub', sessionId: conv }, 'what Undo (and Unarchive) sends to open it again');
   const list = (await owner('GET', '/api/chats/archived')).json.list;
   assert.deepEqual(list.map((x) => [x.title, x.conversationId, x.cwd, x.tool, x.profile]), [['Fix the cart', conv, fs.realpathSync(proj), 'claude', 'sub']]);
   // Continued in a new session (what the list's sheet does): open again, it leaves the list.
-  const again = await owner('POST', '/api/chats', { dir: list[0].cwd, tool: list[0].tool, profile: list[0].profile, sessionId: list[0].conversationId });
+  const again = await owner('POST', '/api/chats', closed.json.restore);
+  assert.equal(again.json.id, id, 'Undo gives the same session back');
   assert.equal(again.status, 200);
   assert.deepEqual((await owner('GET', '/api/chats/archived')).json.list, [], 'open in a session again');
   await owner('POST', `/api/chats/${again.json.id}/close`, {});

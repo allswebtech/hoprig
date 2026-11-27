@@ -1,0 +1,35 @@
+/* Providers → the gateway panel (its accounts with their limits, the Add sheet, the combo sheet). */
+.tr-row { align-items: flex-start; flex-wrap: wrap; }
+.tr-acts { display: flex; flex-wrap: wrap; gap: 6px; margin-left: auto; }
+.tr-says { color: var(--danger); }
+.tr-limits { display: grid; gap: 4px; margin-top: 6px; }
+.tr-win { display: grid; grid-template-columns: minmax(70px, 110px) minmax(60px, 140px) 1fr; align-items: center; gap: 8px; font-size: var(--fs-sm); color: var(--text-2); }
+.tr-win-name { font-weight: 600; color: var(--text); }
+.tr-bar { height: 6px; border-radius: 999px; background: var(--border); overflow: hidden; }
+.tr-bar i { display: block; height: 100%; background: var(--ok); }
+.tr-code { font-size: 28px; font-weight: 700; letter-spacing: 3px; font-family: var(--mono, ui-monospace, monospace); margin: 6px 0; overflow-wrap: anywhere; }
+.tr-steps { margin: 0 0 8px; padding-left: 20px; display: grid; gap: 4px; color: var(--text-2); }
+.tr-providers { max-height: 48vh; overflow: auto; }
+.tr-provider { width: 100%; text-align: left; cursor: pointer; background: none; font: inherit; color: inherit; }
+.tr-models { border: 1px solid var(--border); border-radius: 10px; margin: 8px 0; padding: 6px 10px; display: grid; gap: 4px; }
+.tr-model { display: flex; align-items: center; gap: 8px; overflow-wrap: anywhere; }
+@media (max-width: 560px) {
+  .tr-acts { margin-left: 0; width: 100%; }
+  .tr-win { grid-template-columns: 1fr; gap: 2px; }
+  .tr-bar { max-width: 200px; }
+}
+
+/* TRouteAI's own page (#/providers/trouteai): a single column, phone first; wide screens keep the same order. */
+.tr-page { display: grid; gap: 14px; max-width: 720px; }
+.tr-status { display: grid; gap: 4px; }
+.tr-state { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.tr-state-text { font-weight: 600; margin: 0; }
+.tr-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--muted, #888); flex: none; }
+.tr-dot.on { background: var(--ok); }
+.tr-open { display: grid; gap: 6px; }
+.tr-open-hint:empty { display: none; }
+.tr-acchead { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.tr-acchead .group-head { margin: 0; }
+.tr-compact, .tr-more { width: 100%; text-align: left; cursor: pointer; background: none; font: inherit; color: inherit; }
+.tr-sheetacts { flex-wrap: wrap; }
+.tr-danger .row-title, .tr-danger .row-icon { color: var(--danger); }

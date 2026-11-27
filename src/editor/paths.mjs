@@ -94,6 +94,13 @@ export function secretPaths() {
   } catch {
     /* no settings to read */
   }
+  try {
+    // A credentials folder that Get it set aside (credentials.unused-<time>) holds the old real values: guarded alike.
+    const w = workspaceDir();
+    for (const n of fs.readdirSync(w)) if (n.startsWith('credentials.unused-')) list.push(path.join(w, n));
+  } catch {
+    /* no workspace folder */
+  }
   for (const c of claude) list.push(path.join(c, '.credentials.json'), path.join(c, '.claude.json'));
   const out = new Set();
   // Each by its spelling and by its real place. A file that does not exist yet is judged by the real place of its

@@ -116,7 +116,7 @@ export function resolvePlace(cfg = {}, places = {}) {
   if (s.place === 'project') {
     const pdir = places.projects || projectsIn(cfg);
     const p = listProjects(pdir).find((x) => x.name === s.project);
-    if (!p) throw bad(`Work data lives in the project "${s.project}", which is not in the workspace's projects folder: choose another place in Settings → Work`, 409, 'work-place-gone');
+    if (!p) throw bad(`Work data lives in the project "${s.project}", which is not in the workspace's projects folder: choose another place in Work → Tasks → Work settings (at the foot)`, 409, 'work-place-gone');
     base = p.dir;
     rel = s.path;
     label = `${s.project}/${s.path}`;
@@ -127,7 +127,7 @@ export function resolvePlace(cfg = {}, places = {}) {
     base = brainDir(ws);
     rel = BRAIN_FOLDER;
     label = `ai_brain/${BRAIN_FOLDER}`;
-    if (!real(base)) throw bad('there is no AI brain in the workspace yet, so Work cannot keep its list there. Set one up on the AI brain page, or choose "A project" under Settings → Work.', 409, 'no-workspace');
+    if (!real(base)) throw bad('there is no AI brain in the workspace yet, so Work cannot keep its list there. Set one up on the AI brain page, or choose "A project" under Work → Tasks → Work settings (at the foot).', 409, 'no-workspace');
   }
   const realBase = real(base);
   if (!realBase) throw bad(`${label}: its folder is not there`, 409);

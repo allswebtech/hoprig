@@ -49,6 +49,10 @@ export function PageScripts() {
     for (const b of document.querySelectorAll<HTMLButtonElement>('[data-content] button[data-copy]')) {
       on(b, 'click', () => copy(b.dataset.copy || '', b, b.parentElement?.querySelector('code') || b));
     }
+    // The install lines show the visitor's own system first where the browser says it (a phone has no terminal: Windows stays first).
+    const ua = navigator.userAgent;
+    const mine = /Android|iPhone|iPad|iPod/.test(ua) ? '' : /Windows/.test(ua) ? 'windows' : /Macintosh|Mac OS X/.test(ua) ? 'mac' : /Linux|X11/.test(ua) ? 'linux' : '';
+    if (mine) for (const box of document.querySelectorAll<HTMLElement>('[data-installs]')) box.dataset.first = mine;
     const menu = document.querySelector<HTMLDetailsElement>('details.menu');
     if (menu) {
       const close = (refocus: boolean) => {

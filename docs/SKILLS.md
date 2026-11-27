@@ -13,8 +13,12 @@ hoprig skills suggest            # what fits this project, and why ("package.jso
 hoprig skills add <id>           # fetch → review → yes → installed
 ```
 
-In the dashboard: **Skills**, pick the project under **Skills for:**, open **Suggested**, **Review** on a
-suggestion, read it, **Install**.
+In the dashboard: **Projects**, then the **Skills** tab (or a project's page, for that project). It is one list: a search
+box at the top, **Installed**, then **Worth adding** (only skills that are not installed yet); press **Review** on a skill,
+read it, **Install**. **Drafts from your work** shows only while some wait. The settings for learning, the tools some skills
+need and the weekly look are in one **Advanced** fold at the end.
+
+![Projects, Skills: a search box, the installed skills and the ones worth adding](screenshots/skills-desktop-light.webp)
 
 ## Commands
 
@@ -57,7 +61,7 @@ suggestion, read it, **Install**.
 so a repository that moved without touching the skill is "up to date". An update shows what changed (files added,
 removed, changed, and the changed lines), the scan again with new findings marked, and waits for a yes per skill.
 A skill you edited is never replaced silently: the update says what you changed and needs `--overwrite-local`
-(the edited version is kept for undo). The dashboard can check once a week (**Skills → Advanced**, "Look for updates and new skills once a week"; off at first). It only
+(the edited version is kept for undo). The dashboard can check once a week (**Projects → Skills → Advanced**, "Look for updates and new skills once a week"; off at first). It only
 tells you, with a notification where you set one up in **Settings → Notifications**; it never installs.
 
 ## Skills that fit a new project's technology
@@ -87,7 +91,7 @@ three lists) and `POST /api/skillhub/fit/choice` (`{ project, fit }`).
 ## Skills learned from your work
 
 A computer can also draft skills from what you do in **Work**. It is off until you turn it on in
-**Settings → Learn skills** ("Learn skills from my work"), where you choose the provider and model that do the
+**Projects → Skills → Advanced** ("Learn skills from my work"), where you choose the provider and model that do the
 looking (a look costs usage there; the page says what the last one cost: dollars for a provider billed by use,
 otherwise the tokens, which count toward your plan's usage limit) and how many looks a week are allowed
 (1 to 20, 5 by default). At most three drafts are made a week, whatever that number says. Looks started at the same
@@ -112,8 +116,7 @@ address, an account on a computer (`user@host`), a person named in the run's own
 and a word that mixes Latin letters with Cyrillic, Greek, Armenian or Cherokee look-alikes is refused (a unit such as
 µs or kΩ is text).
 
-A draft is never live by itself. It lands in quarantine (`<state>/skillhub/learned/drafts/<id>`) and is shown in
-**Skills → Learned**: where it came from (the task, your words), the new text or the lines it changes, the same
+A draft is never live by itself. It lands in quarantine (`<state>/skillhub/learned/drafts/<id>`) and is shown on **Projects → Skills**, under **Drafts from your work** (the group is there only while some wait): where it came from (the task, your words), the new text or the lines it changes, the same
 scan as every skill, and its two or three test requests, each answered by the cheapest model once without the
 skill and once with it, side by side. A draft the scan marks risky (downloading and running, a command that runs
 when the skill loads, reading credentials, a recursive delete, an instruction to ignore rules, to hide something,
@@ -175,7 +178,7 @@ comes first:
 - `why`, `numbers` (`whole`, `heldout`, `tokens_per_turn`, `fresh`, `cost`), `gates`, `created`, and an optional
   `issue`: a text for a coding session when the change is to code. It is shown, never applied.
 
-Settings → Skills → Proposals shows each one with what would change and the numbers, compared here, never taken from
+**Projects → Skills** shows each one, below the drafts, with what would change and the numbers, compared here, never taken from
 the file. **Accept** for a skill puts its new text in Tia's own skills folder. For a tool's description or a prompt
 section it writes the text into `<state>/assistant/accepted/` (`tools/<tool>.description.txt` or
 `prompt/<section>.md`, each with a `.json` record of the hash of Hoprig's own text it was measured against). Tia
@@ -190,19 +193,19 @@ The eval's `--candidate <folder>` takes the same targets for one run: `skills/<n
 ## Skill collections and the weekly look
 
 `src/skillhub/hubs.json` names the skill collections: public repositories with many skills, read as data like the
-catalog (the Skills page says `the reviewed hubs`). Today it has one, Hermes Agent
+catalog (the Skills tab says `the reviewed hubs`). Today it has one, Hermes Agent
 (`https://github.com/NousResearch/hermes-agent`, its folders `skills` and `optional-skills`; Review shows its licence). An entry
 with an unknown key, a bad repository name or an address that is not its repository is refused on its own; the
 others are still used.
 
-When **Look for updates and new skills once a week** is on (**Skills → Advanced**, off at first), the weekly look
+When **Look for updates and new skills once a week** is on (**Projects → Skills → Advanced**, off at first), the weekly look
 also reads each collection at its newest commit: plain git, one commit, only the tree and the `SKILL.md` files of
 its skill folders (nothing is checked out or run). It keeps each skill's name, description and tags (Hermes writes
 them under `metadata.hermes.tags`) in Hoprig's state folder, with the commit they were read from. A skill fits a
 project when one of its tags or a word of its name is one of the project's technology words (its dependencies and
 stacks, the same reading as the suggestions; no AI), and the reason says so: "because shop's package.json has
-next". The skills that fit show as **Worth adding** at the top of the Skills page, each with where it comes from,
-the reason and **Review**. A collection that cannot be read is one line there; the look goes on. The search (Find)
+next". The skills that fit show as **Worth adding**, a group of the one Skills list below **Installed** (its number is on the heading), each with where it comes from,
+the reason and **Review**. A collection that cannot be read is one line there; the look goes on. The search
 also lists the skills the last look read.
 
 Nothing from a collection is added by itself. **Review** fetches the skill at the commit the look read into
@@ -225,7 +228,7 @@ Nothing changes until you accept one, and every change has Undo.
   texts are tried in a round.
 - **Measurably better** means: more cases pass than the baseline, no category passes fewer, and every injection
   case passes. Only such a version is written as a proposal file into `<state>/proposals/`, the same folder an
-  outside improvement loop uses, so it shows in Skills → Proposals with its numbers and is accepted or undone there.
+  outside improvement loop uses, so it shows on Projects → Skills with its numbers and is accepted or undone there.
 - **Never changed by a round:** her code, and the sections of her instructions that hold her safety rules
   (untrusted text, how far she may go, what only you do). A proposal for one of those is refused.
 - **What it costs.** The page shows the estimate before the press: the runs of her test cases and the model calls,

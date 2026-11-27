@@ -362,7 +362,7 @@ async function start(tool, provs, { bin, base, fetchImpl, spawnImpl }) {
   await stopLocked(tool);
   // Said where the owner reads it (a chat's error, a toast): what to look at next, in the page's words. The server's
   // own words are in its log file; `log` names it for the command line (terminal.mjs), never for a page.
-  return { ok: false, code: 'tool-not-started', why: `${DESCRIPTOR[tool].name}'s server did not start. Check under Settings → Coding tools that it is installed and up to date.`, log: tilde(logFile(tool)) };
+  return { ok: false, code: 'tool-not-started', why: `${DESCRIPTOR[tool].name}'s server did not start. Check under Settings → New sessions → Coding tools that it is installed and up to date.`, log: tilde(logFile(tool)) };
 }
 
 // The server belongs to the computer, not to the terminal that happened to start it first: the built-in terminals

@@ -175,7 +175,7 @@ test('the site\'s own words name the lowest Node.js as 24.13.1 or newer', () => 
 test('llms.txt says what Hoprig does not do', () => {
   const part = /^## What it does not do\n\n((?:- .*\n)+)/m.exec(readWritten('llms.txt'));
   assert.ok(part, 'llms.txt has a "What it does not do" list');
-  for (const word of [/no cloud/i, /does not replace the coding tools/i, /OpenCode never runs on a Claude subscription/, /Auto mode is Claude Code's only/, /Codex is not offered/, /macOS/, /Windows is not ready/, /stand-ins/, /One dashboard password and no user accounts or roles/, /Remote Control does not work/, /No triggers from outside/]) {
+  for (const word of [/no cloud/i, /does not replace the coding tools/i, /OpenCode never runs on a Claude subscription/, /Auto mode is Claude Code's only/, /Codex is not offered/, /macOS/, /Windows is new/, /stand-ins/, /One dashboard password and no user accounts or roles/, /Remote Control does not work/, /No triggers from outside/]) {
     assert.match(part[1], word);
   }
 });
@@ -832,13 +832,13 @@ test('the built landing page sets its theme in the head, before any of its body'
   assert.match(html, /<header class="bar">[\s\S]*<footer class="foot">/, 'the header and the footer');
 });
 
-test('on a phone the first screen says what to do there, and the install line breaks after a "/", never inside a word', async () => {
+test('on a phone the first screen says what to do there, and the install lines break after a "/", never inside a word', async () => {
   // Seen 20 Nov 2026 at 390x844: the only action was Copy under "Paste this line into the Terminal app", which a phone
   // does not have, and the line wrapped mid-word ("allswebt / ech").
   const words = siteFile('app/(site)/words.ts');
   assert.ok(words.includes("phone: 'On a phone? Run this line on your computer, then scan the QR code it shows: the dashboard opens here.',"));
   const hero = siteFile('app/(site)/Hero.tsx');
-  assert.match(hero, /<InstallLine command=\{INSTALL\} \/>\n\s*<p className="hero-phone">\{WORDS\.phone\}<\/p>/, 'right under the install line');
+  assert.match(hero, /<InstallLines systems=\{INSTALLS\} \/>\n\s*<p className="hero-phone">\{WORDS\.phone\}<\/p>/, 'right under the install lines');
   assert.match(cssRule('app/(site)/landing.css', '.hero-phone', 'top'), /display: none;/, 'not on a computer');
   assert.match(cssRule('app/(site)/landing.css', '.hero-phone', '(max-width: 699px)'), /display: block;/, 'on a phone');
   // The line breaks after each "/" (a <wbr>), and a word is not cut where it need not be.
@@ -851,8 +851,7 @@ test('on a phone the first screen says what to do there, and the install line br
   assert.doesNotMatch(cssRule('design/kit.css', '.install code', '(max-width: 599px)'), /anywhere/);
 });
 
-test('the landing page\'s first screen is plain HTML: the facts, the headline, the second line, the install line and one picture', { skip: needsBuild }, async () => {
-  const { INSTALL } = await import('../../site/lib/seo.mjs');
+test('the landing page\'s first screen is plain HTML: the facts, the headline, the second line, the install lines and one picture', { skip: needsBuild }, async () => {
   const { frontMatter } = await import('../../site/lib/markdown.mjs');
   const { data } = frontMatter(fs.readFileSync(path.join(root, 'site/content/index.md'), 'utf8'));
   const html = fs.readFileSync(path.join(await nextBuild(), 'index.html'), 'utf8');
@@ -865,17 +864,20 @@ test('the landing page\'s first screen is plain HTML: the facts, the headline, t
   // Seen 20 Nov 2026: the first screen said "Free" and nothing of what costs money, and showed a shell line with no word
   // of where it goes; both were said only far down the page.
   const COST = 'Hoprig is free; the AI is not: it uses your own Claude plan or API key.';
-  const PASTE = 'Paste this line into the Terminal app and press Enter.';
+  const PASTE = 'Paste the line of your computer into its terminal and press Enter.';
   for (const w of [COST, PASTE]) assert.ok(siteFile('app/(site)/words.ts').includes(`'${w}'`), `a frame word of words.ts: ${w}`);
   assert.ok(text(hero).includes(COST), 'the first screen says that the AI is the visitor\'s own plan or key');
   assert.ok(text(hero).includes(PASTE), 'the first screen says where the line goes');
   assert.match(hero, /<a href="\/use-cases\/not-a-developer\/">New to this\? Start here<\/a>/, 'and leads a newcomer to the page that walks through it');
-  assert.ok(hero.indexOf('Terminal app') < hero.indexOf('id="install"') && hero.indexOf('id="install"') < hero.indexOf('your own Claude plan'), 'over the line where it goes, under it what costs money');
-  // One main action: the only button of the first screen is Copy, and it copies exactly the install line.
+  assert.ok(hero.indexOf('into its terminal') < hero.indexOf('id="install"') && hero.indexOf('id="install"') < hero.indexOf('your own Claude plan'), 'over the line where it goes, under it what costs money');
+  // The first screen's only buttons are the three Copy buttons, Windows first, and each copies exactly its system's line.
+  const { INSTALLS } = await import('../../site/lib/seo.mjs');
   const buttons = [...hero.matchAll(/<button\b[^>]*>/g)].map((m) => m[0]);
-  assert.equal(buttons.length, 1, 'one button on the first screen');
-  assert.ok(buttons[0].includes(`data-copy="${INSTALL.replace(/&/g, '&amp;')}"`) || buttons[0].includes(`data-copy="${INSTALL}"`), 'Copy copies the install line');
-  assert.ok(text(/<code id="install-cmd">([\s\S]*?)<\/code>/.exec(hero)[1]).endsWith(INSTALL), 'the line shown is the line copied');
+  assert.equal(buttons.length, 3, 'three buttons on the first screen');
+  INSTALLS.forEach((s, i) => assert.ok(buttons[i].includes(`data-copy="${s.command.replace(/&/g, '&amp;')}"`) || buttons[i].includes(`data-copy="${s.command}"`), `Copy ${i + 1} copies the ${s.name} line`));
+  assert.deepEqual(INSTALLS.map((s) => s.id), ['windows', 'mac', 'linux'], 'Windows first where the visitor\'s system is not known');
+  for (const s of INSTALLS) assert.ok(text(new RegExp(`<code id="install-${s.id}-cmd">([\\s\\S]*?)</code>`).exec(hero)[1]).endsWith(s.command), `the ${s.name} line shown is the line copied`);
+  for (const s of INSTALLS) assert.ok(text(hero).includes(`${s.name}: ${s.open}.`), `${s.name} says how to open its terminal`);
   const imgs = [...hero.matchAll(/<img\b[^>]*>/g)].map((m) => m[0]);
   assert.equal(imgs.length, 1, 'one picture');
   for (const a of ['width="', 'height="', 'fetchPriority="high"']) assert.ok(imgs[0].includes(a), `the picture has ${a}`);
@@ -1771,7 +1773,6 @@ test('the landing page\'s first screen keeps to its budget: its HTML, styles, sc
 // ---------- the rest of the landing page (SITE.md section 2), from site/content/index.md ----------
 
 test('the built landing page holds every part of its content, the use cases as cards, and nothing of a paid version', { skip: needsBuild }, async () => {
-  const { INSTALL } = await import('../../site/lib/seo.mjs');
   const { frontMatter } = await import('../../site/lib/markdown.mjs');
   const out = await nextBuild();
   const html = fs.readFileSync(path.join(out, 'index.html'), 'utf8');
@@ -1792,7 +1793,8 @@ test('the built landing page holds every part of its content, the use cases as c
   // Every install line copies exactly the install command.
   const copies = [...html.matchAll(/data-copy="([^"]*)"/g)].map((m) => m[1].replace(/&amp;/g, '&'));
   assert.ok(copies.length >= 3, 'the install line at the top, after the steps and at the end');
-  for (const c of copies) assert.equal(c, INSTALL);
+  const { INSTALLS } = await import('../../site/lib/seo.mjs');
+  for (const c of copies) assert.ok(INSTALLS.some((s) => s.command === c), `a copy button copies one of the three install lines: ${c}`);
   // Nothing of a paid version: no price, no sign-in or account, no "Pro".
   assert.doesNotMatch(text, /\bPro\b|\$\s?\d|€\s?\d|\bper month\b|\bpricing\b|\bsign up\b|\bsubscribe\b|\blog ?in\b|\bmy account\b/i);
 });

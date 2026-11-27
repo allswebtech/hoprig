@@ -76,7 +76,7 @@ Skills → Learned and installs or discards; nothing is used before that, and th
 
 ## Every command and option
 
-This skill is Hoprig 0.3.6's. The commands: `hop profiles`, `hop add`, `hop rm`, `hop auto`, `hop chat`, `hop opencode`, `hop setup`, `hop doctor`, `hop claude`, `hop update`, `hop tools`, `hop pc`, `hop get`, `hop project`, `hop drop`, `hop adopt`, `hop sessions`, `hop workspace`, `hop sync`, `hop tasks`, `hop ship`, `hop skills`, `hop addons`, `hop gateways`, `hop public`, `hop link`, `hop pair`, `hop tokens`, `hop machines`, `hop join`, `hop serve`, `hop passwd`, `hop service`, `hop mcp`, `hop field`, `hop move-to-user`, `hop box`, `hop demo`.
+This skill is Hoprig 0.3.6's. The commands: `hop profiles`, `hop add`, `hop rm`, `hop auto`, `hop chat`, `hop opencode`, `hop setup`, `hop doctor`, `hop claude`, `hop update`, `hop tools`, `hop pc`, `hop get`, `hop project`, `hop drop`, `hop adopt`, `hop sessions`, `hop workspace`, `hop sync`, `hop tasks`, `hop ship`, `hop skills`, `hop addons`, `hop gateways`, `hop public`, `hop link`, `hop pair`, `hop tokens`, `hop machines`, `hop join`, `hop serve`, `hop stop`, `hop passwd`, `hop service`, `hop mcp`, `hop field`, `hop move-to-user`, `hop box`, `hop demo`.
 Read [references/commands.md](references/commands.md) before you type a command you have not used here, when a
 command answers with "usage", or when the user asks what an option does: it is every command's own help as this
 version prints it. On this computer `hop help`, and `hop <command> --help` for each command above, print the same.

@@ -132,3 +132,27 @@ test('watcher: after a restart on the same provider the prompt is for the new ru
   assert.deepEqual(calls, [['p', 'continue']], 'once');
   w.stop();
 });
+
+test('watcher: a chat turn that ended in an error is told as an error, with the old reply left out', async () => {
+  let cards = [card({ kind: 'chat', name: 'chat:abc', status: 'working', lastMessage: 'The reply of the turn before' })];
+  const sent = [];
+  const w = new Watcher({
+    cards: async () => cards, deck: {}, auto: { getAutoSwitch: () => ({ enabled: false }) },
+    settings: () => ({ notify: { url: 'https://ntfy.sh/t' } }), now: () => 0, log: () => {}, send: async (n, ev) => sent.push(ev),
+  });
+  await w.tick();
+  cards = [card({ kind: 'chat', name: 'chat:abc', status: 'waiting', endedInError: true, lastMessage: 'The reply of the turn before' })];
+  await w.tick();
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0].status, 'waiting', 'the event keeps its key, so a chosen list still matches');
+  assert.match(sent[0].title, /stopped with an error$/);
+  assert.doesNotMatch(sent[0].title, /has finished/);
+  assert.equal(sent[0].message, '', 'not the reply of the turn before');
+  cards = [card({ kind: 'chat', name: 'chat:abc', status: 'working' })];
+  await w.tick();
+  cards = [card({ kind: 'chat', name: 'chat:abc', status: 'waiting', lastMessage: 'Done' })];
+  await w.tick();
+  assert.match(sent[1].title, /has finished$/);
+  assert.equal(sent[1].message, 'Done');
+  w.stop();
+});

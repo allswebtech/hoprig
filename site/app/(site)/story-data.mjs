@@ -3,17 +3,17 @@
 // (scripts/story-shots.mjs). The words are frame words (no content file has them yet): each was checked against the
 // docs and the demo, and they may move into site/content later.
 
-/** Every screen the story shows, in the order they are taken (Get started before Home closes it). */
+/** Every screen the story shows, in the order they are taken (the first run before Home closes it). */
 export const SHOTS = [
-  { name: 'get-started', label: 'Get started list', hash: '#/', alt: 'Home with its Get started list: how many steps are done, and the next one with its button' },
+  { name: 'first-run', label: 'First run', hash: '&firstrun=1#/', alt: 'Home on a new install: one card, Welcome to Hoprig, with Signed in to Claude and Start your first chat, New project or My own folder' },
   { name: 'computer-overview', label: 'Overview', hash: '#/computer', alt: 'A computer\'s Overview: its system, its disk and memory, and its sessions' },
   { name: 'computer-setup', label: 'Setup', hash: '#/computer/setup', wait: 4000, alt: 'A computer\'s Setup page: what it has for coding, what is missing, and one button to install it' },
   { name: 'home', label: 'Home', hash: '#/', alt: 'Home: the sessions of every computer on one page, the ones that need you first' },
   { name: 'computers', label: 'Computers', hash: '#/computers', alt: 'Computers: the Workstation and the Laptop, each with its state and its sessions' },
-  { name: 'projects', label: 'Workspace', hash: '#/workspace', wait: 4000, alt: 'Workspace: every project, each with its sessions under it' },
+  { name: 'projects', label: 'Projects', hash: '#/workspace', wait: 4000, alt: 'Projects: every project, each with its status and one New session button' },
   { name: 'limit-reached', label: 'At the limit', hash: '#/s/docs-site', wait: 3500, alt: 'A session at its usage limit: one button to go on with the same conversation on another plan, the other ways folded under it' },
-  { name: 'providers', label: 'Providers', hash: '#/providers', alt: 'Providers: the Claude accounts, API keys and gateways this computer can use' },
-  { name: 'auto-mode', label: 'Auto mode', hash: '#/providers', open: 'How it works', alt: 'Auto mode: at a limit, the session goes on with the next provider by itself' },
+  { name: 'providers', label: 'Providers', hash: '#/providers', alt: 'Providers: the Claude accounts, API keys and the gateway this computer can use, and the At a limit choice' },
+  { name: 'auto-mode', label: 'Auto mode', hash: '#/providers', press: 'At a limit', alt: 'Providers, At a limit: the choice to carry on with the next provider, which is called Auto mode' },
   { name: 'session-phone', label: 'A session', hash: '#/s/api-server', phone: true, alt: 'A session on a phone: its messages and the box to answer it' },
   { name: 'chat-phone', label: 'An OK to give', hash: '#/chat/{chat}', wait: 3500, phone: true, alt: 'A chat on a phone, waiting for an OK to run the tests' },
   { name: 'new-session-phone', label: 'A new session', hash: '#/new', phone: true, alt: 'Starting a new session on a phone: one tap on a project' },
@@ -25,7 +25,7 @@ export const STEPS = [
     tag: 'One computer made ready',
     title: 'It looks, lists what is missing, and installs it',
     text: 'Hoprig looks at what the computer has for coding, shows what is missing, and installs it with one button. It asks a few questions, each once.',
-    panes: ['get-started', 'computer-setup', 'computer-overview'],
+    panes: ['first-run', 'computer-setup', 'computer-overview'],
   },
   {
     id: 'together',

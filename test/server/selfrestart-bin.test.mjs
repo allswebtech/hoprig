@@ -41,3 +41,12 @@ test('the command line the dashboard starts its restart helper with is a command
     fs.rmSync(tmp, { recursive: true, force: true });
   }
 });
+
+test('the restart helper does not go through the dashboard modules: a new version that lacks one still gets its start checked', () => {
+  const src = fs.readFileSync(BIN, 'utf8');
+  const at = src.indexOf("case '__service-restart':");
+  assert.ok(at > 0);
+  const block = src.slice(at, src.indexOf("case 'serve':", at));
+  assert.match(block, /import\('\.\.\/src\/server\/selfrestart\.mjs'\)/);
+  assert.doesNotMatch(block, /server\/cli\.mjs/);
+});

@@ -23,7 +23,6 @@ From Claude Code's documentation, 17 Nov 2026:
 
 - **A real phone app**, made by the makers of Claude Code.
 - **Work in the cloud**: it goes on with your laptop closed. Hoprig needs a computer of yours that stays on.
-- **Windows**, today.
 - **Nothing extra to install or trust**, and official support.
 
 ## What Hoprig adds
@@ -38,7 +37,7 @@ From Claude Code's documentation, 17 Nov 2026:
 | A second coding tool (OpenCode) with the same rules, skills and memory | Yes | No |
 | Phone app | No, a web page | Yes |
 | Runs in the cloud | No | Yes |
-| Windows | Not yet | Yes |
+| Windows | Yes, new | Yes |
 
 ## How to choose
 

@@ -1,17 +1,19 @@
-// Skills (#/skills, #/skills/<project folder>): Claude Code skills on the open computer, for you (every project) or
-// for one project, picked on top ("Skills for:"). Three parts: Installed (Update with the diff, Remove with Undo),
-// Suggested (the catalog's picks with the reason), Find (the catalog and skills.sh). Every add or update opens the
-// review sheet first (files, what the scan found, the full SKILL.md, the diff of an update): Review, then Install.
-// The tools some skills need and the weekly update check wait under Advanced. Learned: drafts of skills made from
-// your own work (skilllearned.js).
+// Skills (#/skills, #/skills/<project folder>), the second tab of Projects: Claude Code skills on the open computer, for
+// you (every project) or, from a project's page, for that one project. ONE list: a search box, Installed (a press opens
+// the row's sheet: source, Update with the diff, Remove with Undo), Worth adding (what the catalog and the weekly look
+// suggest and is not installed), Drafts from your work (skilllearned.js, only while some wait). Every add or update
+// opens the review sheet first (files, what the scan found, the full SKILL.md, the diff of an update): Review, then
+// Install. The learn settings, the tools some skills need and the update check wait under Advanced. The old addresses
+// #/skills/installed, /suggested, /find and /learned open this list with that part in view.
+export { projectsTabs };
 import { APP_NAME, COMMAND } from './brand.js';
-import { linkBrainNote, toolNames } from './brainlink.js';
+import { projectsTabs } from './brainlink.js';
 import { icon } from './icons.js';
-import { api, btn, confirmSheet, fill, h, link, openSheet, prefs, promptSheet, tildePath, toast } from './lib.js';
+import { api, btn, confirmSheet, fill, h, link, openSheet, prefs, tildePath, toast } from './lib.js';
 import { registerPage } from './registry.js';
-import { paintLearned, waitingCount } from './skilllearned.js';
+import { learnSettings, paintLearned } from './skilllearned.js';
 import { paintProposals } from './skillproposals.js';
-import { emptyState, errorBox, fold, panel, skeletonRows as skeleton, tabBar, toggle } from './shell.js';
+import { errorBox, fold, groupHead, listRow, panel, skeletonRows as skeleton, toggle } from './shell.js';
 import { store } from './store.js';
 
 const SEV = { block: ['var(--danger-soft)', 'var(--danger)'], high: ['var(--danger-soft)', 'var(--danger)'], medium: ['var(--warn-soft)', 'var(--warn)'], low: ['var(--surface-3)', 'var(--text-2)'] };
@@ -103,60 +105,65 @@ async function reviewSheet(r) {
   return approved;
 }
 
+/** A list of at most `n` rows, then one Show more (never a page of fifty rows). */
+const capped = (items, draw, n = 20) => {
+  const box = h('div.rows', items.slice(0, n).map(draw));
+  if (items.length <= n) return box;
+  const more = btn('small secondary', { label: `Show ${items.length - n} more`, onclick: () => {
+    fill(box, items.map(draw));
+    more.parentElement.remove();
+  } });
+  return [box, h('div.savebar.start', more)];
+};
+
 function viewSkills({ frame, sub }) {
   store.viewing = null;
-  // #/skills, #/skills/<part>, #/skills/<part>/<project folder>, #/skills/<project folder> (a project's page links here)
+  // #/skills, #/skills/<project folder> (a project's page links here), and the four old parts: #/skills/installed,
+  // /suggested, /find and /learned (also with a project folder after them) open the one list with that part in view.
   const [first = '', ...rest] = sub ? sub.split('/') : [];
   const named = PARTS.some(([id]) => id === first);
+  const want = named ? first : '';
   const project = decodeURIComponent(named ? rest.join('/') : sub || '');
-  let part = named ? first : prefs.get('skills.part', '');
   let alive = true;
   let data = null; // GET /api/skillhub
   let suggest = null; // GET /api/skillhub/suggest
+  let worth = null; // GET /api/skillhub/worth: the hub skills that fit your projects
   let corrected = {}; // his corrections per skill this week (GET /api/operator/corrections): shown only
   let updates = new Map(); // "user:name" | "project:name" → the check's answer
   let notice = null; // { text, undo } after a remove or an update
-  let projects = []; // [{ path, name }] for the selector
+  let projects = []; // [{ path, name }] to name the project
 
-  const picker = h('select.field.sk-picker', { id: 'sk-for' }, h('option', { value: '' }, 'Just for me'), project ? h('option', { value: project, selected: true }, project) : null);
-  const addr = (id) => link(`#/skills/${id}${project ? `/${enc(project)}` : ''}`);
-  const tabs = tabBar('Parts of Skills', [], part, (id) => show(id));
-  const partBox = h('div.sk-part', { role: 'tabpanel' });
-  const toolsBox = h('div', h('p.hint', 'Looking…'));
+  const tabs = projectsTabs('skills');
+  const scopeLine = project ? h('p.hint.sk-scope', 'Skills for ', h('strong', project.split(/[\\/]/).pop()), ' · ', h('a', { href: link('#/skills') }, 'All your skills')) : null;
+  const installedBox = h('div.sk-part');
+  const worthBox = h('div.sk-part');
+  const draftsBox = h('div'); // drafts waiting (skilllearned.js, quiet): nothing when none wait
   const proposalsBox = h('div'); // proposed changes to Tia's own texts (skillproposals.js); empty when there are none
+  const foundBox = h('div.sk-found', { 'aria-live': 'polite' });
+  const toolsBox = h('div', h('p.hint', 'Looking…'));
+  const learnBox = h('div');
   const weeklyBox = h('div');
+  const checkBox = h('div');
+  const ideasBox = h('div');
   const advanced = fold('skills', 'Advanced',
+    learnBox,
     panel({ icon: 'terminal', title: 'Tools these skills use', desc: 'Some skills need a program on this computer. It is installed or updated only when you press the button.' }, toolsBox),
+    checkBox,
     weeklyBox,
+    ideasBox,
     h('p.hint', 'Each skill is first downloaded to a place apart, kept at the exact version you saw, and shown in full before you install it.'));
+  const query = h('input.field', { type: 'search', placeholder: 'Search skills', autocomplete: 'off', autocapitalize: 'off', spellcheck: 'false', 'aria-label': 'Search skills' });
+  const form = h('form.inlineform.sk-search', { style: { marginBottom: '14px' } });
   frame({
     title: 'Skills',
     page: 'skills',
-    intro: 'A skill teaches your coding tools one kind of work, like testing a web app or writing Flutter code. Add the ones that fit you and your projects.',
-    body: [h('div.sk-for', h('label.sk-for-label', { for: 'sk-for' }, 'Skills for:'), picker),
-      // The brain's skills, not read by Claude Code until its skills folder is linked: the same button as the AI brain page.
-      project ? null : linkBrainNote({ only: ['skills'], text: (todo) => `The skills in your AI brain are not used by ${toolNames(todo)} yet.`, after: () => load(), switchOn: true }),
-      project ? null : proposalsBox, tabs, partBox, advanced],
+    body: [tabs, scopeLine, form, foundBox, installedBox, worthBox, draftsBox, project ? null : proposalsBox, advanced],
   });
 
   if (!project) paintProposals(proposalsBox, { diffView, tag });
-  if (!project) paintWorth(proposalsBox, { startReview });
 
   const scopeName = () => (project ? (projects.find((p) => p.path === project) || {}).name || project.split(/[\\/]/).pop() : '');
-  const installedCount = () => (data ? data.user.skills.length + (data.project ? data.project.skills.length : 0) : 0);
-  const openCount = () => (suggest ? suggest.suggestions.filter((x) => !x.installed).length : 0);
-
-  function paintTabs() {
-    const n = { installed: data ? installedCount() : null, suggested: suggest ? openCount() : null, find: null, learned: learnedCount };
-    tabs.update(PARTS.map(([id, label]) => ({ id, label, href: addr(id), count: n[id] ?? undefined })), part);
-  }
-  function show(id) {
-    part = id;
-    prefs.set('skills.part', id);
-    if (location.hash !== addr(id)) history.replaceState(null, '', addr(id));
-    paintTabs();
-    paintPart();
-  }
+  const installedNames = () => new Set([...(data ? data.user.skills : []), ...(data && data.project ? data.project.skills : [])].map((s) => s.name));
 
   // ---------- Installed ----------
   async function startReview(body, button) {
@@ -183,31 +190,35 @@ function viewSkills({ frame, sub }) {
     }
   }
 
+  /** A row: the name, one line, a tag when an update waits; a press opens its sheet (source, update, remove). */
   const skillRow = (s, scope) => {
     const u = updates.get(`${scope}:${s.name}`);
     const body = scope === 'project' ? { name: s.name, project } : { name: s.name };
-    const remove = btn('small ghost', { icon: 'trash', label: 'Remove', onclick: async () => {
-      if (!(await confirmSheet({ title: `Remove "${s.name}"?`, text: 'Your coding tools stop using it. A copy is kept, so you can bring it back.', ok: 'Remove', danger: true }))) return;
-      remove.disabled = true;
-      try {
-        await api('/api/skillhub/remove', body);
-        notice = { text: `${s.name} was removed.`, undo: body };
-        await load();
-      } catch (e) {
-        remove.disabled = false;
-        toast(e, { kind: 'error' });
-      }
-    } });
-    return h('div.row.static.col.mrow.sk-row',
-      h('div.mrow-top', h('span.row-icon', icon('sparkle')),
-        h('span.row-main',
-          h('span.row-title', s.name, u && u.state === 'update' ? tag('medium', 'update available') : null, s.edited.length ? tag('low', 'changed here') : null),
-          h('span.row-sub.sk-wrap', oneLine(s.description) || 'No description.'),
-          h('span.row-sub.sk-wrap', origin(s)),
-          corrected[s.name] ? h('span.row-sub.sk-wrap.sk-corrected', `You took this back ${corrected[s.name]} time${corrected[s.name] === 1 ? '' : 's'} this week. Only shown to you; nothing changes by itself from it.`) : null),
-        h('span.sk-act',
-          u && u.state === 'update' ? btn('small primary', { icon: 'download', label: 'Update', onclick: (e) => startReview(body, e.currentTarget) }) : null,
-          remove)));
+    const sheet = () => openSheet({ title: s.name, subtitle: scope === 'project' ? `For the project ${scopeName()}` : 'For you, in every project' }, (close) => [
+      h('p.sheet-text', oneLine(s.description, 400) || 'No description.'),
+      h('p.hint', origin(s)),
+      scope === 'user' && data.user.dir ? h('p.hint.sk-where', `Kept in ${tildePath(data.user.dir, data.home)}.`) : null,
+      s.edited.length ? h('p', tag('low', 'changed here')) : null,
+      corrected[s.name] ? h('p.hint.sk-corrected', `You took this back ${corrected[s.name]} time${corrected[s.name] === 1 ? '' : 's'} this week. Only shown to you; nothing changes by itself from it.`) : null,
+      h('div.sheet-actions',
+        btn('secondary', { icon: 'trash', label: 'Remove', onclick: async () => {
+          close();
+          if (!(await confirmSheet({ title: `Remove "${s.name}"?`, text: 'Your coding tools stop using it. A copy is kept, so you can bring it back.', ok: 'Remove', danger: true }))) return;
+          try {
+            await api('/api/skillhub/remove', body);
+            notice = { text: `${s.name} was removed.`, undo: body };
+            await load();
+          } catch (e) {
+            toast(e, { kind: 'error' });
+          }
+        } }),
+        u && u.state === 'update' ? btn('primary', { icon: 'download', label: 'Update', onclick: (e) => {
+          close();
+          startReview(body, e.currentTarget);
+        } }) : null)]);
+    return listRow({ onclick: sheet, icon: 'sparkle',
+      title: [s.name, u && u.state === 'update' ? tag('medium', 'update available') : null],
+      sub: oneLine(s.description, 90) || 'No description.' });
   };
 
   function checkButton() {
@@ -219,7 +230,9 @@ function viewSkills({ frame, sub }) {
         const r = await api('/api/skillhub/check', project ? { project } : {});
         updates = new Map([...r.user.map((u) => [`user:${u.name}`, u]), ...(r.project || []).map((u) => [`project:${u.name}`, u])]);
         const n = [...updates.values()].filter((u) => u.state === 'update').length;
-        paintPart();
+        said.textContent = '';
+        b.disabled = false;
+        paintInstalled();
         toast(n ? `${n} update${n > 1 ? 's' : ''} available` : 'Everything is up to date');
       } catch (e) {
         said.textContent = e.message;
@@ -230,6 +243,7 @@ function viewSkills({ frame, sub }) {
   }
 
   function paintInstalled() {
+    if (!data) return fill(installedBox, skeleton(2));
     const here = data.project ? data.project.skills : [];
     const mine = data.user.skills;
     const undo = notice && notice.undo ? btn('small secondary', { icon: 'refresh', label: 'Undo', onclick: async () => {
@@ -242,103 +256,97 @@ function viewSkills({ frame, sub }) {
       }
     } }) : null;
     const banner = notice ? h('div.banner.ok-box.sk-notice', { role: 'status' }, icon('check', { size: 18 }), h('span', notice.text), undo) : null;
-    if (!here.length && !mine.length) {
-      return fill(partBox, banner, emptyState('book', project ? `No skills for ${scopeName()} yet. Suggested shows the ones that fit it.` : 'No skills yet. Suggested shows the ones that fit you.',
-        btn('primary', { icon: 'sparkle', label: 'See suggested', onclick: () => show('suggested') })),
-        project ? fitPart(project, { review: startReview, reload: load }) : null);
-    }
-    fill(partBox, banner,
-      h('div.sk-head', h('p.hint', project ? `Used in ${scopeName()}.` : 'Used in every project.'), checkButton()),
-      project ? [h('p.field-label', `In this project (${here.length})`), here.length ? h('div.rows', here.map((s) => skillRow(s, 'project'))) : h('p.hint', 'None yet: Suggested shows the ones that fit it.')] : null,
-      project ? h('p.field-label', `For you, in every project (${mine.length})`) : null,
-      mine.length ? h('div.rows', mine.map((s) => skillRow(s, 'user'))) : project ? h('p.hint', 'None.') : null,
-      project ? null : h('p.hint.sk-where', `Kept in ${tildePath(data.user.dir, data.home)}.`),
+    fill(installedBox, banner,
+      project && here.length ? [groupHead('In this project', here.length), capped(here, (s) => skillRow(s, 'project'))] : null,
+      mine.length ? [groupHead(project ? 'For you, in every project' : 'Installed', mine.length), capped(mine, (s) => skillRow(s, 'user'))] : null,
       project ? fitPart(project, { review: startReview, reload: load }) : null);
   }
 
-  // ---------- Suggested ----------
-  function paintSuggested() {
-    if (!suggest) return fill(partBox, skeleton(2));
-    if (suggest.error) return fill(partBox, errorBox(suggest.error));
+  // ---------- Worth adding: what the catalog suggests for you and what the weekly look found, not yet installed ----------
+  function paintWorth() {
+    if (!suggest) return fill(worthBox, skeleton(2));
+    if (suggest.error) return fill(worthBox, errorBox(suggest.error));
+    const have = installedNames();
+    const picks = suggest.suggestions.filter((x) => !x.installed && !have.has(x.name));
+    const finds = (worth ? worth.results : []).filter((x) => !have.has(x.name) && !picks.some((p) => p.name === x.name));
+    const items = [...picks.map((x) => ({ name: x.name, tagline: oneLine(x.for, 110), why: x.why, badge: project ? (x.scope === 'user' ? 'for you' : 'this project') : null,
+      go: (e) => startReview({ spec: x.id, project, scope: x.scope }, e.currentTarget) })),
+    ...finds.map((x) => ({ name: x.name, tagline: oneLine(x.description, 110), why: x.why, badge: `from ${x.hubName}`, go: (e) => startReview(hubBody(x, x.project), e.currentTarget).then(loadWorth) }))];
+    const row = (x) => h('div.row.static.col.mrow.sk-row',
+      h('div.mrow-top', h('span.row-icon', icon('sparkle')),
+        h('span.row-main',
+          h('span.row-title', x.name, x.badge ? h('span.badge.soft', x.badge) : null),
+          x.tagline ? h('span.row-sub.sk-wrap', x.tagline) : null,
+          x.why && x.why.length ? h('span.row-sub.sk-wrap.sk-why', `Why: ${x.why.join('; ')}`) : null),
+        h('span.sk-act', btn('small primary', { icon: 'download', label: 'Review', onclick: x.go }))));
     const seen = Object.keys(suggest.stacks || {}).filter((k) => k !== 'code');
-    const reviewBtn = (x) => btn('small primary', { icon: 'download', label: 'Review', onclick: (e) => startReview({ spec: x.id, project, scope: x.scope }, e.currentTarget) });
-    fill(partBox,
-      h('p.hint', project ? `Picked for ${scopeName()} from what is in it${seen.length ? `: ${seen.join(', ')}` : ''}.` : 'Useful for you in every project. Pick a project above for the skills that fit it.'),
-      suggest.suggestions.length
-        ? h('div.rows', suggest.suggestions.map((x) => h('div.row.static.col.mrow.sk-row',
-          h('div.mrow-top', h('span.row-icon', icon(x.installed ? 'check' : 'sparkle')),
-            h('span.row-main',
-              h('span.row-title', x.name, h('span.badge.soft', x.scope === 'user' ? 'for you' : 'this project')),
-              h('span.row-sub.sk-wrap', x.for),
-              h('span.row-sub.sk-wrap.sk-why', `Why: ${x.why.join('; ')}`)),
-            h('span.sk-act', x.installed ? h('span.badge.sk-done', 'Installed') : reviewBtn(x))))))
-        : emptyState('sparkle', project ? 'Nothing in the catalog fits this project yet. Find searches all skills.' : 'Nothing to suggest for you right now.', btn('secondary', { icon: 'search', label: 'Find a skill', onclick: () => show('find') })),
-      suggest.ideas && suggest.ideas.length ? h('p.hint', 'Also worth a search: ', suggest.ideas.map((i) => i.replace(`${COMMAND} skills find `, '')).map((w, n) => [n ? ', ' : '', h('a', { href: '#', onclick: (e) => { e.preventDefault(); findWords = w; show('find'); } }, w)])) : null);
+    fill(worthBox,
+      items.length ? [groupHead('Worth adding', items.length), project && seen.length ? h('p.hint', `Picked for ${scopeName()} from what is in it: ${seen.join(', ')}.`) : null, capped(items, row)] : null,
+      worth && worth.lines.length ? h('p.hint.sk-wrap', `Not read this time: ${worth.lines.join('; ')}`) : null,
+      !items.length && data && !installedNames().size ? h('p.hint', 'No skills yet. Search above to add one.') : null);
+    fill(ideasBox, suggest.ideas && suggest.ideas.length ? h('p.hint', 'Also worth a search: ', suggest.ideas.map((i) => i.replace(`${COMMAND} skills find `, '')).map((w, n) => [n ? ', ' : '', h('a', { href: '#', onclick: (e) => { e.preventDefault(); query.value = w; form.requestSubmit(); window.scrollTo?.({ top: 0 }); } }, w)])) : null);
   }
 
-  // ---------- Find ----------
-  let findWords = '';
+  // ---------- Search: the reviewed catalog, the hubs and skills.sh ----------
   let found = null;
-  function paintFind() {
-    const out = h('div.sk-found', { 'aria-live': 'polite' });
-    const query = h('input.field', { type: 'search', value: findWords, placeholder: 'e.g. nextjs, flutter, postgres, owner/repo', autocomplete: 'off', autocapitalize: 'off', spellcheck: 'false', 'aria-label': 'Find a skill' });
-    const item = (title, sub, meta, spec) => h('div.row.static.col.mrow.sk-row',
-      h('div.mrow-top', h('span.row-icon', icon('book')),
-        h('span.row-main', h('span.row-title', title), sub ? h('span.row-sub.sk-wrap', sub) : null, h('span.row-sub.sk-wrap.sk-mono', meta)),
-        spec ? h('span.sk-act', btn('small secondary', { icon: 'download', label: 'Review', onclick: (e) => startReview({ spec, project, scope: project ? 'project' : 'user' }, e.currentTarget) })) : null));
-    const paintFound = () => {
-      if (!found) return fill(out);
-      if (found.busy) return fill(out, skeleton(2));
-      if (found.error) return fill(out, errorBox(found.error));
-      const r = found.r;
-      fill(out,
-        r.catalog.length ? [h('p.field-label', 'From the catalog (reviewed)'), h('div.rows', r.catalog.map((c) => item(c.name, c.for, `${c.source} · ${c.license}`, c.add)))] : null,
-        hubFound(r.hubs, (body, b) => startReview({ ...body, ...(project ? { project, scope: 'project' } : { scope: 'user' }) }, b)),
-        h('p.field-label', 'From skills.sh'),
-        r.error ? h('p.hint', r.error) : null,
-        r.online.length ? h('div.rows', r.online.map((o) => item(o.name, null, `${o.source} · ${o.installs.toLocaleString()} installs${o.license ? ` · ${o.license}` : ''}`, o.add))) : h('p.hint', 'Nothing found there.'),
-        h('p.hint', 'Anything from skills.sh is shown in full before it is installed.'));
-    };
-    const form = h('form.inlineform', { onsubmit: async (e) => {
-      e.preventDefault();
-      const q = query.value.trim();
-      findWords = q;
-      if (!q) return;
-      if (/^[\w.-]+\/[\w.-]+(\/|@|$)|^https?:\/\/|^git@/.test(q)) return startReview({ spec: q, project, scope: project ? 'project' : 'user' }, e.submitter);
-      found = { busy: true };
-      paintFound();
-      try {
-        found = { r: await api(`/api/skillhub/find?q=${enc(q)}`) };
-      } catch (er) {
-        found = { error: er.message };
-      }
-      if (alive && part === 'find') paintFound();
-    } }, query, btn('primary', { icon: 'search', label: 'Find', type: 'submit' }));
-    fill(partBox, h('p.hint', 'Search the reviewed catalog and skills.sh by a word, or give a skill\'s address (owner/repo).'), form, out);
-    paintFound();
-    if (findWords && !found) form.requestSubmit();
+  const item = (title, sub, meta, spec) => h('div.row.static.col.mrow.sk-row',
+    h('div.mrow-top', h('span.row-icon', icon('book')),
+      h('span.row-main', h('span.row-title', title), sub ? h('span.row-sub.sk-wrap', sub) : null, h('span.row-sub.sk-wrap.sk-mono', meta)),
+      spec ? h('span.sk-act', btn('small secondary', { icon: 'download', label: 'Review', onclick: (e) => startReview({ spec, project, scope: project ? 'project' : 'user' }, e.currentTarget) })) : null));
+  function paintFound() {
+    if (!found) return fill(foundBox);
+    if (found.busy) return fill(foundBox, skeleton(2));
+    if (found.error) return fill(foundBox, errorBox(found.error));
+    const r = found.r;
+    fill(foundBox,
+      r.catalog.length ? [h('p.field-label', 'From the catalog (reviewed)'), capped(r.catalog, (c) => item(c.name, c.for, `${c.source} · ${c.license}`, c.add))] : null,
+      hubFound(r.hubs, (body, b) => startReview({ ...body, ...(project ? { project, scope: 'project' } : { scope: 'user' }) }, b)),
+      h('p.field-label', 'From skills.sh'),
+      r.error ? h('p.hint', r.error) : null,
+      r.online.length ? capped(r.online, (o) => item(o.name, null, `${o.source} · ${o.installs.toLocaleString()} installs${o.license ? ` · ${o.license}` : ''}`, o.add)) : h('p.hint', 'Nothing found there.'),
+      h('p.hint', 'Anything from skills.sh is shown in full before it is installed.'));
   }
-
-  // The Learned part refreshes itself while a draft is tried: it is stopped before another part takes the box.
-  let learned = null;
-  let learnedCount = null; // drafts waiting, for the tab
-  const countLearned = (n) => {
-    if (n === learnedCount) return;
-    learnedCount = n;
-    paintTabs();
-  };
-  function paintPart() {
-    if (part === 'learned' && learned) return; // painted already, and it keeps itself current
-    if (learned) learned.stop();
-    learned = null;
-    if (part === 'learned') {
-      learned = paintLearned(partBox, { diffView, tag, onCount: countLearned });
-      return;
+  fill(form, query, btn('primary', { icon: 'search', label: 'Search', type: 'submit' }));
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const q = query.value.trim();
+    if (!q) {
+      found = null;
+      return paintFound();
     }
-    if (!data) return fill(partBox, skeleton(2));
-    if (part === 'suggested') paintSuggested();
-    else if (part === 'find') paintFind();
-    else paintInstalled();
+    if (/^[\w.-]+\/[\w.-]+(\/|@|$)|^https?:\/\/|^git@/.test(q)) return startReview({ spec: q, project, scope: project ? 'project' : 'user' }, e.submitter);
+    found = { busy: true };
+    paintFound();
+    try {
+      found = { r: await api(`/api/skillhub/find?q=${enc(q)}`) };
+    } catch (er) {
+      found = { error: er.message };
+    }
+    if (alive) paintFound();
+  });
+  query.addEventListener('input', () => {
+    if (!query.value.trim() && found) {
+      found = null;
+      paintFound();
+    }
+  });
+
+  // Drafts waiting: the drafts group paints itself (and polls while a draft is tried); nothing shows when none wait.
+  let learned = null;
+  if (!project) learned = paintLearned(draftsBox, { diffView, tag, quiet: true });
+
+  /** An old address names a part: it is put in view once, after the page has its rows. */
+  let revealed = false;
+  function reveal() {
+    if (revealed || !want || !data || !suggest) return;
+    revealed = true;
+    if (want === 'find') query.focus();
+    else if (want === 'suggested') worthBox.scrollIntoView?.({ block: 'start' });
+    else if (want === 'learned') {
+      advanced.open = true;
+      advanced.addEventListener('toggle', () => prefs.set('fold.skills', false), { once: true }); // opened by the address, not remembered
+      (draftsBox.firstChild ? draftsBox : advanced).scrollIntoView?.({ block: 'start' });
+    }
   }
 
   // ---------- data ----------
@@ -346,7 +354,7 @@ function viewSkills({ frame, sub }) {
     try {
       data = await api(`/api/skillhub${project ? `?project=${enc(project)}` : ''}`);
     } catch (e) {
-      if (alive) fill(partBox, errorBox(e), btn('secondary', { icon: 'refresh', label: 'Try again', onclick: load }));
+      if (alive) fill(installedBox, errorBox(e), btn('secondary', { icon: 'refresh', label: 'Try again', onclick: load }));
       return;
     }
     if (!alive) return;
@@ -355,61 +363,49 @@ function viewSkills({ frame, sub }) {
     } catch {
       corrected = {}; // another computer, or an older one: nothing to show
     }
-    if (!part) part = installedCount() ? 'installed' : 'suggested';
     fill(weeklyBox, toggle('Look for updates and new skills once a week', data.settings.weekly, (v) => api('/api/skillhub/settings', { weekly: v }).catch((er) => {
       toast(er.message, { kind: 'error' });
       throw er;
     }), `Once a week, look for updates of your skills and for new skills from the reviewed hubs that fit your projects. It only tells you; nothing is added without you.${data.settings.lastCheck ? ` Last check: ${new Date(data.settings.lastCheck).toLocaleDateString()}.` : ''}`));
-    paintTabs();
-    paintPart();
+    fill(checkBox, checkButton());
+    paintInstalled();
+    paintWorth();
     try {
       suggest = await api(`/api/skillhub/suggest${project ? `?project=${enc(project)}` : ''}`);
     } catch (e) {
       suggest = { error: e.message, suggestions: [] };
     }
     if (!alive) return;
-    paintTabs();
-    if (part === 'suggested') paintSuggested();
-    const waiting = await waitingCount();
-    if (alive && waiting !== null) countLearned(waiting);
+    paintWorth();
+    if (!project) await loadWorth();
+    reveal();
   }
 
-  /** The selector: the projects of this computer first, then other folders Claude worked in. */
-  async function loadProjects() {
-    const [pj, hub] = await Promise.all([api('/api/pcsetup/projects').catch(() => null), api('/api/skillhub').catch(() => null)]);
+  async function loadWorth() {
+    try {
+      worth = await api('/api/skillhub/worth');
+    } catch {
+      worth = null; // another computer, or an older one: nothing to show
+    }
     if (!alive) return;
-    projects = pj ? [...pj.workspaces.map((w) => ({ path: w.dir, name: w.name })), ...pj.repos.map((r) => ({ path: r.dir, name: r.rel }))].sort((a, b) => a.name.localeCompare(b.name)) : [];
-    const others = ((hub && hub.projects) || []).filter((f) => !projects.some((p) => p.path === f.path || f.path.startsWith(`${p.path}/`)));
-    if (project && !projects.some((p) => p.path === project) && !others.some((f) => f.path === project)) others.unshift({ path: project, short: project });
-    fill(picker,
-      h('option', { value: '' }, 'Just for me'),
-      projects.length ? h('optgroup', { label: 'Projects' }, projects.map((p) => h('option', { value: p.path, selected: p.path === project }, p.name))) : null,
-      others.length ? h('optgroup', { label: 'Other folders' }, others.map((f) => h('option', { value: f.path, selected: f.path === project }, f.short))) : null,
-      h('option', { value: '__other' }, 'Another folder…'));
-    picker.value = project;
-    if (data) {
-      paintTabs();
-      paintPart(); // the project's name is known now
-    }
+    if (suggest) paintWorth();
+    reveal();
   }
 
-  picker.addEventListener('change', async () => {
-    let v = picker.value;
-    if (v === '__other') {
-      v = await promptSheet({ title: 'Another folder', text: 'The full path of a project folder on this computer.', placeholder: '/path/to/project', check: (x) => (x.startsWith('/') || /^[A-Za-z]:\\/.test(x) ? '' : 'A full path') });
-      if (v === null) {
-        picker.value = project;
-        return;
-      }
-    }
-    // The address names the choice, so Back and a reload keep it; replace() keeps Back for the page before.
-    location.replace(link(`#/skills/${part || 'installed'}${v ? `/${enc(v)}` : ''}`));
-  });
+  /** The project's name, from the projects of this computer. */
+  async function loadProjects() {
+    const pj = await api('/api/pcsetup/projects').catch(() => null);
+    if (!alive || !pj) return;
+    projects = [...pj.workspaces.map((w) => ({ path: w.dir, name: w.name })), ...pj.repos.map((r) => ({ path: r.dir, name: r.rel }))];
+    if (scopeLine) fill(scopeLine, 'Skills for ', h('strong', scopeName()), ' · ', h('a', { href: link('#/skills') }, 'All your skills'));
+    if (data) paintInstalled();
+  }
 
   advanced.addEventListener('toggle', function once() {
     if (!advanced.open) return;
     advanced.removeEventListener('toggle', once);
     paintTools();
+    if (!project) fill(learnBox, learnSettings(() => learned && learned.refresh()));
   });
   async function paintTools() {
     try {
@@ -437,10 +433,12 @@ function viewSkills({ frame, sub }) {
       fill(toolsBox, errorBox(e));
     }
   }
-  if (advanced.open) paintTools();
+  if (advanced.open) {
+    paintTools();
+    if (!project) fill(learnBox, learnSettings(() => learned && learned.refresh()));
+  }
 
-  paintTabs();
-  paintPart();
+  paintInstalled();
   load();
   loadProjects();
   return () => {
@@ -449,40 +447,12 @@ function viewSkills({ frame, sub }) {
   };
 }
 
-registerPage({ id: 'skills', title: 'Skills', icon: 'book', group: 'more', order: 20, perComputer: true, render: viewSkills });
+registerPage({ id: 'skills', title: 'Skills', icon: 'book', navAs: 'workspace', order: 20, perComputer: true, render: viewSkills });
 
 // ---------- Worth adding: skills from the reviewed hubs that fit your projects (src/skillhub/hubs.mjs) ----------
 
 /** The review request of a hub skill: the hub, its folder and the commit the weekly look read. */
 const hubBody = (x, project) => ({ hub: x.hub, path: x.path, commit: x.commit, ...(project ? { project, scope: 'project' } : { scope: 'user' }) });
-
-/** "Worth adding" on the top Skills page, put right after `before`: each card names the skill, its hub and why it fits. */
-function paintWorth(before, { startReview }) {
-  const box = h('div.sk-worth');
-  before.after(box);
-  const load = async () => {
-    let w;
-    try {
-      w = await api('/api/skillhub/worth');
-    } catch {
-      return fill(box); // another computer, or an older one: nothing to show
-    }
-    if (!box.isConnected) return;
-    if (!w.results.length && !w.lines.length) return fill(box);
-    fill(box, panel({ icon: 'sparkle', title: 'Worth adding', desc: 'New skills from the reviewed hubs that fit your projects, found by the weekly look. Nothing is added until you review one and install it.' },
-      w.results.length ? h('div.rows', w.results.map((x) => h('div.row.static.col.mrow.sk-row',
-        h('div.mrow-top', h('span.row-icon', icon('sparkle')),
-          h('span.row-main',
-            h('span.row-title', x.name, h('span.badge.soft', `from ${x.hubName}`)),
-            x.description ? h('span.row-sub.sk-wrap', x.description) : null,
-            h('span.row-sub.sk-wrap.sk-why', `Why: ${x.why.join('; ')}`)),
-          h('span.sk-act', btn('small primary', { icon: 'download', label: 'Review', onclick: (e) => startReview(hubBody(x, x.project), e.currentTarget).then(load) }))))))
-        : null,
-      w.lines.length ? h('p.hint.sk-wrap', `Not read this time: ${w.lines.join('; ')}`) : null,
-      h('p.hint', `Only skills are taken from a hub, never its tools or code.${w.at ? ` Last look: ${new Date(w.at).toLocaleDateString()}.` : ''}`)));
-  };
-  load();
-}
 
 /** The hub skills a search found among the ones the last weekly look read, each with Review. */
 function hubFound(list, review) {

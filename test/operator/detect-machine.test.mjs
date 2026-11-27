@@ -36,3 +36,13 @@ test('a moving load is the same item to the owner: put off once, it stays put of
   const b = detectMachine({ machine: { ...calm, load1: 8.8 } })[0];
   assert.equal(a.rev, b.rev);
 });
+
+test('the keeper note is one row: a version that was put back, or a start that did not work', () => {
+  const back = detectMachine({ machine: { ...calm, keeper: { kind: 'rollback', text: 'Hoprig went back to 0.3.5 because 0.3.6 did not start.' } } });
+  assert.equal(back.length, 1);
+  assert.equal(back[0].facts[0], 'Hoprig went back to 0.3.5 because 0.3.6 did not start.');
+  assert.equal(back[0].acts[0].href, '#/settings/updates');
+  const gave = detectMachine({ machine: { ...calm, keeper: { kind: 'gaveup', text: 'Hoprig does not start. The keeper started it; it did not help.' } } });
+  assert.equal(gave[0].acts[0].href, '#/computer/health');
+  assert.deepEqual(detectMachine({ machine: { ...calm, keeper: null } }), []);
+});

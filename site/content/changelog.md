@@ -5,7 +5,111 @@ description: What changed in each version of Hoprig, newest first, in plain word
 
 # Changelog
 
-Each version of Hoprig, newest first. Hoprig installs from the main branch of its repository; `hop update` brings the newest version, and **Settings → Updates** shows it in the dashboard.
+Each version of Hoprig, newest first. Hoprig installs from the main branch of its repository; `hop update` brings the newest version, and **Settings → Version and updates** shows it in the dashboard.
+
+## 0.4.0 (27 November 2026)
+
+This version is about starting, and about fewer things on the screen. One line installs Hoprig on Windows, macOS or Linux, asks nothing, and ends with your browser open and signed in. The menu has six items, Home says what needs you, and a conversation is one session whether you use it in the App (the dashboard's chat view of a session) or in a terminal. The gateway that comes with Hoprig (a program that passes a coding tool's requests on to a provider) is set up with one press. Windows is new: the installer and the whole test suite run on GitHub's Windows, macOS and Linux machines, but a real home Windows PC has seen less of Hoprig than Linux has.
+
+### What changes when you update
+
+- **The menu has six items.** Home, Work, Projects, Providers, Computers and Settings; on a phone the bar has five tabs and Settings is the gear at the top. The Operator page and the More page are gone: an old link to either opens Home or Settings. What the Operator listed is now rows of **Needs you** on Home.
+- **Some pages moved, and every old link still lands.** **Skills** and **Memory** are tabs of **Projects**; Memory is the page that was called AI brain, the folder with the rules, skills and memory your coding tools share. Tia is opened from her own button, and Work, Computers and Settings are shorter (told below). The light and dark choice is only in **Settings → Appearance**.
+- **A conversation is one card on Home.** A conversation you open in the App and in a terminal is one card, not two or three. Home's groups are **Needs you**, Working and **Ready**.
+- **The queue has no switch.** It always sends. An old switch that was off is still honoured, with **Turn it on** in the queue's banner.
+- **The box is not offered on Windows.** Where Hoprig told you to use it inside WSL 2 (Windows' own Linux), it now says the box is not offered on Windows and that such work runs on a Linux or Mac computer of yours.
+- **TRouteAI lives in Hoprig's own folder.** Install puts version 1.0.13 there, so a start from a session and one from a service use the same data. Adding an account from a list, opening TRouteAI signed in and its public address need that version: with an older copy the page says so, with **Update** beside it. A copy that npm already put on your computer stays in use until you press Install or Update; nothing changes by itself.
+
+### Starting
+
+- **One line installs it on Windows, macOS and Linux, and asks nothing.** It says what it installs, ticks each step and does it: Node.js (on Windows into your own folder, with no administrator window), Git where it is missing, Hoprig, Claude Code, and the dashboard, which starts with the computer. On Windows it stops, and says so, when the window runs as administrator.
+- **Your browser opens signed in.** At the end Hoprig opens the dashboard on this computer, already signed in, so there is no password to find. The Start menu entry on Windows, or `hoprig link --open`, opens it again signed in.
+- **The first page says the next step.** Home shows **Welcome to Hoprig** with two steps: **Sign in to Claude**, then **Start your first chat** with **New project** or **My own folder**. With no Claude plan, **No Claude plan? Pay as you use** signs in with a key instead.
+- **Only this computer may open the dashboard at first.** The first run has no question about it; to use it from your phone, turn that on later in Settings.
+- **A later `hoprig setup` is the full run.** It asks what a first run does not, for a second computer or for someone who wants to choose.
+- **A fresh install is plainer.** The first provider is called **Claude account**, reopening sessions after a restart is on, and on Windows the Python and Terminal extras kits are one tick away instead of on by themselves.
+- **Hoprig keeps itself running.** On Linux, macOS and Windows, a dashboard that dies is started again by the service after 3 seconds. One that keeps failing is handed to a keeper (on Linux after 5 failed starts in a minute, on macOS and Windows a check every minute), which writes the service files again and tries once more; it does nothing after you stop Hoprig yourself.
+- **An update that does not start is put back.** When the new version does not answer within a minute, the version before it comes back and Home says so under **Needs you**. This holds for a Hoprig installed with npm; a copy from git is never swapped.
+
+### The App chat
+
+- **It looks like Claude Code's.** Your message is a plain grey bubble on the right; a long one is folded after 8 lines with **Show more**, and **Copy** and **Rewind to here** sit under it. Tool calls are one quiet line each, the to-do list and permission cards are neutral, and code sits on a grey well with a **Copy** button.
+- **One line says what Claude is doing, where your eye is.** At the end of the conversation it says Thinking, Running with the command, Writing or Compacting, with the time, and a sent message takes the conversation to its end. The title bar and the session list say the same state words everywhere: Working, Working in the background, Needs your OK, Finished, Ready, Ended, and Limit reached.
+- **A message you send while Claude works waits as a faded bubble.** It says it is read after the current step, with **Edit** and **Remove**; a long one stays inside the column.
+- **Background tasks are one line above the box.** It says the task and how long it ran, or how many there are; a press opens each task with its **Stop** and its output.
+- **On a phone the box is one rounded box.** The text field is 16 px, and under it one row: **+**, one pill that says the mode and model, the microphone and one round **Send** or **Stop**. The pill opens the sheet **This session** with the mode, model, effort and context; every press is 44 px.
+- **A phone has the session list over the chat.** The **Sessions** button opens it from the left with **Home** at its top, and the title and its menu are one sheet. A reply has one **Copy** under its turn.
+- **The list can be hidden, and a terminal opens under the chat.** The panel button at the left of the title bar (or `Ctrl+\`) hides the list; **Terminal** opens a shell in the session's folder.
+- **Links, file names and git are in the chat.** A link opens in a new tab; a file name opens the editor at that line; **Create PR** asks Claude Code to commit, push and open a pull request, and the PR line shows its checks.
+- **The session menu is shorter.** **Fork** makes a copy of the conversation, a click on the title renames it in place, and **Archive** asks nothing and has **Undo**.
+
+### The shape of the product
+
+- **Home says what needs you.** **Needs you** comes first, then Working and Ready; a group with nothing in it is not drawn. Each row says in plain words what is wrong and has one button, and the number on the Home icon is the only badge in the menu.
+- **New session is one tap.** **New session** lists your projects, and a tap on one starts a chat there. Everything else (the coding tool, App or terminal, the mode, the model, a branch of its own, an earlier conversation) is behind **More options**.
+- **Projects has one door in.** **Add project** offers the three ways: a new project, one from GitHub, or one found on this computer. Each project is one row with its state and **New session**; sync, other folders and groups are one fold at the end.
+- **Work has four tabs.** **Tasks** (with what waits for your yes and what is due this week, and Go live as a fold), **Plans**, **Schedules** and **Activity** (with what is running now and what was done).
+- **A computer has three tabs.** **Overview**, **Setup** (the checks, the ones to fix first) and **Advanced** (programs, ports, service and the rest). Its health is in Setup and Advanced.
+- **Settings has seven rows.** New sessions (with Hands-off, Hoprig answering a coding tool's questions for you), Notifications, Appearance, Security and sign-in (with the public link), Tia, Automations and Version and updates. Every old settings address opens its new place.
+- **Tia is one button, and her switches are in one place.** Her chat opens from the round button (the sparkle on a phone), and **Settings → Tia** opens with her on switch and her level, then closed folds.
+- **Providers shows your accounts first.** The gateway is one row, and the rule for what happens at a usage limit is one row.
+- **Smaller changes.** Page heads are one short line on a phone, and a press is at least 44 px on a touch screen.
+- **A new session starts in the project, not in a code folder inside it.** New session, the Projects page and the first chat start in the project's own folder, one row per project; a code folder has no row of its own, and **Another folder…** reaches one.
+- **Hoprig mends some things by itself, with no model.** A gateway or the public link that does not answer is restarted, a session whose tool died is reopened where it stopped with nothing sent to it, a test's left-over processes are ended, and its own old files are cleaned when the disk is over 90% full. Each leaves a line and costs no usage; **Settings → Automations → Mend problems by itself** turns it off, and everything else stays a row of **Needs you** with one button.
+- **Tia can manage Hoprig itself, by one rule.** She does by herself only what changes nothing but Hoprig's own state and can be undone with one press, and only when **Tia acts by herself** is on, in Settings, Tia; a stop, money, another computer or anything hard to undo is a card you tap.
+- **There is a list of what she never does, at any level.** Signing in or out, keys and passwords, the credentials folder, opening the computer to the internet, adding a computer, deleting work and raising her own rights stay yours, and a card is never confirmed by voice.
+- **You can speak to Tia.** The microphone beside her box (and the App's message box) uses the browser's own speech recognition, so it needs a browser that has it, such as Chrome, Edge or Safari, and an https address or this computer itself. A message you speak is sent 1.5 seconds after you stop unless you touch the box, and her answer to it is read aloud by the browser (a typed message is never read aloud); **Settings → Appearance** has the switches for reading aloud.
+
+### One conversation, one session
+
+- **App and terminal are the same conversation.** **Continue in Terminal** in a chat's menu opens it in a terminal; **Open in App** on a terminal's page brings it back; the chat record is kept, so a conversation is never open nowhere.
+- **Continue here no longer starts a second conversation.** On a terminal that was made outside Hoprig and adopted, a hand-over used to run the terminal's own first line again, which started a new conversation with the same first message. It now only takes the conversation over.
+- **A hand-over ends the terminal Hoprig made.** A plain shell left behind is not listed on Home as a conversation of its own.
+
+### The gateway, built in
+
+- **One press sets it up.** On **Providers → Add provider → Other providers**, **Set up** installs TRouteAI when it is missing, starts it, makes a key and writes the provider. `hoprig addons setup trouteai` does the same with no questions, and every failure ends in one sentence with the next step.
+- **It has a page of its own.** On **Providers** a press on the **TRouteAI** row opens a page with its state, **Open TRouteAI**, its accounts (test, turn off or on, remove, read the limits now), **Combos** and the keys Hoprig made. When a check finds a model name with no combo, **Make the combo** makes it.
+- **Its start, update, log and removal are on Health.** **Health → Gateways** has Restart, Log, Update, Remove and Password; Remove takes only Hoprig's own copy away and keeps your data.
+- **A public address, only by your press.** The **Public address** fold gives TRouteAI an address on the same link as Hoprig's, off until you turn it on, and refused while the gateway still has its first password.
+- **Hoprig keeps no key of full power.** The key for your sessions comes from the gateway's own command, and Hoprig asks the gateway for anything else only from this computer and only a program of your own user.
+- **A server set up with a root login works again.** Hoprig's move to its own user used to leave the gateway behind, and as that user its program was not found; both are mended.
+
+### A mode beyond Bypass
+
+- **Allow everything goes beyond Bypass permissions.** In Bypass permissions, in which Claude Code runs every command without asking you, Hoprig still holds a command it cannot read and a delete it cannot judge. In a session you put into **Allow everything** yourself nothing is held, and each thing leaves one quiet line. One thing still stops: a delete that Hoprig reads for certain as removing your whole home folder, workspace, projects folder or disk.
+- **It is yours alone, and off until you allow it.** It is Claude Code only, off until **Allow bypass permissions mode** is on in **Settings → New sessions**, never as root, and the first time on a computer it asks once. Tia, a schedule, Work and another computer never start a session in it.
+
+### Projects in step, credentials between your computers
+
+- **What is not in step is said on Projects.** **Not in step** lists a project whose git server has more, or that was changed on both sides, one row and one button each; **Get it** brings what the server has. When everything is in step nothing is drawn.
+- **Hoprig can bring a project up to date by itself, only where it is safe.** Every 30 minutes it looks, and a project that is only behind, with nothing changed and no session open there, is moved forward; never a merge, never a push. The switch **Move projects that are only behind in …** is on for your projects folder and off for groups of your own.
+- **Credentials move between your own computers, sealed.** **Move to another computer**, next to where the credentials folder is kept, seals the files for the other computer, shows what would change by name and size, never a value, and writes only the new ones; a file that differs waits for **Replace**. **Trust** takes only a key that the other computer's own brain shows, never one offered over the link.
+- **A computer you mark as not yours takes credentials one project at a time.** A rented server or a friend's never gets everything.
+
+### Fewer tokens
+
+- **A coding session through an API or a gateway keeps its start in the provider's cache.** The start of every request is now the same, so the provider reuses it; a subscription sign-in is untouched.
+- **The rules file of a new install is a third the size.** About 300 tokens where it was about 800, in every request of every session; a file already installed is never changed.
+- **A new chat starts with Ultracode off, and without its tool.** It no longer takes the setting of the folder's last chat, and a chat with it off is started without the Workflow tool, which saves about 6,000 tokens in every request. Hoprig adds none to a terminal session and asks no model by itself.
+
+### Safety
+
+- **Only your own page starts a session in the credentials folder.** The assistant and every other caller are refused, and **Files** refuses to copy or move a link into it.
+- **What Tia reads of a session never shows a credential value.** The screen she reads of a session, also across a line break and an indent, has its credential values hidden.
+
+### Windows and macOS
+
+- **Windows: the install line, the first run and the tests.** The line was walked on GitHub's Windows machines four ways: a new PC with scripts off, scripts allowed, an administrator window, and Git missing. The log is plain text, your own Node.js stays first on the PATH, and the sign-in sheet says a tab Claude opened itself needs no code.
+- **macOS: a chat on a branch of its own works in a Mac's temporary folder.** The folder is compared by its real place.
+- **Not tried on a real home computer.** The Windows service, winget, a restart of the service and a console window opening during a go-live command were not run on a real Windows PC, and macOS was not run by hand with the installer.
+
+### For contributors
+
+- **The installer and the first run are checked on three systems.** `pack-smoke.yml` runs the install line on Windows, macOS and arm64 Linux, and the install walk in four Linux containers; the first-run walk is run on demand.
+- **Every main page is measured.** A guard measures each main page at phone and desktop size against the rules of easy: for example at most six menu items, one badge, tabs under the head, no button repeated, and presses of 44 px.
+- **Test files that passed only on their second run are named.** With `--again` a failing file runs once more by itself; one that then passes whole is named in a block that starts "⚠ PASSED ONLY ON ITS SECOND RUN:" and is a defect to look at.
+- **Unused files are gone.** Three development scripts that nothing used and the logo sketches are removed.
 
 ## 0.3.6 (26 November 2026)
 

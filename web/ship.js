@@ -3,7 +3,6 @@
 // shows every command in full before it asks for a yes, and says after each step what happened and how to take it back.
 import { icon } from './icons.js';
 import { api, btn, fill, h, openSheet, prefs, toast } from './lib.js';
-import { registerSettingsPage } from './registry.js';
 import { emptyState, errorBox, panel, skeletonRows } from './shell.js';
 
 const CHECK = { none: 'Not checked yet', running: 'Checking…', ready: 'Ready: the check passed', failed: 'Failed: the check did not pass', mixed: 'Passed and failed' };
@@ -51,7 +50,8 @@ export function paintShip(slot) {
   let timer = null;
   const head = h('div.sp-head');
   const body = h('div.sp-body');
-  fill(slot, head, body);
+  // The limiter every check runs behind sits at the foot: drawn once, the 2.5 s look does not touch it.
+  fill(slot, head, body, limiterPage());
 
   // What the owner picks and types, kept outside paint(): the repaint while something runs (every 2.5 s) keeps it.
   const pick = { order: [], name: null };
@@ -140,12 +140,13 @@ export function paintShip(slot) {
     const caret = focusId && typeof active.selectionStart === 'number' ? [active.selectionStart, active.selectionEnd] : null;
     const tg = v.togethers;
     const ready = tg.find((t) => t.finished) || null;
+    const showPicker = !tg.some((t) => !t.finished); // the cards are numbered as they show
     fill(body,
       v.step ? stepCard(v.step) : null,
       v.last ? lastCard(v.last) : null,
-      tg.some((t) => !t.finished) ? null : picker(),
-      tg.filter((t, i) => i === 0 || !t.finished).map((t) => togetherCard(t)),
-      commandsCard(ready),
+      showPicker ? picker() : null,
+      tg.filter((t, i) => i === 0 || !t.finished).map((t) => togetherCard(t, showPicker ? 2 : 1)),
+      commandsCard(ready, (showPicker ? 1 : 0) + (tg.length ? 1 : 0) + 1),
       autoCard());
     if (moveFocus) {
       const key = moveFocus === true ? null : moveFocus;
@@ -200,7 +201,7 @@ export function paintShip(slot) {
   }
 
   // ---------- 2. a put-together: its merges, a conflict, its check ----------
-  function togetherCard(t) {
+  function togetherCard(t, number) {
     const merged = h('ol.sp-merged', t.branches.map((b) => {
       const done = t.done.includes(b);
       const meets = t.conflict && t.conflict.branch === b;
@@ -243,13 +244,13 @@ export function paintShip(slot) {
       if (ok) await call('/drop', { id: t.id }, 'Dropped', { focus: 'picker' });
     }, 'x'));
     return h('section.card.sp-card',
-      focusable(h('h2.sp-title', icon('stack', { size: 18 }), h('span', `2. Put together: ${t.name}`)), `together:${t.id}`),
+      focusable(h('h2.sp-title', icon('stack', { size: 18 }), h('span', `${number}. Put together: ${t.name}`)), `together:${t.id}`),
       h('p.hint', 'On the branch ', h('code', t.branch), `, made from ${t.base}.`),
       merged, state, drop);
   }
 
   // ---------- 3. the project's own commands: shown in full, confirmed, the tap ----------
-  function commandsCard(ready) {
+  function commandsCard(ready, number) {
     const c = v.check;
     const l = v.live;
     const confirm = (kind, hash) => press('secondary', 'I have read them: confirm', () => call('/allow', { kind, seen: hash, ...(ready ? { id: ready.id } : {}) }, 'Confirmed on this computer', { focus: `block:${kind}` }), 'check');
@@ -271,9 +272,9 @@ export function paintShip(slot) {
         l.confirmed ? null : h('p.hint', 'Your yes covers these words. They run the scripts that are in the project\'s folder at that moment: the update runs the scripts of the put-together, and so does "back" unless it checks out {before} first.'),
       ]));
     } else if (l.problem) parts.push(h('p.hint', `The go-live part of project.json cannot be used: ${l.problem}`));
-    if (!parts.length) return h('section.card.sp-card', h('h2.sp-title', icon('code', { size: 18 }), h('span', '3. Go live')), h('p.hint', 'This project has no "check" or "live" in its project.json yet. docs/GO-LIVE.md shows a whole example.'));
+    if (!parts.length) return h('section.card.sp-card', h('h2.sp-title', icon('code', { size: 18 }), h('span', `${number}. Go live`)), h('p.hint', 'This project has no "check" or "live" in its project.json yet. docs/GO-LIVE.md shows a whole example.'));
     parts.push(tapPart(ready));
-    return h('section.card.sp-card', h('h2.sp-title', icon('zap', { size: 18 }), h('span', '3. Go live')),
+    return h('section.card.sp-card', h('h2.sp-title', icon('zap', { size: 18 }), h('span', `${number}. Go live`)),
       h('p.hint', 'These commands come from the project\'s own file. They run on this computer as you, only after you confirmed exactly these. A change to any of them asks again.'),
       parts);
   }
@@ -373,7 +374,7 @@ export function paintShip(slot) {
   return { refresh: load, stop: () => { alive = false; clearTimeout(timer); } };
 }
 
-// ---------- Settings → Go live: the limiter ----------
+// ---------- The limiter, at the foot of Go live ----------
 
 /**
  * The words typed in the limiter's field → { run } (a list of words) | { error }. They are written as a list, the same
@@ -422,10 +423,10 @@ function limiterPage() {
         fill(err, e.message);
       }
     };
-    fill(box, panel({ icon: 'clock', title: 'The limiter', desc: 'A program every check runs behind, so that checks share the computer with your other heavy work. Leave it empty to run checks as they are (one at a time, at low priority).' },
+    fill(box, panel({ icon: 'clock', title: 'The limiter', desc: 'Optional, for programmers: a program every check runs behind, so that checks do not slow your other heavy work. If you are not sure, leave it empty: checks then run one at a time, at low priority.' },
       h('label.field-label', { for: 'sp-limiter' }, 'Words before each check command'),
       field,
-      h('p.hint', { id: 'sp-limiter-hint' }, 'A list of words, such as ["nice", "-n", "15"] or ["bash", "/path/to/limit.sh"]. They run without a shell.'),
+      h('p.hint', { id: 'sp-limiter-hint' }, 'The command split into words in square brackets, such as ["nice", "-n", "15"] or ["bash", "/path/to/limit.sh"]. They run without a shell.'),
       lim.run ? h('p.hint', lim.confirmed ? 'Confirmed on this computer: ' : 'Not confirmed yet (checks wait until it is): ', h('code', lim.shown)) : null,
       err,
       h('div.sp-actions', btn('primary', { label: lim.run && !lim.confirmed ? 'Look at it and confirm' : 'Save', onclick: save }))));
@@ -433,8 +434,3 @@ function limiterPage() {
   api('/api/ship/limiter').then(paint, (e) => fill(box, errorBox(`Could not load the limiter: ${e.message}`, () => fill(box, limiterPage()))));
   return box;
 }
-registerSettingsPage({
-  id: 'golive', title: 'Go live', icon: 'zap', order: 19,
-  desc: 'How the checks of Work → Go live share this computer: a limiter every check runs behind.',
-  summary: () => '', render: limiterPage,
-});

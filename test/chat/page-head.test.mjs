@@ -1,5 +1,6 @@
 // The chat page's head (web/chat/header.js), without a browser: the title bar, the session menu, Open in, the more menu.
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 import test from 'node:test';
 import { byClass, texts } from './fakedom.mjs';
 
@@ -19,7 +20,8 @@ test('the head as the desktop app\'s title bar: a session menu on the caret, the
   const titled = (n) => (n.attrs && n.attrs.title ? [n.attrs.title] : []).concat(n.children ? n.children.flatMap(titled) : []);
   const names = titled(hd.el);
   assert.ok(names.includes('Session menu'), 'the caret beside the title');
-  for (const b of ['Open in Terminal', 'Changes', 'Files', 'Desktop mode']) assert.ok(names.includes(b), b);
+  for (const b of ['Terminal (Ctrl+`)', 'Changes', 'Files', 'Home']) assert.ok(names.includes(b), b);
+  assert.ok(!names.includes('Desktop mode'), 'Desktop mode is on Home and Settings, not in the chat bar');
   assert.equal(byClass(hd.el, 'chat-histbtn').length, 0, 'the unlabelled clock is gone (Earlier conversations is in the menu)');
   assert.equal(byClass(hd.el, 'chat-caret').length, 1);
   assert.match(texts(byClass(hd.el, 'chat-folder')[0]).join(''), /^shop$/, 'the folder is said, not a menu of its own');
@@ -31,7 +33,7 @@ test('Open in names its targets as the desktop app does; the more menu has Backg
   const { openInItems, moreItems } = await import('../../web/chat/header.js');
   const v = { title: 'Fix the cart', cwd: '/w/shop', short: '~/w/shop', branch: 'main', engine: { id: 'claude' }, caps: {}, tasks: [] };
   // Inside "Open in" the terminal is "Terminal", not "Open in Terminal" a second time.
-  assert.deepEqual(openInItems(v).map((x) => x.label), ['Terminal', 'Files', 'Source control'], '"Changes" is only the diff pane');
+  assert.deepEqual(openInItems(v).map((x) => x.label), ['Continue in Terminal', 'Files', 'Source control'], '"Changes" is only the diff pane');
   assert.equal(openInItems({ ...v, terminal: { name: 'w1' } })[0].label, 'Open the terminal', 'while a terminal runs it, the entry goes there');
   const labels = (x, o) => moreItems(x, o).map((i) => i.label);
   assert.ok(!labels(v).includes('Background tasks'), 'no background work: no entry that opens an empty pane');
@@ -66,8 +68,8 @@ test('on a phone the session menu lists Terminal, Files and Changes at its first
   globalThis.location ||= { hash: '', search: '', pathname: '/' };
   const { sessionItems } = await import('../../web/chat/header.js');
   const phone = sessionItems(V, { view: 'normal', phone: true }).map((x) => x.label);
-  assert.deepEqual(phone, ['Transcript view', 'Open in Terminal', 'Files', 'Changes', 'Archive', 'Copy branch name', 'Earlier conversations', 'Rename', 'Delete', 'Select to delete', 'Trash', 'Provider'], 'a phone has no session list: its trash and Select to delete are here');
-  assert.ok(!sessionItems(V, { view: 'normal' }).some((x) => x.label === 'Open in Terminal'), 'a wide screen: under Open in');
+  assert.deepEqual(phone, ['Transcript view', 'Continue in Terminal', 'Files', 'Changes', 'Archive', 'Copy branch name', 'Earlier conversations', 'Rename', 'Delete', 'Select to delete', 'Trash', 'Provider'], 'a phone has no session list: its trash and Select to delete are here');
+  assert.ok(!sessionItems(V, { view: 'normal' }).some((x) => x.label === 'Continue in Terminal'), 'a wide screen: under Open in');
 });
 
 test('the session menu at the caret: Transcript view and Open in are submenus of it, the view now marked', async () => {
@@ -76,18 +78,18 @@ test('the session menu at the caret: Transcript view and Open in are submenus of
   const tree = sessionTree(V, { view: 'thinking', thought: true, who: 'Claude' });
   assert.deepEqual(tree.map((x) => x.label), ['Transcript view', 'Open in', 'Archive', 'Copy branch name', 'Earlier conversations', 'Rename', 'Delete']);
   assert.deepEqual(tree[0].items.map((x) => [x.label, x.checked]), [['Normal', false], ['Thinking', true], ['Verbose', false]]);
-  assert.deepEqual(tree[1].items.map((x) => x.label), ['Terminal', 'Files', 'Source control']);
+  assert.deepEqual(tree[1].items.map((x) => x.label), ['Continue in Terminal', 'Files', 'Source control']);
   assert.deepEqual(sessionTree(V, { view: null }).map((x) => x.label)[0], 'Open in', 'no view to choose: no entry');
 });
 
-test('the title bar\'s hand-off button says what it does: Open in Terminal, not a plain shell\'s "Terminal"', async () => {
+test('the title bar\'s Terminal button is the plain shell pane, as the desktop app\'s; the hand-off is in the session menu', async () => {
   globalThis.location ||= { hash: '', search: '', pathname: '/' };
   const { createHeader } = await import('../../web/chat/header.js');
   const hd = createHeader({ A: '/api/chats/x', way: null, act: {}, view: null });
   hd.paint(V);
   const term = byClass(hd.el, 'chat-tbtn')[0];
-  assert.equal(term.attrs.title, 'Open in Terminal');
-  assert.notEqual(paths(term)[0], 'M4 5h16a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1z', 'not the plain terminal icon');
+  assert.equal(term.attrs.title, 'Terminal (Ctrl+`)');
+  assert.equal(paths(term)[0], 'M4 5h16a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1z', 'the plain terminal icon');
 });
 
 test('the more button is the desktop app\'s ⋮: three dots one above the other', async () => {
@@ -247,4 +249,141 @@ test('where the session list is not drawn (600-899 px, a tablet held upright) th
   assert.ok(tablet.includes('Select to delete') && tablet.includes('Trash'), `768 px: ${tablet.join(', ')}`);
   const wide = await labels(1440);
   assert.ok(!wide.includes('Select to delete') && !wide.includes('Trash'), 'with the list beside the chat they are in its menu');
+});
+
+test('the session menu says Fork, and Open in has Continue in Terminal (the hand-off)', async () => {
+  globalThis.window = globalThis.window || { addEventListener() {} };
+  globalThis.location ||= { hash: '', search: '', pathname: '/' };
+  const { sessionItems, openInItems } = await import('../../web/chat/header.js');
+  const claude = { title: 't', cwd: '/w/a', engine: { id: 'claude', capabilities: { fork: true } } };
+  assert.ok(sessionItems(claude, {}).some((x) => x.value === 'fork' && x.label === 'Fork'));
+  assert.ok(!sessionItems(claude, {}).some((x) => x.label === 'Branch'), 'Branch clashes with git branch');
+  assert.equal(openInItems(claude)[0].label, 'Continue in Terminal');
+  assert.equal(sessionItems(claude, { phone: true }).find((x) => x.value === 'terminal').label, 'Continue in Terminal');
+});
+
+test('clicking the title edits it in place: Enter saves, Esc cancels, no sheet, no pencil', async () => {
+  globalThis.window = globalThis.window || { addEventListener() {} };
+  globalThis.location ||= { hash: '', search: '', pathname: '/' };
+  globalThis.matchMedia = () => ({ matches: false });
+  const sent = [];
+  globalThis.fetch = async (url, init) => {
+    sent.push([url, JSON.parse(init.body)]);
+    return { ok: true, status: 200, json: async () => ({}) };
+  };
+  const { createHeader } = await import('../../web/chat/header.js');
+  const hd = createHeader({ A: '/api/chats/x', way: null, act: {}, view: null });
+  hd.paint({ title: 'Fix the cart', cwd: '/w/shop', engine: { id: 'claude' }, profile: { name: 's', label: 'M' } });
+  assert.equal(byClass(hd.el, 'chat-title')[0].children[0].children.length, 1, 'the title row holds the words only: the pencil is gone');
+  const row = byClass(hd.el, 'chat-h1')[0];
+  byClass(hd.el, 'chat-title')[0].listeners.click();
+  let input = byClass(hd.el, 'chat-title-input')[0];
+  assert.ok(input, 'an input stands in the title\'s place');
+  assert.equal(input.value, 'Fix the cart');
+  assert.ok(input.attrs['aria-label']);
+  let stopped = 0;
+  input.value = 'Other name';
+  input.listeners.keydown({ key: 'Escape', preventDefault() {}, stopPropagation: () => stopped++ });
+  assert.equal(stopped, 1, 'Esc is the input\'s: it must not stop Claude');
+  assert.equal(byClass(hd.el, 'chat-title-input').length, 0);
+  assert.deepEqual(sent, [], 'Esc cancels');
+  assert.equal(row.children[0].className.includes('chat-title'), true);
+  byClass(hd.el, 'chat-title')[0].listeners.click();
+  input = byClass(hd.el, 'chat-title-input')[0];
+  input.value = '  Cart total  ';
+  input.listeners.keydown({ key: 'Enter', preventDefault() {}, stopPropagation() {} });
+  await new Promise((r) => setTimeout(r, 0));
+  assert.deepEqual(sent, [['/api/chats/x/title', { title: 'Cart total' }]]);
+  assert.equal(byClass(hd.el, 'chat-title-input').length, 0);
+});
+
+// ---- the title bar on a phone, the state word, one merged menu, pictures (round 27b) ----
+const withMedia = (matches, fn) => {
+  const prev = globalThis.matchMedia;
+  globalThis.matchMedia = (q) => ({ matches: matches(q), addEventListener() {}, removeEventListener() {} });
+  try {
+    return fn();
+  } finally {
+    if (prev) globalThis.matchMedia = prev;
+    else delete globalThis.matchMedia;
+  }
+};
+const phoneMedia = (q) => /max-width: 599px|pointer: coarse/.test(q);
+
+test('the sub line starts with the state word, coloured by its key, when the session is not Ready or Finished', async () => {
+  const { createHeader, stateMark } = await import('../../web/chat/header.js');
+  assert.equal(stateMark({ ...V, status: 'waiting', lastMessage: 'x' }), null, 'Finished: no word');
+  assert.equal(stateMark({ ...V, status: 'waiting' }), null, 'Ready: no word');
+  assert.deepEqual(stateMark({ ...V, status: 'working', turn: true }), { key: 'working', text: 'Working' });
+  assert.deepEqual(stateMark({ ...V, status: 'attention' }).text, 'Needs your OK');
+  assert.deepEqual(stateMark({ ...V, status: 'waiting', limit: { text: 'x' } }), { key: 'limit', text: 'Limit reached' });
+  assert.equal(stateMark({ ...V, status: 'waiting', endedInError: true, lastMessage: 'x' }).key, 'error', 'the two Stopped words are red');
+  const hd = createHeader({ A: '/api/chats/x', way: null, act: {}, view: null });
+  hd.paint({ ...V, status: 'working', turn: true });
+  const sub = byClass(hd.el, 'chat-title-sub')[0];
+  const word = byClass(sub, 'chat-state')[0];
+  assert.equal(word.dataset.key, 'working');
+  assert.equal(texts(word).join(''), 'Working');
+  assert.equal(texts(sub).join(''), 'Working · shop · Max', 'the word, the folder, the provider');
+  assert.equal(byClass(byClass(hd.el, 'chat-sub')[0], 'chat-state').length, 1, 'wide: the same word as a small chip before the folder');
+  hd.paint({ ...V, status: 'waiting', lastMessage: 'x' });
+  assert.equal(byClass(hd.el, 'chat-state').length, 0, 'idle: no word, no dot without a word');
+  assert.equal(texts(byClass(hd.el, 'chat-title-sub')[0]).join(''), 'shop · Max');
+});
+
+test('on a phone the list button says Sessions, and the title and the dots open one merged sheet', async () => {
+  const { createHeader, phoneGroups, moreItems, sessionItems } = await import('../../web/chat/header.js');
+  await withMedia(phoneMedia, () => {
+    let opened = 0;
+    const hd = createHeader({ A: '/api/chats/x', way: { hash: '#/', label: 'Home' }, act: {}, view: { now: () => 'normal', set() {}, thought: () => false }, side: { hidden: () => true, toggle() {} } });
+    hd.paint(V);
+    const side = byClass(hd.el, 'chat-sidebtn')[0];
+    assert.equal(side.attrs['aria-label'], 'Sessions');
+    assert.equal(side.title, 'Sessions');
+    assert.ok(byClass(side, 'icon').length === 2 || paths(side).length > 0, 'a picture');
+    assert.equal(byClass(hd.el, 'chat-morebtn')[0].attrs['aria-label'], 'Session menu', 'the dots open the same sheet as the title');
+    assert.match(byClass(hd.el, 'chat-title')[0].attrs['aria-label'], /session menu/);
+    void opened;
+  });
+  const v = { ...V, engine: { id: 'claude', capabilities: { fork: true, rewind: true, stopTask: true } }, tasks: [{ taskId: 't', status: 'running' }], handsOff: { on: false }, working: true, turn: true, lead: true };
+  const groups = phoneGroups(v, { view: 'normal' });
+  assert.deepEqual(groups.map((g) => g.title), ['Now', 'Open', 'This session', 'More']);
+  const labels = (t) => groups.find((g) => g.title === t).items.map((x) => x.label);
+  assert.ok(labels('Now').some((l) => /^Stop/.test(l)) && labels('Now').includes('Background tasks') && labels('Now').includes('Compact'));
+  assert.deepEqual(labels('Open'), ['Continue in Terminal', 'Files', 'Changes']);
+  for (const l of ['Rename', 'Provider', 'Fork', 'Earlier conversations', 'Archive', 'Delete']) assert.ok(labels('This session').includes(l), l);
+  for (const l of ['Transcript view', 'Copy branch name', 'Turn on Hands-off', 'Select to delete', 'Trash']) assert.ok(labels('More').includes(l), l);
+  // Nothing of the two old menus is lost (the rail, the list and the shortcuts are not on a phone).
+  const merged = new Set(groups.flatMap((g) => g.items.map((x) => x.value)));
+  for (const x of [...sessionItems(v, { view: 'normal', phone: true }), ...moreItems(v, { touch: true })]) assert.ok(merged.has(x.value), `${x.value} is in the sheet`);
+  assert.equal(groups.flatMap((g) => g.items).length, merged.size, 'each entry once');
+});
+
+test('on a phone the bar is three things: Sessions, the title with its sub line, the dots; the back arrow goes, the pictures are circles of 44', () => {
+  const css = fs.readFileSync(new URL('../../web/chat/chat.css', import.meta.url), 'utf8');
+  const side = fs.readFileSync(new URL('../../web/chat/sidebar.css', import.meta.url), 'utf8');
+  const phone = css.slice(css.indexOf('@media (max-width: 599px)'));
+  assert.match(phone, /\.chat-wrap\.chat-has-side \.chatback \{ display: none/, 'the back arrow goes where the list button is');
+  assert.match(phone, /\.chat-bar \.btn\.chat-sidebtn, \.chat-bar \.btn\.chat-morebtn \{[^}]*width: 44px[^}]*height: 44px[^}]*border-radius: 50%/, 'true circles of 44 by 44');
+  assert.match(css, /\.chat-bar \{[^}]*min-height: 56px/);
+  assert.match(phone, /\.chat-title-text \{[^}]*font-size: 17px[^}]*font-weight: 600/, 'the title: one line, 17 px, semibold');
+  assert.match(css, /\.chat-state\[data-key='working'\][^{]*\{[^}]*color: var\(--accent\)/);
+  assert.match(css, /\.chat-state\[data-key='attention'\] \{[^}]*var\(--warn\)/);
+  assert.match(css, /\.chat-state\[data-key='error'\][^{]*\{[^}]*var\(--danger\)/);
+  assert.match(side, /\.chat-sidebtn \.ic-list/, 'the list picture on a phone, the panel picture where the list is beside the chat');
+});
+
+test('key hints only where there is a keyboard: a touch screen has no (Ctrl+`) on Terminal and no Esc rows in the table', async () => {
+  const { createHeader } = await import('../../web/chat/header.js');
+  const K = await import('../../web/chat/keys.js');
+  const title = (hd) => byClass(hd.el, 'chat-tbtn').map((b) => b.attrs.title);
+  assert.ok(title(createHeader({ A: '/a', way: null, act: {}, view: null })).includes('Terminal (Ctrl+`)'), 'a mouse screen: the key is said');
+  withMedia(phoneMedia, () => {
+    const t = title(createHeader({ A: '/a', way: null, act: {}, view: null }));
+    assert.ok(t.includes('Terminal') && !t.some((x) => /Ctrl/.test(x)), 'touch: the word only');
+  });
+  assert.ok(K.shortcuts(false).some(([k]) => k === 'Esc'));
+  assert.ok(!K.shortcuts(false, null, false).some(([k]) => /^Esc|Shift\+Tab/.test(k)), 'touch: no Esc and no Shift+Tab rows');
+  assert.equal(K.hasKeys(), true);
+  withMedia(phoneMedia, () => assert.equal(K.hasKeys(), false));
 });

@@ -24,8 +24,9 @@ export function assertFolder(dir) {
  * hand-over of Hands-off's stops (../launchfile.mjs), only into the launcher's file. A command that is not the
  * launcher (a plain program of ours) is typed only when each of its words may be. `argv` null: a plain shell.
  * `hers`: a session the dashboard starts for Tia (../launchfile.mjs writeLaunch), only into the launcher's file.
+ * `all`: a session the owner starts in Allow everything (bypassgate.mjs), likewise.
  */
-export function startCommand({ launcher, dir, argv, mark = null, hand = null, hers = false, platform = process.platform }) {
+export function startCommand({ launcher, dir, argv, mark = null, hand = null, hers = false, all = false, platform = process.platform }) {
   if (!argv) return { argv: null, file: null };
   const ours = argv.length >= launcher.length && launcher.every((w, i) => argv[i] === w);
   const extra = mark ? [mark] : [];
@@ -34,6 +35,6 @@ export function startCommand({ launcher, dir, argv, mark = null, hand = null, he
     return { argv, file: null };
   }
   assertTypable([...launcher, LAUNCH_FLAG, launchDir(), ...extra], platform);
-  const file = writeLaunch({ cwd: dir, argv: argv.slice(launcher.length), ...(hand ? { hand } : {}), ...(hers ? { hers: true } : {}) });
+  const file = writeLaunch({ cwd: dir, argv: argv.slice(launcher.length), ...(hand ? { hand } : {}), ...(hers ? { hers: true } : {}), ...(all ? { all: true } : {}) });
   return { argv: [...launcher, LAUNCH_FLAG, file], file };
 }

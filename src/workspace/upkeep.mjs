@@ -49,13 +49,13 @@ export async function commitMap({ dir = workspaceDir(), run = capture } = {}) {
  * One round. → { skipped?: why, changed, lines: [activity lines], needs: [what needs the owner], commit?: { done,
  * why? }, pushed?: { done, why? } }
  */
-export async function upkeepMap({ dir = workspaceDir(), projects = projectsIn(), commit = false, push = false, memory = false, run = capture } = {}) {
+export async function upkeepMap({ dir = workspaceDir(), projects = projectsIn(), commit = false, push = false, memory = false, run = capture, holdOwn = false } = {}) {
   const cur = readMap(dir);
   if (!cur.exists) return { skipped: 'no map yet (hoprig workspace map makes the first one)', changed: false, lines: [], needs: [] };
   if (cur.errors) return { skipped: 'the map was refused', changed: false, lines: [], needs: [`the workspace map was refused: ${cur.errors[0]}`] };
   // The upkeep never throws: a map that cannot be written is skipped, with its reason (status shows it too).
   try {
-    return await upkeepRound({ dir, projects, commit, push, memory, run });
+    return await upkeepRound({ dir, projects, commit, push, memory, run, holdOwn });
   } catch (e) {
     // A brain (or a map file's folder) behind a link that leads out: the command that names the link is the fix.
     const fix = e.code === 'ELEAVES' && e.leaves && e.leaves.what === LEAVES ? `; if the link is yours:  ${myLinkCommand(e.leaves.path)}` : '';
@@ -63,7 +63,7 @@ export async function upkeepMap({ dir = workspaceDir(), projects = projectsIn(),
   }
 }
 
-async function upkeepRound({ dir, projects, commit, push, memory, run }) {
+async function upkeepRound({ dir, projects, commit, push, memory, run, holdOwn }) {
   const brain = path.join(dir, 'ai_brain');
   const lines = [];
   // A round of the rule that was cut off after it moved the branch: what this side's map held is united in first.
@@ -138,8 +138,10 @@ async function upkeepRound({ dir, projects, commit, push, memory, run }) {
     else if (c.failed) out.needs.push(`the updated map could not be committed in the brain: ${c.why}`);
     return out;
   }
-  if (!push) return out;
+  // Without the "push" switch only Hoprig's own map commits go up (mapkeep.mjs ownOnly): the brain is never left parted
+  // from its git server by the default switches, and nothing of the owner's own is uploaded.
   const s = await repoInfo(brain, run);
+  if (!push && (holdOwn || !s.ok || !s.upstream)) return out; // holdOwn: a caller that wants the commit kept here (tests of the rule's edges)
   if (!s.ok || !s.upstream) {
     if (out.commit) out.pushed = { done: false, why: !s.ok ? s.error : 'the brain has no upstream' };
     // Pushing is on and the brain's branch goes nowhere: said (once: the same list is not told again), never silent.
@@ -148,7 +150,7 @@ async function upkeepRound({ dir, projects, commit, push, memory, run }) {
   }
   // The map kept on the git server by itself: fetched every round, so a change another computer made arrives here too.
   // Purely ahead: uploaded. Behind, or both moved with only the map here: the rule of mapkeep.mjs.
-  const k = await keepMapInStep({ dir, projects, run });
+  const k = await keepMapInStep({ dir, projects, run, ownOnly: !push });
   lines.push(...k.lines);
   needs.push(...k.needs);
   out.pushed = k.pushed ? { done: true } : { done: false, why: k.stopped || 'nothing to upload' };

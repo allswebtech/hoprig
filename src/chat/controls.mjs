@@ -2,6 +2,8 @@
 // the chat asks of the running coding tool (context and plan usage). Where the engine cannot change a setting live
 // (its capabilities, or the request fails), the coding tool starts again with the conversation resumed once idle.
 import { setOwnName } from '../titles.mjs';
+import { sdkMode } from './engines/claude-lines.mjs';
+import { syncAllMark } from './asks.mjs';
 
 /**
  * Change `chat`'s settings: in the running process where its engine can, else at its next start. → { restart }
@@ -33,9 +35,12 @@ export async function applySettings(chat, { model, effort, ultracode, mode, lead
     if (effortChanged) chat.effort = effort;
     if (ultraChanged) chat.ultracode = ultracode;
     if (!(await tryLive(caps.liveEffort && (!ultraChanged || caps.ultracode), (s) => s.setEffort({ effort: chat.effort, ultracode: chat.ultracode })))) restart = true;
+    // A process started without the Workflow tool (chip off) cannot get it back live: it starts again with it.
+    if (ultraChanged && chat.ultracode && live() && chat.session.noWorkflow) restart = true;
   }
   if (mode !== undefined && mode !== chat.permissionMode) {
     chat.permissionMode = mode;
+    syncAllMark(chat);
     if (!(await tryLive(caps.liveMode, (s) => s.setMode(mode)))) {
       restart = true;
       // The process keeps its mode until it ends (a process started before Settings allowed bypass refuses it): the
@@ -43,8 +48,8 @@ export async function applySettings(chat, { model, effort, ultracode, mode, lead
       if (live()) chat.modeLater = mode;
     } else if (live()) {
       chat.modeLater = null;
-      chat.bypass = mode === 'bypassPermissions';
-      chat.liveMode = mode === 'manual' ? 'default' : mode;
+      chat.bypass = sdkMode(mode) === 'bypassPermissions';
+      chat.liveMode = sdkMode(mode);
       if (chat.bypass) chat.allowPending();
     }
   }

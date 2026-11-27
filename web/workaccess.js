@@ -1,4 +1,4 @@
-// Settings → Work → "Another program" (src/work/accessfeature.mjs): Work tokens a script or another product uses to add
+// Work settings (the foot of Work > Tasks) → "Another program" (src/work/accessfeature.mjs): Work tokens a script or another product uses to add
 // tasks and read their results, webhooks that tell it when such a task is done, has a result or needs you, and the
 // limits per token. Making a token or a webhook asks first (the server's question, then `confirmed: true`, as
 // gatewaydefine.js does); the token and a webhook's secret are shown once, in a sheet of their own.

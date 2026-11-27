@@ -45,8 +45,8 @@ async function machine(root, name, setupMore = '', gwPort = 1) {
   const d = { config: path.join(dir, 'config'), state: path.join(dir, 'state'), profiles: path.join(dir, 'profiles'), claude: path.join(dir, 'claude'), workspace: path.join(dir, 'workspace') };
   for (const x of Object.values(d)) fs.mkdirSync(x, { recursive: true });
   const port = await freePort();
-  // No `trouteai` on this PATH: the add-on must never start or ask the real one.
-  const env = { ...process.env, PATH: sealedPath('/usr/bin:/bin'), HOPRIG_CONFIG_DIR: d.config, HOPRIG_STATE_DIR: d.state, HOPRIG_PROFILES_DIR: d.profiles, CLAUDE_CONFIG_DIR: d.claude, HOPRIG_WORKSPACE_DIR: d.workspace };
+  // (A Mac keeps lsof in /usr/sbin, which tells whose the gateway on the port is.) No `trouteai` on this PATH: the add-on must never start or ask the real one.
+  const env = { ...process.env, PATH: sealedPath(process.platform === 'darwin' ? '/usr/bin:/bin:/usr/sbin:/sbin' : '/usr/bin:/bin'), HOPRIG_CONFIG_DIR: d.config, HOPRIG_STATE_DIR: d.state, HOPRIG_PROFILES_DIR: d.profiles, CLAUDE_CONFIG_DIR: d.claude, HOPRIG_WORKSPACE_DIR: d.workspace };
   const setup = `
     const { saveConfig } = await import(${JSON.stringify(path.join(REPO, 'src', 'config.mjs'))});
     const { writeProfile } = await import(${JSON.stringify(path.join(REPO, 'src', 'profiles.mjs'))});

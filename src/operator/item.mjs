@@ -31,6 +31,8 @@ export const ACTS = Object.freeze({
   push: { label: 'Push the branch', risk: 'others', effect: 'Sends it to the git server, where others see it.', undo: null },
   'restart-link': { label: 'Restart the public link', risk: 'low', effect: 'Away for a few seconds, then back.', undo: null },
   'restart-gateway': { label: 'Restart the gateway', risk: 'low', effect: 'Stops and starts the add-on.', undo: null },
+  reopen: { label: 'Reopen the session', risk: 'low', effect: 'Starts the same conversation again where it stopped. Nothing is sent to it.', undo: 'Close the new session.' },
+  clean: { label: 'Clean Hoprig\'s own old files', risk: 'low', effect: 'Removes only Hoprig\'s own old logs and temporary folders, never your files.', undo: null },
   'open-commit': { label: 'Open the commit', risk: 'none', effect: 'Shows what it changed.', undo: null },
   elsewhere: { label: 'Start new work elsewhere', risk: 'low', effect: 'Tia starts new work on that computer until this one has been calm for 10 minutes (2 hours at most). Nothing that runs moves.', undo: 'Its Undo under Computers ends it at once.' },
   dismiss: { label: 'Not now', risk: 'none', effect: 'Hides it until its facts change.', undo: 'It comes back by itself.' },

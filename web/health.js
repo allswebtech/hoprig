@@ -1,11 +1,11 @@
-// One computer's Health part (#/computer/health, #/m/<computer>/computer/health): its checks (the doctor's) with a Fix
-// on each line that has one, Hoprig's and the coding tools' versions, its service, where it listens, load, memory and
-// disks, and its gateways: install, start, stop, run as a service, open its page. Read when the part opens or Refresh
-// is pressed, never on a timer. Another computer's health comes through this dashboard's own link to it
+// What the doctor says about one computer, in the two places of its page that use it: the checks Setup does not list
+// itself, with a Fix on each line that has one (healthFixes, in Setup), and the service, the versions, where it
+// listens and the gateways there (healthAdvanced, in Advanced: install, start, stop, run as a service, open its page).
+// The old Health address (#/computer/health) lands on Setup. Read when the part opens or Refresh is pressed, never on a timer. Another computer's health comes through this dashboard's own link to it
 // (~/api/machines/<name>/health); one that does not answer says since when, never that it is fine.
 import { APP_NAME } from './brand.js';
 import { icon } from './icons.js';
-import { MACHINE_STATE, add, ago, api, btn, bytes, confirmSheet, fill, h, link, machine, openSheet, toast, wayLink } from './lib.js';
+import { MACHINE_STATE, add, ago, api, btn, confirmSheet, fill, h, link, machine, openSheet, promptSheet, toast, wayLink } from './lib.js';
 import { errorBox, groupHead, okBox } from './shell.js';
 import { startSetup } from './setupjob.js';
 import { busy, cmdLine } from './joinlink.js';
@@ -37,15 +37,6 @@ export function plainHost(pageHost, signedIn = []) {
 
 /** The one sentence for a computer linked without SSH: why its page cannot be opened from here, and where. */
 export const noForwardWords = (title, label, port) => `${title}'s page cannot be opened from here, because ${label} is linked to this dashboard without SSH and so this dashboard has no way to reach that page: open it in a browser on ${label} itself, at http://127.0.0.1:${port}/.`;
-
-/** "Load 0.4 of 4 processors · Memory 2.1 GB of 8 GB used · / 20 GB of 100 GB used": the figures as one line each. */
-export function figures(hl) {
-  const out = [];
-  if (hl.load && Number.isFinite(hl.load[0]) && hl.cpus) out.push(['Load', `${hl.load[0].toFixed(2)} on ${hl.cpus} processor${hl.cpus === 1 ? '' : 's'} (the last minute)`]);
-  if (hl.memory && hl.memory.total) out.push(['Memory', `${bytes(hl.memory.total - hl.memory.available)} of ${bytes(hl.memory.total)} used`]);
-  for (const d of hl.disks || []) out.push([d.mount === '/' ? 'Main disk' : `Disk ${d.mount}`, `${bytes(d.used)} of ${bytes(d.size)} used, ${bytes(d.avail)} free`]);
-  return out;
-}
 
 /** What a Fix's confirmation says: whether it needs administrator rights there, and the commands it runs. */
 export function fixText(c, computer) {
@@ -97,8 +88,20 @@ export function restartWords(st, where) {
   return `${sessions} A reply an App session is writing at that moment is cut off. This page loses ${where} for a few seconds.`;
 }
 
-export function healthSection(ctx) {
+/** The checks of the doctor that Setup does not list, the red ones, each with its Fix: `{ el, show(ids), reload() }` (ids: what Setup lists). */
+export function healthFixes(ctx) {
+  return health(ctx, 'fixes');
+}
+
+/** The service, the versions, where it listens and the gateways of a computer, for its Advanced part. */
+export function healthAdvanced(ctx) {
+  return health(ctx, 'advanced').el;
+}
+
+function health(ctx, mode) {
   const name = machine.current;
+  let last = null; // the last answer's health, for 'fixes'
+  let skip = null; // the check ids Setup lists itself; nothing is drawn before it is known
   const top = h('div', { role: 'status' }, busy('Asking for its health…'));
   const gwBox = h('div');
   // The answer to the last press stays while the list under it is drawn again.
@@ -171,18 +174,12 @@ export function healthSection(ctx) {
     load();
   }
 
-  function checks(all, line = false) {
-    // The service is shown once, at the top ("Runs as a service"), not again as a check.
-    const list = all.filter((c) => c.id !== 'service');
-    const bad = list.filter((c) => c.status === 'fail' || c.status === 'warn');
-    const fine = list.length - bad.length;
-    return [
-      groupHead('Checks', list.length),
-      bad.length ? null : okBox(`All ${list.length} checks are fine.`),
-      // A check's reason wraps: cut to one line it hid what to do (the root line at desktop width).
-      h('div.rows.check-rows', bad.map((c) => row(MARK[c.status], c.label, c.detail, fixOf(c, line)))),
-      bad.length && fine ? h('p.hint', `${fine} other check${fine === 1 ? ' is' : 's are'} fine.`) : null,
-    ];
+  // The red checks Setup does not list itself (the service is on Advanced, not a check).
+  function drawFixes() {
+    if (!last || !skip) return;
+    const bad = last.checks.filter((c) => c.id !== 'service' && !skip.has(c.id) && (c.status === 'fail' || c.status === 'warn'));
+    // A check's reason wraps: cut to one line it hid what to do (the root line at desktop width).
+    fill(top, bad.length ? h('div.rows.check-rows', bad.map((c) => row(MARK[c.status], c.label, c.detail, fixOf(c, last.line === true)))) : null);
   }
 
   async function load() {
@@ -196,6 +193,7 @@ export function healthSection(ctx) {
     }
     refresh.disabled = false;
     if (!r.reached) {
+      if (mode === 'fixes') return fill(top); // Setup says it could not check
       // The hub's label for it, also while it is off; then the hub's reason, which says what to do for a computer that is
       // too old, no longer allows this one or has another host key. "On and online" is the advice only when it is off.
       const w = unreachedWords(r, r.label || ctx.label());
@@ -205,16 +203,20 @@ export function healthSection(ctx) {
     }
     const hl = r.health;
     computerName = hl.computer || null;
+    if (mode === 'fixes') {
+      last = hl;
+      return drawFixes();
+    }
     restart.classList.toggle('hidden', !(hl.service && hl.service.status === 'ok'));
     const v = hl.versions;
+    // Load, memory and the disks are on Overview: not said a second time here.
     fill(top,
       h('p.hint', `As it said ${ago(r.seenAt)}.`),
       h('div.rows',
-        row('cpu', 'Versions', [`${APP_NAME} ${v.hoprig || '?'}`, v.claude ? `Claude Code ${v.claude}` : 'Claude Code not installed', v.opencode ? `OpenCode ${v.opencode}` : null].filter(Boolean).join(' · ')),
         row(hl.service && hl.service.status === 'ok' ? 'check' : 'alert', 'Runs as a service', hl.service ? hl.service.detail : 'unknown'),
         hl.listens ? row('lock', 'Listens on', `${hl.listens.host}:${hl.listens.port}${hl.listens.host === '127.0.0.1' ? ' (this computer only)' : ''}`) : null,
-        ...figures(hl).map(([k, val]) => row('monitor', k, val))),
-      ...checks(hl.checks, hl.line === true));
+        row('cpu', 'Versions', [`${APP_NAME} ${v.hoprig || '?'}`, v.claude ? `Claude Code ${v.claude}` : 'Claude Code not installed', v.opencode ? `OpenCode ${v.opencode}` : null].filter(Boolean).join(' · ')),
+        h('a.row', { href: link('#/providers') }, h('span.row-icon', icon('swap')), h('span.row-main', h('span.row-title', 'Gateways'), h('span.row-sub', 'Add, start and stop them on Providers; the ones on this computer are below.')), h('span.row-end', icon('chevronRight', { size: 18 })))));
     gateways();
   }
 
@@ -258,27 +260,34 @@ export function healthSection(ctx) {
   function gatewayRow(g, d, press, msg) {
     const svc = g.service;
     const state = [g.running ? 'Running' : g.installed ? 'Not running' : 'Not installed', g.port ? `port ${g.port}` : null, svc.made ? `runs as a service${svc.active === false ? ' (stopped)' : ''}` : null].filter(Boolean).join(' · ');
-    const acts = h('div.cp-gwacts');
-    if (!g.installed && !g.defined) {
-      add(acts, btn('small primary', { icon: 'download', label: 'Install', onclick: async () => {
-        if (!(await confirmSheet({ title: `Install ${g.title} on ${d.computer}?`, text: `${g.title} is installed with npm there. Its lines show here as they come.`, ok: `Install on ${d.computer}` }))) return;
-        const out = h('pre.output', { 'aria-live': 'polite' });
-        fill(msg, busy(`Installing ${g.title}…`), out);
-        try {
-          await api(`/api/addons/${g.id}/install`, { confirm: d.computer });
-          let from = 0;
-          for (;;) {
-            const j = await api(`/api/addons/${g.id}/job?from=${from}`);
-            if (j.lines.length) add(out, `${j.lines.join('\n')}\n`);
-            from = j.next;
-            if (!j.running) break;
-            await new Promise((res) => setTimeout(res, 1000));
+    const acts = h(g.manage ? 'div.cp-gwacts.many' : 'div.cp-gwacts');
+    // Which copy runs, and what is wrong with it, in plain words (the add-on's own status: copy, note, problem).
+    const copyLine = g.copy === 'own' ? `Its copy is in ${APP_NAME}'s own folder.` : g.copy === 'global' ? `It runs from the copy installed with npm on ${d.computer}. It stays in use until you press Install or Update here, which put a copy in ${APP_NAME}'s own folder and use that one instead; the copy installed with npm is left as it was.` : null;
+    // Install and Update are the add-on's own jobs (/api/addons/<id>/<action>): the lines show as they come.
+    const addonJob = async (action, title, text, ok) => {
+      if (!(await confirmSheet({ title, text, ok }))) return;
+      const out = h('pre.output', { 'aria-live': 'polite' });
+      fill(msg, busy(`${{ update: 'Updating', remove: 'Removing' }[action] || 'Installing'} ${g.title}…`), out);
+      try {
+        await api(`/api/addons/${g.id}/${action}`, { confirm: d.computer });
+        let from = 0;
+        for (;;) {
+          const j = await api(`/api/addons/${g.id}/job?from=${from}`);
+          if (j.lines.length) add(out, `${j.lines.join('\n')}\n`);
+          from = j.next;
+          if (!j.running) {
+            if (j.result && !j.result.ok) throw new Error(j.result.error || `${g.title} could not ${action}`);
+            break;
           }
-          gateways();
-        } catch (e) {
-          add(msg, errorBox(e));
+          await new Promise((res) => setTimeout(res, 1000));
         }
-      } }));
+        gateways();
+      } catch (e) {
+        add(msg, errorBox(e));
+      }
+    };
+    if (!g.installed && !g.defined) {
+      add(acts, btn('small primary', { icon: 'download', label: 'Install', onclick: () => addonJob('install', `Install ${g.title} on ${d.computer}?`, `${g.title} is installed with npm there. Its lines show here as they come.`, `Install on ${d.computer}`) }));
     }
     if (g.installed) {
       add(acts, g.running
@@ -287,8 +296,52 @@ export function healthSection(ctx) {
       if (svc.kind === 'systemd' || svc.kind === 'launchd') add(acts, btn('small secondary', { icon: 'restore', label: svc.made ? 'Remove the service' : 'Run as a service', onclick: () => service(g, d, msg) }));
       if (g.running) add(acts, btn('small ghost', { icon: 'external', label: 'Open its page', onclick: () => openPage(g, msg) }));
       if (g.firstWaiting) add(acts, btn('small secondary', { icon: 'key', label: 'Show what it printed first', onclick: () => press(`Show what ${g.title} printed first on ${d.computer}?`, 'It is shown this once, then Hoprig forgets it.', `/api/gatewayhost/${g.id}/first`, {}, () => null) }));
+      if (g.manage && g.copy === 'global') add(acts, btn('small secondary', { icon: 'download', label: 'Install here', onclick: () => addonJob('install', `Install ${g.title} in ${APP_NAME}'s own folder on ${d.computer}?`, `${g.title} is installed with npm in ${APP_NAME}'s own folder there. The copy that is installed on ${d.computer} now keeps running until you restart ${g.title}. Its lines show here as they come.`, `Install on ${d.computer}`) }));
+      if (g.manage) manageActs(g, d, msg, acts, press, addonJob);
     }
-    return h('div.row.static.cp-gwrow', h('span.row-icon', icon('swap')), h('span.row-main', h('span.row-title', g.title), h('span.row-sub', state), svc.sentence && g.installed ? h('span.row-sub', svc.sentence) : null), acts);
+    return h('div.row.static.cp-gwrow', h('span.row-icon', icon('swap')), h('span.row-main', h('span.row-title', g.title), h('span.row-sub', state), g.installed && copyLine ? h('span.row-sub', copyLine) : null, g.note ? h('span.row-sub', g.note) : null, g.restart ? h('span.row-sub', g.restart) : null, g.problem ? h('span.row-sub', g.problem) : null, svc.sentence && g.installed ? h('span.row-sub', svc.sentence) : null, g.listens && g.installed ? h('span.row-sub', g.listens) : null), acts);
+  }
+
+  /** Restart, Log, Update, Remove and the first password of the gateway Hoprig manages itself (gatewayhost.mjs). */
+  function manageActs(g, d, msg, acts, press, addonJob) {
+    add(acts, btn('small secondary', { icon: 'refresh', label: 'Restart', onclick: () => press(`Restart ${g.title} on ${d.computer}?`, 'It is stopped and started again, for a setting you changed in its own page. Sessions that use it wait a moment.', `/api/gatewayhost/${g.id}/restart`, {}, (r) => okBox(said(r, `${g.title} restarted.`))) }));
+    add(acts, btn('small secondary', { icon: 'text', label: 'Log', onclick: () => showLog(g, msg) }));
+    add(acts, btn('small secondary', { icon: 'download', label: 'Update', onclick: () => addonJob('update', `Update ${g.title} on ${d.computer}?`, `${g.copy === 'global' ? `${g.title} runs from a copy installed with npm there. The newest version is put into ${APP_NAME}'s own folder and started in its place if it runs; the npm copy is left as it was.` : `${g.title} is updated to the newest version with npm there, and started again if it runs.`} Its lines show here as they come.`, `Update on ${d.computer}`) }));
+    add(acts, btn('small secondary', { icon: 'key', label: 'Password', onclick: () => passwordSheet(g, d, msg) }));
+    // Remove is the add-on's own job (/api/addons/<id>/remove), like Install and Update: its lines, with what was kept, show as they come.
+    add(acts, btn('small ghost', { icon: 'trash', label: 'Remove', onclick: () => addonJob('remove', `Remove ${g.title} from ${d.computer}?`, `It is stopped and its copy in ${APP_NAME}'s own folder is taken away. Its data (your providers and keys) and the provider ${g.title} made are kept, so a later Set up finds them.`, `Remove from ${d.computer}`) }));
+  }
+
+  async function showLog(g, msg) {
+    fill(msg, busy('Reading the log…'));
+    try {
+      const r = await api(`/api/gatewayhost/${g.id}/log`);
+      fill(msg,
+        r.lines.length ? h('pre.output', r.lines.join('\n')) : h('p.hint', 'The log is empty: nothing has been written yet.'),
+        r.left ? h('p.hint', `${r.left} ${r.left === 1 ? 'line was' : 'lines were'} left out because they may hold a password or a key.`) : null);
+    } catch (e) {
+      fill(msg, errorBox(e));
+    }
+  }
+
+  async function passwordSheet(g, d, msg) {
+    let where;
+    try {
+      where = await api(`/api/gatewayhost/${g.id}/password`);
+    } catch (e) {
+      return fill(msg, errorBox(e));
+    }
+    const say = where.exists
+      ? `${g.title}'s first password is in the file ${where.file} on ${d.computer}. Open that file there to read it. Until its next release its own page still asks for it.`
+      : `${g.title}'s first password file (${where.file}) is not there any more: you have set your own, or it was removed.`;
+    const pw = await promptSheet({ title: `Set a new password for ${g.title}?`, text: `${say} Type a new password (at least 12 characters) to replace it; every browser signed in to ${g.title} is signed out. Hoprig does not keep it.`, ok: 'Set a new password', type: 'password', check: (v) => (v.length >= 12 && v.length <= 200 ? '' : 'At least 12 characters') });
+    if (!pw) return;
+    try {
+      const r = await api(`/api/gatewayhost/${g.id}/password`, { password: pw, confirm: d.computer });
+      fill(msg, okBox(r.line));
+    } catch (e) {
+      fill(msg, errorBox(e));
+    }
   }
 
   async function service(g, d, msg) {
@@ -322,7 +375,7 @@ export function healthSection(ctx) {
     // Its page is never shown under this dashboard's address: a plain link of its own origin, or a forward.
     if (!name) {
       const host = plainHost(location.hostname, signedIn);
-      if (local() && !host) return fill(msg, h('p.banner.info', icon('info', { size: 18 }), h('span', `You are signed in to this dashboard under both localhost and 127.0.0.1, so a link to ${g.title} would hand it your sign-in. Sign out under one of them (`, h('a', { href: link('#/settings/about?show=this-device') }, 'This device'), '), then press Open its page again.')));
+      if (local() && !host) return fill(msg, h('p.banner.info', icon('info', { size: 18 }), h('span', `You are signed in to this dashboard under both localhost and 127.0.0.1, so a link to ${g.title} would hand it your sign-in. Sign out under one of them (`, h('a', { href: link('#/settings/security?show=this-device') }, 'This device'), '), then press Open its page again.')));
       const href = `http://${host}:${g.port}/`;
       if (local()) return fill(msg, h('p.banner.info', icon('external', { size: 18 }), h('a', { href, target: '_blank', rel: 'noopener noreferrer' }, `Open ${g.title}'s page (${href})`)));
       return fill(msg, h('p.banner.info', icon('info', { size: 18 }), h('span', `${g.title}'s page is on this computer's own address only. Open it in a browser on this computer: http://127.0.0.1:${g.port}/`)));
@@ -350,5 +403,6 @@ export function healthSection(ctx) {
   }
 
   load();
-  return h('div.cp-health', h('div.savebar.start', refresh, restart), top, gwBox);
+  if (mode === 'fixes') return { el: h('div.cp-health', top, msg), show: (ids) => { skip = new Set(ids); drawFixes(); }, reload: () => load() };
+  return { el: h('div.cp-health', { id: 'service' }, h('div.savebar.start', refresh, restart), top, gwBox) };
 }

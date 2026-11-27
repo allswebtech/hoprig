@@ -61,9 +61,9 @@ test('the sheet\'s line: a branch of its own by default, the folder itself when 
   assert.equal(placeLine(p, true), 'In the project\'s folder itself, on the branch it stands on now.');
   assert.match(placeLine({ branch: null, branchWhy: 'not-git' }), /not a git repository, so there is no branch of its own/);
   // Settings' own name for the folders, and the way there.
-  assert.match(placeLine({ branch: null, branchWhy: 'outside' }), /not among the folders where sessions can start \(Settings → New-session defaults → Advanced → Folders\)\.$/);
-  assert.match(fs.readFileSync(new URL('../../web/sessiondefaults.js', import.meta.url), 'utf8'), /title: 'Folders', desc: 'Where new sessions can start\./);
-  assert.match(fs.readFileSync(new URL('../../web/sessiondefaults.js', import.meta.url), 'utf8'), /fold\('settings-new-sessions', 'Advanced', foldersPanel/);
+  assert.match(placeLine({ branch: null, branchWhy: 'outside' }), /not among the folders where sessions can start \(Settings → Security and sign-in → Folders Hoprig may open\)\.$/);
+  assert.match(fs.readFileSync(new URL('../../web/settings.js', import.meta.url), 'utf8'), /title: 'Folders Hoprig may open'/);
+  assert.match(fs.readFileSync(new URL('../../web/settings.js', import.meta.url), 'utf8'), /foldersPanel\(ctx\.settings\)/);
   // The choice is offered only with a branch to choose (the sheet sends inFolder only then).
   assert.match(src, /p\.branch \? select\('Where it works'/);
   assert.match(src, /\['folder', 'In the project\\'s folder itself'\]/);

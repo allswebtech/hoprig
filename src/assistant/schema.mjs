@@ -18,15 +18,25 @@ export class SchemaError extends Error {
 
 const join = (path, key) => (path ? `${path}.${key}` : key);
 
+/**
+ * A field's description as the model gets it: its first sentence, at most 120 characters (the model reads this once in
+ * every request, so every extra word is paid on every call). The tool's own check says the rest when a value is wrong.
+ */
+export function brief(text, max = 120) {
+  const first = String(text).split(/(?<=\.)\s/)[0];
+  return first.length > max ? `${first.slice(0, max - 1).replace(/\s+\S*$/, '')}…` : first;
+}
+
 /** A string. o: { min = 1, max, pattern (RegExp), enum, desc, oneLine } */
 export function str(o = {}) {
   const { min = 1, max = 500, pattern = null, desc = '', oneLine = false } = o;
   const json = { type: 'string' };
-  if (desc) json.description = desc;
+  if (desc) json.description = o.full ? desc : brief(desc);
   if (o.enum) json.enum = [...o.enum];
   else {
-    json.minLength = min;
-    json.maxLength = max;
+    // The defaults (1 and 500) are not said: the check above still holds them, and the model needs no hint for them.
+    if (min !== 1) json.minLength = min;
+    if (max !== 500) json.maxLength = max;
     if (pattern) json.pattern = pattern.source;
   }
   return {
@@ -50,8 +60,10 @@ export function str(o = {}) {
 /** A whole number. o: { min, max, desc } */
 export function int(o = {}) {
   const { min = 0, max = 2 ** 31 - 1, desc = '' } = o;
-  const json = { type: 'integer', minimum: min, maximum: max };
-  if (desc) json.description = desc;
+  const json = { type: 'integer' };
+  if (min !== 0) json.minimum = min;
+  if (max !== 2 ** 31 - 1) json.maximum = max;
+  if (desc) json.description = brief(desc);
   return {
     json,
     check(v, path) {
@@ -64,7 +76,7 @@ export function int(o = {}) {
 
 export function bool(o = {}) {
   const json = { type: 'boolean' };
-  if (o.desc) json.description = o.desc;
+  if (o.desc) json.description = brief(o.desc);
   return {
     json,
     check(v, path) {
@@ -77,9 +89,11 @@ export function bool(o = {}) {
 /** A list. o: { min = 0, max, unique, desc } */
 export function arr(item, o = {}) {
   const { min = 0, max = 20, unique = false, desc = '' } = o;
-  const json = { type: 'array', items: item.json, minItems: min, maxItems: max };
+  const json = { type: 'array', items: item.json };
+  if (min !== 0) json.minItems = min;
+  if (max !== 20) json.maxItems = max;
   if (unique) json.uniqueItems = true;
-  if (desc) json.description = desc;
+  if (desc) json.description = brief(desc);
   return {
     json,
     check(v, path, refs) {
@@ -95,7 +109,7 @@ export function arr(item, o = {}) {
 /** Any JSON value (checked further by the tool itself). Used only where the type depends on another field. */
 export function anyJson(o = {}) {
   const json = {};
-  if (o.desc) json.description = o.desc;
+  if (o.desc) json.description = brief(o.desc);
   return {
     json,
     check(v, path) {

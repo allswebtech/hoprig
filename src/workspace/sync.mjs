@@ -206,9 +206,12 @@ async function projectsLook(targets, at, run) {
  */
 async function syncCredentials(t, { push, dryRun, run: given, at }) {
   const cr = await import('./credrepo.mjs');
+  // A folder that is not the repository of the map (a plain folder, or another address): said once, with the way to get it.
+  if (await cr.credentialsRow({ dir: at.dir })) return { rel: t.label, did: [], todo: [{ why: 'the folder here is not the credentials repository of the map: it is set aside, never deleted, and the repository cloned (the Projects page: Get it)', command: 'hoprig workspace credentials --get', kind: 'credentials' }] };
   const run = cr.withoutHooks(given); // no hook of the owner's runs in the folder (credrepo.mjs withoutHooks)
   const why = push ? await cr.credPushWhy({ dir: at.dir, url: t.url, run }) : '';
   const r = await syncRepo(t.dir, t.label, run, { push: dryRun && push && !why, dryRun, root: t.root, at });
+  if (!dryRun) cr.ownerOnlyTree(t.dir); // what a pull brought in is closed to the other users of this computer
   const ahead = r.todo.find((x) => /^\d+ commits? to push$/.test(x.why));
   if (ahead) ahead.command = showCommand(['git', '-C', t.dir, 'push', 'origin', 'HEAD']);
   if (push && !why && !dryRun && ahead) {

@@ -52,8 +52,15 @@ const SAMPLES = {
   watch_session: { session: 'api-fix', goal: 'the tests pass' },
   finish_job: { state: 'done', report: 'The tests pass.', job: (t) => /Job (j_[0-9a-f]{10})/.exec(t)[1], before: [['watch_session', { session: 'web-ui', goal: 'the screenshots are updated' }]] },
   notify_owner: { message: 'The tests pass.' }, open_screen: { screen: 'providers' },
-  stop_session: { session: 'api-fix' }, switch_account: { session: 'api-fix', account: 'sub2' }, set_auto_mode: { enabled: true },
-  change_setting: { key: 'upload_max_mb', value: 50 }, run_command: { command: 'df -h' },
+  stop_session: { session: 'api-fix' }, switch_account: { session: 'api-fix', account: 'sub2' },
+  run_command: { command: 'df -h' },
+  // hoprig_act: one tool, an act by its name; the stand-in's mends only record themselves.
+  'hoprig_act list': { word: 'gateway' }, 'hoprig_act probe-provider': { item: 'gw1' }, 'hoprig_act restart-gateway': { item: 'gw1' }, 'hoprig_act stop-gateway': { item: 'gw1' },
+  'hoprig_act restart-hoprig': {}, 'hoprig_act reopen-session': { session: 'api-fix' }, 'hoprig_act continue-session': { session: 'api-fix' },
+  'hoprig_act hold-starts': { value: true }, 'hoprig_act clean-own-temp': {},
+  'hoprig_act change-plan': { item: 'launch-the-shop', value: { title: 'Launch the new shop' }, world: withPlan },
+  'hoprig_act undo-act': { item: (t) => /"id":"(\d+)"/.exec(t)[1], before: [['hoprig_act', { act: 'hold-starts', value: true }], ['hoprig_act', { act: 'list', word: 'undo' }]] },
+  'hoprig_act auto-order': { item: 'sub2', value: 1 }, 'hoprig_act auto-mode': { value: { enabled: true } }, 'hoprig_act change-setting': { item: 'upload_max_mb', value: 50 },
   'manage_computer add': { ssh_target: 'alex@box3' }, 'manage_computer rename': { label: 'desk two' },
   'manage_computer check_updates': {}, 'manage_computer update': { item: 'claude' },
   // OpenCode installed and off, so turning it on is a real act (the stand-in has it not installed).
@@ -111,12 +118,16 @@ const SAMPLES = {
   'manage_work drop': { task: 'renew-the-domain' }, 'manage_work remove': { task: 'renew-the-domain' },
 };
 
-const acts = () => TOOLS.flatMap((t) => (t.actions ? Object.keys(t.actions).map((a) => ({ t, act: a, key: `${t.name} ${a}` })) : [{ t, act: null, key: t.name }]));
+// Actions that only refuse in words (the never list): a refusal that names its next step, never a card.
+const REFUSES = new Set(['manage_computer add', 'manage_project drop']);
+
+const acts = () => TOOLS.flatMap((t) => (t.acts ? Object.keys(t.acts).map((a) => ({ t, act: null, name: a, key: `${t.name} ${a}` })) : t.actions ? Object.keys(t.actions).map((a) => ({ t, act: a, key: `${t.name} ${a}` })) : [{ t, act: null, key: t.name }]));
 
 function setup(change) {
   const s = baseState();
   change?.(s);
   s.assistant.level = 'handsoff';
+  s.assistant.actAlone = true; // her acts of level L1 run at once, so each one has a line in Activity to undo
   s.sessions.push({ computer: 'this', name: CHAT, kind: 'chat', chatId: CID, byTia: true, status: 'waiting', profile: { name: 'sub', label: 'Main', kind: 'subscription' }, cwd: '/home/owner/projects/api', title: 'Login fix', lastMessage: '', note: '', limit: null, sessionId: CID, statusAt: Date.now(), created: 1 });
   const ops = new FakeOps(s);
   const core = createAssistantCore({ ops, cards: new CardStore(), audit: new AuditLog({ file: null }), jobs: new JobStore({ dir: null }), skills: new Skills({ dirs: [{ dir: BUILTIN, source: 'built-in' }] }) });
@@ -133,14 +144,20 @@ test('every act of hers has a next step in the table, or a reason in NONE; the t
 
 test('every result of every tool and action names its next step, also a card and what his tap on it did', async () => {
   const seen = { ran: 0, card: 0, tapped: 0 };
-  for (const { t, act, key } of acts()) {
+  for (const { t, act, name, key } of acts()) {
     const sample = SAMPLES[key];
     assert.ok(sample, `${key}: no sample input`);
     const { core, call } = setup(sample.world);
     let last = '';
     for (const [n, a] of [...READS, ...(sample.before || [])]) last = (await call(n, a)).text;
     const input = Object.fromEntries(Object.entries(sample).filter(([k]) => k !== 'before' && k !== 'world').map(([k, v]) => [k, typeof v === 'function' ? v(last) : v]));
-    const r = await call(t.name, act ? { action: act, ...input } : input);
+    const r = await call(t.name, act ? { action: act, ...input } : name ? { act: name, ...input } : input);
+    if (REFUSES.has(key)) {
+      assert.equal(r.isError, true, `${key}: ${r.text.slice(0, 300)}`);
+      assert.ok(!r.card, `${key}: a refusal stages no card`);
+      assert.match(r.text, /\bNext: \S/, `${key}: no next step in ${JSON.stringify(r.text.slice(0, 300))}`);
+      continue;
+    }
     assert.equal(r.isError, false, `${key}: ${r.text.slice(0, 300)}`);
     if (NONE[key]) continue;
     assert.match(r.text.split('<untrusted')[0], /\bNext: \S/, `${key}: no next step in ${JSON.stringify(r.text.slice(0, 300))}`);

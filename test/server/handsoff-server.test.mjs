@@ -93,7 +93,8 @@ test('the shipped state (offered, everything off): a start, a held act, a waitin
   const after = snapshot(box.root);
   // What changed: the session's own run record (and its folder, its lock and tool-news mark beside it), nothing else:
   // no config, no Activity line, no other file.
-  const changed = changes(before, after).filter((k) => k !== runName && k !== path.dirname(runName) && !k.startsWith(`${runName}.`) && k !== path.dirname(path.dirname(runName)));
+  const changed = changes(before, after).filter((k) => k !== runName && k !== path.dirname(runName) && !k.startsWith(`${runName}.`) && k !== path.dirname(path.dirname(runName)) && !k.startsWith('state/operator'));
+  // (the Operator's own rounds, which mend with no model and no usage from the first run, keep their record in state/operator)
   assert.deepEqual(changed, [], `changed beside the run record: ${changed.join(', ')}`);
   assert.equal(fs.existsSync(path.join(box.state, 'automation.log')), false, 'no line in Activity');
   const run = readRun(file);

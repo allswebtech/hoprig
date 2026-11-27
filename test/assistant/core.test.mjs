@@ -40,8 +40,8 @@ const VALID = {
   start_chat: { folder: '/home/owner/projects/api', account: 'sub', message: 'fix the failing test' }, send_to_chat: { session: 'chat:55555555-5555-4555-8555-555555555501', text: 'run the tests' },
   watch_session: { session: 'api-fix', goal: 'tests pass' },
   finish_job: { job: 'j_0000000000', state: 'done', report: 'ok' }, notify_owner: { message: 'done' }, open_screen: { screen: 'providers' },
-  stop_session: { session: 'api-fix' }, switch_account: { session: 'api-fix', account: 'sub2' }, set_auto_mode: { enabled: true },
-  change_setting: { key: 'upload_max_mb', value: 50 }, run_command: { command: 'df -h' },
+  stop_session: { session: 'api-fix' }, switch_account: { session: 'api-fix', account: 'sub2' }, hoprig_act: { act: 'auto-mode', value: { enabled: true } },
+  run_command: { command: 'df -h' },
   manage_computer: { action: 'reboot', computer: 'box2' }, manage_project: { action: 'new', name: 'blog' },
   manage_automation: { action: 'resume' }, manage_skills: { action: 'remove', skill: 'tdd' },
   manage_work: { action: 'remove', task: 'renew-the-domain' },
@@ -535,7 +535,7 @@ test('change_setting checks the value per key; Tia\'s own settings and secrets a
   assert.match((await call('change_setting', { key: 'upload_max_mb', value: 'big' })).text, /whole number from 1 to 1024/);
   assert.match((await call('change_setting', { key: 'tia_level', value: 'handsoff' })).text, /must be one of/);
   assert.match((await call('change_setting', { key: 'password', value: 'x' })).text, /must be one of/);
-  assert.match((await call('manage_computer', { action: 'add' })).text, /needs "ssh_target"/);
+  assert.match((await call('manage_computer', { action: 'add' })).text, /owner's own press/);
   for (const key of ['new_session_permission_mode', 'notify', 'allowed_origins', 'trust_proxy', 'host']) assert.match((await call('change_setting', { key, value: 'x' })).text, /must be one of/, key);
 });
 

@@ -222,7 +222,7 @@ async function collect(res, max) {
 }
 
 /** Build the router's HTTP server. `log(line)` gets one line per routed request. */
-export function createRouter({ key = routerAddress().key, log = () => {}, version = '' } = {}) {
+export function createRouter({ key = routerAddress().key, log = () => {}, version = '', gatewayOf = gatewayOfPrerun, now: clock = Date.now } = {}) {
   const prefix = `/${key}`;
   const preran = new Set();
   const sessions = routerSessions();
@@ -249,15 +249,29 @@ export function createRouter({ key = routerAddress().key, log = () => {}, versio
   }
 
   /**
-   * Why a provider served by a gateway of the owner's own may not be passed a request now, or null: another program
-   * answers on that gateway's port (one Hoprig did not start, localgateway.mjs), and the provider's key would go to it.
-   * Its PRERUN failing says the same, but a PRERUN runs once per router life.
+   * Why a provider served by a gateway may not be passed a request now, or null: another program answers on that
+   * gateway's port, and the provider's key would go to it (localgateway.mjs judges it). A gateway of the owner's own:
+   * one Hoprig did not start. The shipped gateway: one that belongs to another user, or whose owner cannot be told; a
+   * program of the same user is the gateway, however it was started (a service, a terminal). Its PRERUN failing says
+   * the same, but a PRERUN runs once per router life.
    */
-  async function foreignGateway(profile) {
-    const g = profile.prerun ? gatewayOfPrerun(profile.prerun) : null;
-    if (!g || !g.defined || typeof g.answering !== 'function') return null;
-    const now = await g.answering();
-    return now.up && !now.mine ? `another program answers on the port of ${g.title}: Hoprig did not start it, so nothing is passed on to it` : null;
+  // The judgement of a shipped gateway can start programs (lsof, netstat): kept 30 seconds per gateway and port, by
+  // clock time. One the owner defined is judged every time; so is the look after a refused connection (fresh).
+  const judgements = new Map();
+  async function foreignGateway(profile, fresh = false) {
+    const g = profile.prerun ? gatewayOf(profile.prerun) : null;
+    if (!g || typeof g.answering !== 'function') return null;
+    const slot = g.defined ? null : `${profile.prerun}|${profile.env?.ANTHROPIC_BASE_URL || ''}`;
+    const kept = slot && !fresh ? judgements.get(slot) : null;
+    let now;
+    if (kept && clock() - kept.at < 30_000 && clock() >= kept.at) now = kept.now;
+    else {
+      now = await g.answering();
+      if (slot) judgements.set(slot, { at: clock(), now });
+    }
+    if (!(now.up && !now.mine)) return null;
+    if (now.otherUser) return `the program on the port of ${g.title} belongs to another user: Hoprig leaves it alone and sends it no key`;
+    return g.defined ? `another program answers on the port of ${g.title}: Hoprig did not start it, so nothing is passed on to it` : null;
   }
 
   function noteUsage(profile, headers) {
@@ -354,7 +368,7 @@ export function createRouter({ key = routerAddress().key, log = () => {}, versio
       let answer = foreign ? null : await send(request, req.method, abort.signal);
       if (answer?.error && answer.error.code === 'ECONNREFUSED' && profile.prerun) {
         await prerun(profile, true); // its proxy was stopped meanwhile: start it again and try once more
-        foreign = await foreignGateway(profile);
+        foreign = await foreignGateway(profile, true);
         if (!foreign) answer = await send(request, req.method, abort.signal);
       }
       if (abort.signal.aborted) return;

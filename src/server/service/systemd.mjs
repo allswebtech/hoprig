@@ -6,9 +6,11 @@ import os from 'node:os';
 import path from 'node:path';
 import { binFile } from '../../paths.mjs';
 import { APP_NAME } from '../brand.mjs';
-import { CARRIED_ENV, carried } from './env.mjs';
+import { CARRIED_ENV, carried, swapBetween } from './env.mjs';
 
 export const UNIT = `${APP_NAME}.service`;
+// Runs `hoprig keep` when systemd gives up on the dashboard (src/keeper/keep.mjs).
+export const KEEP_UNIT = `${APP_NAME}-keep.service`;
 
 export { CARRIED_ENV };
 
@@ -28,6 +30,10 @@ export function unitText({ node = process.execPath, bin = binFile(), env = proce
     `Description=${APP_NAME} dashboard (Claude Code sessions)`,
     'After=network-online.target',
     'Wants=network-online.target',
+    // 5 failed starts within 60 s is a crash loop: systemd stops trying and hands over to the keeper.
+    'StartLimitIntervalSec=60',
+    'StartLimitBurst=5',
+    `OnFailure=${KEEP_UNIT}`,
     '',
     '[Service]',
     'Type=simple',
@@ -35,7 +41,9 @@ export function unitText({ node = process.execPath, bin = binFile(), env = proce
   ];
   for (const [k, v] of carried(env, locales)) lines.push(`Environment=${envQuote(k, v)}`);
   lines.push(
-    'Restart=on-failure',
+    // Always: a clean exit that nobody asked for (a SIGTERM from outside) is started again too. A stop by the owner
+    // (`hoprig stop` = systemctl stop) stays a stop.
+    'Restart=always',
     'RestartSec=3',
     // When the dashboard is the first to use tmux, the tmux server starts inside this service. KillMode=process
     // stops only the dashboard on restart or stop, so the tmux server and every Claude session keep running.
@@ -46,6 +54,41 @@ export function unitText({ node = process.execPath, bin = binFile(), env = proce
     '',
   );
   return lines.join('\n');
+}
+
+/** The keeper's unit text: one run of `hoprig keep --failed`. Pure. */
+export function keepUnitText({ node = process.execPath, bin = binFile(), env = process.env, locales = undefined } = {}) {
+  const lines = [
+    `# Written by \`${APP_NAME} service install\`. Remove with \`${APP_NAME} service uninstall\`.`,
+    '[Unit]',
+    `Description=${APP_NAME} keeper (looks after the dashboard when systemd has given up on it)`,
+    '',
+    '[Service]',
+    'Type=oneshot',
+    `ExecStart=${sdQuote(node)} ${sdQuote(bin)} keep --failed`,
+  ];
+  for (const [k, v] of carried(env, locales)) lines.push(`Environment=${envQuote(k, v)}`);
+  lines.push('TimeoutStartSec=300', '');
+  return lines.join('\n');
+}
+
+/** The files install writes, as the product would write them now. The carried variables stay those of the files there. */
+export function files({ env = process.env, node, bin } = {}) {
+  const dir = unitDir(env);
+  const read = (f) => {
+    try {
+      return fs.readFileSync(f, 'utf8');
+    } catch {
+      return undefined;
+    }
+  };
+  const opts = { env, ...(node ? { node } : {}), ...(bin ? { bin } : {}) };
+  const main = path.join(dir, UNIT);
+  const keeper = path.join(dir, KEEP_UNIT);
+  return [
+    { file: main, text: swapBetween(read(main), unitText(opts), 'Environment=', '\nRestart=') },
+    { file: keeper, text: swapBetween(read(keeper), keepUnitText(opts), 'Environment=', '\nTimeoutStartSec=') },
+  ];
 }
 
 // `env` is the caller's: set-up passes its own (sys.env), so the systemctl and loginctl it means are the ones started.
@@ -80,6 +123,7 @@ export async function service(sub, { run = runReal, env = process.env, lingerNot
     case 'install': {
       fs.mkdirSync(unitDir(env), { recursive: true });
       fs.writeFileSync(file, unitText({ env }), { mode: 0o644 });
+      fs.writeFileSync(path.join(unitDir(env), KEEP_UNIT), keepUnitText({ env }), { mode: 0o644 });
       console.log(`Wrote ${file}`);
       for (const args of [['--user', 'daemon-reload'], ['--user', 'enable', UNIT], ['--user', 'restart', UNIT]]) {
         const r = await run('systemctl', args, env);
@@ -105,8 +149,30 @@ export async function service(sub, { run = runReal, env = process.env, lingerNot
       console.log(`The dashboard service was restarted. See it with: ${APP_NAME} service status`);
       return 0;
     }
+    case 'start':
+    case 'stop': {
+      if (!fs.existsSync(file)) {
+        console.error(`The service is not installed. Install it with: ${APP_NAME} service install`);
+        return 3;
+      }
+      // A unit the start limit has stopped is in the failed state: it is cleared first, or a start is refused.
+      if (sub === 'start') await run('systemctl', ['--user', 'reset-failed', UNIT], env);
+      const r = await run('systemctl', ['--user', sub, UNIT], env);
+      if (!r.ok) {
+        console.error(`systemctl --user ${sub} ${UNIT} failed: ${r.err}`);
+        return 1;
+      }
+      console.log(sub === 'stop' ? `The dashboard service was stopped. It stays stopped until: ${APP_NAME} service start` : 'The dashboard service was started.');
+      return 0;
+    }
+    // Hidden: the keeper has written the files again; systemd reads them.
+    case 'reload': {
+      const r = await run('systemctl', ['--user', 'daemon-reload'], env);
+      return r.ok ? 0 : 1;
+    }
     case 'uninstall': {
       await run('systemctl', ['--user', 'disable', '--now', UNIT], env);
+      fs.rmSync(path.join(unitDir(env), KEEP_UNIT), { force: true });
       try {
         fs.unlinkSync(file);
         console.log(`Removed ${file}`);
@@ -124,7 +190,7 @@ export async function service(sub, { run = runReal, env = process.env, lingerNot
       return r.ok ? 0 : 3;
     }
     default:
-      console.error(`usage: ${APP_NAME} service install | uninstall | status | restart`);
+      console.error(`usage: ${APP_NAME} service install | uninstall | status | start | stop | restart`);
       return 2;
   }
 }

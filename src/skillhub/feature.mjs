@@ -1,4 +1,4 @@
-// Settings → Skills in the dashboard, as a server feature: { name, routes, start, close }.
+// Skills in the dashboard, as a server feature: { name, routes, start, close }.
 //
 // Behind the owner's login like every /api route (or another dashboard's machine token: that is the same owner
 // looking at this computer). Tia's token is not accepted here, and every project folder must be inside the

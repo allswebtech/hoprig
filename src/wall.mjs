@@ -28,6 +28,7 @@
 
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { mayDelete, plainDelete } from './asking.mjs';
 import { pathTexts, shellWords } from './shellwords.mjs';
@@ -1937,6 +1938,73 @@ function bashHeldActs(command, cwd, git, p) {
   }
   return acts;
 }
+
+// The one thing "Allow everything" still holds (bypassgate.mjs): a removal read FOR CERTAIN as taking away a whole home
+// folder, workspace, folder of projects or the root of the disk. It reads `rm` only (sudo and the other passers are
+// stepped over; xargs and the runners feed words that are not on the line, so they are not read). Every target must be
+// told with certainty: a word with a variable, a command substitution or a brace list is skipped, a glob counts as the
+// folder it is matched in (only where that folder is written out), a relative target is read from the shell's folder
+// (`places.cwd`), followed across a plain `cd` and given up once that folder cannot be told. A line that cannot be read
+// as a whole is no hit: in that mode nothing is held that Hoprig cannot read for certain.
+// → 'home' | 'workspace' | 'projects' | 'disk' | null
+export function wipesWhole({ command, places = null } = {}) {
+  if (typeof command !== 'string' || process.platform === 'win32') return null;
+  const commands = readCommands(command);
+  if (commands === null) return null;
+  const p = places || {};
+  const home = typeof p.home === 'string' && p.home.startsWith('/') ? p.home : os.homedir();
+  const kept = [
+    ['home', [home]],
+    ['workspace', [p.workspace]],
+    ['projects', Array.isArray(p.projects) ? p.projects : []],
+  ].map(([kind, list]) => [kind, list.filter((d) => typeof d === 'string' && d.startsWith('/')).flatMap((d) => [d, realOrSelf(d)]).map((d) => path.posix.normalize(d).replace(/(.)\/+$/, '$1'))]);
+  const holds = (target) => {
+    const ts = [target, realOrSelf(target)];
+    if (ts.includes('/')) return 'disk';
+    for (const [kind, ds] of kept) if (ds.some((d) => ts.some((t) => inFolder(d, t)))) return kind;
+    return null;
+  };
+  let folder = typeof p.cwd === 'string' && p.cwd.startsWith('/') ? path.posix.normalize(p.cwd) : null;
+  for (const [j, cmd] of commands.entries()) {
+    const part = commands.line.slice(...commands.spans[j]).trim();
+    if (!part || cmd.every((t) => t.redirect)) continue;
+    const info = headOf(cmd);
+    const words = shellWords(part, { home }).filter((w) => w.value !== '' || w.unsure);
+    if (info.head === 'rm' && !info.fed && !info.runner) {
+      const at = words.findIndex((w) => !w.unsure && path.posix.basename(w.value) === 'rm');
+      let ending = false;
+      for (const w of at < 0 ? [] : words.slice(at + 1)) {
+        if (!ending && w.value === '--' && !w.unsure) {
+          ending = true;
+          continue;
+        }
+        if (!ending && w.value.startsWith('-') && !w.unsure) continue;
+        if (w.unsure) continue;
+        let t = w.value;
+        if (w.glob) {
+          if (typeof w.fixed !== 'string' || (w.fixed !== '' && !w.fixed.endsWith('/'))) continue;
+          t = w.fixed || '.';
+        }
+        if (!t.startsWith('/')) {
+          if (folder === null) continue;
+          t = path.posix.resolve(folder, t);
+        }
+        const hit = holds(path.posix.normalize(t).replace(/(.)\/+$/, '$1'));
+        if (hit) return hit;
+      }
+    }
+    if (info.head === 'cd' && !info.chdir) {
+      const w = words.length === 2 ? words[1] : null;
+      const ok = w && !w.unsure && !w.glob && !w.value.startsWith('-') && (w.value.startsWith('/') || folder !== null);
+      folder = ok ? path.posix.resolve(folder === null ? '/' : folder, w.value) : null;
+    } else folder = movedTo(folder, cmd, part);
+  }
+  return null;
+}
+
+// What each hit of wipesWhole is called, and the line a card says when it still shows in "Allow everything".
+export const FLOOR_WORDS = Object.freeze({ home: 'home folder', workspace: 'workspace', projects: 'projects folder', disk: 'disk' });
+export const floorLine = (kind) => `Held even in Allow everything: this would delete your whole ${FLOOR_WORDS[kind]}, which cannot be undone.`;
 
 // A push or merge Hoprig cannot place gets the shown part expanded (shownPart); other kinds show the command as it is.
 function shownPart(id, bare, command) {

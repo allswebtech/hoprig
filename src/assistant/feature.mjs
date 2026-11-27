@@ -6,7 +6,7 @@
 //     POST /api/assistant/call                 { tool, args } → { text, isError }   (403 { code: "tia-off" } when off)
 //   the owner's login (cookie) only — bearer tokens never reach them (machines gate + not trusted here)
 //     GET  /api/assistant                      overview: on/off, ready or what to do, conversations, cards, jobs
-//     POST /api/assistant/chat                 { conversation?, text, choice? } → { conversation }   (the turn runs after;
+//     POST /api/assistant/chat                 { conversation?, text, choice?, spoken? } → { conversation }   (the turn runs after;
 //                                              choice: the choice card whose own box the text was written in)
 //     GET  /api/assistant/chat/<id>?from=N     { events, next, busy }   events since N (the page polls / streams)
 //     GET  /api/assistant/stream?conversation=<id>&from=N   the same as Server-Sent Events
@@ -37,6 +37,7 @@ import { createOps, runShell as realRunShell } from './ops.mjs';
 import { tiaPrompt } from './accepted.mjs';
 import { loadMachines } from '../machines/store.mjs';
 import { ASSISTANT_NAME, DEFAULTS as TIA_DEFAULTS, HELP, LEVELS, cleanTiaPatch, resolveTia, savedTiaChoice, servesTool, tiaChoices } from './tia.mjs';
+import { KEY_NOTE, maskInput } from './secrets.mjs';
 import { keepSample } from '../work/tellwire.mjs';
 import { readUsage, recordUsage, summarizeUsage, turnUsage, usageFile } from './usage.mjs';
 import { progressAnswer } from './answercheck.mjs';
@@ -278,7 +279,7 @@ export function assistantFeature(ctx, o = {}) {
   }
 
   /** One turn of conversation `c`: the owner's message or a job wake-up. Queued: turns of one conversation never overlap. */
-  function turn(c, text, { origin = 'owner', job = null, mode = null } = {}) {
+  function turn(c, text, { origin = 'owner', job = null, mode = null, spoken = false } = {}) {
     const run = async () => {
       // A wake-up queued behind a turn in which she already finished (or the owner stopped) the job: nothing to do.
       if (origin === 'job' && job && !['working', 'waiting'].includes(core.jobs.get(job)?.state)) return;
@@ -338,7 +339,7 @@ export function assistantFeature(ctx, o = {}) {
       }
       // A paid turn may spend at most what is left of today's daily limit for paid use (the coding tool stops it there); else her usual budget.
       c.engine.o.maxBudgetUsd = ready.paid ? Math.max(0.01, Math.min(spend.left(ready.cap, hold), o.maxBudgetUsd || Infinity)) : o.maxBudgetUsd || null;
-      core.beginTurn(c.id, origin === 'job' ? { origin: 'job', job, mode } : { origin: 'owner', text });
+      core.beginTurn(c.id, origin === 'job' ? { origin: 'job', job, mode } : { origin: 'owner', text, spoken });
       c.turn = { texts: [], results: [], progress: null };
       try {
         const r = await c.engine.send(message);
@@ -469,6 +470,9 @@ export function assistantFeature(ctx, o = {}) {
         if (typeof text !== 'string') text = (c0.events.filter((e) => e.i < n.i && e.kind === 'owner').at(-1) || {}).text;
         if (typeof text !== 'string' || !text.trim()) throw new HttpError(404, 'the message of that notice is not kept any more');
       }
+      // A key in his message goes no further: not to the engine, not into the conversation, not into the title. She says so once.
+      const kept = maskInput(text);
+      text = kept.text;
       const c = conv(b.conversation || null);
       if (!c.title) c.title = text.trim().replace(/\s+/g, ' ').slice(0, 80);
       // An answer from a choice card's own box names that card, so the card says "You answered" after a reload and on
@@ -476,6 +480,7 @@ export function assistantFeature(ctx, o = {}) {
       const asked = b.choice ? core.views.get(b.choice) : null;
       const choice = asked && asked.conversation === c.id && asked.card.kind === 'choice' ? b.choice : null;
       push(c, { kind: 'owner', text, ...(choice ? { choice } : {}) });
+      if (kept.found) push(c, { kind: 'notice', text: KEY_NOTE });
       try {
         keepSample(ctx.config(), text); // his language, for "Tia writes my digest" (only while that is on)
       } catch {
@@ -484,7 +489,8 @@ export function assistantFeature(ctx, o = {}) {
       // The computer the owner is looking at counts as shown to Tia: the page said it, not a screen or a file.
       const cc = b.context && typeof b.context.computer === 'string' && /^[a-z0-9][a-z0-9_-]{0,31}$/.test(b.context.computer) ? b.context.computer : null;
       if (cc) core.shown.add(c.id, { computer: [cc] });
-      turn(c, `${contextLine(b.context)}${text}`);
+      // The page marks a message the owner spoke (spoken: true): the server only raises levels from it, never lowers one.
+      turn(c, `${contextLine(b.context)}${text}`, { spoken: b.spoken === true });
       return { conversation: c.id };
     }],
     ['GET', /^\/api\/assistant\/chat\/([A-Za-z0-9_-]{1,64})$/, async (req, m, q) => {
@@ -512,6 +518,8 @@ export function assistantFeature(ctx, o = {}) {
       if (values !== null && (typeof values !== 'object' || Array.isArray(values) || Object.keys(values).length > 4
         || Object.values(values).some((v) => !(typeof v === 'string' && v.length <= 500) && !(typeof v === 'number' && Number.isFinite(v))))) throw new HttpError(400, 'values: up to four fields of the card, each a short text or a number');
       if (values && m[2] !== 'confirm') throw new HttpError(400, 'values go with confirm');
+      // A card is confirmed by a tap on the screen: the page marks a confirm that came by voice (spoken: true), and it is refused.
+      if (m[2] === 'confirm' && b.spoken === true) throw Object.assign(new HttpError(403, 'a card is confirmed by a tap on the screen, never by voice'), { details: { code: 'spoken' } });
       const before = m[2] === 'reject' ? core.cards.get(m[1]) : null;
       const r = m[2] === 'confirm' ? await core.confirm(m[1], values) : core.reject(m[1]);
       if (r.code === 'refused') throw new HttpError(400, r.error);

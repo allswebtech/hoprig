@@ -3,12 +3,12 @@
 // where a browser is at hand on this computer. The chat starts as the last chat in that folder ran
 // (src/chat/folders.mjs), its coding tool too; `--tool <id>` chooses one (a tool the dashboard offers for a chat, such
 // as opencode). `hoprig` alone stays Claude Code in the terminal.
-import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { notOffered } from '../codetools/index.mjs';
 import { isOffered } from '../codetools/offered.mjs';
 import { linkBase } from '../machines/cli.mjs';
+import { openBrowser } from '../openbrowser.mjs';
 import { dashboardAddress } from '../machines/pairing.mjs';
 import { runningDashboard } from '../server/dashboardfile.mjs';
 
@@ -22,18 +22,6 @@ export function browserAtHand(env = process.env, platform = process.platform, tt
   if (!tty || env.SSH_CONNECTION || env.SSH_TTY) return false; // over ssh the browser would open on the far screen
   if (platform === 'darwin' || platform === 'win32') return true;
   return !!(env.DISPLAY || env.WAYLAND_DISPLAY);
-}
-
-// Windows: rundll32 hands the address to the default browser as one argument; "cmd /c start" would split it at &
-// and Node's quoting of an empty title does not survive cmd. Not run on Windows here.
-function openBrowser(url) {
-  const [cmd, args] = process.platform === 'darwin' ? ['open', [url]] : process.platform === 'win32' ? ['rundll32', ['url.dll,FileProtocolHandler', url]] : ['xdg-open', [url]];
-  try {
-    spawn(cmd, args, { stdio: 'ignore', detached: true }).unref();
-    return true;
-  } catch {
-    return false; // no opener: the address is printed
-  }
 }
 
 /**

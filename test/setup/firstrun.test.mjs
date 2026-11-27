@@ -96,7 +96,7 @@ test('--dry-run: every part told so, nothing created', async () => {
   const log = [];
   const { ui: u, rec } = ui({ dryRun: true });
   await FR.runParts(u, { yes: false, dryRun: true }, { parts: fakes(log) });
-  assert.deepEqual(log, [['pc', { yes: false, dryRun: true, rules: null }], ['userSkills', { yes: false, dryRun: true }]]);
+  assert.deepEqual(log, [['pc', { yes: false, dryRun: true, rules: false }], ['userSkills', { yes: false, dryRun: true }]]);
   assert.match(rec.text, /\(dry run\) would ask for a project/);
   assert.equal(fs.existsSync(PROJECTS), false);
 });

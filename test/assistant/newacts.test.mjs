@@ -110,8 +110,8 @@ test('the door takes these routes only with the fields her tools send', () => {
   no('POST', '/api/sessions/api-fix/continue', { restart: true }); // a restart in place is the page's own button
 });
 
-test('still 25 tools: the new acts are actions of tools she had', () => {
-  assert.equal(TOOLS.length, 25);
+test('still 24 tools: the new acts are actions of tools she had', () => {
+  assert.equal(TOOLS.length, 24);
   const props = (n) => Object.keys(TOOLS.find((t) => t.name === n).input.json.properties);
   for (const k of ['name', 'close', 'terminal']) assert.ok(props('send_to_chat').includes(k), k);
   for (const k of ['continue', 'to_chat']) assert.ok(props('send_to_session').includes(k), k);

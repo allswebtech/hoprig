@@ -52,26 +52,12 @@ export function sinceParts(text) {
 
 /** The part: draws into `box`; returns { load(look) } for the page's own redraw. */
 export function roomsPart(box, { onread = () => {} } = {}) {
+  // The switch "Look at my other computers too" is Tia's: it sits in Settings -> Tia (lookOthersSwitch).
   const list = h('ul.op-rooms');
   const held = h('div.op-rooms-held');
-  let lookOthers = false;
   let drawn = null;
   const refresh = btn('secondary small', { icon: 'refresh', label: 'Refresh', onclick: () => load(true).then(() => { onread(); toast('Read again'); }) });
-  const sw = toggle(LOOK_SENTENCE, false, async (v) => {
-    try {
-      const r = await api(`${A}/settings`, { lookOthers: v });
-      lookOthers = r.lookOthers === true;
-      return true;
-    } catch (e) {
-      toast(e.message, { kind: 'error', ms: 6000 });
-      sw.querySelector('input').checked = !v;
-      return false;
-    }
-  }, machine.current ? 'Change this on that computer\'s own dashboard.' : LOOK_HINT);
-  const input = sw.querySelector('input');
-  input.setAttribute('aria-label', LOOK_SENTENCE);
-  if (machine.current) input.disabled = true;
-  fill(box, h('div.op-rooms-head', h('h2.op-h', 'Computers'), refresh), held, list, sw);
+  fill(box, h('div.op-rooms-head', h('h2.op-h', 'Computers'), refresh), held, list);
   // "Start new work on <name> until this computer is calm": what stands, since when, and its Undo.
   const drawHeld = (e) => fill(held, e ? h('p.op-hold', { role: 'status' },
     h('span', heldWords(e)),
@@ -95,13 +81,35 @@ export function roomsPart(box, { onread = () => {} } = {}) {
       if (e.status === 404) return fill(box, h('h2.op-h', 'Computers'), h('p.hint', 'This computer runs an older version without the rooms of its computers.'));
       return fill(list, h('li.hint', e.message));
     }
-    lookOthers = r.lookOthers === true;
     drawHeld(r.elsewhere || null);
-    if (document.activeElement !== input) input.checked = lookOthers;
     const key = JSON.stringify(r.computers.map((c) => [c.name, c.room, c.why, c.load1, c.memFreePct, c.reached, c.seenAt]));
     if (key === drawn) return;
     drawn = key;
     fill(list, r.computers.length ? r.computers.map(line) : h('li.hint', 'Only this computer: add another under Computers.'));
   }
   return { load };
+}
+
+/** Settings -> Tia: "Look at my other computers too", the owner's switch, read from and written to the same place as before. */
+export async function lookOthersSwitch(box) {
+  let on = false;
+  try {
+    on = (await api(A)).lookOthers === true;
+  } catch {
+    return fill(box); // an older computer: no such switch
+  }
+  const sw = toggle(LOOK_SENTENCE, on, async (v) => {
+    try {
+      await api(`${A}/settings`, { lookOthers: v });
+      return true;
+    } catch (e) {
+      toast(e.message, { kind: 'error', ms: 6000 });
+      sw.querySelector('input').checked = !v;
+      return false;
+    }
+  }, machine.current ? 'Change this on that computer\'s own dashboard.' : LOOK_HINT);
+  const input = sw.querySelector('input');
+  input.setAttribute('aria-label', LOOK_SENTENCE);
+  if (machine.current) input.disabled = true;
+  fill(box, sw);
 }

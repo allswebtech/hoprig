@@ -9,6 +9,8 @@
 //                                             terminal runs it already → { name, existing: true } (the chat stays)
 import crypto from 'node:crypto';
 import { assertServes, readProfile } from '../profiles.mjs';
+import { isMarkedAll } from '../allmark.mjs';
+import { ALL, BYPASS, allAllowed, bypassAllowed, bypassInArgs, runsAsRoot } from '../bypassgate.mjs';
 import { handsOffOffered } from '../handsoff.mjs';
 import { listRuns, runsConversation, stillRuns } from '../runs.mjs';
 import { toolFlags } from '../codetools/start.mjs';
@@ -95,29 +97,38 @@ export function handoffRoutes(ctx, o) {
   const { chats, make, save, chatOr404, memory, models, openChatOf, freeId, terminalOf, claim, serial, forget, auto, handedTo = () => {} } = o;
   const bad = (msg) => new HttpError(400, msg);
   const cfg = () => ctx.config();
-  // The chats closed by "Open in terminal", with their titles (handed.mjs: kept over a restart of the dashboard).
+  const asRoot = ctx.root !== undefined ? ctx.root === true : runsAsRoot(); // as feature.mjs: no bypass as root
+  // The chats closed by "Continue in Terminal", with their titles (handed.mjs: kept over a restart of the dashboard).
   const handed = handedChats(o.handedFile || null);
   const titleOf = (conversation, tool) => handed.titleOf(conversation, tool);
-  // One "Open in terminal" start per conversation: `${tool}:${conversation}` → the promise of the terminal name it is
+  // One "Continue in Terminal" start per conversation: `${tool}:${conversation}` → the promise of the terminal name it is
   // opening in. A second request for the same conversation (a double tap, two tabs) waits for that one and opens in
   // the same terminal, never a second process and never a 404 in the window before the new terminal's record is seen.
   const openingTerminal = new Map();
-  /** Continue here: the terminal that runs chat `c`'s conversation stops (it stays, as a plain shell); the chat goes on. */
+  /** Continue here: the terminal that runs chat `c`'s conversation stops (ended, or left a plain shell); the chat goes on. */
   async function take(c) {
     const tool = c.engine.id;
     const term = await terminalOf(c.conversationId, tool);
     if (!term) return { ok: true };
     let takeBack = () => {};
+    let left = null; // the session kept as a plain shell
     if (term.termId) {
-      // The terminal stays, as a plain shell: the coding tool stops in it, the conversation goes on here. (`-e 0`: a
-      // program that ends at once, with no empty word on the typed line.)
+      // The coding tool stops there, the conversation goes on here. A terminal that stays is started anew as a plain
+      // shell (`-e 0`: a program that ends at once, with no empty word on the typed line).
       // Its launcher holds the conversation until its coding tool has saved and ended: waited for, as in a move.
       const hold = term.run && v.pid(term.run.pid) ? term.run.pid : null;
       // Written down first, so a restore after a restart at any moment from now does not reopen this terminal on the
       // conversation (src/automation/taken.mjs); taken back when the terminal could not be stopped.
       takeBack = noteTaken({ tool, conversation: c.conversationId, runId: term.run && term.run.runId });
       try {
-        await ctx.deck.respawn(term.termId, term.cwd || c.cwd, [process.execPath, '-e', '0'], { hold });
+        // A terminal the dashboard made for it, with one pane, ends: a plain shell left there was only a second card.
+        // One made outside the dashboard (adopted), or with more panes, keeps its shell; the page does not list that
+        // shell while it stays one (deck.mjs markShellLeft).
+        if (term.name && (await ctx.deck.madeAlone?.(term.name))) await ctx.deck.end(term.name, { hold });
+        else {
+          await ctx.deck.respawn(term.termId, term.cwd || c.cwd, [process.execPath, '-e', '0'], { hold });
+          left = term.name;
+        }
       } catch (e) {
         takeBack();
         throw e;
@@ -137,6 +148,8 @@ export function handoffRoutes(ctx, o) {
       takeBack(); // it still runs the conversation: a restore may bring it back as before
       throw new HttpError(409, `the terminal did not stop; stop ${tool === 'claude' ? 'Claude' : c.engine.label} there and try again`);
     }
+    // Marked only now that its old run is gone: a coding tool seen there from here on runs there again.
+    if (left) await ctx.deck.markShellLeft?.(left).catch(() => {});
     // The conversation ran in that terminal, where the owner may have written in it: not Tia's chat any more.
     if (c.dropMark()) save();
     // It started again here, outside the dashboard's own move, so its Hands-off state was not carried: it is the
@@ -189,7 +202,15 @@ export function handoffRoutes(ctx, o) {
       // Another tool's model: one the provider lists, or (its list not known yet) a well-formed model id.
       const toolModel = [flag('--model'), last.model].find((x) => typeof x === 'string' && modelOk(tool, x, ch)) || null;
       // OpenCode's terminal words for its modes: "ask" is the chat's "manual".
-      const mode = tool === 'claude' ? one('--permission-mode', 'permissionMode', ch.modes) : modeFor(tool, flag('--permission-mode') === 'ask' ? 'manual' : flag('--permission-mode')) || modeFor(tool, last.permissionMode);
+      // A terminal started in bypass (either spelling) goes on in it, while this dashboard allows it; else as before.
+      // Allow everything goes over a hand-over only by the rules of the mode (his own session, the switch on, the mode
+      // accepted, not hers); a terminal started in it carries the dashboard's mark. Else it comes out in Bypass permissions.
+      const runHers = !!(run.runId && isMarkedHers(path.join(runsDir(), `${path.basename(String(run.runId))}.json`)));
+      const keepAll = tool === 'claude' && !runHers && !!run.runId && isMarkedAll(path.join(runsDir(), `${path.basename(String(run.runId))}.json`)) && allAllowed(cfg(), asRoot);
+      const chosen = tool === 'claude' ? one('--permission-mode', 'permissionMode', ch.modes) : null;
+      const mode = keepAll ? ALL
+        : tool === 'claude' && bypassInArgs(args) && bypassAllowed(cfg(), asRoot) ? BYPASS
+        : tool === 'claude' ? (chosen === ALL ? BYPASS : chosen) : modeFor(tool, flag('--permission-mode') === 'ask' ? 'manual' : flag('--permission-mode')) || modeFor(tool, last.permissionMode);
       const id = tool === 'claude' ? freeId(run.sessionId) : crypto.randomUUID();
       make({
         id, ...(id !== run.sessionId ? { conversationId: run.sessionId } : {}), engine: tool, cwd: run.cwd, profile: run.profile,
@@ -248,29 +269,27 @@ export function handoffRoutes(ctx, o) {
         // The terminal's flags first: a choice it refuses leaves the chat as it is.
         // OpenCode's terminal has fewer modes: it asks (for edits too) unless the chat allowed everything.
         const flags = tool === 'claude' ? [
-          ...(c.permissionMode ? ['--permission-mode', c.permissionMode] : []),
+          ...(c.permissionMode ? ['--permission-mode', c.permissionMode === ALL ? BYPASS : c.permissionMode] : []),
           ...(c.effort ? ['--effort', c.effort] : []),
           ...(c.model ? ['--model', c.model] : []),
         ] : toolFlags(tool, { permissionMode: c.permissionMode === 'bypassPermissions' ? 'bypassPermissions' : 'ask', effort: c.effort, model: c.model });
         // Read before the chat closes: a chat of hers (her own start, a terminal of hers shown as a chat) stays hers.
         const wasHers = c.byTia === true || c.hers === true || !!c.restoredMark;
-        chats.delete(c.id);
-        handed.set(c.id, { conversation, tool, title: c.title || null, named: c.named === true });
-        await c.close();
-        // Its page learns the outcome only now (live.mjs): gone once the terminal runs, kept when it did not start.
+        // Only the chat's process ends; its record (title, settings) stays among the open chats. The terminal then runs
+        // the conversation and the chat reads along; when the terminal does not (an untrusted folder, a start that
+        // failed, a terminal that ends), the same chat is the conversation's place again, so it is never open nowhere.
+        await c.stopAndWait();
         let name;
         try {
           // The conversation starts again in a terminal, outside the dashboard's own move: its Hands-off state is not
           // carried, so the new run starts with its answers stopped (a reset hand); the owner turns it on there.
           // A chat of Tia's goes on in the terminal as hers (the mark, her sign-in), whoever pressed.
-          name = await ctx.deck.start({ ...(tool === 'claude' ? {} : { tool }), dir: c.cwd, profile, mode: 'resume', sessionId: conversation, flags, resetHandsOff: true, hers: wasHers });
+          name = await ctx.deck.start({ ...(tool === 'claude' ? {} : { tool }), dir: c.cwd, profile, mode: 'resume', sessionId: conversation, flags, resetHandsOff: true, hers: wasHers, all: !wasHers && tool === 'claude' && c.permissionMode === ALL && allAllowed(cfg(), asRoot) });
         } catch (e) {
-          make(c.record()); // the terminal did not start: the chat stays open
-          c.emit('kept');
+          c.emit('kept'); // its page looks again: the chat is as it was
           throw e;
         }
         handedTo(c.id, name); // its page can open that terminal
-        c.emit('gone');
         return { name };
       }, { tool, self: c.id });
       if (r.terminal) { const t = there(r.terminal); settle.res(t.name); return t; }

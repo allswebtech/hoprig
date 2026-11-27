@@ -3,7 +3,7 @@
 // test/assistant/inventory.test.mjs builds the code's list from the code and holds the two together, so a new command
 // or route cannot come without a row that says whether it is hers, and a row cannot outlive its act.
 //
-// A row: { act, kind: "command" | "route" | "skill", hers: [{ tool, action?, level, risk, card }] } (a command that is
+// A row: { act, kind: "command" | "route" | "skill" | "act" (a step of a tool with no route: a mend, a note), hers: [{ tool, action?, level, risk, card }] } (a command that is
 // only partly hers also has `not` and `why` for the rest), or
 // { act, kind, not: <group>, why: "one sentence" }, or { act, kind, same: "<tool> <action>", why } for an act she does
 // by another route of the same effect. `level` is the tool's (or action's) usual level, "by-argument" where the code
@@ -33,6 +33,61 @@ export const GROUPS = Object.freeze({
 });
 
 export const LEVELS = ['L0', 'L1', 'L2', 'by-argument'];
+
+// THE RULE (one function, levelFor): every row carries six facts and the class of NEVER it falls in, or none.
+//   reads   the act only reads
+//   own     it changes only Hoprig's own state on this computer
+//   undo    one press takes it back (true), or it only puts back a state the owner set himself, or only makes again what
+//           Hoprig makes ("remake": nothing to take back)
+//   spends  it uses an account's usage, or money
+//   seen    others can see it, or it leaves the computer
+//   other   it acts on another computer
+//   never   one of NEVER_CLASSES, or "none"
+export const NEVER_CLASSES = Object.freeze({
+  'sign-in': 'sign in or out of an account, add or remove a provider that has a key, tokens, passwords, keys',
+  credentials: 'the credentials folder and any secretPaths entry: read, list, copy, or start a session in it',
+  'open-out': 'open the computer to the internet: the public link on, a forward, sharing a gateway',
+  pair: 'add, link, remove or pair a computer, trust a host key',
+  'delete-work': 'delete a project, a repository, a branch or files outside a session folder; reset, rebase or force a git tree',
+  'her-rights': 'her own rights and every ask she may not lower: her level, cap, providers, administrator rights, the Mend by itself and Tia switches, permission mode, bypass, Hands off, updates that install by themselves; confirming a card',
+});
+export const FACT_KEYS = ['reads', 'own', 'undo', 'spends', 'seen', 'other'];
+export const RANK = { L0: 0, L1: 1, L2: 2, N: 3 };
+
+/** What is wrong with a row's facts: [] when it carries all six and a known never. */
+export function factProblems(f) {
+  if (!f || typeof f !== 'object') return ['no facts'];
+  const out = [];
+  for (const k of FACT_KEYS) {
+    if (!(k in f)) out.push(`the fact "${k}" is missing`);
+    else if (k === 'undo' ? ![true, false, 'remake'].includes(f[k]) : typeof f[k] !== 'boolean') out.push(`the fact "${k}" is ${k === 'undo' ? 'true, false or "remake"' : 'true or false'}`);
+  }
+  if (!('never' in f)) out.push('the fact "never" is missing (a class of NEVER, or "none")');
+  else if (f.never !== 'none' && !NEVER_CLASSES[f.never]) out.push(`never "${f.never}" is not one of ${['none', ...Object.keys(NEVER_CLASSES)].join(', ')}`);
+  return out;
+}
+
+/**
+ * The level of an act from its facts. N: the owner's own hand only (no tool, no card, refused at the door). L0: free.
+ * L1: she does it alone when the owner switched that on, else it is a card. L2: one card, one tap. The server runs it
+ * again on the facts of each call, which it looks up itself: arguments raise a level, never lower it (raiseFacts).
+ * `spoken`: the owner spoke the message, so an L1 act that does not put back one press is L2.
+ */
+export function levelFor(f, { spoken = false } = {}) {
+  if (f.never && f.never !== 'none') return 'N';
+  if (f.reads === true && f.own !== true && !f.spends && !f.seen && !f.other) return 'L0';
+  if (f.own === true && f.undo !== false && f.spends !== true && f.seen !== true && f.other !== true) return spoken && f.undo !== true ? 'L2' : 'L1';
+  return 'L2';
+}
+
+/** The facts of one call: the row's facts, and any fact the server found for this call turned on (never turned off). */
+export function raiseFacts(base, found = {}) {
+  const out = { ...base };
+  for (const k of ['spends', 'seen', 'other']) if (found[k] === true) out[k] = true;
+  if (found.undo === false) out.undo = false;
+  if (found.never && found.never !== 'none') out.never = found.never;
+  return out;
+}
 export const RISKS = ['R0', 'R1', 'R2', 'R3'];
 export const CARDS = ['yes', 'maybe', 'no'];
 
@@ -131,6 +186,11 @@ export const actOf = { command: (c) => `hoprig ${c}`, route: (r) => r.key, skill
 export function catalogFacts(tools, toolName, action) {
   const t = tools.find((x) => x.name === toolName);
   if (!t) return { problem: `there is no tool ${toolName}` };
+  if (t.acts) {
+    const a = t.acts[action];
+    if (!a) return { problem: `${toolName} has no act ${action}` };
+    return { level: a.level, card: a.level === 'L2' ? 'yes' : a.level === 'L0' ? 'no' : 'maybe' };
+  }
   if (t.actions) {
     const a = t.actions[action];
     if (!a) return { problem: `${toolName} has no action ${action}` };
@@ -152,11 +212,24 @@ export function inventoryProblems(rows, { commands, routes, skills, tools }) {
   for (const row of rows) {
     if (have.has(row.act)) problems.push(`${row.act}: two rows`);
     have.set(row.act, row);
-    if (!want.has(row.act)) problems.push(`${row.act}: no such ${row.kind || 'act'} in the code any more`);
+    // "lands": the code of another piece of work that is being built beside this one brings the command; the row waits for it.
+    if (row.kind !== 'act' && !row.lands && !want.has(row.act)) problems.push(`${row.act}: no such ${row.kind || 'act'} in the code any more`);
     // hers, or same (another route of hers does it), or not; a command that is partly hers has hers AND not (its rest).
     if ((!row.hers && !row.same && !row.not) || (row.hers && row.same) || (row.same && row.not)) problems.push(`${row.act}: give hers, same or not (hers may carry a not for what stays his)`);
     if ((row.not || row.same) && (typeof row.why !== 'string' || row.why.length < 20 || /\n/.test(row.why))) problems.push(`${row.act}: one sentence of why`);
     if (row.not && !GROUPS[row.not]) problems.push(`${row.act}: "${row.not}" is not one of the groups`);
+    // The six facts and the level they give: the written level is levelFor's, never a free word.
+    const fp = factProblems(row.facts);
+    for (const x of fp) problems.push(`${row.act}: ${x}`);
+    if (!fp.length) {
+      const lvl = levelFor(row.facts);
+      if (row.level !== lvl) problems.push(`${row.act}: the row says ${row.level}, levelFor gives ${lvl}`);
+      // Stricter wins: a tool that is less strict than the rule is a defect; one that is stricter is listed (levelDifferences).
+      if (row.hers && lvl !== 'N') {
+        const worst = Math.max(...row.hers.map((h) => (h.level === 'by-argument' ? 2 : RANK[h.level] ?? 2)));
+        if (RANK[lvl] > worst) problems.push(`${row.act}: levelFor gives ${lvl} but its tools run at ${row.hers.map((h) => h.level).join(', ')}: the stricter level wins`);
+      }
+    }
     if (row.same) {
       const [tool, action] = row.same.split(' ');
       const f = catalogFacts(tools, tool, action);
@@ -178,5 +251,36 @@ export function inventoryProblems(rows, { commands, routes, skills, tools }) {
     }
   }
   for (const a of want) if (!have.has(a)) problems.push(`${a}: no row in the inventory`);
+  for (const x of toolActionsWithoutRow(rows, tools)) problems.push(`${x}: a tool action that changes something has no row`);
   return problems;
+}
+
+/** Rows whose tools run stricter than levelFor gives (the report's list of differences from the rule). */
+export function levelDifferences(rows) {
+  return rows.filter((r) => r.hers && r.facts && factProblems(r.facts).length === 0 && levelFor(r.facts) !== 'N').flatMap((r) => {
+    const lvl = levelFor(r.facts);
+    const worst = Math.max(...r.hers.map((h) => (h.level === 'by-argument' ? 2 : RANK[h.level] ?? 2)));
+    return worst > RANK[lvl] ? [{ act: r.act, rule: lvl, tools: r.hers.map((h) => h.level).join(', ') }] : [];
+  });
+}
+
+/**
+ * "tool" or "tool action" of every tool action that is not a plain read and that no row names (in hers or as same).
+ * A tool with `acts` (hoprig_act) is checked act by act.
+ */
+export function toolActionsWithoutRow(rows, tools) {
+  const named = new Set();
+  for (const r of rows) {
+    for (const h of r.hers || []) named.add(`${h.tool}${h.action ? ` ${h.action}` : ''}`);
+    if (r.same) named.add(r.same);
+  }
+  const out = [];
+  for (const t of tools) {
+    if (t.acts) {
+      for (const name of Object.keys(t.acts)) if (!named.has(`${t.name} ${name}`)) out.push(`${t.name} ${name}`);
+    } else if (t.actions) {
+      for (const [name, a] of Object.entries(t.actions)) if ((typeof a.level === 'function' || a.level !== 'L0') && !named.has(`${t.name} ${name}`)) out.push(`${t.name} ${name}`);
+    } else if (t.level !== 'L0' && !named.has(t.name)) out.push(t.name);
+  }
+  return out;
 }

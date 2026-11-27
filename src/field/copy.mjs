@@ -1,4 +1,4 @@
-// "Also write each report into this folder" (Settings → Field reports; off by default): for the owner's own computers,
+// "Also write each report into this folder" (Settings → Version and updates → Field reports; off by default): for the owner's own computers,
 // a folder of his (for instance in his private notes repository) that gathers the reports of each of them. Only the
 // report's own file is written there, atomically (a temporary file of the report's name, then renamed), never anything
 // else, and never over a file that is there already. A folder that is gone or not writable is left alone.

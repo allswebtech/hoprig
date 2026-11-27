@@ -39,7 +39,7 @@ hop tasks runs <id>      # what the sessions did: answers, commits, changed file
 ## What you need
 
 - The dashboard running on the computer, and a provider for the coding tool (a Claude sign-in, an API key or a gateway it runs on): press **Add provider** on the **Providers** page, or in a terminal `hop add`.
-- A place for your Work data: **Settings → Work** (the AI brain's `work/` folder by default).
+- A place for your Work data: **Work settings** at the foot of **Work → Tasks** (the AI brain's `work/` folder by default).
 
 ## What it does not do
 

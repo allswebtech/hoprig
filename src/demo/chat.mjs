@@ -14,7 +14,7 @@ const argv = process.argv.slice(2);
 const val = (f) => (argv.includes(f) ? argv[argv.indexOf(f) + 1] : null);
 const sessionId = val('--resume') || val('--session-id');
 let mode = (val('--permission-mode') === 'manual' ? 'default' : val('--permission-mode')) || 'default';
-let model = val('--model') || 'default';
+let model = val('--model') || 'claude-sonnet-4-5';
 const partial = argv.includes('--include-partial-messages');
 const replay = argv.includes('--replay-user-messages');
 const dir = path.join(process.env.CLAUDE_CONFIG_DIR, 'projects', process.cwd().replace(/[^A-Za-z0-9]/g, '-'));

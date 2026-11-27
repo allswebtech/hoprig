@@ -300,6 +300,8 @@ export function createOps(o) {
     checkUpdates: ({ computer }) => post(computer, '/api/updates/check', {}),
     runUpdate: ({ computer, id }) => post(computer, '/api/updates/run', { id }),
     // The restart that loads a version just installed (the Updates page's Restart now): it ends this dashboard, so her turn too.
+    // One route of hers through the door, for an act (hoprig_act change-plan): the door still checks it.
+    route: ({ computer, method, path: p, body }) => api(computer, method, p, body),
     restartDashboard: ({ computer }) => post(computer, '/api/updates/restart', {}),
     killProcess: ({ computer, pid, signal }) => post(computer, '/api/pc/kill', { pid, signal: signal === 'KILL' ? 'KILL' : 'TERM' }),
     power: ({ computer, action }) => post(computer, '/api/pc/power', { action, confirm: action }),
@@ -343,7 +345,10 @@ export function createOps(o) {
     rooms: () => get(LOCAL, '/api/operator/rooms?start=1'),
     async assistantSettings() {
       const a = cfg().assistant;
-      return a && typeof a === 'object' && !Array.isArray(a) ? a : {};
+      // Her small acts on Hoprig itself (hoprigact.mjs) follow the ONE switch the owner has for what she does by herself:
+      // Settings → Tia, What she may do alone, "Tia acts by herself" (config operator.acts). No key of their own.
+      const base = a && typeof a === 'object' && !Array.isArray(a) ? a : {};
+      return { ...base, actAlone: cfg().operator?.acts === true };
     },
 
     // ---- the owner ----

@@ -7,11 +7,12 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
 import { fakeBin, fakeClaude, fakeFetch, pathWith, scratch } from './helpers.mjs';
+import { closedGateways } from '../seal.mjs';
 
 const s = scratch();
 test.after(s.cleanup);
 globalThis.fetch = fakeFetch({});
-(await import('../../src/config.mjs')).saveConfig({ server: { port: await (await import('../../src/machines/tunnels.mjs')).freePort() } });
+(await import('../../src/config.mjs')).saveConfig({ server: { port: await (await import('../../src/machines/tunnels.mjs')).freePort() }, addons: closedGateways() });
 const { methodOf } = await import('../../src/claudecode.mjs');
 const K = await import('../../src/setup/checks.mjs');
 const O = await import('../../src/setup/overview.mjs');

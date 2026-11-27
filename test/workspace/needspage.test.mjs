@@ -77,6 +77,6 @@ test('the Needs block: a row per need, Allow and Take back call the route and th
 test('the project page puts the Needs block between its repositories and its skills', () => {
   const src = fs.readFileSync(path.join(WEB, 'projects.js'), 'utf8');
   assert.match(src, /import \{ needsBlock \} from '\.\/projectneeds\.js';/);
-  assert.match(src, /reposBox, resultBox,\s+needsBox,\s+groupHead\('Skills'\)/);
+  assert.match(src, /reposFold, needsBox, skillsBox/);
   assert.match(src, /needsBlock\(needsBox, p\.dir\);/);
 });

@@ -29,12 +29,13 @@ const freePort = () => new Promise((r) => { const s = net.createServer().listen(
 const PORT = await freePort();
 const KEY = 'gw-key-0123456789';
 
-// The stand-in gateway: its version, Claude's model list for its own key, a page at /.
-fs.writeFileSync(path.join(dirs.bin, ID), `#!/usr/bin/env node
-if (process.argv[2] === '--version') { console.log('Gateway 9.8.7'); process.exit(0); }
-require('node:fs').appendFileSync(${JSON.stringify(path.join(home, 'gateway-args.txt'))}, process.argv.slice(2).join(' ') + '\\n');
+// The stand-in gateway: its version, Claude's model list for its own key, a page at /. Laid out as npm installs a package
+// globally (lib/node_modules/<package>, with its package.json, linked from a bin folder on PATH).
+const SERVE = (modules) => `
+${modules ? "import fs from 'node:fs';\nimport http from 'node:http';" : "const fs = require('node:fs');\nconst http = require('node:http');"}
+fs.appendFileSync(${JSON.stringify(path.join(home, 'gateway-args.txt'))}, process.argv.slice(2).join(' ') + '\\n');
 const port = Number(process.argv[process.argv.indexOf('--port') + 1]);
-require('node:http').createServer((q, s) => {
+http.createServer((q, s) => {
   if (q.url.startsWith('/v1/models')) {
     const ok = q.headers.authorization === 'Bearer ${KEY}' || q.headers['x-api-key'] === '${KEY}';
     s.writeHead(ok ? 200 : 401, { 'content-type': 'application/json' });
@@ -42,10 +43,29 @@ require('node:http').createServer((q, s) => {
   }
   s.end('ok');
 }).listen(port, '127.0.0.1');
-`, { mode: 0o755 });
-// The stand-in npm: writes down its arguments.
+`;
+const pkgDir = path.join(home, 'npm', 'lib', 'node_modules', ID);
+fs.mkdirSync(path.join(pkgDir, 'bin'), { recursive: true });
+fs.writeFileSync(path.join(pkgDir, 'package.json'), JSON.stringify({ name: ID, version: '9.8.7', bin: { [ID]: `bin/${ID}` } }));
+fs.writeFileSync(path.join(pkgDir, 'bin', ID), `#!/usr/bin/env node
+if (process.argv[2] === '--version') { console.log('Gateway 9.8.7'); process.exit(0); }${SERVE(false)}`, { mode: 0o755 });
+fs.symlinkSync(path.join(pkgDir, 'bin', ID), path.join(dirs.bin, ID));
+// The stand-in npm: writes down its arguments. An install into a folder of its own (--prefix, which 0.2.6 never asked
+// for) lays the same stand-in gateway out there, as npm does, at the same version.
 fs.writeFileSync(path.join(dirs.bin, 'npm'), `#!/usr/bin/env node
-require('node:fs').appendFileSync(${JSON.stringify(path.join(home, 'npm-calls.txt'))}, process.argv.slice(2).join(' ') + '\\n');
+const fs = require('node:fs');
+const path = require('node:path');
+const args = process.argv.slice(2);
+fs.appendFileSync(${JSON.stringify(path.join(home, 'npm-calls.txt'))}, args.join(' ') + '\\n');
+const at = args.indexOf('--prefix');
+if (at >= 0) {
+  const pkg = path.join(args[at + 1], 'node_modules', ${JSON.stringify(ID)});
+  fs.mkdirSync(path.join(pkg, 'bin'), { recursive: true });
+  fs.writeFileSync(path.join(pkg, 'package.json'), JSON.stringify({ name: ${JSON.stringify(ID)}, version: '9.8.7', bin: { ${JSON.stringify(ID)}: 'bin/${ID}.mjs' } }));
+  fs.writeFileSync(path.join(pkg, 'bin', '${ID}.mjs'), ${JSON.stringify(`if (process.argv[2] === '--version') { console.log('Gateway 9.8.7'); process.exit(0); }${SERVE(true)}`)});
+  fs.mkdirSync(path.join(args[at + 1], 'node_modules', '.bin'), { recursive: true });
+  try { fs.symlinkSync(path.join('..', ${JSON.stringify(ID)}, 'bin', '${ID}.mjs'), path.join(args[at + 1], 'node_modules', '.bin', ${JSON.stringify(ID)})); } catch { /* there */ }
+}
 console.log('added 1 package');
 `, { mode: 0o755 });
 

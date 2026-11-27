@@ -30,10 +30,10 @@ export function rememberTurn(dir, id, messageId, end) {
 export function rememberAllowed(dir, id, toolId, line) {
   const file = fileOf(dir, id);
   if (!file || typeof toolId !== 'string' || !toolId) return;
-  const { tool, what, folder, at } = line;
+  const { tool, what, folder, at, by } = line;
   try {
     fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
-    fs.appendFileSync(file, `${JSON.stringify({ allowed: { toolId, tool, what, ...(folder ? { folder } : {}) }, at: at || Date.now() })}\n`, { mode: 0o600 });
+    fs.appendFileSync(file, `${JSON.stringify({ allowed: { toolId, tool, what, ...(folder ? { folder } : {}), ...(by === 'all' ? { by } : {}) }, at: at || Date.now() })}\n`, { mode: 0o600 });
   } catch {
     /* shown now, only not after a reload */
   }
@@ -54,7 +54,7 @@ export function readAllowed(dir, id) {
     try {
       const x = JSON.parse(l);
       const a = x && x.allowed;
-      if (a && typeof a.toolId === 'string' && typeof a.what === 'string') out.set(a.toolId, { kind: 'allowed', tool: String(a.tool || ''), what: a.what, ...(typeof a.folder === 'string' ? { folder: a.folder } : {}), at: x.at, agent: null });
+      if (a && typeof a.toolId === 'string' && typeof a.what === 'string') out.set(a.toolId, { kind: 'allowed', tool: String(a.tool || ''), what: a.what, ...(typeof a.folder === 'string' ? { folder: a.folder } : {}), ...(a.by === 'all' ? { by: 'all' } : {}), at: x.at, agent: null });
     } catch {
       /* the last line may be half written */
     }

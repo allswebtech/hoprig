@@ -830,7 +830,12 @@ export async function getMain(args, { ui, write = (s) => process.stdout.write(s)
   // A field report of what happened (src/field: the result words only; a dry run changes nothing and makes none).
   if (!o['dry-run'] && results.length) (await import('../field/wire.mjs')).reportGet(results, startedAt);
   // This computer's own file in the brain says what is here now (only with a label; nothing is asked).
-  if (!o['dry-run'] && results.some((r) => ['cloned', 'here'].includes(r.result))) await (await import('../workspace/computer.mjs')).writeOwnFile({ projects: dir }).catch(() => null);
+  if (!o['dry-run'] && results.some((r) => ['cloned', 'here'].includes(r.result))) {
+    // …and committed at once, as drop does (the upkeep's rule uploads it): never left as something only here.
+    await (await import('../workspace/computer.mjs')).writeOwnFile({ projects: dir }).catch(() => null);
+    const { workspaceDir } = await import('../workspace/layout.mjs');
+    await (await import('../workspace/dropcli.mjs')).shareOwnFile(workspaceDir()).catch(() => null);
+  }
   if (o.json) write(JSON.stringify({ ok, dryRun: !!o['dry-run'], projectsDir: dir, projects: results }, null, 2) + '\n');
   return ok ? 0 : 1;
 }

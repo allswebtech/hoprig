@@ -1,31 +1,27 @@
 # Operator: what stopped or is about to
 
-The **Operator** page is one place that says what stopped or is about to, from everything Hoprig already watches, so you do not
-have to look at every page in turn. It recommends one step for each thing; nothing happens until you tap it, unless you switch on one of Tia's rules,
+The **Operator** is what stopped or is about to, from everything Hoprig already watches, so you do not
+have to look at every page in turn. It has no page of its own: its cards are rows of **Home**'s **Needs you** group, and the
+address `#/operator` opens Home. It recommends one step for each thing; nothing happens until you tap it, unless you switch on one of Tia's rules,
 **Tia decides** or **Tia looks into what nobody can explain** (below). All of them are off after an install and after an update.
 
-## The page
+## Where it is
 
-**Operator** is in the sidebar's second group, **More**, with the number of things that need you next to it.
-
-![The Operator page: a list of sessions, providers and repositories that need you, each with one button for the recommended step, and beside it the switches for what Tia may do, all off](screenshots/operator-desktop-light.webp)
-
-- **Needs you**: the attention list. Each item says what it is about, since when, a few facts, and why the step it
-  recommends is the right one. The recommended step is the one button; the other steps and **Not now** are under
-  **More**. Items are in this order: stopped work (a usage limit, a session with no progress, a provider that is
-  signed out or at its limit), what waits for you (a question or an OK), this computer, then information (among it
-  repositories with commits or changes that exist only on this computer: work in progress, said, but it can wait).
-  Inside each group the oldest comes first.
-- **Watched**: every place Hoprig looks at, when it was last read, or why it could not be read
-  ("could not be read: …"). A place that could not be read is never shown as if all were fine.
-- **Computers**: each computer of this dashboard with its room for new work (**Has room**, **Busy**, **Full** or
-  **Not known**) and why, with **Refresh** to read them again. The switch **Look at my other computers too** is off at
+- **Needs you** (on **Home**): the attention list. Each row says what it is about, a fact that matters, and has the
+  recommended step as the one button; the other steps and **Not now** are under **More**. Items are in this order: stopped
+  work (a usage limit, a session with no progress, a provider that is signed out or at its limit), what waits for you (a
+  question or an OK), this computer. What only informs (among it repositories with commits or changes that exist only on this
+  computer: work in progress) is not a row.
+- **Computers**: each computer's room for new work (**Has room**, **Busy**, **Full** or **Not known**) and why, in the
+  computer's own **Overview**, with **Refresh** to read them again. The switch **Look at my other computers too** is off at
   first: then the other computers are read only when you open the page or press Refresh.
-- **What Tia does by herself**: the main switch **Tia acts by herself**, the button **Tia OFF** (shown while she may
-  act), **Tia decides**, her other switches and her five rules (below).
-- **Done by Tia**: every step a rule or a decision of hers did, or was refused, with Undo where the step has one. A line never shows a
-  path or an address, so a word with a slash in it (such as "and/or") may show as "…".
-- **Done by you**: the steps you tapped, with what happened.
+- **What Tia does by herself** (under **Settings**, **Tia**): the main switch **Tia acts by herself**, the button **Tia OFF**
+  (shown while she may act), **Tia decides**, her other switches and her seven rules (below).
+- **Tia herself**: the round button at the foot of the page (the sparkle in the head on a phone) opens her chat, and **Open the full page** gives her **Chat**, **Jobs** and **Activity**. All her switches are in Settings → Tia; with her off, that is where to turn her on.
+- **Done by Tia** (in the same part): every step a rule or a decision of hers did, or was refused, with Undo where the step has one. A line never shows a
+  path or an address, so a word with a slash in it (such as "and/or") may show as "...".
+- Every step you tap is still one line in `operator/timeline.jsonl` of the state folder, and every place Hoprig looks at is still
+  read; one that could not be read is never shown as if all were fine.
 
 ## What it watches
 
@@ -90,18 +86,23 @@ written by a look only when it sees a new one).
 
 ## What Tia does by herself (her rules)
 
-Tia may do a step by herself only by a rule you switched on or by **Tia decides** (below), and only while **Tia acts
-by herself** is on and Tia herself is on (Settings → Tia). All of it is off after an install and after an update. No model is asked: a rule is
-code that does the item's recommended step, and it reads only what the Operator found (the kind of the item, its
-step, what the step acts on, its age), never a session's name, a branch, a provider's label or a command line, so
-nothing those say can switch a rule on or change what it does. There are five rules, and only these:
+Hoprig mends by itself what costs nothing, with no model: the rules marked "costs nothing" below are on from the first
+run under **Settings → Automations → Mend problems by itself**, whether or not Tia is on, and each step is one line under
+**Done by Tia**. Tia may do any other step by herself only by a rule you switched on or by **Tia decides** (below), and only
+while **Tia acts by herself** is on and Tia herself is on (Settings → Tia): those are off after an install and after an
+update. No model is asked: a rule is code that does the item's recommended step, and it reads only what the Operator
+found (the kind of the item, its step, what the step acts on, its age), never a session's name, a branch, a provider's
+label or a command line, so nothing those say can switch a rule on or change what it does. There are seven rules, and
+only these:
 
 | Rule | What it does | Undo |
 |---|---|---|
-| limit | When a session stops at a usage limit, continue it on the next provider of my order (the **Order of providers** under **When a provider reaches its limit** on Providers). Only when Claude Code itself reported the limit (a limit line that only shows on the screen stays yours), only to a provider Tia may use (Settings → Tia), to a provider billed by use only when her level is Hands off, never while Auto mode is on (Auto mode does it then), never back to a provider the session left within the hour, whoever moved it then (your tap, Auto mode, the rule, or you by hand in a terminal). | Move it back with one tap under Done by Tia, once the old provider is free again; refused in plain words when the session ended, moved since, or the old provider is still at its limit. |
-| gateway | When a gateway that open sessions go through does not answer, restart it. Not a gateway that is only not started yet, and never one you stopped yourself (Settings → Add-ons → Stop, or `hoprig addons stop`) until it is started again. | none |
-| link | When the public link is on and does not answer, restart it. | none |
-| leftover | End a test's left-over processes: only what this page calls left over, once older than an hour, and only a test's: an idle tmux server that a test or a try of Hoprig started (its state folder is in the temporary folder), or a test's dashboard. Your own tmux servers stay yours, also one started in the temporary folder. | none: an ended process cannot be undone |
+| limit | When a session stops at a usage limit, continue it on the next provider of my order (the **Order of providers** under **At a limit** on Providers). Only when Claude Code itself reported the limit (a limit line that only shows on the screen stays yours), only to a provider Tia may use (Settings → Tia), to a provider billed by use only when her level is Hands off, never while Auto mode is on (Auto mode does it then), never back to a provider the session left within the hour, whoever moved it then (your tap, Auto mode, the rule, or you by hand in a terminal). | Move it back with one tap under Done by Tia, once the old provider is free again; refused in plain words when the session ended, moved since, or the old provider is still at its limit. |
+| gateway | When a gateway that open sessions go through does not answer, or answers with server errors, restart it (costs nothing). Not a gateway that is only not started yet, never another program that holds its port (that is said, never ended), and never one you stopped yourself (Settings → Security and sign-in → Advanced → Add-ons → Stop, or `hoprig addons stop`) until it is started again. | none |
+| link | When the public link is on and does not answer, restart it (costs nothing). | none |
+| leftover | End a test's left-over processes (costs nothing): only what this page calls left over, once older than an hour, and only a test's: an idle tmux server that a test or a try of Hoprig started (its state folder is in the temporary folder), or a test's dashboard. Your own tmux servers stay yours, also one started in the temporary folder. | none: an ended process cannot be undone |
+| reopen | When a session's coding tool died without ending (its run record never said it ended), reopen the same conversation with resume, and send it nothing (costs nothing). Not one you ended yourself, not one whose conversation is not known. | **Close** on the session's page. |
+| clean | When a disk is over 90 percent full, remove Hoprig's own old files: its logs older than 14 days and its own temporary folders older than a day, never yours (costs nothing). Once a day. | none: only files Hoprig makes again |
 | elsewhere | When this computer is overloaded, start new work where there is room. Only Tia's new starts, only on a computer you let her use (Settings → Tia) that has room, until this computer has been calm for 10 minutes (2 hours at most). Nothing that runs moves. | **Undo** under **Computers** on this page ends it at once. **Tia OFF** on this page ends it too when this rule or Tia set it; one you started with your own tap stays until it ends by itself or you press Undo. |
 
 A repository, a message to a session, and anything that is yours alone (a sign-in, a push, a release, a delete
@@ -110,9 +111,9 @@ move a session onto a provider billed by use, but only within the daily limit fo
 counts $0.50 against it, as her own move does. With no limit set, or the limit used up, the move is yours: the item says so
 in one line, with the button **Set a daily limit for paid use**. Your own tap on **Continue on the next provider** is not counted.
 
-- **Limits.** Each rule does at most 3 steps an hour and 10 a day, and waits 10 minutes before it acts on the same
+- **Limits.** Each rule does at most 3 steps an hour and 10 a day, and waits 10 minutes (the rules that cost nothing: 2 minutes) before it acts on the same
   thing again (change them under each rule). After two tries on the same thing within a day that did not help (it came
-  back within the hour after each), the rule leaves it to you: its card says "Yours: Tia tried twice …". It tries again a day later, or after you
+  back within the hour after each), the rule leaves it to you: its row says "Yours: Tia tried twice …", or "Yours: Hoprig tried twice …" for a rule that costs nothing. It tries again a day later, or after you
   tapped it yourself. A step a limit refuses is one line under Done by Tia, never skipped in silence.
 - **Projects.** On a project's page, under Advanced, **Tia never acts in this project**: no rule acts for its
   sessions, its Work runs or its processes, also through a link to its folder, and also for a project in a group.
@@ -120,7 +121,7 @@ in one line, with the button **Set a daily limit for paid use**. Your own tap on
   computer's page these switches are only shown: they are changed on that computer's own dashboard.
 - **Tia OFF.** One press on this page stops her: no new step starts after it,
   a step on its way ends and is written first, and the page says in one sentence what is off. Your rules stay as you
-  set them for the next time.
+  set them for the next time. It does not stop what Hoprig mends by itself: that is **Mend problems by itself**.
 - Every step of a rule goes through the same checks as your tap: the list is built again, the item must still be as
   it was, the step must be one of its own, and the same step twice is done once. What the rules did is kept in
   `operator/reflexes.json` of the state folder; when that file cannot be read, it is set aside and Tia does nothing by
@@ -272,10 +273,10 @@ transcript). At most 200 in 24 hours, no model, no cost. They are kept 90 days, 
 state folder: an older record goes from the file at the next read, whatever the switch says. They never leave this
 computer: no field report has a place for a word of them.
 
-Nothing changes by itself from them. They are shown where you decide: on this page under each rule and under **Tia
+Nothing changes by itself from them. They are shown where you decide: in **Settings → Tia → What she may do alone** under each rule and under **Tia
 decides** ("You took this back 3 times this week": an Undo of her decision or a hold of hers you lifted; a step you
-picked yourself, a chat card you declined and a plan you changed each have a line of their own), on Work's Team tab
-under each role ("You sent back 4 of its tasks this week") and on the Skills page per skill. **Forget these** removes
+picked yourself, a chat card you declined and a plan you changed each have a line of their own), in **Settings → Tia → Limits and roles**
+under each role ("You sent back 4 of its tasks this week") and on **Projects → Skills** per skill. **Forget these** removes
 them all in one press, with the evidence file written from them. **Use these as
 evidence** writes the corrections of skills, in the evidence shape of an improvement loop
 (`{"target":"skill:<name>","kind":"correction","text":…,"seen":"YYYY-MM-DD"}`), into one file of the state folder
@@ -295,8 +296,7 @@ reads her rules (on or off, what is left of their limits), and with `show: "done
 ## Administrator rights and the git sign-in of her sessions
 
 Two settings under **Settings → Tia**, per computer: **Administrator rights on this computer** and **Git sign-in for
-her sessions**. Both stand below that page's first **Save** button and its **Advanced** fold, so scroll on past
-them. Only you change them, on this computer's own signed-in page: never Tia, a token, another computer or a session.
+her sessions**. Both stand in that page's **Rights** fold, closed at first, so open it. Only you change them, on this computer's own signed-in page: never Tia, a token, another computer or a session.
 
 ### Administrator rights: three levels
 
@@ -404,7 +404,7 @@ page on GitHub.
 
 ## What Tia can do, and what she cannot
 
-Every act of Hoprig is one row of `src/assistant/inventory.json`: 338 in all (43 commands, 288 changes in the dashboard, 7 skills). Tia does 101 of them with a tool of hers, 7 more by another route of the same effect, and 230 are not hers. A test holds the file to the code: a new command or route without a row fails it.
+Every act of Hoprig is one row of `src/assistant/inventory.json`: 389 in all (45 commands, 317 changes in the dashboard, 7 skills). Tia does 124 of them with a tool of hers, 7 more by another route of the same effect, and 258 are not hers. A test holds the file to the code: a new command or route without a row fails it.
 
 ### What she does
 
@@ -413,7 +413,7 @@ Every act of Hoprig is one row of `src/assistant/inventory.json`: 338 in all (43
 | `hoprig profiles` | get_computer_status | does it |
 | `hoprig run` | start_session | asks you when the facts say so |
 | `hoprig chat` | start_chat | asks you when the facts say so |
-| `hoprig auto` | set_auto_mode, get_computer_status | always asks you; does it |
+| `hoprig auto` | get_computer_status, hoprig_act auto-mode | does it; always asks you |
 | `hoprig setup` | manage_computer set_up | always asks you (the rest is yours: what needs the administrator password stays yours to type on Setup) |
 | `hoprig doctor` | get_computer_status | does it |
 | `hoprig claude` | manage_computer update, get_computer_status | always asks you; does it |
@@ -423,13 +423,13 @@ Every act of Hoprig is one row of `src/assistant/inventory.json`: 338 in all (43
 | `hoprig pc` | get_computer_status, manage_computer set_up | does it; always asks you |
 | `hoprig get` | manage_project get | always asks you |
 | `hoprig project` | manage_project new, manage_project get, manage_project sync, manage_project install | always asks you; asks you when the facts say so |
-| `hoprig drop` | manage_project drop_check, manage_project drop | does it; always asks you (the rest is yours: the drop itself is your answer on the Workspace sheet her card opens) |
+| `hoprig drop` | manage_project drop_check | does it (the rest is yours: the drop itself is your answer on the Workspace sheet; she says what drop_check found and shows the page, no card) |
 | `hoprig workspace` | manage_project workspace_map, manage_project workspace_sync, manage_project workspace_restore, manage_project workspace_places, manage_project workspace_forget, manage_project where, manage_project find | asks you when the facts say so; always asks you; does it (the rest is yours: its git sign-in, link, rules and label stay your own steps) |
 | `hoprig sync` | manage_project workspace_sync | asks you when the facts say so (the rest is yours: publishing commits, into a default branch too, is your own press on the Workspace page; her sync only fetches and fast-forwards) |
 | `hoprig tasks` | manage_work today, manage_work list, manage_work add, manage_work edit, manage_work done, manage_work start | does it; asks you when the facts say so; always asks you (the rest is yours: saving the Work file to git, and making a plan or changing its own title, goal and milestones, stay yours) |
 | `hoprig skills` | manage_skills installed, manage_skills suggested, manage_skills find, manage_skills install, manage_skills check_updates | does it; always asks you |
 | `hoprig addons` | manage_computer addon | asks you when the facts say so (the rest is yours: an add-on's set-up as a provider handles its keys) |
-| `hoprig public` | manage_computer public_link | asks you when the facts say so |
+| `hoprig public` | manage_computer public_link | does it |
 | `hoprig machines` | manage_computer rename | does it (the rest is yours: removing a computer and adding one, by its address or by SSH, hand out its token; her card only opens Computers) |
 | `POST /api/sessions` | start_session | asks you when the facts say so |
 | `POST /api/sessions/<id>/key` | send_to_session | asks you when the facts say so |
@@ -440,7 +440,7 @@ Every act of Hoprig is one row of `src/assistant/inventory.json`: 338 in all (43
 | `POST /api/sessions/<id>/kill` | stop_session | asks you when the facts say so |
 | `POST /api/pc/kill` | manage_computer end_process | always asks you |
 | `POST /api/pc/power` | manage_computer reboot, manage_computer power_off | always asks you |
-| `POST /api/settings` | change_setting, set_auto_mode | always asks you |
+| `POST /api/settings` | hoprig_act change-setting, hoprig_act auto-mode, hoprig_act auto-order | always asks you |
 | `POST /api/claude/update` | manage_computer update | always asks you |
 | `POST /api/assistant/run` | run_command | asks you when the facts say so (an administrator command runs with no card at Full and is refused at Off) |
 | `POST /api/updates/check` | manage_computer check_updates | does it |
@@ -449,7 +449,9 @@ Every act of Hoprig is one row of `src/assistant/inventory.json`: 338 in all (43
 | `POST /api/automation/queue/<id>` | manage_automation queue_message, manage_automation queue_clear | asks you when the facts say so; does it |
 | `POST /api/automation/schedules` | manage_automation add_schedule, manage_automation change_schedule, manage_automation delete_schedule | asks you when the facts say so; always asks you |
 | `POST /api/addons/<id>/(install|update|start|stop)` | manage_computer addon | asks you when the facts say so |
-| `POST /api/public-link` | manage_computer public_link | asks you when the facts say so (the rest is yours: turning it on opens the computer to the internet, your own press; she only turns it off or opens that page) |
+| `POST /api/public-link` | manage_computer public_link | does it (the rest is yours: turning it on opens the computer to the internet, your own press; she only turns it off or opens that page) |
+| `POST /api/gatewayhost/<id>/(start|stop)` | hoprig_act restart-gateway, hoprig_act stop-gateway | asks you when the facts say so; always asks you |
+| `POST /api/gatewayhost/<id>/restart` | hoprig_act restart-gateway | asks you when the facts say so |
 | `POST /api/pcsetup/setup` | manage_computer set_up | always asks you |
 | `POST /api/pcsetup/fix` | manage_computer setup_fix | always asks you |
 | `POST /api/pcsetup/install` | manage_project install | always asks you |
@@ -457,8 +459,8 @@ Every act of Hoprig is one row of `src/assistant/inventory.json`: 338 in all (43
 | `POST /api/pcsetup/project/clone` | manage_project get | always asks you |
 | `POST /api/pcsetup/project/add` | manage_project add_repository | always asks you |
 | `POST /api/pcsetup/project/sync` | manage_project sync | asks you when the facts say so (the rest is yours: publishing commits, into a default branch too, is your own press on the Workspace page; her sync only fetches and fast-forwards) |
-| `POST /api/pcsetup/projects-dir` | change_setting | always asks you |
-| `POST /api/pcsetup/rules` | change_setting | always asks you |
+| `POST /api/pcsetup/projects-dir` | hoprig_act change-setting | always asks you |
+| `POST /api/pcsetup/rules` | hoprig_act change-setting | always asks you |
 | `POST /api/skillhub/review` | manage_skills review | does it |
 | `POST /api/skillhub/approve` | manage_skills install | always asks you |
 | `POST /api/skillhub/cancel` | manage_skills cancel_review | always asks you |
@@ -466,7 +468,7 @@ Every act of Hoprig is one row of `src/assistant/inventory.json`: 338 in all (43
 | `POST /api/skillhub/update-review` | manage_skills update_review | does it |
 | `POST /api/skillhub/remove` | manage_skills remove | always asks you |
 | `POST /api/skillhub/undo` | manage_skills undo_update | always asks you |
-| `POST /api/skillhub/settings` | change_setting | always asks you |
+| `POST /api/skillhub/settings` | hoprig_act change-setting | always asks you |
 | `POST /api/workspace/drop/check` | manage_project drop_check | does it |
 | `POST /api/workspace/group` | manage_project group_add | always asks you |
 | `POST /api/workspace/setup` | manage_project create_folders | always asks you |
@@ -486,6 +488,8 @@ Every act of Hoprig is one row of `src/assistant/inventory.json`: 338 in all (43
 | `POST /api/work/items/<id>/do` | manage_work start | always asks you |
 | `POST /api/work/items/<id>/accept` | manage_work accept | always asks you |
 | `POST /api/work/items/<id>/send-back` | manage_work send_back | always asks you |
+| `POST /api/work/plans` | hoprig_act change-plan | asks you when the facts say so |
+| `POST /api/work/plans/<id>` | hoprig_act change-plan | asks you when the facts say so |
 | `POST /api/work/items/<id>/plan` | manage_work add, manage_work edit, manage_work undo | asks you when the facts say so; does it |
 | `POST /api/chats` | start_chat | asks you when the facts say so |
 | `POST /api/chats/<id>/send` | send_to_chat | asks you when the facts say so |
@@ -500,7 +504,7 @@ Every act of Hoprig is one row of `src/assistant/inventory.json`: 338 in all (43
 | `POST /api/codetools/<id>` | manage_computer coding_tool | always asks you |
 | `POST /api/machine/label` | manage_computer rename | does it |
 | `POST /api/machines/<id>/rename` | manage_computer rename | does it |
-| `POST /api/updates/restart` | manage_computer restart_dashboard | always asks you |
+| `POST /api/updates/restart` | manage_computer restart_dashboard, hoprig_act restart-hoprig | always asks you |
 | `POST /api/work/missions` | manage_work goal | always asks you |
 | `POST /api/work/missions/<id>/stop` | manage_work mission_stop | always asks you |
 | `POST /api/work/missions/<id>/add` | manage_work mission_add | always asks you |
@@ -511,6 +515,25 @@ Every act of Hoprig is one row of `src/assistant/inventory.json`: 338 in all (43
 | `skill handle-usage-limit` | manage_procedures find | does it |
 | `skill morning-status` | manage_procedures find | does it |
 | `skill triage-sessions` | manage_procedures find | does it |
+| `act restart-gateway` | hoprig_act restart-gateway | asks you when the facts say so |
+| `act stop-gateway` | hoprig_act stop-gateway | always asks you |
+| `act restart-hoprig` | hoprig_act restart-hoprig | always asks you |
+| `act probe-provider` | hoprig_act probe-provider | does it |
+| `act reopen-session` | hoprig_act reopen-session | asks you when the facts say so |
+| `act continue-session` | hoprig_act continue-session | asks you when the facts say so |
+| `act hold-starts` | hoprig_act hold-starts | asks you when the facts say so |
+| `act clean-own-temp` | hoprig_act clean-own-temp | asks you when the facts say so |
+| `act change-plan` | hoprig_act change-plan | asks you when the facts say so |
+| `act undo-act` | hoprig_act undo-act | asks you when the facts say so |
+| `act auto-order` | hoprig_act auto-order | always asks you |
+| `act auto-mode` | hoprig_act auto-mode | always asks you |
+| `act change-setting` | hoprig_act change-setting | always asks you |
+| `act list-acts` | hoprig_act list | does it |
+| `act watch-session` | watch_session | does it |
+| `act finish-job` | finish_job | does it |
+| `act notify-owner` | notify_owner | does it |
+| `act open-screen` | open_screen | does it |
+| `act draft-procedure` | manage_procedures draft | always asks you |
 
 ### What she does by another way
 
@@ -526,10 +549,12 @@ Every act of Hoprig is one row of `src/assistant/inventory.json`: 338 in all (43
 
 ### What stays yours
 
-**Money and prices: what a provider costs, which provider billed by use or model is used** (8):
+**Money and prices: what a provider costs, which provider billed by use or model is used** (10):
 
 - `POST /api/profiles/<id>/available`: Marking a provider usable again decides which provider spends next.
 - `POST /api/gateways/use`: Which gateway a provider goes through decides what is paid and to whom.
+- `POST /api/gatewayhost/<id>/combos/make`: A combo decides which provider answers a model name, and so what is spent.
+- `POST /api/gatewayhost/<id>/combos/<id>/remove`: A combo decides which provider answers a model name, and so what is spent.
 - `POST /api/accounts/<id>/model`: A provider's model and its place in Auto mode decide what is spent.
 - `POST /api/accounts/<id>/auto`: A provider's model and its place in Auto mode decide what is spent.
 - `POST /api/skills/learned/look`: A look at your work for skills is a paid model call you start yourself.
@@ -537,7 +562,7 @@ Every act of Hoprig is one row of `src/assistant/inventory.json`: 338 in all (43
 - `POST /api/providers/<id>/mend`: A provider's model map decides which paid model its sessions use.
 - `POST /api/providers/<id>/map`: Turning a provider's model map on or off decides which paid model its sessions use.
 
-**A sign-in, a password, a key or a token, and who may control this computer** (67):
+**A sign-in, a password, a key or a token, and who may control this computer** (80):
 
 - `hoprig add`: Adding a provider handles its key or its sign-in.
 - `hoprig rm`: Removing a provider deletes the file that holds its key or sign-in.
@@ -558,7 +583,19 @@ Every act of Hoprig is one row of `src/assistant/inventory.json`: 338 in all (43
 - `POST /api/gateways/<id>/keys`: Sharing a gateway makes and removes the keys other computers sign in with.
 - `POST /api/gateways/keys/<id>/remove`: Sharing a gateway makes and removes the keys other computers sign in with.
 - `POST /api/gateways/add`: Sharing a gateway makes and removes the keys other computers sign in with.
+- `POST /api/gatewayhost/<id>/password`: A gateway's own password is set by you, on its Health row.
 - `POST /api/gatewayhost/<id>/first`: A gateway's first password is shown once, to you, on its page.
+- `POST /api/gatewayhost/<id>/accounts/<id>/test`: An account of the gateway holds a provider key or sign-in: testing, turning it off and removing it are your own presses on Providers.
+- `POST /api/gatewayhost/<id>/accounts/<id>/on`: An account of the gateway holds a provider key or sign-in: testing, turning it off and removing it are your own presses on Providers.
+- `POST /api/gatewayhost/<id>/accounts/<id>/remove`: An account of the gateway holds a provider key or sign-in: testing, turning it off and removing it are your own presses on Providers.
+- `POST /api/gatewayhost/<id>/add/key`: Adding an account to the gateway hands it a provider key or a sign-in, so it is your own step on Providers.
+- `POST /api/gatewayhost/<id>/add/code`: Adding an account to the gateway hands it a provider key or a sign-in, so it is your own step on Providers.
+- `POST /api/gatewayhost/<id>/add/poll`: Adding an account to the gateway hands it a provider key or a sign-in, so it is your own step on Providers.
+- `POST /api/gatewayhost/<id>/add/link`: Adding an account to the gateway hands it a provider key or a sign-in, so it is your own step on Providers.
+- `POST /api/gatewayhost/<id>/add/finish`: Adding an account to the gateway hands it a provider key or a sign-in, so it is your own step on Providers.
+- `POST /api/gatewayhost/<id>/add/cancel`: Adding an account to the gateway hands it a provider key or a sign-in, so it is your own step on Providers.
+- `POST /api/gatewayhost/<id>/keys/<id>/remove`: A key of the gateway lets a program use it: removing one is your own press on Providers.
+- `POST /api/gatewayhost/<id>/open`: The one-time link signs you in to the gateway's own page, so it is made only on your press.
 - `POST /api/accounts/probe`: Adding, testing, naming or removing a provider handles its key or its sign-in.
 - `POST /api/accounts/test`: Adding, testing, naming or removing a provider handles its key or its sign-in.
 - `POST /api/accounts/save`: Adding, testing, naming or removing a provider handles its key or its sign-in.
@@ -583,7 +620,7 @@ Every act of Hoprig is one row of `src/assistant/inventory.json`: 338 in all (43
 - `POST /api/work/access/webhooks/remove`: Work tokens and webhooks let another program in, which is yours alone.
 - `POST /api/work/access/limits`: Work tokens and webhooks let another program in, which is yours alone.
 - `POST /api/codetools/codex/signin`: Another coding tool's sign-in is yours alone.
-- `POST /api/machines/ssh`: Adding a computer by SSH pairs it and stores a new token for it; her card only opens Computers, Add a computer.
+- `POST /api/machines/ssh`: Adding a computer by SSH pairs it and stores a new token for it; she refuses in words and shows Computers, Add a computer; no card.
 - `POST /api/machines/url`: Pairing, joining, links and tokens decide who may control a computer.
 - `POST /api/machines/<id>/remove`: Pairing, joining, links and tokens decide who may control a computer.
 - `POST /api/machines/<id>/test`: Pairing, joining, links and tokens decide who may control a computer.
@@ -606,13 +643,15 @@ Every act of Hoprig is one row of `src/assistant/inventory.json`: 338 in all (43
 - `POST /api/accounts/own-endpoint/remove`: It takes a gateway's address and key out of the coding tool's own settings file.
 - `POST /api/accounts/own-endpoint/restore`: It puts a gateway's address and key back into the coding tool's own settings file.
 - `POST /api/accounts/own-endpoint/takeover`: It reads a gateway's key from the coding tool's settings file into a provider of its own.
+- `act add-computer`: Adding or pairing a computer makes a token that lets it be controlled: she refuses in words and shows the Computers page; no card.
 
-**A push or a merge into a default branch** (4):
+**A push or a merge into a default branch** (5):
 
 - `POST /api/workspace/map/commit`: Saving the map commits it into the brain's history, which is yours to decide.
 - `POST /api/workspace/onlyhere/push`: Pushing your other branches is your own press on the page Before you format this computer; it never pushes a default branch.
 - `POST /api/work/save`: Save commits the Work file and sends it to its repository.
 - `POST /api/work/save/drop`: Save commits the Work file and sends it to its repository.
+- `POST /api/chats/<id>/pr/merge`: Merging a pull request is seen by others; it is your own press in the chat's rail, behind a confirmation.
 
 **A release** (11):
 
@@ -628,7 +667,7 @@ Every act of Hoprig is one row of `src/assistant/inventory.json`: 338 in all (43
 - `POST /api/ship/p/<id>/auto`: Going live by itself is a switch you turn on with the project's name typed.
 - `POST /api/ship/limiter`: The limiter's words, run before every check and go-live, are your yes as you were shown them.
 
-**Anything sent out of the computer or opened to the internet** (6):
+**Anything sent out of the computer or opened to the internet** (7):
 
 - `hoprig field`: Field reports leave the computer only by your choice.
 - `POST /api/notify/test`: A test notification is sent out of the computer to your push channel.
@@ -636,10 +675,12 @@ Every act of Hoprig is one row of `src/assistant/inventory.json`: 338 in all (43
 - `POST /api/public-link/(custom|temporary)/<id>`: The Custom and temporary public links open services of this computer to the internet.
 - `POST /api/field/settings`: A field report may be sent out of the computer, only by your choice.
 - `POST /api/field/report/<id>/(send|dont-send)`: A field report may be sent out of the computer, only by your choice.
+- `POST /api/gatewayhost/<id>/public`: Turning on a gateway's public address opens it to the internet: only your own press, in your browser, on its own page.
 
-**A delete outside a session's own folder** (18):
+**A delete outside a session's own folder** (19):
 
-- `POST /api/workspace/drop`: A drop removes a project from the computer; her drop card only opens your sheet, where you type the name yourself.
+- `POST /api/addons/<id>/remove`: Removing a gateway's copy deletes a program and its service from this computer: your own press, naming the computer.
+- `POST /api/workspace/drop`: A drop removes a project from the computer; she shows your sheet in words, where you type the name yourself; no card.
 - `POST /api/work/alone/release`: Releasing a schedule's run removes its worktree, outside any session of hers.
 - `POST /api/work/items/<id>/remove-branch`: Removing a task's branch deletes a branch and its worktree, outside any session of hers.
 - `POST /api/chats/<id>/rewind`: A rewind puts files back as they were, which can throw away work you did since.
@@ -658,7 +699,7 @@ Every act of Hoprig is one row of `src/assistant/inventory.json`: 338 in all (43
 - `POST /api/adopt/retire/check`: It opens the sheet that removes your old folders after Arrange, and that sheet is yours alone on your own page.
 - `POST /api/adopt/retire`: Removing your old folders cannot be undone, so only you do it, on your own page, with the project's name typed.
 
-**Administrator rights** (16):
+**Administrator rights** (17):
 
 - `hoprig gateways`: A gateway of your own is a program the dashboard will run.
 - `hoprig move-to-user`: Moving Hoprig from root to an ordinary user stops root's dashboard and changes which user its services run as.
@@ -667,7 +708,7 @@ Every act of Hoprig is one row of `src/assistant/inventory.json`: 338 in all (43
 - `POST /api/gateways/defined/add`: A gateway of your own is a program the dashboard will run on this computer.
 - `POST /api/gateways/defined/confirm`: A gateway of your own is a program the dashboard will run on this computer.
 - `POST /api/gateways/defined/remove`: A gateway of your own is a program the dashboard will run on this computer.
-- `POST /api/gatewayhost/<id>/(start|stop)`: A gateway of your own is a program this computer runs; its start and stop on Health are your own presses.
+- `POST /api/gatewayhost/<id>/setup`: Setting up a gateway installs and starts a program and makes a key for it: your own press, naming this computer.
 - `POST /api/gatewayhost/<id>/service`: Making or removing a gateway's service changes what this computer starts by itself.
 - `POST /api/gatewayhost/linger`: Turning lingering on runs a command with administrator rights.
 - `POST /api/health/line`: A line that needs administrator rights is put in a terminal only for you, and only you press Enter on it.
@@ -676,8 +717,9 @@ Every act of Hoprig is one row of `src/assistant/inventory.json`: 338 in all (43
 - `POST /api/services/action`: Starting and stopping a service of the system needs administrator rights.
 - `POST /api/machines/install`: Installing Hoprig on another computer runs a program there with your rights.
 - `POST /api/machines/<id>/move`: Moving Hoprig from root to an ordinary user on another computer stops its dashboard and changes the main computer's login there.
+- `hoprig stop`: Stopping the dashboard stops her too, and the service manager and the keeper leave it stopped until you start it.
 
-**Switching a safety rule off (permission modes, Hands-off, bypass, what installs by itself)** (9):
+**Switching a safety rule off (permission modes, Hands-off, bypass, what installs by itself)** (10):
 
 - `POST /api/settings/bypass`: Allowing the mode that skips every permission prompt switches a safety rule off.
 - `POST /api/settings/bypass/seen`: Allowing the mode that skips every permission prompt switches a safety rule off.
@@ -688,6 +730,7 @@ Every act of Hoprig is one row of `src/assistant/inventory.json`: 338 in all (43
 - `POST /api/chats/<id>/handsoff`: Hands-off lets a chat go on without asking you, which switches a safety rule off.
 - `POST /api/chats/<id>/mode`: A chat's permission mode, model and effort are your choice in its page.
 - `POST /api/chats/<id>/settings`: A chat's permission mode, model and effort are your choice in its page.
+- `POST /api/settings/bypass/everything`: Accepting the mode that allows every permission, also what Hoprig would hold, switches a safety rule off.
 
 **Raising her own rights (her settings, her cards, her jobs, a shell without a card)** (25):
 
@@ -717,7 +760,7 @@ Every act of Hoprig is one row of `src/assistant/inventory.json`: 338 in all (43
 - `POST /api/work/missions/settings`: The switches and limits of missions say how far she works by herself, which is yours to set.
 - `POST /api/work/missions/off`: Tia OFF is your own press on the switch of her work by herself.
 
-**Your yes to something you read on your own page (a diff, a proposal, a need): the page is the card** (34):
+**Your yes to something you read on your own page (a diff, a proposal, a need): the page is the card** (41):
 
 - `hoprig adopt`: Adopting is your yes to the plan per project you read; its apply copies outside any session's folder and its retire removes the originals.
 - `hoprig sessions`: Moving the coding tool's conversations to a new folder follows the adopt plan you read and writes outside every project.
@@ -741,8 +784,6 @@ Every act of Hoprig is one row of `src/assistant/inventory.json`: 338 in all (43
 - `POST /api/workspace/mylink`: Naming a link as your own is your own press on the project's page, after the sheet showed where it leads.
 - `POST /api/workspace/leave/mark`: What the look before a format keeps, ignores or leaves out is your own word on its page, after you read what it found.
 - `POST /api/work/settings`: Tidy, the doubles and where Work lives are your presses after you read the difference.
-- `POST /api/work/plans`: A plan is written from a proposal you read and accepted on the Work page.
-- `POST /api/work/plans/<id>`: A plan is written from a proposal you read and accepted on the Work page.
 - `POST /api/work/propose`: A plan is written from a proposal you read and accepted on the Work page.
 - `POST /api/work/proposals/<id>/accept`: A plan is written from a proposal you read and accepted on the Work page.
 - `POST /api/work/proposals/<id>/clean`: A plan is written from a proposal you read and accepted on the Work page.
@@ -753,6 +794,15 @@ Every act of Hoprig is one row of `src/assistant/inventory.json`: 338 in all (43
 - `POST /api/adopt/plan`: A plan per project is made for you to read on your own page before anything is copied.
 - `POST /api/adopt/apply`: Applying a plan copies a project into the workspace after you read that plan on your own page.
 - `skill plan-work`: It is the method of Work's planning session, whose proposal you read and accept.
+- `POST /api/onboarding/first-chat`: The first project is your own press on the first card of Home, a new empty folder that you then talk to.
+- `POST /api/workspace/instep/credentials`: Getting the credentials repository sets your folder aside and clones it: your own press on the page, never hers.
+- `POST /api/workspace/instep/look`: Looking now fetches the projects and moves a clean one: your own press on the page.
+- `POST /api/workspace/credmove/expect`: Receiving credentials from another computer of yours is your own press on the Workspace page: the receiving computer makes its one-time number only for your page.
+- `POST /api/workspace/credmove/pack`: Sending credentials to another computer of yours is your own press on the Workspace page: the files are sealed for that computer only, and never for Tia.
+- `POST /api/workspace/credmove/upload`: Writing the credentials that came from another computer is your own press on the Workspace page, after the list of names and sizes showed what would land.
+- `POST /api/workspace/credmove/trust`: Trusting another computer's key for moving credentials is your own press on the Workspace page.
+- `POST /api/workspace/credmove/own`: Saying that a computer is not your own, so it gets credentials one project at a time, is your own press on that computer's page.
+- `POST /api/workspace/credmove/mark`: Saying that a computer in your list is not your own is your own press on the Workspace page.
 
 **Work in a project's files and git, which a coding session she starts does inside its folder** (8):
 
@@ -765,7 +815,7 @@ Every act of Hoprig is one row of `src/assistant/inventory.json`: 338 in all (43
 - `POST /api/code/git/discard`: Editing files and git in the code editor is the work a coding session she starts does inside its folder.
 - `POST /api/code/git/commit`: Editing files and git in the code editor is the work a coding session she starts does inside its folder.
 
-**Not an act of a person: a view of the page, a file from your device, a program's own door** (24):
+**Not an act of a person: a view of the page, a file from your device, a program's own door** (25):
 
 - `hoprig hook`: Claude Code starts it for a hook event; no person runs it.
 - `hoprig router`: The local router is a program's own door, started by the dashboard.
@@ -791,6 +841,7 @@ Every act of Hoprig is one row of `src/assistant/inventory.json`: 338 in all (43
 - `POST /api/assistant/call`: This is the door through which you or an MCP client talk to her, not an act of its own.
 - `POST /api/work/command/do`: This is the door of another dashboard, the command line or a program with a Work token.
 - `POST /api/work/token/tasks`: This is the door of another dashboard, the command line or a program with a Work token.
+- `hoprig keep`: The service manager runs it while the dashboard is down; no person or Tia does.
 
 <!-- /tia-acts -->
 

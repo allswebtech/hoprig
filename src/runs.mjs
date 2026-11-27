@@ -57,6 +57,7 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
+import { allMarkFile } from './allmark.mjs';
 import { herMarkFile } from './hermark.mjs';
 import { hookSettingsDir, runsDir, stateDir } from './paths.mjs';
 import { stillOwned, system } from './procid.mjs';
@@ -278,7 +279,7 @@ export function removeRun(file) {
   noteEnd(file, ending); // Work's history, before Tia's mark goes (never throws)
   // The settings Hoprig handed the run's coding tool (launch.mjs, a chat's: claude.mjs) go with its record, and so
   // does the mark that said the session was Tia's (hermark.mjs: the hold it fed must not outlive the session).
-  for (const f of [file, usageFile(file), watchFile(file), `${file}.lock`, path.join(hookSettingsDir(), path.basename(file)), herMarkFile(file)]) {
+  for (const f of [file, usageFile(file), watchFile(file), `${file}.lock`, path.join(hookSettingsDir(), path.basename(file)), herMarkFile(file), allMarkFile(file)]) {
     try {
       fs.unlinkSync(f);
     } catch {
@@ -302,7 +303,7 @@ export function removeSettingsLeftovers() {
   for (const n of names) {
     // A handed settings file (<runId>.json) or the Tia mark beside it (<runId>.json.tia, hermark.mjs); both go when
     // their run record is gone.
-    const record = n.endsWith('.tia') ? n.slice(0, -4) : n;
+    const record = n.endsWith('.tia') || n.endsWith('.all') ? n.slice(0, -4) : n;
     if (!/^[A-Za-z0-9-]+\.json$/.test(record) || fs.existsSync(path.join(runsDir(), record))) continue;
     try {
       fs.unlinkSync(path.join(hookSettingsDir(), n));

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { detectItem, detectKits, parseGhAuth, preselect, sshKeys, sysFacts, versionOf } from '../../src/pcsetup/detect.mjs';
 import { KITS } from '../../src/pcsetup/kits.mjs';
+import { withPlatform } from '../pin-platform.mjs';
 import {
   clockOffset, countLines, diskChecks, githubChecks, kitChecks, parseAptCheck, parseAptList, parseMeminfo, parseSoftwareUpdate, parseSwapusage, updatesCheck,
 } from '../../src/pcsetup/status.mjs';
@@ -45,7 +46,8 @@ test('a fresh Ubuntu: everything missing except what is there; the default kits 
   assert.equal(st('python', 'venv'), 'missing');
   assert.equal(st('github', 'identity'), 'missing');
   assert.equal(st('github', 'signin'), 'missing');
-  assert.deepEqual(preselect(f), ['basics', 'node', 'python', 'github', 'extras']);
+  assert.deepEqual(await withPlatform('linux', () => preselect(f)), ['basics', 'node', 'python', 'github', 'extras']);
+  assert.deepEqual(await withPlatform('win32', () => preselect(f)), ['basics', 'node', 'github'], 'Windows: Python and Terminal extras are one tick away');
 });
 
 test('macOS without the command line tools: git and python3 count as missing and are NOT run (that opens Apple\'s window)', async () => {
@@ -145,7 +147,7 @@ test('clock offset from a Date header', () => {
 
 test('kit checks: missing items carry the exact install command and the kit that fixes them; optional kits are info', async () => {
   const { sys } = await fake({ bins: [] });
-  const checks = kitChecks(await detectKits(sys), sys);
+  const checks = await withPlatform('linux', async () => kitChecks(await detectKits(sys), sys));
   const tmux = checks.find((c) => c.id === 'extras.tmux');
   assert.equal(tmux.status, 'fail');
   assert.equal(tmux.fixKit, 'extras');

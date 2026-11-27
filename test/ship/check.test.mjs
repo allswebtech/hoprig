@@ -71,7 +71,7 @@ test('the confirmed limiter goes first; one changed by hand stops the check', as
   const { loadConfig, saveConfig } = await import('../../src/config.mjs');
   const s = loadConfig().ship;
   saveConfig({ ship: { ...s, limiter: { ...s.limiter, run: ['node', '-e', 'process.exit(0)'] } } });
-  await assert.rejects(runCheck(shop, shop, { busy: idle }), (e) => e.details.code === 'limiter-changed' && e.message === 'the words before each check command in Settings → Go live changed after you confirmed them: confirm them again there first');
+  await assert.rejects(runCheck(shop, shop, { busy: idle }), (e) => e.details.code === 'limiter-changed' && e.message === 'the words before each check command in Work → Go live changed after you confirmed them: confirm them again there first');
   assert.deepEqual(t.trapped(), []);
 });
 

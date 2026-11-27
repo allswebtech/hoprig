@@ -1,7 +1,7 @@
 // What a chat does with each event its running coding tool gives (src/chat/events.mjs): the numbered list, the
 // state the page reads (activity, mode, usage, limits, title, to-dos), the task table, the open questions, the queue
 // and the turn. The Chat class (chat.mjs) calls hear() for the events of its current process only.
-import { askArrived, askCancelled, cancelAsks } from './asks.mjs';
+import { allToolSeen, askArrived, askCancelled, cancelAsks } from './asks.mjs';
 import { workSeen } from './handsoff.mjs';
 import { mergeLimit } from './controls.mjs';
 import { rememberTurn } from './turns.mjs';
@@ -84,6 +84,7 @@ export function hear(chat, ev) {
       if (ev.kind === 'tool' || ev.kind === 'tool-result') chat.emit('state'); // a tool runs now, or ran: the status line
       if (ev.kind === 'tool' && !ev.agent) workSeen(chat, ev); // work between Hands-off's answers
       chat.push(strip(ev));
+      if (ev.kind === 'tool') allToolSeen(chat, ev); // "Allow everything": what the wall would have held runs, with a quiet line
       return;
     case 'todos': // a TodoWrite or a task call of this turn: newer than anything read from the earlier part (reading.mjs)
       chat.todos = ev.list;

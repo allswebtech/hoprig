@@ -184,16 +184,17 @@ test('a coding tool that does not queue: the chat holds the message and sends it
 });
 
 test('model, effort, ultracode and mode change in the running process: no new start', async (t) => {
-  const c = newChat();
+  const c = newChat({ ultracode: true }); // with the chip on at the start the process has the Workflow tool: the chip changes live
   t.after(() => c.stopAndWait());
   await turn(c, 'hello');
   assert.deepEqual(await c.setSettings({ model: 'haiku' }), { restart: false });
   await c.setSettings({ effort: 'high' });
+  await c.setSettings({ ultracode: false });
   await c.setSettings({ ultracode: true });
   await c.setSettings({ effort: null, model: null });
   assert.deepEqual(controls(c, 'set_model'), [{ subtype: 'set_model', model: 'haiku' }, { subtype: 'set_model' }], 'Auto: Claude Code\'s own default');
   assert.deepEqual(controls(c, 'apply_flag_settings').map((x) => x.settings), [
-    { effortLevel: 'high', ultracode: false }, { effortLevel: 'high', ultracode: true }, { effortLevel: null, ultracode: true },
+    { effortLevel: 'high', ultracode: true }, { effortLevel: 'high', ultracode: false }, { effortLevel: 'high', ultracode: true }, { effortLevel: null, ultracode: true },
   ], 'an effort change always says ultracode too');
   assert.ok(of(c, 'notice').some((e) => e.text === 'Set model to haiku'), 'Claude Code\'s word on it is shown');
   // A card open while the owner switches to bypass stays his: the one rule (src/asking.mjs) answers only a plain

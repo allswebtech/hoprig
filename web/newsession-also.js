@@ -1,6 +1,6 @@
 // "Also open" in the new-session sheet (newsession-popup.js): other projects of the workspace map that this one session
 // may read (its file tools cannot write there), as extra folders of its coding tool (src/workspace/needs.mjs). Closed,
-// before the project choice (a tap on a project row starts the session). The project's own needs (its project.json's
+// behind "More options" (a tap on a project row starts the session). The project's own needs (its project.json's
 // "needs") come by themselves once the owner allowed them on this computer (a project.json can come from anyone): each
 // one here shows "allow" or "take back" (POST /api/folders/extras/accept). Every name is checked again on the server;
 // nothing is written to the project. Claude Code only: another coding tool cannot keep an extra folder read-only, so it says so instead.
@@ -24,10 +24,8 @@ export async function alsoChoices(m, folder) {
 export function alsoOpen({ data, chosen, tool, toolName, onchange, onallow = null }) {
   if (!data || (!data.choices.length && !data.needs.length)) return null;
   const n = chosen.length;
-  const label = n ? `Also open (${n})` : 'Also open';
-  if (tool && tool !== 'claude') {
-    return fold('new-also', label, h('p.hint', `${toolName} gets no extra folders: Hoprig cannot keep them read-only there. Choose Claude Code to read another project beside this one.`));
-  }
+  const label = n ? `Read other projects too (${n})` : 'Read other projects too';
+  if (tool && tool !== 'claude') return null; // another coding tool cannot keep an extra folder read-only: nothing to offer, nothing shown
   const needs = data.needs.length
     ? h('div.ns-also-needs',
       h('p.ns-also-head', `${data.project} needs, and gets by itself once you allow it here:`),

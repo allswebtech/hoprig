@@ -58,6 +58,20 @@ test('recent folders come from live sessions and Claude transcripts', () => {
   assert.deepEqual(named.map((f) => [path.basename(f.path), f.live, f.session]), [['proj', true, 'proj'], ['src', false, undefined]], 'the first session in a folder; none for history');
 });
 
+test('a chat\'s worktree is never a project of its own: the project\'s folder is offered, a chat in the worktree runs in its project', () => {
+  const proj = path.join(root, 'proj');
+  const wt = path.join(proj, '.claude', 'worktrees', 'chat-a1b2c3');
+  fs.mkdirSync(path.join(wt, 'src'), { recursive: true });
+  const rec = recentFolders([{ cwd: wt, chat: 'c1' }, { cwd: path.join(wt, 'src') }], roots);
+  assert.deepEqual(rec.filter((f) => f.live).map((f) => [f.path, f.chat]), [[fs.realpathSync(proj), 'c1']], JSON.stringify(rec));
+  assert.ok(!rec.some((f) => f.path.includes('worktrees')), JSON.stringify(rec));
+  // Its transcript (Claude Code ran in the worktree) offers the project too, never the worktree.
+  const t = path.join(box.claude, 'projects', 'wt');
+  fs.mkdirSync(t, { recursive: true });
+  fs.writeFileSync(path.join(t, '1b6c3c9e-1f7e-4e4b-9b1a-3f6a1e2d4c5b.jsonl'), JSON.stringify({ type: 'user', cwd: wt }) + '\n');
+  assert.ok(!recentFolders([], roots).some((f) => f.path.includes('worktrees')));
+});
+
 test('the product\'s own folders (Tia\'s working folders) are never offered as recent folders', () => {
   const work = path.join(process.env.HOPRIG_STATE_DIR, 'assistant', 'conversations', 'c1', 'work');
   fs.mkdirSync(work, { recursive: true });

@@ -5,6 +5,9 @@
 //
 // A definition: { id, title, summary, homepage,
 //   npm        the npm package that installs and updates it, or null: then `bin` is a program already on the computer
+//   own        (a shipped one only) { pin, from? } (from: the oldest copy that takes --data-dir): Install puts the package into Hoprig's own folder at that version
+//              (owncopy.mjs) and it is started as Node plus the copy's entry file; a copy that is on the computer
+//              already (npm install -g) is used until then
 //   allowScripts  (a shipped one only) the packages of it whose install scripts npm may run, as its README names them
 //   bin        the program: a plain name found on PATH, or an absolute path
 //   port       the default port (config.json addons.<id>.port changes it)
@@ -24,13 +27,16 @@ import { fileURLToPath } from 'node:url';
 import { loadConfig } from '../config.mjs';
 import { knock } from '../knock.mjs';
 import { binFile, stateDir } from '../paths.mjs';
-import { filedProcess, system } from '../procid.mjs';
+import { filedProcess, startOf, statStart, system } from '../procid.mjs';
 import { workspaceDir } from '../workspace/layout.mjs';
 import { belongsTo, groupOf, parentOf } from './proctree.mjs';
-import { capture, npmArgv, showCommand, stream, which } from '../setup/system.mjs';
+import { capture, npmArgv, ownNodeBin, showCommand, stream, which } from '../setup/system.mjs';
+import { dataFolder, sameUserListener } from '../gateway/trouteaibase.mjs';
+import { baseEnv } from './trouteaipublic.mjs';
+import { atLeast, dataProblem, entryProblem, ownCopyOf, packageJsonOf, packageVersion, spawnReason } from './owncopy.mjs';
 import { windowsSpawnPlan } from '../winspawn.mjs';
 import { forGateway, forInstalls } from '../secretenv.mjs';
-import { servicePid } from './gatewayservice.mjs';
+import { makeService, removalPlan, removeService, servicePid, servicePlan, serviceNow, serviceState } from './gatewayservice.mjs';
 import { FirstLines } from './firstlines.mjs';
 
 // The filter a gateway's output goes through when its definition names its first password's line (firstlines.mjs).
@@ -180,6 +186,15 @@ export function typedProgram(typed, lookup = which) {
   }
 }
 
+const lstatOk = (p) => {
+  try {
+    fs.lstatSync(p);
+    return true;
+  } catch {
+    return false;
+  }
+};
+
 const quote = (s) => (/^[A-Za-z0-9_@%+=:,./\\-]+$/.test(s) ? s : `"${s}"`);
 
 /** The page's sentences for a gateway, from its definition, with plain ones where it says none. */
@@ -233,7 +248,9 @@ export function keepsLocal({ host = dashboardHost(), reason = null, tailscale = 
  */
 export function listenRule(def, opts = {}) {
   const o = { host: opts.host ?? dashboardHost(), reason: opts.reason ?? null, tailscale: opts.tailscale ?? viaTailscale() };
-  return keepsLocal(o) ? { args: hostArgs(def, o), env: { HOST: '127.0.0.1' } } : { args: [], env: {} };
+  const local = keepsLocal(o) ? { args: hostArgs(def, o), env: { HOST: '127.0.0.1' } } : { args: [], env: {} };
+  // The shipped gateway also learns its own public base address while the owner has turned its public address on (trouteaipublic.mjs).
+  return opts.shipped === true && def.id === 'trouteai' ? { args: local.args, env: { ...local.env, ...baseEnv() } } : local;
 }
 const ARG_SAFE = /^[A-Za-z0-9._=:,@/+-]{1,200}$/;
 
@@ -265,8 +282,14 @@ export function saidLines(file, from = 0) {
 }
 
 /** A gateway add-on (see index.mjs for the shape of an add-on) for `def`. */
-export function localGateway(def, { shipped = false, reason = () => serverReason() } = {}) {
+export function localGateway(def, { shipped = false, reason = () => serverReason(), nodeDir = ownNodeBin(), tools = {}, sameUser = sameUserListener } = {}) {
   const { id, title } = def;
+  // The copy in Hoprig's own folder (a shipped gateway whose definition says `own`), and where the data folder is.
+  // `tools`: npm's run and check and the registry's fetch, for tests.
+  // Into a folder of its own npm takes the allowed scripts from that folder's package.json (npmtool.mjs writes them), not
+  // from --allow-scripts, which it refuses for an install into a project (EALLOWSCRIPTS): only the log level goes on.
+  const ownFlags = () => (installFlags(def) || []).filter((f) => !f.startsWith('--allow-scripts='));
+  const own = shipped && def.own && def.npm ? ownCopyOf(def, ownFlags()) : null;
   const port = () => Number(loadConfig().addons?.[id]?.port) || def.port;
   const url = () => `http://localhost:${port()}`;
   const page = () => (def.dashboard ? `${url()}${def.dashboard === '/' ? '' : def.dashboard}` : null);
@@ -281,14 +304,50 @@ export function localGateway(def, { shipped = false, reason = () => serverReason
   const pinned = !shipped && !def.npm;
   // What its last start printed first, for its page once (firstlines.mjs): only where its definition names that line.
   const firstLines = new FirstLines();
+  // A shipped npm package is also looked for in the folder of the Node Hoprig runs on: where npm is not on PATH the
+  // install goes through that Node's npm, which puts the program there. POSIX layout only (not Windows).
+  const nodeFolder = () => (shipped && def.npm && process.platform !== 'win32' ? nodeDir : null); // nodeDir: null in tests
+  const ownNodeProgram = () => {
+    const dir = nodeFolder();
+    if (!dir) return null;
+    const file = path.join(dir, def.bin);
+    try {
+      return fs.statSync(file).isFile() && executable(file) ? file : null;
+    } catch {
+      return null;
+    }
+  };
   const program = () => {
-    if (shipped) return which(def.bin);
+    if (shipped) return which(def.bin) || ownNodeProgram();
     if (def.npm) return packageProgram(def);
     try {
       return fs.statSync(def.bin).isFile() ? def.bin : null;
     } catch {
       return null;
     }
+  };
+  /**
+   * The copy that runs, { kind, bin, entry, version } or null: the own copy (kind 'own': Node plus its entry file) once it
+   * is installed, else the program found on the computer (a shipped gateway's global one: kind 'global', its version read
+   * from its package.json; nothing is asked of the program).
+   */
+  const copy = () => {
+    const v = own?.version();
+    const entry = v ? own.entry() : null;
+    if (entry) return { kind: 'own', bin: process.execPath, entry, version: v };
+    // The folder of the own copy is there but Hoprig cannot read a program out of it (a folder this user may not read, a
+    // damaged install): that is said, never passed over for another copy.
+    const folder = own ? path.join(own.dir(), 'node_modules', ...def.npm.split('/')) : null;
+    if (folder && lstatOk(folder)) return { kind: 'own', bin: process.execPath, entry: folder, version: null, broken: true };
+    const bin = program();
+    return bin ? { kind: own ? 'global' : 'program', bin, entry: null, version: own ? packageVersion(bin, def.npm) : null } : null;
+  };
+  /** The words that name its data folder: only where the copy takes them (the own copy, or a global one of the pinned version or newer). */
+  const dataArgs = (c) => (own && c && (c.kind === 'own' || atLeast(c.version, def.own.from || def.own.pin)) ? ['--data-dir', dataFolder()] : []);
+  /** The command line of a start: the own copy as Node plus its entry file (the same on every system), else the program. */
+  const lineOf = (c, listenArgs) => {
+    const args = startArgs(def, port(), [...listenArgs, ...dataArgs(c)]);
+    return c?.kind === 'own' ? [c.bin, c.entry, ...args] : [def.bin, ...args];
   };
   /**
    * Is the pinned program still the one the owner confirmed? null when it is, 'no-fingerprint' for a definition that
@@ -367,14 +426,21 @@ export function localGateway(def, { shipped = false, reason = () => serverReason
   /** Does the gateway run: its port answers and, for one the owner defined, it is the process this add-on started. */
   async function runs() {
     const up = await answers();
-    return { up, mine: up && (shipped || isOurs(await ours())) };
+    if (!up) return { up, mine: false };
+    // The shipped gateway: what listens on its port is the gateway when it runs as this user, however it was started
+    // (a service of his own, a terminal). One that belongs to another user, or whose owner cannot be told, is not:
+    // nothing is stopped, nothing is started over it and no key is handed to it.
+    if (shipped) return (await sameUser(port())) === 'foreign' ? { up, mine: false, otherUser: true } : { up, mine: true };
+    return { up, mine: isOurs(await ours()) };
   }
+  const otherUserText = () => `${title} answers on port ${port()}, but that program belongs to another user of this computer (or its owner cannot be told): Hoprig leaves it alone and sends it no key.`;
 
   /** `version: false`: only whether it is installed and runs (the Operator's minute check starts no program for it). */
   async function status({ version: withVersion = true } = {}) {
-    const bin = program();
-    let version = null;
-    if (bin && def.version && withVersion) {
+    const found = copy();
+    const bin = found?.bin ?? null;
+    let version = found?.version ?? null;
+    if (bin && !own && def.version && withVersion) {
       try {
         const m = /(\d+\.\d+\.\d+[\w.-]*)/.exec((await capture([bin, ...def.version], { timeout: 10_000 })).stdout || '');
         version = m ? m[1] : null;
@@ -382,12 +448,66 @@ export function localGateway(def, { shipped = false, reason = () => serverReason
         /* installed, version unknown */
       }
     }
-    const { up, mine } = await runs();
+    const { up, mine, otherUser } = await runs();
     // needsConfirm: a program of the owner's own that is not started until he confirms it again (confirmState).
     const unconfirmed = !pinned ? null : bin ? confirmState(bin, cachedSha256) : goneState();
     // byService: the copy that runs is its service's (Health → Gateways → Run as a service), not one Hoprig started.
     const byService = mine && (await serviceRunsIt());
-    return { installed: Boolean(bin), version, running: mine, url: url(), ...(byService ? { byService: true } : {}), ...(up && !mine ? { foreign: true } : {}), ...(unconfirmed ? { needsConfirm: unconfirmed } : {}) };
+    const stale = mine && withVersion && own ? await updatedAfterStart(found) : null;
+    return {
+      installed: Boolean(bin), version, running: mine, url: url(),
+      // A newer version than this copy is what Install would put there: only said, never done by itself.
+      ...(own && version && !atLeast(version, def.own.pin) ? { newer: true } : {}),
+      ...(own && found ? { copy: found.kind } : {}),
+      ...(found?.broken ? { problem: entryProblem(found.entry, title, id) || `${title}'s copy in Hoprig's own folder is damaged: install it again with: hoprig addons install ${id}` } : {}),
+      ...(byService ? { byService: true } : {}),
+      ...(up && !mine ? { foreign: true } : {}),
+      ...(otherUser ? { note: otherUserText() } : {}),
+      ...(stale ? { restart: `The copy on this computer was updated after ${title} was started: restart it to run ${stale}` } : {}),
+      ...(unconfirmed ? { needsConfirm: unconfirmed } : {}),
+    };
+  }
+
+  /**
+   * The version of the copy when its files were changed after the running gateway of this user was started (the listener's
+   * start against the copy's package.json time), else null; also null where the start cannot be read (Linux and macOS only).
+   */
+  async function updatedAfterStart(found) {
+    try {
+      const file = found && !found.broken && found.version ? packageJsonOf(found.entry || found.bin, def.npm) : null;
+      const pid = file ? await pidOnPort() : null;
+      if (!pid) return null;
+      let started = 0;
+      if (process.platform === 'linux') {
+        const ticks = statStart(fs.readFileSync(`/proc/${pid}/stat`, 'utf8'));
+        started = ticks ? system.bootAt() + Number(ticks) * 10 : 0; // 100 ticks a second
+      } else if (process.platform === 'darwin') {
+        // ps names the start to the second, cut down: a copy written in the second the program started is not later than it.
+        started = startOf(system.of([pid], { after: await system.refresh([pid]) }).get(pid));
+        if (started) started += 1000;
+      }
+      return started && fs.statSync(file).mtimeMs > started ? found.version : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /** Which copy there is, from the files alone (nothing is asked of a program or of the port): { copy, version, problem } or null when there is none. */
+  function copyInfo() {
+    const c = copy();
+    if (!c) return null;
+    const problem = c.broken ? entryProblem(c.entry, title, id) || `${title}'s copy in Hoprig's own folder is damaged: install it again with: hoprig addons install ${id}` : null;
+    return { copy: c.kind, version: c.version, ...(problem ? { problem } : {}) };
+  }
+
+  /** Does its health route say it is up (GET /healthz)? Asked when someone looks, never by status(): a port that answers it not yet is "starting". */
+  async function healthy() {
+    try {
+      const r = await fetch(`http://127.0.0.1:${port()}/healthz`, { signal: AbortSignal.timeout(2000) });
+      return r.ok;
+    } catch {
+      return false;
+    }
   }
 
   // A program, not a package: nothing to install or update; it is there or it is not.
@@ -399,16 +519,84 @@ export function localGateway(def, { shipped = false, reason = () => serverReason
 
   const badFlags = () => ({ ok: false, error: `the definition of ${title} names a part that is not a package name, so it is not installed` });
 
+  const toolOptions = () => ({ ...(tools.run ? { run: tools.run } : {}), ...(tools.check ? { check: tools.check } : {}) });
+
   async function install({ onLine = () => {} } = {}) {
     if (!def.npm) return there(onLine);
+    if (own) {
+      if (!installFlags(def)) return badFlags();
+      const r = await own.install({ onLine, ...toolOptions() });
+      if (r.ok && (await runs()).mine && copy()?.kind === 'own') onLine(`${title} is running from the copy that was there before: it uses this one from its next start.`);
+      return { ok: r.ok, version: r.version, ...(r.busy ? { busy: true } : {}) };
+    }
     const argv = installArgv(def);
     if (!argv) return badFlags();
     const r = await stream(argv, { env: forInstalls(process.env), onLine });
     return { ok: r.ok && Boolean(program()) };
   }
 
+  /** Is its service (Health → Gateways → Run as a service) made here, and does it run the gateway? → { plan, made, bySvc }. */
+  async function serviceOf() {
+    const plan = servicePlan(addon);
+    const made = (plan.kind === 'systemd' || plan.kind === 'launchd') && fs.existsSync(plan.file);
+    return { plan, made, bySvc: made && (await serviceRunsIt()) };
+  }
+  const waitUp = async (ms = 30_000) => {
+    for (let t = 0; t < ms; t += 500) {
+      if (await answers()) return true;
+      await new Promise((r) => setTimeout(r, 500));
+    }
+    return false;
+  };
+
+  /**
+   * Update the own copy to the newest from npm. A running gateway is stopped first and started again after: through its
+   * service when its service runs it (the service's file is written again when the copy it names changed), else by
+   * Hoprig. A stop that is refused ends it here: the copy under a running program is not touched.
+   */
+  async function updateOwn({ onLine }) {
+    if (copy()?.kind === 'global') onLine(`There is no copy of ${title} in Hoprig's own folder yet: a copy of its own is put there and runs instead. The copy installed with npm is left as it was.`);
+    const was = (await runs()).mine;
+    const svc = was ? await serviceOf() : null;
+    if (was) {
+      onLine(`Stopping ${title}…`);
+      const r = svc.bySvc ? await serviceNow(svc.plan, 'stop') : await stop();
+      if (!r.ok) return { ok: false, error: `${title} was not updated: it could not be stopped (${r.error || 'no reason given'}). Nothing was changed.` };
+    }
+    const before = own.installedVersion();
+    const r = await own.install({ version: 'latest', onLine, ...toolOptions() }); // npm resolves the newest
+    let started = { ok: true };
+    if (was) {
+      onLine(`Starting ${title}…`);
+      if (svc.bySvc) {
+        const plan = servicePlan(addon);
+        let same = false;
+        try {
+          same = fs.readFileSync(plan.file, 'utf8') === plan.text;
+        } catch {
+          /* no file */
+        }
+        const m = same ? await serviceNow(plan, 'start') : await makeService(plan);
+        started = m.ok ? { ok: (await waitUp()) || false, error: `${title} did not answer on port ${port()} after its service started it` } : { ok: false, error: m.error || m.lines?.at(-1) };
+      } else {
+        started = await start();
+        // A start that found it running was not made by this update: what runs is not the copy just installed.
+        if (started.ok && started.already) started = { ok: false, error: `${title} was started by something else while the update ran, and that copy keeps running: stop it and start it again` };
+      }
+    }
+    if (!r.ok) {
+      const why = String(r.output || '').trim().split('\n').pop() || 'npm did not finish';
+      const swapped = r.version && r.version !== before; // npm replaced the copy before its check failed
+      const now = was && !started.ok ? ` ${title} is not running now (${started.error || 'it did not start'}).` : '';
+      const disk = swapped ? ` ${title} ${r.version} is on disk now.` : '';
+      return { ok: false, version: r.version, error: `${title} was not updated${was && started.ok && !swapped ? ' (it was started again as it was)' : ''}: ${why}${disk}${now}` };
+    }
+    return started.ok ? { ok: true, version: r.version } : { ok: false, version: r.version, error: `${title} is updated to ${r.version} but did not start: ${started.error}` };
+  }
+
   async function update({ onLine = () => {} } = {}) {
     if (!def.npm) return there(onLine);
+    if (own) return installFlags(def) ? updateOwn({ onLine }) : badFlags();
     const argv = installArgv(def, `${def.npm}@latest`);
     if (!argv) return badFlags();
     const was = (await runs()).mine;
@@ -423,11 +611,16 @@ export function localGateway(def, { shipped = false, reason = () => serverReason
    * listens is the rule of listenRule, for every caller.
    */
   async function start() {
-    const listen = listenRule(def, { reason: reason() });
+    const listen = listenRule(def, { reason: reason(), shipped });
     const now = await runs();
     if (now.mine) return { ok: true, url: url(), already: true };
+    // An install or update of the own copy is working in its folder (maybe in another process): a start now would run
+    // a half-replaced copy, or another one.
+    if (own && own.installing()) return { ok: false, url: url(), busy: true, error: `${title} is being installed or updated right now. Try again in a minute.` };
+    if (now.otherUser) return { ok: false, url: url(), error: `${otherUserText()} Start ${title} on another port (addons.${id}.port in config.json), or stop that program as its own user.` };
     if (now.up) return { ok: false, url: url(), error: `${foreignText()} Stop that program, or give ${title} another port.` };
-    const bin = program();
+    const found = copy();
+    const bin = found?.bin;
     if (!bin) {
       const gone = pinned ? goneState() : null;
       const error = def.npm ? `${title} is not installed (hoprig addons install ${id})`
@@ -443,6 +636,13 @@ export function localGateway(def, { shipped = false, reason = () => serverReason
     const changed = pinned ? notAsConfirmed(bin) : null;
     if (changed) return { ok: false, url: url(), error: changed, code: 'gateway-not-confirmed' };
     if (pinned && process.platform !== 'win32' && !executable(bin)) return { ok: false, url: url(), error: notExecutable(bin) };
+    // The own copy: a file this user cannot read, or a data folder it cannot write, is said now, not after 30 seconds.
+    const unusable = found.kind === 'own' ? entryProblem(found.entry, title, id) || (found.broken ? `${title}'s copy in Hoprig's own folder is damaged: install it again with: hoprig addons install ${id}` : null) : null;
+    if (unusable) return { ok: false, url: url(), error: unusable };
+    const dataArg = dataArgs(found);
+    const badData = dataArg.length ? dataProblem(dataArg[1], title) : null;
+    if (badData) return { ok: false, url: url(), error: `${title} did not start: ${badData}` };
+    const argv = found.kind === 'own' ? lineOf(found, listen.args) : [bin, ...startArgs(def, port(), [...listen.args, ...dataArg])];
     fs.mkdirSync(path.dirname(logFile()), { recursive: true, mode: 0o700 });
     const log = fs.openSync(logFile(), 'a', 0o600);
     fs.chmodSync(logFile(), 0o600); // also a log an older version left wider: only this user reads what a gateway prints
@@ -451,15 +651,19 @@ export function localGateway(def, { shipped = false, reason = () => serverReason
     // a session's PRERUN runs in that session's, with other providers' keys, cloud credentials and the session's
     // marks. Its own key arrives with each request. The shipped gateway starts as it always did.
     const env = { ...(shipped ? process.env : forGateway(process.env)), ...(listen.env || {}) };
+    // The shipped package's program starts with `env node`: node must be found, so the folder of Hoprig's own Node is
+    // the last on PATH (after what the owner has).
+    const extra = found.kind === 'own' ? null : nodeFolder();
+    if (extra && !(env.PATH || '').split(path.delimiter).includes(extra)) env.PATH = [env.PATH, extra].filter(Boolean).join(path.delimiter);
     // Its definition names the line of its first password: its output goes through the filter, which keeps that line
     // out of the log and hands the first lines here, kept in memory for its page only. Else the log is as it prints.
     const marker = typeof def.firstPassword === 'string' && def.firstPassword && !viaShell ? def.firstPassword : null;
     const said = [];
     const child = marker
-      ? spawn(process.execPath, [FILTER, logFile(), marker, bin, ...startArgs(def, port(), listen.args)], { detached: true, stdio: ['ignore', 'pipe', log], windowsHide: true, env })
+      ? spawn(process.execPath, [FILTER, logFile(), marker, ...argv], { detached: true, stdio: ['ignore', 'pipe', log], windowsHide: true, env })
       : (() => {
         // No shell (startPlan): on Windows an npm .cmd shim goes to cmd.exe with every argument escaped.
-        const plan = startPlan(bin, startArgs(def, port(), listen.args), process.platform, env);
+        const plan = startPlan(argv[0], argv.slice(1), process.platform, env);
         return spawn(plan.command, plan.args, { ...plan.options, detached: true, stdio: ['ignore', log, log], windowsHide: true, env });
       })();
     if (marker) {
@@ -479,10 +683,13 @@ export function localGateway(def, { shipped = false, reason = () => serverReason
       }
       return r;
     };
-    child.on('error', () => {}); // reported below: it never answers on its port
     let failed = null; // it ended with an error before it answered: no need to wait the 30 seconds
+    // A program that cannot be started (not there, not allowed): its code and reason are said at once, below.
+    child.on('error', (e) => {
+      failed = { code: null, signal: null, error: e };
+    });
     child.on('exit', (code, signal) => {
-      if (code !== 0) failed = { code, signal };
+      if (code !== 0 && !failed) failed = { code, signal };
     });
     child.unref();
     fs.closeSync(log);
@@ -492,7 +699,7 @@ export function localGateway(def, { shipped = false, reason = () => serverReason
     }
     for (let i = 0; i < 60; i++) {
       await new Promise((r) => setTimeout(r, 500));
-      if (failed && !(await answers())) return handOver({ ok: false, url: url(), error: `${title} stopped at once${failed.code !== null ? ` (exit code ${failed.code})` : ''}. ${saidLines(logFile(), from)}` });
+      if (failed && !(await answers())) return handOver({ ok: false, url: url(), error: failed.error ? `${title} could not be started: ${spawnReason(failed.error, argv[0])}` : `${title} stopped at once${failed.code !== null ? ` (exit code ${failed.code})` : ''}. ${saidLines(logFile(), from)}` });
       if (await answers()) {
         if (child.pid) await noteListener(child.pid);
         // One the owner defined that answers but is not shown to be ours detached itself from what Hoprig started
@@ -592,6 +799,8 @@ export function localGateway(def, { shipped = false, reason = () => serverReason
   async function stop() {
     const first = await probe();
     if (first === 'closed') return { ok: true, already: true };
+    // Another user's program on the shipped gateway's port is left alone: no signal, whatever listens there.
+    if (shipped && first === 'open' && (await sameUser(port())) === 'foreign') return { ok: true, already: true, foreign: true, note: otherUserText() };
     const rec = readPidFile();
     const was = await ours(rec);
     // Run by its service: stopped through it (Health → Gateways), never by a signal here, which its service may undo.
@@ -638,8 +847,44 @@ export function localGateway(def, { shipped = false, reason = () => serverReason
     };
   }
 
+  /**
+   * Remove the own copy: it is stopped (through its service when its service runs it), its service is taken away and
+   * the own folder is deleted. Its data folder and the provider profile are kept, and the answer says so; a copy that
+   * npm -g made is left alone and named. A stop that is refused ends it here with nothing deleted.
+   * → { ok, said } (`nothing` when there was no own copy).
+   */
+  async function remove({ onLine = () => {} } = {}) {
+    if (!own) return { ok: false, error: `${title} has no copy of its own in Hoprig's folder to remove` };
+    const kept = `Its data folder ${dataFolder()} and the provider profile ${def.profile?.name || id} were kept.`;
+    const global = which(def.bin) || ownNodeProgram();
+    const globalLine = global ? ` A global copy (${global}) was left alone: remove it with npm if you want it gone.` : '';
+    if (!fs.existsSync(own.dir())) {
+      const said = `${title} has no copy in Hoprig's own folder: nothing was removed.${globalLine}`;
+      onLine(said);
+      return { ok: true, nothing: true, said };
+    }
+    const svc = await serviceOf();
+    const now = await runs();
+    if (now.mine) {
+      onLine(`Stopping ${title}…`);
+      const r = svc.bySvc ? await serviceNow(svc.plan, 'stop') : await stop();
+      if (!r.ok) return { ok: false, error: `${title} was not removed: it could not be stopped (${r.error || 'no reason given'}). Nothing was deleted.` };
+    } else if (now.otherUser) onLine(`${otherUserText()}`);
+    const sp = removalPlan(id, title);
+    if (sp && fs.existsSync(sp.file)) {
+      onLine(`Removing the service of ${title}…`);
+      await removeService(sp);
+    }
+    fs.rmSync(own.dir(), { recursive: true, force: true });
+    fs.rmSync(path.join(path.dirname(own.dir()), `.${id}.lock`), { recursive: true, force: true });
+    fs.rmSync(pidFile(), { force: true });
+    const said = `${title} was removed from Hoprig's own folder. ${kept}${globalLine}`;
+    onLine(said);
+    return { ok: true, said };
+  }
+
   const words = wordsOf(def);
-  return {
+  const addon = {
     id,
     title,
     summary: def.summary || `${title}: a gateway on this computer that offers other AI providers through Claude's API.`,
@@ -660,12 +905,12 @@ export function localGateway(def, { shipped = false, reason = () => serverReason
     /** Its own page as this computer reaches it, or null when it has none. */
     page,
     /** What `hoprig gateways` shows and the page's confirmation names: the exact program and arguments it runs. */
-    command: () => [def.bin, ...startArgs(def, port(), listenRule(def, { reason: reason() }).args)],
+    command: () => (own ? lineOf(copy(), listenRule(def, { reason: reason(), shipped }).args) : [def.bin, ...startArgs(def, port(), listenRule(def, { reason: reason(), shipped }).args)]),
     /** How a start listens now (listenRule): its service is written with the same. */
-    listen: () => listenRule(def, { reason: reason() }),
+    listen: () => listenRule(def, { reason: reason(), shipped }),
     /** On a server: true when Hoprig keeps it on this computer (its localOnly words), false when it cannot; null elsewhere. */
     keptLocal: () => (reason() ? hostArgs(def, { reason: reason() }).length > 0 : null),
-    installHint: () => (def.npm ? showCommand(['npm', 'install', '-g', ...(installFlags(def) || []), def.npm]) : `${def.bin} was not found on this computer`),
+    installHint: () => (def.npm ? showCommand(own ? ['npm', 'install', '--prefix', own.dir(), '--save-exact', ...ownFlags(), `${def.npm}@${def.own.pin}`] : ['npm', 'install', '-g', ...(installFlags(def) || []), def.npm]) : `${def.bin} was not found on this computer`),
     /** The line of the Install confirmation about parts that build a helper (null: none). */
     builds: buildsLine(def),
     status,
@@ -675,6 +920,9 @@ export function localGateway(def, { shipped = false, reason = () => serverReason
     update,
     start,
     stop,
+    // Only a gateway with a copy of its own in Hoprig's folder (a shipped one) is removed here; one the owner defined is
+    // removed as a definition (gateways.mjs removeDefinition).
+    ...(own ? { copyInfo, ready: healthy, folders: () => ({ copy: own.dir(), data: dataFolder(), global: which(def.bin) || ownNodeProgram() }), remove, /** Where its output goes: the one log file Hoprig reads, also for its service. */ logPath: logFile, ownCopy: true } : {}),
     /** The profile `addons setup` writes. The key comes from the gateway's own page and is typed by the owner. */
     profile: () => ({
       name: def.profile?.name || id,
@@ -686,4 +934,5 @@ export function localGateway(def, { shipped = false, reason = () => serverReason
       tokenHint: page() ? `Open ${page()} , sign in, create an API key and paste it here` : `${words.key} Paste it here`,
     }),
   };
+  return addon;
 }

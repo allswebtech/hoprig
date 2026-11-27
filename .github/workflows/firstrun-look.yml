@@ -1,0 +1,79 @@
+name: firstrun-look
+
+# The first run of each system, walked for real and written down as pictures and checks. The real install line of the
+# system, from the packed build, typed into a real terminal (Windows: PowerShell 5.1 over ConPTY with the execution policy
+# a new home PC has); nothing is answered, because the first run asks nothing; the window must still be there afterwards;
+# the one-time link it printed signs headless Chrome in (1280 by 800, light), and the card, the first chat and its first
+# answer are walked. Pictures, the terminal's words, the checks and the timings are the run's artifacts
+# (tools/firstrun-walk.mjs). The job fails when a check of the design does not hold. On demand, and on branches named
+# firstrun/...: it installs Hoprig, its service and Claude Code on the runner.
+on:
+  workflow_dispatch:
+  push:
+    branches: ['firstrun/**']
+
+permissions:
+  contents: read
+
+jobs:
+  look:
+    name: first run · ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: 'windows, scripts off (a new home PC)', os: windows-latest, policy: Restricted, leg: normal, key: windows-restricted }
+          - { name: 'windows, scripts allowed', os: windows-latest, policy: RemoteSigned, leg: normal, key: windows-remotesigned }
+          - { name: 'windows, an administrator window', os: windows-latest, policy: Restricted, leg: admin-stop, key: windows-admin }
+          - { name: 'windows, Git missing', os: windows-latest, policy: Restricted, leg: git-hidden, key: windows-nogit }
+          - { name: macos, os: macos-latest, policy: '', leg: normal, key: macos }
+          - { name: ubuntu, os: ubuntu-latest, policy: '', leg: normal, key: ubuntu }
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      # Node.js for the walker only: the walker takes it off PATH for the terminal it opens.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: The walker's own modules (node-pty, ws, xterm from the checkout; not the install)
+        run: npm ci --no-audit --no-fund
+      # node-pty's helper program on macOS arrives without its run bit from the install, and the terminal cannot start.
+      - name: macOS, the terminal module's helper may run
+        if: runner.os == 'macOS'
+        run: chmod +x node_modules/node-pty/prebuilds/*/spawn-helper
+      # A runner is a cloud machine, and Hoprig treats a cloud machine as a server (no browser to open). A person's own
+      # Ubuntu desktop is not one: its hardware files are hidden here, so this leg walks the desktop path.
+      - name: Ubuntu, a desktop and not a cloud machine
+        if: runner.os == 'Linux'
+        run: sudo mount -t tmpfs tmpfs /sys/devices/virtual/dmi/id
+      - name: Pack the build a person installs
+        run: |
+          WANT=$(node -p "require('./package.json').version")
+          npm pack --silent
+          T="$PWD/hoprig-$WANT.tgz"
+          # The demo chat of the build stands in for a signed-in Claude Code; tar reads D: as a host, so by a relative name.
+          PK="$RUNNER_TEMP/firstrun-pkg"
+          [ "$RUNNER_OS" = Windows ] && PK=$(cygpath -u "$PK")
+          mkdir -p "$PK"
+          tar -xzf "hoprig-$WANT.tgz" -C "$PK" package/src package/package.json
+          [ "$RUNNER_OS" = Windows ] && T=$(cygpath -w "$T")
+          echo "TGZ=$T" >> "$GITHUB_ENV"
+      - name: Walk the first run
+        run: |
+          OUT="$RUNNER_TEMP/firstrun"
+          [ "$RUNNER_OS" = Windows ] && OUT=$(cygpath -w "$OUT")
+          node tools/firstrun-walk.mjs --tgz "$TGZ" --out "$OUT" ${{ matrix.policy != '' && format('--policy {0} --leg {1}', matrix.policy, matrix.leg) || '' }}
+      - name: What it saw
+        if: always()
+        run: cat "$RUNNER_TEMP/firstrun/summary.md" >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || echo "no summary written" >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: firstrun-${{ matrix.key }}
+          path: ${{ runner.temp }}/firstrun
+          if-no-files-found: warn
+          retention-days: 30

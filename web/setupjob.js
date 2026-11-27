@@ -199,7 +199,7 @@ export function setupJobCard({ onEnd = () => {} } = {}) {
     else if (j.result && j.result.ok && j.result.data && j.result.data.missing && j.result.data.missing.length) {
       fill(state, h('div.banner.warn', icon('alert', { size: 18 }), h('span', `Finished. Still to do: ${j.result.data.missing.join(', ')}. Check again shows what each needs.`)));
     } else if (j.result && j.result.ok && tool) {
-      fill(state, okBox(`${tool.name}${tool.version ? ` ${tool.version}` : ''} is installed and turned on. `, h('a', { href: link('#/settings/codingtools') }, 'Settings → Coding tools'), ' says how to start a session.'));
+      fill(state, okBox(`${tool.name}${tool.version ? ` ${tool.version}` : ''} is installed and turned on. `, h('a', { href: link('#/settings/new-sessions?show=coding-tools') }, 'Settings → New sessions → Coding tools'), ' says how to start a session.'));
     } else if (j.result && j.result.ok) fill(state, okBox('Done. Everything chosen is installed.'));
     else fill(state, errorBox((j.result && j.result.error) || 'Something did not work: see the steps and the output below.'));
     fill(actions, j.running ? null : [

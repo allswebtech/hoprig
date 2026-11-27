@@ -82,6 +82,11 @@ a.card:hover { box-shadow: var(--shadow-2); border-color: var(--border-strong); 
 .install code::-webkit-scrollbar { display: none; }
 .install .prompt { color: var(--console-muted); user-select: none; }
 .install .btn { flex: none; margin-left: 12px; border-radius: 9px; }
+/* The three install lines: Windows first; a page script sets data-first to the visitor's system and that one moves up. */
+.installs { display: flex; flex-direction: column; gap: var(--s3); max-width: 800px; margin: 0 auto; }
+.installs .install { margin: 0; }
+.install-how { margin: 0 0 var(--s1); font-size: 14px; line-height: 1.5; color: var(--text-2); text-align: left; }
+.installs[data-first="windows"] [data-system="windows"], .installs[data-first="mac"] [data-system="mac"], .installs[data-first="linux"] [data-system="linux"] { order: -1; }
 /* Copy sits on the dark console in both themes (the install line, a code block): its ring is white there. */
 .copy:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
 /* Where the header's Install leads: a ring that fades out in about a second; with reduced motion it stands still. */

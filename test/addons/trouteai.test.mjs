@@ -21,11 +21,16 @@ test.after(() => {
 const port = await new Promise((r) => { const s = net.createServer().listen(0, '127.0.0.1', () => { const p = s.address().port; s.close(() => r(p)); }); });
 const bin = path.join(tmp, 'bin');
 fs.mkdirSync(bin);
-fs.writeFileSync(path.join(bin, 'trouteai'), `#!/usr/bin/env node
+// Laid out as npm -g lays a package out: its version is read from its package.json, no program is asked for it.
+const pkg = path.join(tmp, 'npm', 'lib', 'node_modules', 'trouteai');
+fs.mkdirSync(path.join(pkg, 'bin'), { recursive: true });
+fs.writeFileSync(path.join(pkg, 'package.json'), JSON.stringify({ name: 'trouteai', version: '9.8.7', bin: { trouteai: 'bin/trouteai' } }));
+fs.writeFileSync(path.join(pkg, 'bin', 'trouteai'), `#!/usr/bin/env node
 if (process.argv[2] === '--version') { console.log('TRouteAI 9.8.7'); process.exit(0); }
 const i = process.argv.indexOf('--port');
 require('node:http').createServer((q, s) => s.end('ok')).listen(Number(process.argv[i + 1]), '127.0.0.1');
 `, { mode: 0o755 });
+fs.symlinkSync(path.join(pkg, 'bin', 'trouteai'), path.join(bin, 'trouteai'));
 process.env.PATH = `${bin}${path.delimiter}${process.env.PATH}`;
 
 const { saveConfig } = await import('../../src/config.mjs');

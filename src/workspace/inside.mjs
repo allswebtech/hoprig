@@ -361,6 +361,16 @@ export function mkdirIn(at, dirGiven, opts = {}) {
   return dir;
 }
 
+/** Set the exact mode of a real file or folder inside `at`'s root (never through a link). → true when it was set. */
+export function chmodIn(at, pGiven, mode) {
+  const a = rootOf(at);
+  const p = insideOr(a.root, pGiven, a);
+  const st = lst(p);
+  if (!st || st.isSymbolicLink()) return false;
+  fs.chmodSync(p, mode);
+  return true;
+}
+
 /** Remove an EMPTY real folder inside `at`'s root (a link there is someone's and stays). → true when it went. */
 export function rmdirIn(at, dirGiven) {
   const a = rootOf(at);

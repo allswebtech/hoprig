@@ -238,9 +238,9 @@ body.has-nav .page { padding-bottom: calc(150px + env(safe-area-inset-bottom)); 
 }
 .pill .dot, .acct-state .dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; flex: none; }
 .pill-time { font-weight: 500; opacity: 0.85; }
-.st-working.pill { background: var(--ok-soft); color: var(--ok); }
+.st-working.pill { background: var(--accent-soft); color: var(--accent-soft-text); }
 .st-working.pill .dot { animation: pulse 1.4s ease-in-out infinite; }
-.st-waiting.pill { background: var(--accent-soft); color: var(--accent-soft-text); }
+.st-waiting.pill { background: var(--ok-soft); color: var(--ok); } /* Finished and Ready: green */
 .st-attention.pill { background: var(--warn-soft); color: var(--warn); }
 .st-starting.pill { background: var(--info-soft); color: var(--info); }
 .st-limit.pill { background: var(--danger-soft); color: var(--danger); }
@@ -262,8 +262,8 @@ body.has-nav .page { padding-bottom: calc(150px + env(safe-area-inset-bottom)); 
   transition: box-shadow var(--tick);
 }
 article.card::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: var(--border-strong); }
-article.card.st-working::before { background: var(--ok-solid, var(--ok)); }
-article.card.st-waiting::before { background: var(--accent); }
+article.card.st-working::before { background: var(--accent); }
+article.card.st-waiting::before { background: var(--ok-solid, var(--ok)); }
 article.card.st-attention::before { background: var(--warn-solid, var(--warn)); }
 article.card.st-limit::before { background: var(--danger-solid, var(--danger)); }
 article.card.st-failed::before { background: var(--danger-solid, var(--danger)); }
@@ -279,12 +279,12 @@ article.card:hover { box-shadow: var(--shadow-2); }
 /* The session page names them all (a phone shows no title): the line wraps there; only a card cuts it. */
 .sess-extras { align-items: flex-start; }
 .sess-extras .card-extras-text { white-space: normal; overflow-wrap: anywhere; }
+/* A card's last words: plain text, two lines at most, no box (sessionitem.js). */
 .card-msg {
-  margin-top: 10px; padding: 8px 10px; border-radius: var(--r-sm);
-  background: var(--surface-3); color: var(--text-2); font-size: var(--fs-sm);
-  display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere;
+  margin: 6px 0 0; color: var(--text-2); font-size: var(--fs-sm); line-height: 1.4;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere;
 }
-.card-msg.title { font-style: italic; }
+.card-by { font-weight: 650; color: var(--text); }
 .card-note { margin-top: 8px; padding: 8px 10px; border-radius: var(--r-sm); background: var(--warn-soft); color: var(--warn); font-size: var(--fs-sm); }
 .card-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
 /* A reply to a session's question, on its Home card (sessionitem.js replyBox). */
@@ -383,40 +383,35 @@ article.card:hover { box-shadow: var(--shadow-2); }
 .ns-advice { display: flex; align-items: flex-start; gap: 8px; margin: 0 0 12px; }
 .ns-advice .icon { flex: none; margin-top: 2px; }
 .ns-advice a { font-weight: 600; white-space: nowrap; }
-/* New session, several computers: the computer is the first choice; one that cannot run a session is greyed with why. */
-/* New session's large tiles (newsession-choice.js): App or Terminal, then the coding tool. Side by side, always. */
-.ns-tiles { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-bottom: 6px; }
-.ns-tile { display: flex; align-items: center; gap: 12px; min-height: 68px; padding: 12px 14px; text-align: left; border-radius: var(--r-lg); border: 1px solid var(--border); background: var(--surface); color: var(--text); box-shadow: var(--shadow-1); font: inherit; min-width: 0; }
-button.ns-tile { cursor: pointer; transition: border-color var(--tick), background var(--tick); }
-button.ns-tile:hover:not(:disabled) { border-color: var(--ring); }
-button.ns-tile:disabled { cursor: not-allowed; }
-.ns-tile.ns-is-chosen { border-color: var(--accent); background: var(--accent-soft); box-shadow: 0 0 0 1px var(--accent); }
-.ns-tile.ns-is-off { background: var(--surface-2); box-shadow: none; }
-.ns-tile-icon { width: 38px; height: 38px; border-radius: var(--r); display: grid; place-items: center; background: var(--surface-3); color: var(--text-2); flex: none; }
-.ns-tile.ns-is-chosen .ns-tile-icon { background: var(--surface); color: var(--accent); }
-.ns-tile.ns-is-off .ns-tile-icon { color: var(--muted); }
-.ns-tile-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-.ns-tile-name { font-weight: 650; }
-.ns-tile.ns-is-off .ns-tile-name { color: var(--text-2); }
-.ns-tile-line { font-size: var(--fs-xs); color: var(--muted); line-height: 1.35; }
-.ns-tile-line a, .ns-fix { font-weight: 600; }
+/* New session (newsession-popup.js): one quiet line, More options, the computers as small chips, then big rows. */
+.ns-intro { margin: 0; }
+.ns-more { display: flex; align-items: center; justify-content: flex-end; gap: 8px; width: 100%; min-height: 44px; padding: 0 4px; border: 0; background: none; color: var(--text-2); font: inherit; font-size: var(--fs-sm); font-weight: 600; cursor: pointer; }
+.ns-more-sum { margin-right: auto; color: var(--accent); }
+.ns-more .icon { flex: none; transition: transform 0.15s; }
+.ns-more[aria-expanded="true"] .icon { transform: rotate(180deg); }
+.ns-more-slot:empty, .ns-computers:empty, .newopts:empty { display: none; }
+.newopts { display: flex; flex-direction: column; gap: 6px; padding: 12px 14px; border: 1px solid var(--border); border-radius: var(--r-lg); background: var(--surface); }
+.ns-opt .toggle-line { min-height: 44px; margin-top: 0; }
+.sheet-actions .btn { min-height: 48px; }
+/* A short screen (the keyboard open): the quiet line gives its room to the projects. */
+@media (max-height: 520px) { .ns-intro { display: none; } }
+.ns-opt .hint { margin: 0 0 0 2px; }
+.ns-opt-tool { display: flex; flex-direction: column; gap: 6px; }
+.ns-seg { display: flex; gap: 0; border: 1px solid var(--border); border-radius: var(--r); overflow: hidden; }
+.ns-seg-btn { flex: 1; min-height: 44px; padding: 0 12px; border: 0; background: var(--surface); color: var(--text); font: inherit; font-weight: 550; cursor: pointer; }
+.ns-seg-btn + .ns-seg-btn { border-left: 1px solid var(--border); }
+.ns-seg-btn[aria-checked="true"] { background: var(--accent-soft); color: var(--accent); font-weight: 650; }
+.ns-chips { display: flex; gap: 8px; overflow-x: auto; padding: 2px 0; scrollbar-width: none; }
+.ns-chip { flex: none; min-height: 44px; padding: 0 16px; border-radius: 999px; border: 1px solid var(--border); background: var(--surface); color: var(--text); font: inherit; font-weight: 550; cursor: pointer; white-space: nowrap; }
+.ns-chip.ns-is-chosen { border-color: var(--accent); background: var(--accent); color: var(--accent-text); }
+.ns-chip:disabled { color: var(--muted); background: var(--surface-2); cursor: not-allowed; }
+.ns-projects .row, .ns-projects button.row { min-height: 56px; }
 .ns-room { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin: 2px 0 8px; font-size: var(--fs-sm); color: var(--text); }
-.ns-fix { padding: 0; border: 0; background: none; color: var(--accent); font: inherit; font-weight: 600; cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
-.ns-tile-tick { color: var(--accent); flex: none; align-self: flex-start; }
 .ns-search { margin-bottom: 4px; }
 /* In the popup the rows sit closer: all of it is one form. */
 .sheet-tall .group-head { margin: 8px 2px 8px; }
 .ns-preset .btn { flex: none; }
 .ns-elsewhere { margin-top: 10px; }
-.ns-plain { margin-top: 6px; }
-.ns-also:empty { display: none; }
-/* No band of its own around the fold: the sheet's gap already parts it from the lines above and below. */
-.ns-also { margin-top: 0; }
-.ns-also > .fold { margin: 0; }
-/* Its line is one short label: a compact height, so no empty band stands above and below the words. */
-.ns-also > .fold > .fold-summary { min-height: 32px; }
-/* In the popup the sheet's gap alone parts the choices line from what follows (no margin of its own on top of it). */
-.ns-root > .ns-choices { margin-bottom: 0; }
 .ns-also-needs { margin: 8px 0; }
 .ns-also-head { font-size: var(--fs-sm); color: var(--text-2); margin-bottom: 4px; }
 .ns-also-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; font-size: var(--fs-sm); }
@@ -498,6 +493,7 @@ dialog.sheet.sheet-tall { height: 100dvh; max-height: 100dvh; border-radius: 0; 
 .choice:disabled { cursor: default; }
 .choice.current { border-color: var(--accent); background: var(--accent-soft); }
 .choice.danger { color: var(--danger); }
+.choice.danger .choice-sub { -webkit-line-clamp: 3; } /* Allow everything says in its line that nothing is held: all of it is read before the choice */
 .choice-icon { width: 34px; height: 34px; border-radius: var(--r); display: grid; place-items: center; background: var(--surface-3); color: var(--text-2); flex: none; }
 .choice.current .choice-icon { background: var(--surface); color: var(--accent); }
 .choice-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
@@ -732,7 +728,7 @@ input.switch:focus-visible { box-shadow: 0 0 0 3px var(--accent-soft); border-ra
 .acct-test svg { flex: none; margin-top: 2px; }
 .acct-test.test-ok svg { color: var(--ok); }
 .acct-test.test-bad svg { color: var(--danger); }
-/* Settings → Coding tools */
+/* Settings → New sessions → Coding tools */
 .ct-scope { margin: 0 0 12px; }
 .row.row-busy { cursor: progress; opacity: .85; }
 .row.row-busy .row-end svg { display: none; }
@@ -860,7 +856,6 @@ body.is-demo .page-title::after {
 .pagehead-back:hover { color: var(--text); background: var(--surface-2); }
 .pagehead-back-label { display: none; }
 .pagehead-title-row { grid-column: 2; display: flex; align-items: center; gap: 10px; min-width: 0; }
-.pagehead-mark { width: 26px; height: 26px; border-radius: 7px; flex: none; }
 .page-title { font-size: 19px; font-weight: 700; letter-spacing: -.01em; line-height: 1.25; min-width: 0; overflow-wrap: break-word; /* a word breaks only when it alone is wider than the room */ }
 .pagehead .page-intro { grid-column: 1 / -1; margin: 2px 0 0; font-size: var(--fs-sm); color: var(--muted); }
 .head-tools { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; }
@@ -932,6 +927,7 @@ body.is-demo .page-title::after { display: inline-block; }
   .side-item[aria-current='page']::before { content: ''; position: absolute; left: 0; top: 9px; bottom: 9px; width: 3px; border-radius: 99px; background: var(--accent); }
   .side-item .nav-badge { position: static; margin-left: auto; }
   .bottombar, .fab { display: none; }
+  .gear-btn { display: none; }
   .shell-main { flex: 1; }
   /* The main column: right after the sidebar, left-aligned at every width, at most 1200 px. */
   .page { padding: 0 36px 120px; }
@@ -945,7 +941,6 @@ body.is-demo .page-title::after { display: inline-block; }
   .pagehead-back { width: auto; height: auto; margin: 0 0 2px -4px; padding: 2px 4px; gap: 4px; font-size: 12.5px; font-weight: 600; }
   .pagehead-back.phone-only { display: none; }
   .pagehead-back-label { display: inline; }
-  .pagehead-mark { display: none; }
   .page-title { font-size: 22px; }
   .pagehead-primary { display: inline-flex; }
 }
@@ -998,9 +993,6 @@ body.is-demo .page-title::after { display: inline-block; }
   .split.has-page .split-list, .split.no-page .split-pane { display: block; }
   .split-list { position: sticky; top: 96px; }
 }
-
-/* ---------- New session (newsession.js) ---------- */
-.newopts { display: grid; gap: 4px; }
 
 /* ---------- feedback: "Saved" next to what was saved; loading that does not flash ---------- */
 .saved-mark { display: inline-block; margin-left: 8px; font-size: var(--fs-xs); font-weight: 650; color: var(--ok); opacity: 0; transition: opacity 0.2s; vertical-align: 1px; }
@@ -1189,3 +1181,33 @@ body.has-nav .page.fill { padding-bottom: calc(59px + env(safe-area-inset-bottom
   .find-places .row-main { flex-basis: calc(100% - 60px); }
   .find-places .row > .btn { margin-left: auto; }
 }
+
+/* ---------- One rule for touch screens: every control is at least 44 by 44 ----------
+   A button, a link that is a control, a switch, a tab, a chip, a fold's title and a field. The visible shape of a
+   small control may stay smaller (a ghost button has none); the area to press does not. `:root:root` makes the rule
+   win over the page styles that load after this one (page-session.css and the others), which set their own sizes. */
+@media (pointer: coarse) {
+  :root { --tap: 44px; }
+  :root:root :is(.btn, .btn.small, .chip, .seg, .check, .switch-pill, .tabs-item, .fold-summary, details > summary, .titlebtn, .profilebtn, .key, .pagehead-primary) { min-height: 44px; }
+  :root:root :is(.btn.icon, .btn.icon.small, .icon-btn, .pagehead-back, .tab, .tabs-item, .key, .segmented .seg, details > summary) { min-width: 44px; }
+  :root:root :is(.icon-btn, .pagehead-back, .btn.icon) { min-height: 44px; }
+  .btn.icon.small { width: 44px; }
+  .pagehead-back { margin-left: -12px; }
+  input.field, select.field, input[type='search'] { min-height: 44px; }
+  /* The switch: its press area is 54 by 44; the track stays 38 by 22, drawn inside it. */
+  input.switch { width: 54px; height: 44px; border: 0; background: transparent; }
+  input.switch::before { content: ''; position: absolute; left: 8px; top: 11px; width: 38px; height: 22px; box-sizing: border-box; border-radius: 99px; background: var(--surface-3); border: 1px solid var(--border-strong); transition: background var(--tick), border-color var(--tick); }
+  input.switch::after { left: 11px; top: 14px; }
+  input.switch:checked { background: transparent; }
+  input.switch:checked::before { background: var(--accent); border-color: var(--accent); }
+}
+/* The Settings gear in the head of a phone page: a gear, 44 by 44. */
+@media (max-width: 899px) { .gear-btn { width: 44px; height: 44px; } }
+/* The terminal's head: the way back to the App is one visible button. */
+.sessbar .sessopen { flex: none; white-space: nowrap; }
+/* A phone: the provider button shows its icon only, so the session's name keeps its room beside "Open in App". */
+@media (max-width: 520px) {
+  .sessbar .profilebtn-label { display: none; }
+  .sessbar .profilebtn { padding: 0 10px; }
+}
+@media (max-width: 420px) { .sessbar .sessopen-long { display: none; } }

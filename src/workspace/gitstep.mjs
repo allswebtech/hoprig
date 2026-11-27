@@ -1,7 +1,7 @@
 // "Git and GitHub": one step of `hoprig setup` and `hoprig pc setup`, and `hoprig workspace git` on its own. The
 // dashboard does the same in the page (workspace/feature.mjs: the sign-in by gh's device flow, ghsignin.mjs).
-//   1. git's name and e-mail when they are missing (once signed in, GitHub's no-reply address is suggested; an
-//      address is never made up)
+//   1. (after 2) git's name and e-mail when they are missing: signed in, GitHub's name and no-reply address are taken and
+//      said, not asked; asked only when GitHub is not signed in (an address is never made up)
 //   2. the GitHub sign-in: `gh auth login` in the terminal (the person does it in the browser), then
 //      `gh auth setup-git`, so plain git uses that sign-in too. Only the account name is ever kept or shown.
 //   3. one path for the workspace, asked once in plain words: set-up looks for the owner's brain on GitHub (a
@@ -141,12 +141,20 @@ export async function runGitStep({ ui, run = capture, term = stream, has = (c) =
   // 2. Who the commits are from.
   if (!st.identity.name || !st.identity.email) {
     const gh = st.gh.signedIn ? await noreplyEmail(run) : null;
-    if (live) {
-      const name = ((await ui.ask(`  Your name for commits${st.identity.name || gh?.name || gh?.login ? ` (${st.identity.name || gh.name || gh.login})` : ''}: `)) || '').trim() || st.identity.name || gh?.name || gh?.login || '';
-      const email = ((await ui.ask(`  Your e-mail for commits${st.identity.email || gh ? ` (${st.identity.email || gh.email}${gh && !st.identity.email ? ': GitHub\'s no-reply address, keeps yours private' : ''})` : ''}: `)) || '').trim() || st.identity.email || gh?.email || '';
-      if (NAME_OK.test(name) && EMAIL_OK.test(email)) {
-        await run(['git', 'config', '--global', 'user.name', name]);
-        await run(['git', 'config', '--global', 'user.email', email]);
+    // Signed in: the name and GitHub's no-reply address are taken, said once, never asked. Asked only without GitHub.
+    const name = st.identity.name || (gh && (gh.name || gh.login)) || '';
+    const email = st.identity.email || (gh && gh.email) || '';
+    if (gh && live && NAME_OK.test(name) && EMAIL_OK.test(email)) {
+      if (!st.identity.name) await run(['git', 'config', '--global', 'user.name', name]);
+      if (!st.identity.email) await run(['git', 'config', '--global', 'user.email', email]);
+      ui.line('ok', `commits as ${name} <${email}>${st.identity.email ? '' : " (GitHub's no-reply address, keeps yours private)"}; change: git config --global user.name / user.email`);
+      changed = true;
+    } else if (live) {
+      const n = ((await ui.ask(`  Your name for commits${name ? ` (${name})` : ''}: `)) || '').trim() || name;
+      const e = ((await ui.ask(`  Your e-mail for commits${email ? ` (${email})` : ''}: `)) || '').trim() || email;
+      if (NAME_OK.test(n) && EMAIL_OK.test(e)) {
+        await run(['git', 'config', '--global', 'user.name', n]);
+        await run(['git', 'config', '--global', 'user.email', e]);
         ui.line('ok', 'commit name and e-mail set');
         changed = true;
       } else yours(ui, 'warn', 'commit name and e-mail not set', 'identity');

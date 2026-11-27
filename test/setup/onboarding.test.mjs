@@ -31,6 +31,8 @@ test('each step done or not, with what to open', () => {
   assert.deepEqual(e.project.action, { kind: 'page', target: 'pc/projects' });
   assert.deepEqual(e.skills.action, { kind: 'page', target: 'settings/skills' });
   assert.deepEqual(e.phone.action, { kind: 'page', target: 'settings/signin-device' });
+  assert.deepEqual(Object.values(e).filter((x) => !x.optional).map((x) => x.id), ['claude', 'tools', 'project'], 'a first session needs only these');
+  for (const id of ['rules', 'phone', 'skills']) assert.equal(e[id].optional, true, id);
   assert.equal(e.account2.optional, true);
   assert.equal(e.computer.optional, true);
   const f = byId(ON.onboardingSteps(full));
@@ -77,7 +79,7 @@ test('GET /api/onboarding: the shape, the counts; the slow parts cached for a mi
   const h = harness();
   const r = await h.call('GET', '/api/onboarding');
   assert.deepEqual(Object.keys(r), ['steps', 'done', 'total', 'checkedAt']);
-  assert.deepEqual([r.done, r.total], [6, 6]);
+  assert.deepEqual([r.done, r.total], [3, 3]); // required: Claude Code, tools, a first project
   for (const st of r.steps) assert.deepEqual(Object.keys(st).sort(), ['action', 'detail', 'done', 'id', 'optional', 'title']);
   await h.call('GET', '/api/onboarding');
   assert.deepEqual(h.calls, { claude: 1, tools: 1 }, 'cached');
@@ -85,7 +87,7 @@ test('GET /api/onboarding: the shape, the counts; the slow parts cached for a mi
   await h.call('GET', '/api/onboarding');
   assert.deepEqual(h.calls, { claude: 2, tools: 2 });
   const none = await harness({ facts: empty }).call('GET', '/api/onboarding');
-  assert.deepEqual([none.done, none.total], [0, 6]);
+  assert.deepEqual([none.done, none.total], [0, 3]);
 });
 
 test('owner only: without the login cookie (another dashboard\'s token, say) it is refused', async () => {
@@ -156,7 +158,7 @@ test('in the real server: behind the login, and refused for a bearer token', asy
     const cookie = login.headers.get('set-cookie').split(';')[0];
     const r = await fetch(`${base}/api/onboarding`, { headers: { Cookie: cookie } });
     assert.equal(r.status, 200);
-    assert.equal((await r.json()).total, 6);
+    assert.equal((await r.json()).total, 3);
     assert.equal((await fetch(`${base}/api/onboarding`, { headers: { Authorization: `Bearer ${token}` } })).status, 403);
   } finally {
     await app.close();

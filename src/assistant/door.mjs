@@ -16,13 +16,14 @@
 // (src/machines/index.mjs TOKEN_FORBIDDEN).
 
 import { NAME_RE } from '../profiles.mjs';
+import { SECRET_START_MSG, isSecretFolder } from '../server/folders.mjs';
 import { cardComputer, confirmedCard } from './confirmed.mjs';
 
 const SEG = '[^/]+';
 const CHAT_ID = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}';
 const r = (method, path, tool, body = null, card = null) => ({ method, re: new RegExp(`^${path}$`), path, tool, body, card });
 
-/** Keys of POST /api/settings her tools may send (change_setting, set_auto_mode). */
+/** Keys of POST /api/settings her tools may send (hoprig_act change-setting, auto-mode, auto-order). */
 const SETTINGS_KEYS = {
   server: ['quickActions', 'roots', 'publicUrl', 'uploadMaxMB', 'uploadsDir'],
   autoSwitch: ['enabled', 'order', 'returnToPreferred', 'prompt', 'cooldownMinutes'],
@@ -94,6 +95,13 @@ const learnedBody = (b, ctx, computer) => learnedHere(b, ctx, computer) || onlyK
 /** A Work item is named by its place in the list with its id (src/work/feature.mjs). */
 const atOk = (b) => (Number.isInteger(b.at) && b.at >= 0 ? null : 'say the place of the item in the list ("at")');
 
+/**
+ * A session or a chat in the credentials folder or any other place that holds a sign-in is the owner's own step: refused
+ * here for this computer (another computer's own route refuses it again, for her relay and for every caller that is not
+ * the owner's page: folders.mjs refuseSecretStart).
+ */
+const notInSecret = (b, ctx, computer) => (!computer && isObj(b) && isSecretFolder(b.dir) ? SECRET_START_MSG : null);
+
 /** Every route her tools use: method, route, the tool (or tools) behind it. */
 export const ALLOW = [
   r('GET', '/api/state', 'list_sessions, get_computer_status (providers)'),
@@ -101,7 +109,7 @@ export const ALLOW = [
   r('GET', '/api/operator/rooms', 'start_session, start_chat (where there is room)'),
   r('GET', '/api/machines/sessions', 'list_sessions (every computer)'),
   r('GET', `/api/sessions/${SEG}/history`, 'read_session'),
-  r('POST', '/api/sessions', 'start_session'),
+  r('POST', '/api/sessions', 'start_session', notInSecret),
   // Only the text: `owner: true` marks the owner's own typing (types into whatever runs there); hers is typed only for the coding tool.
   r('POST', `/api/sessions/${SEG}/send`, 'send_to_session', onlyKeys(['text'])),
   // Only the key, as for /send: `owner: true` is the page's own buttons; her keys go only to the coding tool in front.
@@ -116,7 +124,7 @@ export const ALLOW = [
   // and is marked hers (byTia: the chat it creates, see src/chat/feature.mjs openChat).
   // "Lead model" and its ticks as Settings → Tia has them (src/assistant/chats.mjs); the part door checks her allowed
   // providers again for every part (src/models/others.mjs partGate).
-  r('POST', '/api/chats', 'start_chat', (b) => onlyKeys(['dir', 'tool', 'profile', 'sessionId', 'text', 'defaults', 'byTia', 'lead', 'others'])(b) || (b.defaults !== true ? 'a chat Tia starts takes Settings\' defaults (defaults: true)' : null)
+  r('POST', '/api/chats', 'start_chat', (b, ctx, computer) => notInSecret(b, ctx, computer) || onlyKeys(['dir', 'tool', 'profile', 'sessionId', 'text', 'defaults', 'byTia', 'lead', 'others'])(b) || (b.defaults !== true ? 'a chat Tia starts takes Settings\' defaults (defaults: true)' : null)
     || ('lead' in b && typeof b.lead !== 'boolean' ? 'lead is true or false' : null)
     || ('others' in b && !(Array.isArray(b.others) && b.others.length <= 10 && b.others.every((n) => typeof n === 'string' && NAME_RE.test(n))) ? 'others is a list of provider names' : null)),
   // Her message says it is hers (byTia: true): a message from anyone else takes her mark off the chat.
@@ -132,6 +140,9 @@ export const ALLOW = [
   r('POST', '/api/chats/from-session', 'send_to_session (to_chat)', (b) => onlyKeys(['session'])(b) || (typeof b.session !== 'string' ? 'say which session' : null)),
   // Only the carry-on message: a restart of the session in place (restart: true) is the page's own button.
   r('POST', `/api/sessions/${SEG}/continue`, 'send_to_session (continue)', onlyKeys([])),
+  // A gateway the owner set up: restart, start and stop (hoprig_act restart-gateway, stop-gateway). Only the owner's
+  // confirmation of this computer travels with it; a gateway's sign-ins, keys and service stay behind NEVER.
+  r('POST', `/api/gatewayhost/${SEG}/(start|stop|restart)`, 'hoprig_act restart-gateway, stop-gateway', onlyKeys(['confirm'])),
   r('GET', '/api/folders/recent', 'list_projects'),
   r('GET', '/api/folders/browse', 'list_projects (folder)'),
   r('GET', '/api/folders/sessions', 'list_projects (folder)'),
@@ -180,6 +191,9 @@ export const ALLOW = [
   r('GET', '/api/work/plans', 'manage_work plans'),
   r('GET', `/api/work/plans/${SEG}`, 'manage_work plan, add, edit, done (the plan as it is now)'),
   // A task into a plan (its milestone) or what it waits for; a plan's own words, milestones and status stay his.
+  // A plan she makes or changes (hoprig_act change-plan): its title, goal, projects and milestones, never its status.
+  r('POST', '/api/work/plans', 'hoprig_act change-plan', onlyKeys(['title', 'goal', 'projects', 'milestones'])),
+  r('POST', `/api/work/plans/${SEG}`, 'hoprig_act change-plan', onlyKeys(['seen', 'title', 'goal', 'projects', 'milestones'])),
   r('POST', `/api/work/items/${SEG}/plan`, 'manage_work add, edit, undo', (b) => onlyKeys(['at', 'plan', 'milestone', 'after'])(b) || atOk(b)),
   // Missions: she reads them, and gives a goal by her card (its dry run first). Stop, a task of his list into a
   // mission and a waiting task's tests in the box are her cards too. The switches, Tia OFF and the tests outside the
@@ -209,7 +223,7 @@ export const ALLOW = [
   r('POST', '/api/updates/check', 'manage_computer check_updates', onlyKeys([])),
   r('POST', '/api/updates/run', 'manage_computer update', (b) => onlyKeys(['id'])(b) || (typeof b.id !== 'string' ? 'say which item to update' : null)),
   // The restart after an update of Hoprig, by her card only (it ends her own turn): nothing to send.
-  r('POST', '/api/updates/restart', 'manage_computer restart_dashboard', onlyKeys([])),
+  r('POST', '/api/updates/restart', 'manage_computer restart_dashboard, hoprig_act restart-hoprig', onlyKeys([])),
   r('POST', '/api/pc/kill', 'manage_computer end_process'),
   r('POST', '/api/pc/power', 'manage_computer reboot, power_off'),
   r('POST', '/api/machine/label', 'manage_computer rename (this computer)'),
@@ -225,7 +239,7 @@ export const ALLOW = [
   r('POST', '/api/automation/settings', 'manage_automation set_rule, pause, resume', automationBody),
   r('POST', '/api/automation/schedules', 'manage_automation add / change / delete_schedule'),
   r('POST', `/api/automation/queue/${SEG}`, 'manage_automation queue_message, queue_clear'),
-  r('GET', '/api/skillhub', 'manage_skills installed, change_setting'),
+  r('GET', '/api/skillhub', 'manage_skills installed, hoprig_act change-setting'),
   r('GET', '/api/skillhub/suggest', 'manage_skills suggested'),
   r('GET', '/api/skillhub/find', 'manage_skills find'),
   r('POST', '/api/skillhub/check', 'manage_skills check_updates'),
@@ -248,58 +262,89 @@ export const ALLOW = [
   r('POST', '/api/skills/learned/[0-9a-f]{24}/install', 'manage_skills learned_install', learnedBody),
   r('POST', '/api/skills/learned/[0-9a-f]{24}/discard', 'manage_skills learned_discard', learnedBody),
   r('POST', '/api/skills/learned/[0-9a-f]{24}/undo', 'manage_skills learned_undo', learnedBody),
-  r('POST', '/api/skillhub/settings', 'change_setting skills_weekly_check'),
-  r('GET', '/api/settings', 'get_computer_status (settings), change_setting'),
-  r('POST', '/api/settings', 'change_setting, set_auto_mode', settingsBody),
-  r('POST', '/api/pcsetup/projects-dir', 'change_setting projects_folder'),
-  r('POST', '/api/pcsetup/rules', 'change_setting claude_working_rules'),
+  r('POST', '/api/skillhub/settings', 'hoprig_act change-setting skills_weekly_check'),
+  r('GET', '/api/settings', 'get_computer_status (settings), hoprig_act change-setting'),
+  r('POST', '/api/settings', 'hoprig_act change-setting, auto-mode, auto-order', settingsBody),
+  r('POST', '/api/pcsetup/projects-dir', 'hoprig_act change-setting projects_folder'),
+  r('POST', '/api/pcsetup/rules', 'hoprig_act change-setting claude_working_rules'),
   r('POST', '/api/assistant/run', 'run_command'),
 ];
 
 /**
- * Routes that are the owner's own (L3), refused even if a mistake put them in ALLOW: the password, login and
- * sign-in links, logout, tokens and pairing, joining, removing or installing on a computer, providers (the wizard,
- * profile files, available-again marks stay with the page), add-on sign-in, notifications, onboarding, recipes,
- * and everything of Tia's own except run (her settings, her token, the cards she may never confirm herself).
+ * The routes that are the owner's own hand only, refused even if a mistake put them in ALLOW, in the six classes of
+ * NEVER (acts.mjs NEVER_CLASSES; a route that is none of them is not in ALLOW, which refuses it too):
+ *   sign-in      sign in and out, providers and accounts with keys, tokens, the password, a gateway's own sign-ins
+ *   credentials  the credentials folder
+ *   open-out     the public link's own set-up, a forward, sharing a gateway: they open the computer to the internet
+ *   pair         adding, linking, removing and pairing a computer, its host key
+ *   delete-work  a project, a repository, a branch, files outside a session's folder: reset, rebase, force
+ *   her-rights   her own settings, token and cards, administrator rights, the permission mode, Hands off, updates that
+ *                install by themselves; confirming a card
+ * `ownPress` is the rest of what the owner presses on his own page and no tool of hers does yet (a push, a release, a
+ * review): no class, a level L2 by the rule once a tool has it; kept refused here as before.
  */
-export const NEVER = [
-  /^\/api\/workspace\/(drop|group\/remove|rules)$/, // the owner's own presses on the Workspace page (src/workspace/whomay.mjs)
-  /^\/api\/settings\/password$/,
-  /^\/api\/herrights$/, // the level of Tia's administrator rights: the owner's own choice on his page, never through her door
-  /^\/api\/hersignin(\/|$)/, // the git sign-in her sessions use, and its check: the owner's own choice on his page, never through her door
-  /^\/api\/(login|logout|me)(\/|$)/,
-  /^\/api\/tokens(\/|$)/,
-  /^\/api\/pair(\/|$)/,
-  /^\/api\/joins?(\/|$)/,
-  /^\/api\/links?(\/|$)/,
-  /^\/api\/machines\/url$/,
-  /^\/api\/machines\/install$/,
-  /^\/api\/machines\/ssh\/key(\/|$)/, // a computer added with a key file: the key, its host key and its install are the owner's
-  /^\/api\/machines\/[^/]+\/(remove|test|hostkey)$/, // hostkey: comparing and replacing a computer's host key
-  /^\/api\/machines\/[^/]+\/forward(\/|$)/, // "Open its page" of a gateway: a forward on this computer, the owner's own step
-  /^\/api\/profiles(\/|$)/,
-  /^\/api\/accounts(\/|$)/,
-  /^\/api\/addons\/[^/]+\/setup$/,
-  /^\/api\/gateways\/defined(\/|$)/, // a gateway of the owner's own: a program Hoprig will run (src/addons/gateways.mjs)
-  /^\/api\/gatewayhost(\/|$)/, // a gateway's start, stop and service from Health: the owner's own presses (src/addons/gatewayhost.mjs)
-  /^\/api\/addons\/public-link\//, // the old routes of the public link: Tia uses its own route, with a card
-  /^\/api\/public-link\/.+$/, // the Custom set-up (a Cloudflare sign-in) and its extra addresses: the owner's own steps
-  /^\/api\/updates\/settings$/, // updates by themselves or not: the owner's choice
-  /^\/api\/codetools\/[^/]+\/signin$/, // another coding tool's own sign-in
+export const NEVER_ROUTES = Object.freeze({
+  'sign-in': [
+    /^\/api\/settings\/password$/,
+    /^\/api\/hersignin(\/|$)/, // the git sign-in her sessions use, and its check
+    /^\/api\/(login|logout|me)(\/|$)/,
+    /^\/api\/tokens(\/|$)/,
+    /^\/api\/profiles(\/|$)/,
+    /^\/api\/accounts(\/|$)/,
+    /^\/api\/addons\/[^/]+\/setup$/,
+    // A gateway's own sign-ins, keys, accounts, combos and service: only its restart, start and stop are hers (ALLOW).
+    /^\/api\/gatewayhost(?!\/[a-z][a-z0-9-]{0,30}\/(?:start|stop|restart)$)(\/|$)/,
+    /^\/api\/gateways\/defined(\/|$)/, // a gateway of the owner's own: a program Hoprig will run
+    /^\/api\/codetools\/[^/]+\/signin$/,
+    /^\/api\/workspace\/git\/.+$/, // signing in to GitHub, the commit name, the brain's repository
+    /^\/api\/work\/(access|token)(\/|$)/, // Work tokens and webhooks for another program
+  ],
+  credentials: [
+    /^\/api\/workspace\/credentials$/,
+  ],
+  'open-out': [
+    /^\/api\/addons\/public-link\//, // the old routes of the public link
+    /^\/api\/public-link\/.+$/, // the Custom set-up (a Cloudflare sign-in) and its extra addresses
+    /^\/api\/machines\/[^/]+\/forward(\/|$)/, // "Open its page" of a gateway: a forward on this computer
+    /^\/api\/gateways\/[^/]+\/share$/,
+  ],
+  pair: [
+    /^\/api\/pair(\/|$)/,
+    /^\/api\/joins?(\/|$)/,
+    /^\/api\/links?(\/|$)/,
+    /^\/api\/machines\/url$/,
+    /^\/api\/machines\/install$/,
+    /^\/api\/machines\/ssh\/key(\/|$)/, // a computer added with a key file
+    /^\/api\/machines\/[^/]+\/(remove|test|hostkey)$/, // hostkey: comparing and replacing a computer's host key
+  ],
+  'delete-work': [
+    /^\/api\/workspace\/(drop|group\/remove|rules)$/, // the owner's own presses on the Workspace page
+    /^\/api\/(files\/(trash|delete)|chats\/delete|chats\/[^/]+\/rewind|adopt\/retire)(\/|$)/,
+  ],
+  'her-rights': [
+    /^\/api\/herrights$/, // the level of Tia's administrator rights
+    /^\/api\/updates\/settings$/, // updates by themselves or not
+    /^\/api\/settings\/bypass(\/|$)/,
+    /^\/api\/handsoff(\/|$)/,
+    /^\/api\/assistant(?!\/run$)(\/|$)/, // her settings, token and cards: she may never confirm a card herself
+    // What she does by herself (the rules, the master switch, budgets), "Mend by itself" and Undo and the taps: the
+    // owner's presses on his page. She reads them through read_attention.
+    /^\/api\/operator\/(?!attention$|board$|rooms$).+$/,
+    /^\/api\/skills\/learn(\/settings)?$/,
+  ],
+});
+export const OWN_PRESS = Object.freeze([
   /^\/api\/notify(\/|$)/,
   /^\/api\/onboarding(\/|$)/,
   /^\/api\/pcsetup\/recipe$/,
-  /^\/api\/workspace\/git\/.+$/, // signing in to GitHub, the commit name, the brain's repository: the owner's own steps
-  /^\/api\/work\/(save|settings|command)(\/|$)/, // Work's Save (git), where it lives, the command's route (Tidy and the doubles are her cards above)
-  /^\/api\/work\/(access|token)(\/|$)/, // Work tokens and webhooks for another program: made, listed and revoked by the owner only
-  /^\/api\/skills\/learn(\/settings)?$/, // learning skills from his work: on or off, its provider and its limit are his
+  /^\/api\/work\/(save|settings|command)(\/|$)/, // Work's Save (git), where it lives, the command's route
   /^\/api\/skills\/learned\/look$/, // "Learn from this": a paid model call he starts himself
-  /^\/api\/assistant(?!\/run$)(\/|$)/,
-  // What Tia may do by herself (the rules, the master switch, budgets, projects taken out), "Tia OFF", Undo and the
-  // taps: the owner's acts from his page only. She reads the rules through read_attention.
-  /^\/api\/operator\/(?!attention$|board$|rooms$).+$/,
   /^\/ws(\/|$)/,
-];
+]);
+/** Every refused pattern, flat (a test and the old name). */
+export const NEVER = Object.freeze([...Object.values(NEVER_ROUTES).flat(), ...OWN_PRESS]);
+/** The class of NEVER a path falls in, "owner" for the rest of his own presses, or null. */
+export const neverClassOf = (p) => Object.entries(NEVER_ROUTES).find(([, list]) => list.some((re) => re.test(p)))?.[0] || (OWN_PRESS.some((re) => re.test(p)) ? 'owner' : null);
 
 const MACHINE = /^\/m\/([a-z0-9][a-z0-9_-]{0,31})(\/.*)$/;
 const refuse = (message) => Object.assign(new Error(message), { status: 403, code: 'tia-route' });
@@ -349,7 +394,8 @@ function target(url) {
  */
 export function checkRoute(method, url, body, ctx) {
   const { computer, p } = target(url);
-  if (NEVER.some((re) => re.test(p))) throw refuse(`${method} ${p} is the owner's own step, not Tia's`);
+  const never = neverClassOf(p);
+  if (never) throw refuse(`${method} ${p} is the owner's own step, not Tia's${never === 'owner' ? '' : ` (${never})`}`);
   const entry = ALLOW.find((e) => e.method === method && e.re.test(p));
   if (!entry) throw refuse(`${method} ${p} is not a route Tia's tools use`);
   if (entry.body) {

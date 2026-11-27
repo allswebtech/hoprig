@@ -111,14 +111,14 @@ export function createAttachments(o) {
 
 /**
  * A queued message as its row above the box says it, the way its bubble will: its words, and its files by name (not
- * the "@.uploads/…" paths written for the coding tool). → { text, names, label (the words and the names, for the row's
+ * the "@.uploads/…" paths written for the coding tool). → { text, names, files (as the bubble draws them: messageFiles), label (the words and the names, for the row's
  * Remove button) }
  */
 export function queuedLine(m) {
   const { text, files } = ownMessageView(m.text, Array.isArray(m.attachments) ? m.attachments : []);
   const names = files.map((f) => shownName(f.name) || (f.type === 'image' ? 'picture' : 'file'));
   const words = text.trim();
-  return { text: words, names, label: words && names.length ? `${words} (${names.join(', ')})` : words || names.join(', ') };
+  return { text: words, names, files, label: words && names.length ? `${words} (${names.join(', ')})` : words || names.join(', ') };
 }
 
 /** A message's files in the conversation: pictures as thumbnails (served from this chat's uploads), others as chips. */

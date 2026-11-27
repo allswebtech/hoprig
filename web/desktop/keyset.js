@@ -1,6 +1,7 @@
 // Settings → Appearance, the desktop's keys: one plain list of them and the one choice that changes them (Alt+Shift,
 // Ctrl+Alt, Off), kept on this device as the style is (keymap.js reads it, here and in every window's page).
 import { fill, h, prefs } from '../lib.js';
+import { fold } from '../shell.js';
 import { DESK_KEYS, keyParts, keySet, keySetChoices, keysText, setLabel } from './keymap.js';
 
 /** The fieldrow of the keys; `mark` is the row's "saved" mark. */
@@ -24,5 +25,6 @@ export function keysRow(mark) {
     paintList(cur);
   };
   paint(keySet(prefs.get('desktop.keys', 'alt-shift')));
-  return h('div.fieldrow', h('span.field-label', 'Desktop keys', mark), seg, line, list);
+  // The notes and the table of keys are under "Keys", closed: the choice is what a person comes for.
+  return h('div.fieldrow', h('span.field-label', 'Desktop keys', mark), seg, fold('desktop-keys', 'Keys', line, list));
 }

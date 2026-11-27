@@ -28,6 +28,30 @@ export function listenHere(addon) {
   return keepsLocal({ reason: serverReason() }) ? { args: [], env: { HOST: '127.0.0.1' } } : { args: [], env: {} };
 }
 
+/**
+ * The file a service's output goes to: the one log file Hoprig reads (the add-on's logPath), for a gateway with a copy of
+ * its own in Hoprig's folder. Another gateway's output stays as it was (the journal, or nothing where it prints a first
+ * password).
+ */
+const logOf = (addon) => (typeof addon.logPath === 'function' && !addon.marksFirst ? addon.logPath() : null);
+
+/**
+ * What taking the service of gateway `id` away needs, without its program being there: { kind, file, undo } or null where
+ * a service cannot be made.
+ */
+export function removalPlan(id, title = id, { platform = process.platform, env = process.env, home = os.homedir(), uid = process.getuid?.() } = {}) {
+  if (!ID_RE.test(id)) return null;
+  if (platform === 'linux') {
+    const unit = unitName(id);
+    return { kind: 'systemd', unit, file: unitFile(id, env, home), undo: [['systemctl', '--user', 'disable', '--now', unit], ['systemctl', '--user', 'daemon-reload']] };
+  }
+  if (platform === 'darwin') {
+    const label = agentLabel(id);
+    return { kind: 'launchd', label, file: agentFile(id, home), undo: [['launchctl', 'bootout', `gui/${uid}/${label}`]] };
+  }
+  return null;
+}
+
 /** The gateway's program and arguments as the service runs it, or null when its program is not on this computer. */
 export function programOf(addon, lookup = which) {
   const [bin, ...args] = addon.command();
@@ -50,6 +74,7 @@ export function servicePlan(addon, { platform = process.platform, env = process.
   const argv = programOf(addon, lookup);
   if (!argv) return { kind: 'missing', sentence: `${addon.title} is not installed on this computer: install it first.` };
   const vars = { PATH: env.PATH || '/usr/bin:/bin', ...listenHere(addon).env };
+  const logFile = logOf(addon);
   if (platform === 'linux') {
     const unit = unitName(addon.id);
     const file = unitFile(addon.id, env, home);
@@ -64,9 +89,10 @@ export function servicePlan(addon, { platform = process.platform, env = process.
       'Type=simple',
       `ExecStart=${argv.map(sdQuote).join(' ')}`,
       ...Object.entries(vars).map(([k, v]) => envLine(k, v)),
-      // What it prints (a first password, where a gateway makes one) is not kept in the journal; its errors are.
-      'StandardOutput=null',
-      'StandardError=journal',
+      ...(logFile
+        ? [`StandardOutput=append:${logFile.replace(/%/g, '%%')}`, `StandardError=append:${logFile.replace(/%/g, '%%')}`]
+        // What it prints (a first password, where a gateway makes one) is not kept in the journal; its errors are.
+        : ['StandardOutput=null', 'StandardError=journal']),
       'Restart=on-failure',
       'RestartSec=5',
       '',
@@ -75,7 +101,7 @@ export function servicePlan(addon, { platform = process.platform, env = process.
       '',
     ].join('\n');
     return {
-      kind: 'systemd', unit, file, text,
+      kind: 'systemd', unit, file, text, logFile,
       commands: [['systemctl', '--user', 'daemon-reload'], ['systemctl', '--user', 'enable', '--now', unit]],
       undo: [['systemctl', '--user', 'disable', '--now', unit], ['systemctl', '--user', 'daemon-reload']],
     };
@@ -97,6 +123,7 @@ export function servicePlan(addon, { platform = process.platform, env = process.
       '    <dict>',
       ...Object.entries(vars).map(([k, v]) => `      <key>${xml(k)}</key>\n      <string>${xml(v)}</string>`),
       '    </dict>',
+      ...(logFile ? [`    <key>StandardOutPath</key>\n    <string>${xml(logFile)}</string>`, `    <key>StandardErrorPath</key>\n    <string>${xml(logFile)}</string>`] : []),
       '    <key>RunAtLoad</key>\n    <true/>',
       '    <key>KeepAlive</key>\n    <dict>\n      <key>SuccessfulExit</key>\n      <false/>\n    </dict>',
       '  </dict>',
@@ -105,7 +132,7 @@ export function servicePlan(addon, { platform = process.platform, env = process.
     ].join('\n');
     const domain = `gui/${uid}`;
     const target = `${domain}/${label}`;
-    return { kind: 'launchd', label, domain, target, file, text, commands: [['launchctl', 'bootstrap', domain, file]], undo: [['launchctl', 'bootout', target]] };
+    return { kind: 'launchd', label, domain, target, file, text, logFile, commands: [['launchctl', 'bootstrap', domain, file]], undo: [['launchctl', 'bootout', target]] };
   }
   return { kind: 'none', sentence: `On this system (${platform}) ${APP_NAME} cannot run a gateway as a service: start it from here when you need it.` };
 }
@@ -175,6 +202,12 @@ export async function makeService(plan, { run = capture } = {}) {
   })();
   if (same && (await serviceState(plan, { run })).active !== false) return { ok: true, already: true, lines: [`${plan.file} is there already, unchanged.`] };
   fs.mkdirSync(path.dirname(plan.file), { recursive: true });
+  // The log file is made here, for this user alone: the service manager would make it readable by everyone.
+  if (plan.logFile) {
+    fs.mkdirSync(path.dirname(plan.logFile), { recursive: true, mode: 0o700 });
+    fs.closeSync(fs.openSync(plan.logFile, 'a', 0o600));
+    fs.chmodSync(plan.logFile, 0o600);
+  }
   fs.writeFileSync(plan.file, plan.text, { mode: 0o644 });
   const lines = [`Wrote ${plan.file}`];
   for (const argv of plan.commands) {

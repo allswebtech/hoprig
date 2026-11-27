@@ -4,7 +4,7 @@
 // code", "Changes"), from a session's menu, and by links: #/code?dir=<folder>&file=<path>&line=<n>&view=changes.
 import { WINDOW, btn, fill, h, link, machine, openApp, openSheet, tildePath } from '../lib.js';
 import { icon } from '../icons.js';
-import { registerPage, registerSessionAction, registerSettingsPage } from '../registry.js';
+import { registerPage, registerSessionAction } from '../registry.js';
 import { emptyState, listRow, panel, savedMark, toggle } from '../shell.js';
 import { store } from '../store.js';
 import { editorPrefs, setEditorPref } from './monaco.js';
@@ -77,14 +77,14 @@ function viewLanding({ frame }) {
     title: 'Code editor',
     page: 'code',
     intro: WINDOW
-      ? 'Open a folder from Files: Open in Editor in a folder\'s menu (⋯), or open a text file there.'
-      : ['Open a project\'s code from ', h('a', { href: link('#/workspace') }, 'Workspace'), ': the code button (</>) on its row, or Open code on its page.'],
+      ? 'Open a folder from Files.'
+      : ['Open code from ', h('a', { href: link('#/workspace') }, 'Projects'), '.'],
     ...(WINDOW && recent.length ? { primary: { label: 'Open Files', icon: 'folder', onclick: () => openApp('files', '#/desktop/files') } } : {}),
     body: [
       recent.length
         ? panel({ icon: 'clock', title: 'Opened lately', desc: 'In this browser.' }, h('div.rows', recent.map((r) => listRow({ href: codeHash(r.dir), icon: 'code', title: folderName(r.dir), sub: tildePath(r.dir) }))))
         : WINDOW ? emptyState('code', 'No folder is open yet.', fromFiles())
-          : emptyState('code', 'No folder is open yet.', h('a.btn.primary', { href: link('#/workspace') }, 'Go to Workspace')),
+          : emptyState('code', 'No folder is open yet.', h('a.btn.primary', { href: link('#/workspace') }, 'Go to Projects')),
     ],
   });
 }
@@ -136,9 +136,10 @@ registerSessionAction({
   },
 });
 
-// ---------- Settings → Editor (per browser) ----------
+// ---------- Settings → Appearance → Code editor (per browser) ----------
 
-function settingsBody() {
+/** The card "Code editor" of Settings → Appearance: text size, tab width and long lines, kept in this browser. */
+export function editorPanel() {
   const p = editorPrefs();
   const marks = { font: savedMark(), tab: savedMark() };
   const size = h('span.fontsize');
@@ -149,7 +150,7 @@ function settingsBody() {
     paintSize();
     marks.font.show();
   };
-  const tabs = h('div.segmented', { role: 'radiogroup' });
+  const tabs = h('div.segmented', { role: 'radiogroup', 'aria-label': 'Tab width' });
   const paintTabs = () => fill(tabs, [2, 4, 8].map((n) => h('button.seg', { type: 'button', role: 'radio', 'aria-checked': String(editorPrefs().tabSize === n), onclick: (e) => {
     e.preventDefault();
     setEditorPref('tab', n);
@@ -157,26 +158,14 @@ function settingsBody() {
     marks.tab.show();
   } }, h('span', String(n)))));
   paintTabs();
-  return [
-    panel({ icon: 'code', title: 'The code editor', desc: ['Saved in this browser only. The colours follow the page\'s light or dark theme (', h('a', { href: link('#/settings/appearance?show=page-theme') }, 'Settings → Appearance'), ').'] },
-      h('div.fieldrow', h('span.field-label', 'Font Size', marks.font),
-        h('div.stepper-inline', btn('icon secondary', { icon: 'minus', title: 'Smaller', onclick: () => step(-1) }), size, btn('icon secondary', { icon: 'plus', title: 'Larger', onclick: () => step(1) }))),
-      h('div.fieldrow', h('span.field-label', 'Tab Size', marks.tab), tabs, h('span.hint', 'Spaces for the Tab key and for an indent. A project\'s own .editorconfig is not read.')),
-      toggle('Word Wrap', p.wordWrap, (v) => setEditorPref('wrap', v), 'Long lines wrap at the edge instead of scrolling sideways.'),
-      // Plain text editing (for a phone where Monaco cannot be typed into) is switched in the editor's own menu.
-      h('p.hint', 'Plain text editing, for a phone where the code editor cannot be typed into, is in the editor\'s menu (…).')),
-  ];
+  return panel({ id: 'code-editor', icon: 'code', title: 'Code editor', desc: ['Saved in this browser only. The colours follow the page\'s light or dark theme (', h('a', { href: link('#/settings/appearance?show=page-theme') }, 'Settings → Appearance'), ').'] },
+    h('div.fieldrow', h('span.field-label', 'Text size', marks.font),
+      h('div.stepper-inline', btn('icon secondary', { icon: 'minus', title: 'Smaller', onclick: () => step(-1) }), size, btn('icon secondary', { icon: 'plus', title: 'Larger', onclick: () => step(1) }))),
+    h('div.fieldrow', h('span.field-label', 'Tab width', marks.tab), tabs, h('span.hint', 'Spaces for one Tab or an indent. A project\'s own .editorconfig is not read.')),
+    toggle('Wrap long lines', p.wordWrap, (v) => setEditorPref('wrap', v), 'Long lines wrap at the edge instead of scrolling sideways.'),
+    // Plain text editing (for a phone where Monaco cannot be typed into) is switched in the editor's own menu.
+    h('p.hint', 'Plain text editing, for a phone where the code editor cannot be typed into, is in the editor\'s menu (…).'));
 }
-
-registerSettingsPage({
-  id: 'editor', title: 'Editor', icon: 'code', order: 55,
-  desc: 'The code editor: Font Size, Tab Size and Word Wrap (VS Code\'s names), in this browser.',
-  summary: () => {
-    const p = editorPrefs();
-    return `${p.fontSize} px · tab ${p.tabSize}${p.wordWrap ? ' · wrap' : ''}`;
-  },
-  render: () => settingsBody(),
-});
 
 // Tests: the guard's reading of an address.
 export const _codeTarget = codeTarget;

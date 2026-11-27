@@ -358,7 +358,8 @@ export async function checkRepo(wt, { label, repos, memories = [], server = null
   // --exclude is new in git 2.42, and an older git fails the read, which must refuse, never pass for "none".
   const allRefs = await read(wt, ['for-each-ref', '--format=%(refname)'], run);
   if (allRefs === null) refuse('its refs (git notes and the like) could not be listed, so it cannot be told whether they are on the git server', g('for-each-ref'));
-  const OWN_ELSEWHERE = ['refs/heads/', 'refs/tags/', 'refs/remotes/', 'refs/prefetch/'];
+  // refs/hoprig/kept/: the safety copies the map's rule (mapkeep.mjs) makes of what it replaced: Hoprig's own, never the owner's work.
+  const OWN_ELSEWHERE = ['refs/heads/', 'refs/tags/', 'refs/remotes/', 'refs/prefetch/', 'refs/hoprig/kept/'];
   for (const l of lines(allRefs).filter((r) => r !== 'refs/stash' && !OWN_ELSEWHERE.some((p) => r.startsWith(p)))) {
     if (!known) {
       refuse(`${l}: the git server could not be asked whether it has it`, g('ls-remote', 'origin', l));

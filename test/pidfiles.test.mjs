@@ -251,7 +251,10 @@ test('the gateway: stop ends what listens on its port, never another program und
   }
 });
 
-test('the gateway: where the process on its port cannot be found, a file without an identity shows nothing and gets no signal', async () => {
+// Windows: its system folder is searched whatever PATH says, so netstat is always found and a computer where the process
+// on a port cannot be found cannot be made there. A Mac: no lsof means the port's owner cannot be told, and a listener whose
+// owner cannot be told is another user's: left alone, said so, not an error (src/gateway/trouteaibase.mjs).
+test('the gateway: where the process on its port cannot be found, a file without an identity shows nothing and gets no signal', { skip: process.platform === 'win32' && 'Windows always finds netstat in its system folder, so the port\'s process cannot be hidden there' }, async () => {
   const none = path.join(box.root, 'nothing');
   fs.mkdirSync(none, { recursive: true });
   for (const content of [(pid) => String(pid), (pid) => JSON.stringify({ pid, proc: null })]) {
@@ -267,8 +270,12 @@ test('the gateway: where the process on its port cannot be found, a file without
     } finally {
       process.env.PATH = saved;
     }
-    assert.equal(r.ok, false, 'the gateway still runs, and the caller is told');
-    assert.match(r.error, /still answers on port/);
+    if (process.platform === 'darwin') {
+      assert.deepEqual([r.ok, r.foreign], [true, true], 'its owner cannot be told: left alone, and said so');
+    } else {
+      assert.equal(r.ok, false, 'the gateway still runs, and the caller is told');
+      assert.match(r.error, /still answers on port/);
+    }
     assert.ok(alive(pid), 'the other program got no signal');
     assert.ok(await listening(), 'nothing of ours was found to stop');
     process.kill(gw, 'SIGKILL');

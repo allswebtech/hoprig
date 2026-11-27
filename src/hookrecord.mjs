@@ -170,12 +170,12 @@ function holdsPatch(run, ev, who, held, before, patch) {
  * The rule behind it: "attention" holds exactly while `asks` names someone (or the reply ended in an error);
  * otherwise the status is what the last turn event said.
  */
-export function recordPatch(run, ev, now = Date.now(), { allowed = false, hands = null, held = null, continuePrompt = null, cardParts = null } = {}) {
+export function recordPatch(run, ev, now = Date.now(), { allowed = false, hands = null, held = null, continuePrompt = null, cardParts = null, by = null } = {}) {
   // A coding chat's record (runs.mjs createChatRun): the chat follows its process through its own channel, the cards
   // and its status included, so the record keeps only what the hook allowed and how a provider stopped the chat or an
   // agent of it (launch.mjs chatHooks), for the Operator.
   if (run.kind === 'chat') {
-    if (ev.hook_event_name === 'PermissionRequest') return allowed ? { allowed: allowedList(run, ev, now) } : {};
+    if (ev.hook_event_name === 'PermissionRequest' || (ev.hook_event_name === 'PreToolUse' && by === 'all')) return allowed ? { allowed: allowedList(run, ev, now, by) } : {};
     if (!CHAT_EVENTS.has(ev.hook_event_name)) return {};
     const full = recordPatch({ ...run, kind: 'claude' }, ev, now);
     return Object.fromEntries(Object.entries(full).filter(([k]) => CHAT_KEEPS.has(k)));
@@ -216,6 +216,8 @@ export function recordPatch(run, ev, now = Date.now(), { allowed = false, hands 
       // dialog the tool draws for it comes as a PermissionRequest next; the hold goes with that ask. A call of the same
       // agent that holds nothing clears a hold left from its earlier one, so a stale card is never shown on, nor its
       // Allow sent for, a later unrelated permission; another agent's call leaves it alone.
+      // In "Allow everything" nothing is held: what the wall WOULD have held runs, and the hook only notes it (by all).
+      if (allowed && by === 'all') patch.allowed = allowedList(run, ev, now, by);
       break;
     case 'SessionStart':
       if (ev.source === 'compact') break; // Claude Code compacted, often in the middle of a turn: nothing ended
@@ -285,7 +287,7 @@ export function recordPatch(run, ev, now = Date.now(), { allowed = false, hands 
       // Allowed by the hook itself (bypass mode: `allowed` is its answer, hookAnswer): Claude Code shows no question,
       // so nobody is asked. What was allowed is written down for the owner, the newest 20.
       if (allowed) {
-        patch.allowed = allowedList(run, ev, now);
+        patch.allowed = allowedList(run, ev, now, by);
         break;
       }
       // Answered by Hands-off (handsOffFor): no dialog is drawn, nobody is asked. Shown to the owner, the newest 10.
@@ -346,12 +348,16 @@ export function recordPatch(run, ev, now = Date.now(), { allowed = false, hands 
 
 // The record's list of what the hook allowed, with `ev` added: the newest 20. Each has its number `n`, one more than the
 // last, given under the record's lock (applyHook), so a chat tells two allows of the same moment apart.
-function allowedList(run, ev, now) {
+function allowedList(run, ev, now, by = null) {
   const tool = typeof ev.tool_name === 'string' ? oneLine(ev.tool_name, 80) : '';
   const was = Array.isArray(run.allowed) ? run.allowed : [];
   const n = was.reduce((m, a) => (a && Number.isInteger(a.n) && a.n > m ? a.n : m), 0) + 1;
   const folder = folderOf(run, ev);
-  return [...was, { n, at: now, tool, what: askedWhat(ev), ...(folder ? { folder } : {}) }].slice(-20);
+  // One quiet line for one call: the wall's note (PreToolUse) and the coding tool's own stop (PermissionRequest) can both
+  // come for the same command in "Allow everything".
+  const last = was.at(-1);
+  if (by === 'all' && last && last.by === 'all' && last.tool === tool && last.what === askedWhat(ev) && now - last.at < 3000) return was;
+  return [...was, { n, at: now, tool, what: askedWhat(ev), ...(folder ? { folder } : {}), ...(by === 'all' ? { by } : {}) }].slice(-20);
 }
 
 // Where the command ran, when that is not the session's own folder: relative to it where it is inside it.
@@ -379,9 +385,9 @@ const same = (a, b) => JSON.stringify(plain(a)) === JSON.stringify(plain(b));
  * file is written only when the event changes something; returns the record as it stands (null when the file is
  * gone: the launcher already cleaned up). `answer`: what the hook answered Claude Code for it (hookAnswer).
  */
-export function applyRecord(file, ev, now = Date.now(), answer = null, hands = null, held = null, continuePrompt = null, cardParts = null) {
+export function applyRecord(file, ev, now = Date.now(), answer = null, hands = null, held = null, continuePrompt = null, cardParts = null, by = null) {
   const next = changeRun(file, (run) => {
-    const patch = recordPatch(run, ev, now, { allowed: !!answer && !(hands && hands.output && answer === hands.output) && !held, hands, held, continuePrompt, cardParts });
+    const patch = recordPatch(run, ev, now, { allowed: !!answer && !(hands && hands.output && answer === hands.output) && !held, hands, held, continuePrompt, cardParts, by });
     if (!Object.keys(patch).some((k) => !same(run[k], patch[k]))) return run;
     const out = { ...run, ...patch };
     if (patch.status && patch.status !== run.status) out.statusAt = now;

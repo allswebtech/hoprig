@@ -2,6 +2,7 @@
 // computer · Claude Code and providers · Dashboard · Coding tools · Projects · Skills), one line per check with
 // ✓ / ✗ / !, and under each problem the one command that fixes it. Exit code 0 only when everything needed works.
 // --json gives the same for the page; --offline skips every network lookup.
+import fs from 'node:fs';
 import { loadConfig } from '../config.mjs';
 import { exitCodeFor, sysInfo } from './checks.mjs';
 import { grouped, overview } from './overview.mjs';
@@ -51,6 +52,23 @@ export async function doctor(args = [], { write = (s) => process.stdout.write(s)
     if (servers) results.push({ id: 'git-servers', group: 'This computer', label: 'Git servers', status: 'warn', detail: `${servers}, as looked ${String(kept.servers.at).slice(0, 10)}` });
   } catch {
     /* nothing kept, or not readable: nothing to say */
+  }
+  // The background service's own files against what this version would write (the keeper writes them again when the
+  // dashboard is down; src/keeper/keep.mjs). Only when the service is installed. A suggestion, never a failure.
+  try {
+    const { serviceFiles, serviceInstalled } = await import('../server/service/index.mjs');
+    if (serviceInstalled(sys.platform, { env: sys.env })) {
+      const old = serviceFiles(sys.platform, { env: sys.env }).filter((f) => {
+        try {
+          return fs.readFileSync(f.file, 'utf8') !== f.text;
+        } catch {
+          return true;
+        }
+      });
+      if (old.length) results.push({ id: 'service-files', group: 'Dashboard', label: 'Background service', status: 'warn', detail: 'its files differ from this version', fix: 'hoprig service install' });
+    }
+  } catch {
+    /* not installed, or not readable: nothing to say */
   }
   reportDoctor(results, startedAt); // a field report, only when a check failed (src/field)
   const code = exitCodeFor(results);
