@@ -28,7 +28,7 @@ test('the tool list stays at 25; the new actions are in manage_project with clos
   assert.equal(t.input.json.additionalProperties, false);
   assert.equal(t.levelOf({ action: 'where' }), 'L0');
   assert.equal(t.levelOf({ action: 'drop_check' }), 'L0');
-  assert.equal(t.levelOf({ action: 'drop' }), 'L2');
+  assert.equal(t.levelOf({ action: 'drop' }), 'L0', 'it only refuses: no card');
   assert.equal(t.levelOf({ action: 'group_add' }), 'L2');
 });
 
@@ -45,33 +45,22 @@ test('where: who has what, an old file and an unknown computer said, and what ca
   assert.match(one.text, /call where without entry/);
 });
 
-test('drop_check reads; drop is a card whose confirmation only opens the sheet, and nothing is dropped', async () => {
-  const { call, core, ops, cards } = setup();
+test('drop_check reads; drop is the owner\'s own sheet: she refuses in words, stages no card and nothing is dropped', async () => {
+  const { call, ops, cards } = setup();
   await call('list_projects', {});
   const chk = await call('manage_project', { action: 'drop_check', project: 'shop' });
   assert.equal(chk.isError, false, chk.text);
   assert.match(chk.text, /Type the project's name \(shop\)/);
   const r = await call('manage_project', { action: 'drop', project: 'shop' });
-  const id = cardId(r);
-  assert.ok(id, r.text);
-  assert.match(cards.get(id).lines.join('\n'), /you answer its questions and press Drop there yourself/);
-  const done = await core.confirm(id);
-  assert.equal(done.ok, true, JSON.stringify(done));
-  assert.match(done.summary, /nothing was dropped/);
-  assert.equal(done.open, '#/workspace?drop=shop', 'the page opens his sheet, filled in');
+  assert.equal(r.isError, true, r.text);
+  assert.equal(cardId(r), undefined, 'no card');
+  assert.deepEqual(cards.pending(), []);
+  assert.match(r.text, /owner's own press.*open_screen "workspace"/);
   assert.deepEqual(ops.calls, [], 'her drop wrote nothing: the owner presses Drop on his sheet');
   for (const [m, p] of [['POST', '/api/workspace/drop'], ['POST', '/m/box2/api/workspace/drop'], ['POST', '/api/workspace/group/remove'], ['POST', '/api/workspace/rules']]) assert.throws(() => checkRoute(m, p, {}), /owner's own step/, p);
   assert.throws(() => checkRoute('POST', '/api/workspace/group', { dir: 'kits' }), /owner's own press/);
   assert.doesNotThrow(() => checkRoute('POST', '/api/workspace/group', { dir: 'kits', dryRun: true }));
   assert.throws(() => checkRoute('POST', '/api/workspace/drop/check', { name: 'shop', typed: 'shop' }), /typed/);
-});
-
-test('a project not here: the card is refused with the step that recovers', async () => {
-  const { call } = setup();
-  await call('list_projects', {});
-  const r = await call('manage_project', { action: 'drop', project: 'api' });
-  assert.equal(r.isError, true);
-  assert.match(r.text, /where says which computer has it/);
 });
 
 test('group_add: a card naming what goes into the map; confirming opens the sheet, nothing written', async () => {
@@ -118,26 +107,16 @@ test('the page follows a confirmed card\'s link only to a sheet of the Workspace
   for (const no of ['#/settings/security', 'https://evil.example/#/workspace?drop=shop', '#/workspace', '#/workspace?typed=shop', 'javascript:alert(1)//#/workspace?drop=x']) assert.ok(!re.test(no), no);
 });
 
-test('her drop result never invites a promise to report it; her words say "this computer", never "this"', async () => {
-  const { call, core } = setup();
+test('her drop_check words say "this computer", never "this"; a drop on another computer is refused the same way', async () => {
+  const { call, cards } = setup();
   await call('list_projects', {});
   const chk = await call('manage_project', { action: 'drop_check', project: 'shop' });
   assert.match(chk.text, /exists only on this computer/);
   assert.doesNotMatch(chk.text, /only on this \(/);
-  const r = await call('manage_project', { action: 'drop', project: 'shop' });
-  const done = await core.confirm(cardId(r));
-  assert.match(done.summary, /You are not told whether he drops it: do not promise to report it/);
-});
-
-test('a drop on another computer: list_projects there shows blog, then the card is for box2 and opens its sheet', async () => {
-  const { call, core } = setup();
   await call('get_computer_status', {});
-  const list = await call('list_projects', { computer: 'box2' });
-  assert.match(list.text, /blog/, list.text);
+  await call('list_projects', { computer: 'box2' });
   const r = await call('manage_project', { action: 'drop', project: 'blog', computer: 'box2' });
-  const id = cardId(r);
-  assert.ok(id, r.text);
-  const done = await core.confirm(id);
-  assert.equal(done.open, '#/m/box2/workspace?drop=blog');
-  assert.match(done.summary, /on box2/);
+  assert.equal(r.isError, true, r.text);
+  assert.match(r.text, /owner's own press/);
+  assert.deepEqual(cards.pending(), []);
 });

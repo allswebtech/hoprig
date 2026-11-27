@@ -41,6 +41,8 @@
 //     and can be taken back until it starts), "get_context_usage", "get_usage", "file_suggestions".
 //   A resumed conversation (--resume <id>) keeps writing the same transcript, <claudeDir>/projects/<slug>/<id>.jsonl,
 //     so a chat opens in the terminal (claude --resume <id>) and the other way round.
+import { ALL } from '../../bypassgate.mjs';
+
 
 import { askType } from '../../asking.mjs';
 
@@ -53,7 +55,7 @@ export const CHAT_ENV = { CLAUDE_CODE_ENABLE_SDK_FILE_CHECKPOINTING: '1' };
  * takes it (replay), and the switch into bypassPermissions stays possible while it runs, but only where the owner
  * allowed bypass (`allowBypass`, bypassgate.mjs): without it neither the flag nor a bypass start mode is given.
  */
-export function chatArgs({ sessionId, resume = false, fork = null, permissionMode = null, effort = null, model = null, settings = null, allowBypass = true, lead = [] }) {
+export function chatArgs({ sessionId, resume = false, fork = null, permissionMode = null, effort = null, model = null, settings = null, allowBypass = true, lead = [], noWorkflow = false }) {
   if (!sessionId) throw new Error('chatArgs needs a session id');
   // A conversation rewound to an earlier message, or forked (a copy of all of it: `at` is its newest line): a copy of
   // `fork.from` up to the line `fork.at`, under the new id
@@ -64,10 +66,14 @@ export function chatArgs({ sessionId, resume = false, fork = null, permissionMod
     '-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose',
     '--include-partial-messages', '--replay-user-messages',
     '--permission-prompt-tool', 'stdio', ...(allowBypass ? ['--allow-dangerously-skip-permissions'] : []),
-    ...(permissionMode && (allowBypass || permissionMode !== 'bypassPermissions') ? ['--permission-mode', permissionMode] : []),
+    // Allow everything is Hoprig's own mode on top of Claude Code's bypassPermissions (bypassgate.mjs): it is what Claude Code gets.
+    ...(permissionMode && (allowBypass || sdkMode(permissionMode) !== 'bypassPermissions') ? ['--permission-mode', permissionMode === ALL ? 'bypassPermissions' : permissionMode] : []),
     ...(settings ? ['--settings', settings] : []),
     ...(effort ? ['--effort', effort] : []),
     ...(model ? ['--model', model] : []),
+    // Without the many-agents chip the Workflow tool is left out: its definition is in every request and its own text
+    // says it is for a person who opted in. Only this tool (the owner decides about any other).
+    ...(noWorkflow ? ['--disallowed-tools', 'Workflow'] : []),
     ...lead, // "Lead model" (src/models/lead.mjs leadArgs): its helpers and the lead's instruction; [] when off
     ...where,
   ];
@@ -96,7 +102,7 @@ export const controlLine = (requestId, request) => line({ type: 'control_request
 export const interruptLine = (requestId) => controlLine(requestId, { subtype: 'interrupt' });
 
 /** Hoprig's word for a permission mode → Claude Code's (the flag says "manual" for what it reports as "default"). */
-export const sdkMode = (mode) => (mode === 'manual' || !mode ? 'default' : mode);
+export const sdkMode = (mode) => (mode === 'manual' || !mode ? 'default' : mode === ALL ? 'bypassPermissions' : mode);
 
 // ---------- "allow in this chat" ----------
 

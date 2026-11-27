@@ -45,10 +45,9 @@ test('the tmux page says the server rule of the code: the SSH and cloud signs co
   assert.match(flat(read('docs/INSTALL.md')), /A Mac or a Windows computer counts as a server only by its public address\./);
 });
 
-test('the compare overview says the platform facts: Linux, the Mac not tried for real, Windows not ready', () => {
+test('the compare overview says the platform facts: three systems, Windows new, the Mac\'s newer parts not tried by hand', () => {
   const page = flat(read('site/content/compare/index.md'));
-  assert.match(page, /It runs on Linux\./);
-  assert.match(page, /On a Mac the tests pass, but the install and the newer parts \(the chat, the editor, Work\) were not tried on a real Mac\./);
+  assert.match(page, /It runs on Windows, macOS and Linux\. Windows is new: a real home Windows PC has seen less of it than a Linux computer has, and the newer parts \(the chat, the editor, Work\) were not tried by hand on a real Mac\./);
   assert.doesNotMatch(page, /since 0\.2/, 'a version number a newcomer cannot place');
-  assert.match(page, /Windows is not ready\./);
+  assert.doesNotMatch(page, /not ready/);
 });

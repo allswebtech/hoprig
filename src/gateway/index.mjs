@@ -219,7 +219,7 @@ export function gatewayFeature(ctx, { hub = null, addons = null, now = Date.now,
     const p = localProvider(g);
     const shared = Boolean(p && sharedProvider(g.id) === p.name);
     return {
-      id: g.id, title: g.title, installed: Boolean(st.installed) || running, version: st.version || null, running,
+      id: g.id, title: g.title, installed: Boolean(st.installed) || running, version: st.version || null, ...(st.restart ? { restart: st.restart } : {}), running,
       address: `http://127.0.0.1:${g.port}`, shared, ready: Boolean(p), // ready: a provider here holds its key
       ...(owner ? { provider: p ? { name: p.name, label: p.label } : null, keys: listKeys(g.id) } : {}),
     };
@@ -466,7 +466,7 @@ export function gatewayFeature(ctx, { hub = null, addons = null, now = Date.now,
           if (r.status !== 200 || !r.json || !Array.isArray(r.json.gateways)) return out;
           const list = r.json.gateways.filter((g) => g && GATEWAY_ID_RE.test(g.id)).slice(0, 20).map((g) => ({
             id: g.id, title: cleanLabel(String(g.title || g.id).slice(0, 60), g.id), installed: g.installed === true, running: g.running === true,
-            version: typeof g.version === 'string' ? g.version.slice(0, 40) : null, shared: g.shared === true, ready: g.ready === true, usedAs: usedAs(m.name, g.id),
+            version: typeof g.version === 'string' ? g.version.slice(0, 40) : null, ...(typeof g.restart === 'string' ? { restart: g.restart.slice(0, 200) } : {}), shared: g.shared === true, ready: g.ready === true, usedAs: usedAs(m.name, g.id),
           }));
           return { ...out, state: 'online', gateways: list };
         } catch (e) {
@@ -482,7 +482,7 @@ export function gatewayFeature(ctx, { hub = null, addons = null, now = Date.now,
       const g = gatewayOr404(m[1]);
       if (b.on === true) {
         const p = localProvider(g);
-        if (!p) throw fail(409, `First add ${g.title} as a provider on ${label()} (Providers → Gateways on your computers → Use here): sharing passes on the key of that provider.`, 'gateway-no-provider');
+        if (!p) throw fail(409, `First add ${g.title} as a provider on ${label()} (Providers → ${g.title} → Use it for my sessions): sharing passes on the key of that provider.`, 'gateway-no-provider');
         setShared(g.id, p.name);
       } else setShared(g.id, null);
       return localView(g, true);
@@ -492,7 +492,7 @@ export function gatewayFeature(ctx, { hub = null, addons = null, now = Date.now,
       const g = gatewayOr404(m[1]);
       const provider = sharedProvider(g.id);
       const p = provider ? readProfile(provider) : null;
-      if (!p || !upstreamAuth(p, g.port)) throw fail(409, `Sharing of ${g.title} is turned off on ${label()}. Turn it on there first: Providers → Gateways on your computers.`, 'gateway-not-shared');
+      if (!p || !upstreamAuth(p, g.port)) throw fail(409, `Sharing of ${g.title} is turned off on ${label()}. Turn it on there first: Providers → ${g.title}.`, 'gateway-not-shared');
       // Asked by a linked hub with its machine token: the key ends when that token is revoked. The owner's login: never.
       const { id, key } = createKey(g.id, typeof b.name === 'string' ? b.name : '', { token: tokenIdOf(req) });
       const cfg = loadConfig().server;

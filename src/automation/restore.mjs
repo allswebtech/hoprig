@@ -66,7 +66,7 @@ export function decide({ cards, data, now, boot, enabled, taken = [] }) {
         continue;
       }
       if (lostAtStop && s.sessionId && !(s.shellSince && toChat(s)) && !takenFrom(s)) {
-        actions.push({ type: 'reopen', session: { name, ...(s.tool === 'opencode' ? { tool: s.tool } : {}), cwd: s.cwd, profile: s.profile, sessionId: s.sessionId, carryArgs: s.carryArgs || [], ...(s.hers === true ? { hers: true } : {}) } });
+        actions.push({ type: 'reopen', session: { name, ...(s.tool === 'opencode' ? { tool: s.tool } : {}), cwd: s.cwd, profile: s.profile, sessionId: s.sessionId, carryArgs: s.carryArgs || [], ...(s.hers === true ? { hers: true } : {}), ...(s.all === true ? { all: true } : {}) } });
         sessions[name] = { ...s, goneAt: null, shellSince: null };
       }
       continue;
@@ -97,7 +97,7 @@ export function decide({ cards, data, now, boot, enabled, taken = [] }) {
     const carryArgs = Array.isArray(c.carryArgs) ? c.carryArgs.filter((a) => typeof a === 'string') : [];
     // A session of Tia's comes back as hers (the mark of its old run went with that run): `hers` is what the adapter
     // read from the mark the dashboard wrote, never from the card's own record.
-    sessions[c.name] = { name: c.name, ...(tool === 'opencode' ? { tool } : {}), cwd: c.cwd, profile: c.profile.name, sessionId: c.sessionId || null, ...(typeof c.runId === 'string' && c.runId ? { runId: c.runId } : {}), carryArgs, ...(c.hers === true ? { hers: true } : {}), goneAt: null, shellSince: null };
+    sessions[c.name] = { name: c.name, ...(tool === 'opencode' ? { tool } : {}), cwd: c.cwd, profile: c.profile.name, sessionId: c.sessionId || null, ...(typeof c.runId === 'string' && c.runId ? { runId: c.runId } : {}), carryArgs, ...(c.hers === true ? { hers: true } : {}), ...(c.all === true ? { all: true } : {}), goneAt: null, shellSince: null };
   }
   const again = (e) => cards.some((c) => restorable(c) && toolOf(c) === e.tool && c.sessionId === e.conversation && c.runId && c.runId !== e.runId);
   return { actions, data: { lastTickAt: now, sessions }, taken: taken.filter((e, i) => !used.has(i) && !again(e)) };
@@ -138,7 +138,7 @@ async function reopen(s, ctx, last) {
   const oc = s.tool === 'opencode';
   const fresh = !oc && !ctx.conversationExists(s.cwd, s.sessionId);
   try {
-    const name = await ctx.deck.start({ ...(oc ? { tool: s.tool } : {}), dir: s.cwd, profile: s.profile, mode: 'move', sessionId: s.sessionId, carryArgs: s.carryArgs || [], name: s.name, ...(fresh ? { fresh } : {}), ...(s.hers === true ? { hers: true } : {}) });
+    const name = await ctx.deck.start({ ...(oc ? { tool: s.tool } : {}), dir: s.cwd, profile: s.profile, mode: 'move', sessionId: s.sessionId, carryArgs: s.carryArgs || [], name: s.name, ...(fresh ? { fresh } : {}), ...(s.hers === true ? { hers: true } : {}), ...(s.all === true ? { all: true } : {}) });
     // The provider as the owner named it: this line is read on Automations → Activity.
     const shown = (ctx.label && ctx.label(s.profile)) || s.profile;
     const how = fresh ? 'started fresh: it had no conversation to resume' : `resumed ${s.sessionId.slice(0, 8)}`;

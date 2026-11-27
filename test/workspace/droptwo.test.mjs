@@ -9,6 +9,11 @@ import test from 'node:test';
 import { dropOn, dropWorld, getOn, reset, treeOf } from './dropfix.mjs';
 
 const w = await dropWorld('two', { labels: ['alpha', 'beta'], group: true });
+/** Commit what is staged (or the named files) when there is something: `hoprig get` commits this computer's file itself now. */
+const commitIfAny = (dir, msg, ...files) => {
+  const dirty = w.sh(dir, 'status', '--porcelain', ...(files.length ? ['--', ...files] : []));
+  if (dirty) w.sh(dir, 'commit', '-q', '-m', msg, ...(files.length ? ['--', ...files] : []));
+};
 test.after(() => w.cleanup());
 const [A, B] = w.computers;
 const brainServer = path.join(w.server, 'team', 'brain.git');
@@ -24,11 +29,11 @@ test('two computers: the map keeps it, this computer\'s file drops it and is com
   await reset(B);
   B.use();
   w.sh(B.brain, 'add', '-A');
-  w.sh(B.brain, 'commit', '-q', '-m', 'beta');
+  commitIfAny(B.brain, 'beta');
   w.sh(B.brain, 'push', '-q');
   A.use();
   w.sh(A.brain, 'add', '-A');
-  w.sh(A.brain, 'commit', '-q', '-m', 'alpha');
+  commitIfAny(A.brain, 'alpha');
   w.sh(A.brain, 'pull', '-q', '--rebase');
   w.sh(A.brain, 'push', '-q');
   // The owner's own change in the brain: a tracked file changed, a new file; both stay as they are.
@@ -144,7 +149,7 @@ test('a drop commits only this computer\'s file: an edit of the owner\'s in the 
   w.sh(A.brain, 'checkout', '--', 'workspace.json');
   // Other staged changes in the brain: nothing is committed, and the words give the command.
   assert.equal((await getOn(A, ['shop'])).code, 0);
-  w.sh(A.brain, 'commit', '-q', '-m', 'here again', '--', 'computers/alpha.json'); // as the upkeep would: the drop has a change to share
+  commitIfAny(A.brain, 'here again', 'computers/alpha.json'); // as the upkeep would: the drop has a change to share (get commits it at once already)
   fs.writeFileSync(path.join(A.brain, 'NOTES.md'), 'staged\n');
   w.sh(A.brain, 'add', 'NOTES.md');
   const s = await dropOn(A, ['shop']);

@@ -1,11 +1,12 @@
-// Settings → Coding tools (#/settings/codingtools): which coding tools the dashboard offers (the ones this version
-// has: src/codetools/index.mjs), whether each is installed, the providers that serve it, and how to start a session
-// with it. A session of another tool starts from New session (the coding tool chosen there: a chat, or a terminal)
-// and from a terminal (`hoprig opencode <provider>`). The server side: src/codetools/feature.mjs (GET /api/codetools,
-// POST /api/codetools/<id>); an install through Settings → Updates (POST /api/updates/run).
+// The Coding tools card of Settings → New sessions: which coding tools the dashboard offers (the ones this version
+// has: src/codetools/index.mjs), one switch each, whether each is installed, and under "More" the providers that serve
+// it and how to start a session with it. A session of another tool starts from New session (the coding tool chosen
+// there: a chat, or a terminal) and from a terminal (`hoprig opencode <provider>`). The server side:
+// src/codetools/feature.mjs (GET /api/codetools, POST /api/codetools/<id>); an install through Settings → Version and updates
+// (POST /api/updates/run). The old page #/settings/new-sessions?show=coding-tools opens New sessions (settings.js).
 import { icon } from './icons.js';
 import { api, btn, fill, h, link, toast } from './lib.js';
-import { registerSettingsPage } from './registry.js';
+import { moreFold } from './helpline.js';
 import { panel, toggle } from './shell.js';
 
 const SCOPE = 'Claude Code can do everything here. OpenCode: a session in the App or in a Terminal, the providers that fit it, the shared AI brain, updates, and Tia (she starts its sessions in the App when you name it, and every OK of one comes to you). Auto mode and plan usage work with Claude Code only.';
@@ -16,11 +17,12 @@ export const summaryOf = (v) => `On: ${v.tools.filter((t) => t.on).map((t) => t.
 /** The providers of a coding tool as the owner named them (an older computer sends the short names only). */
 export const labelsOf = (t) => (Array.isArray(t.providerLabels) && t.providerLabels.length === t.providers.length ? t.providerLabels : t.providers);
 
-function toolPanel(t, redraw) {
+function toolBlock(t, redraw) {
   const missing = t.managed && !t.installed;
-  const tag = missing ? 'Not installed' : t.on ? 'On' : 'Off';
   const providers = t.providers.length
     ? h('p.hint', `Providers for it: ${labelsOf(t).join(', ')}.`)
+    : null;
+  const noProvider = t.providers.length ? null
     : h('p.banner.warn', icon('alert', { size: 18 }), h('span', `No provider serves ${t.name} yet. `,
       h('a', { href: link('#/providers') }, 'Providers'), t.id === 'codex' // only once Codex is offered again
         ? ': add an OpenAI key or a gateway (then Test it), or a Codex sign-in.'
@@ -34,8 +36,9 @@ function toolPanel(t, redraw) {
       h('p.hint', 'Or in a terminal: ', h('code', t.command), '.'),
     ];
   }
-  return panel({ icon: 'code', title: t.name, desc: t.about, tag },
-    toggle('Offer it in the dashboard', t.on, async (on) => {
+  const more = [providers, start].flat().filter(Boolean);
+  return h('div.ct-tool', { 'data-tool': t.id },
+    toggle(`Offer ${t.name} in New session`, t.on, async (on) => {
       try {
         redraw(await api(`/api/codetools/${t.id}`, { on }));
         return true;
@@ -44,10 +47,11 @@ function toolPanel(t, redraw) {
         redraw(null);
         return false;
       }
-    }, t.id === 'claude' ? 'At least one coding tool stays on.' : null),
+    }, { line: 'Off hides it from New session; at least one stays on.', more: more.length ? h('div', more) : null }, { tool: t.id }),
+    noProvider,
     missing
-      ? h('div.savebar', h('span.hint', 'Installed by Hoprig into its own tools folder, at the version it is tested with.'),
-        btn('primary', { icon: 'download', label: 'Install', onclick: async () => {
+      ? h('div.savebar', h('span.hint', 'Not installed. Hoprig installs it into its own tools folder, at the version it is tested with.'),
+        btn('primary', { icon: 'download', label: `Install ${t.name}`, onclick: async () => {
           try {
             await api('/api/updates/run', { id: t.id });
             location.hash = link('#/settings/updates'); // its output follows there
@@ -55,20 +59,20 @@ function toolPanel(t, redraw) {
             toast(e, { kind: 'error', ms: 7000 });
           }
         } }))
-      : providers,
-    start);
+      : null);
 }
 
-function codingToolsPage() {
+/** The card: one switch per coding tool, drawn when the list arrives. */
+export function codingToolsPanel() {
   const body = h('div', h('div.empty', h('div.spinner', { 'aria-hidden': 'true' }), h('p', 'Loading…')));
   let view = null;
   const draw = (v) => {
     if (v) view = v;
     if (!view) return;
-    // A keyboard user keeps their place when the panels are drawn again.
+    // A keyboard user keeps their place when the switches are drawn again.
     const all = () => [...body.querySelectorAll('input, button, select, a[href]')];
     const at = all().indexOf(document.activeElement);
-    fill(body, view.tools.map((t) => toolPanel(t, draw)));
+    fill(body, view.tools.map((t) => toolBlock(t, draw)));
     if (at >= 0) all()[at]?.focus();
   };
   (async () => {
@@ -78,12 +82,5 @@ function codingToolsPage() {
       fill(body, h('div.empty', icon('alert', { size: 32 }), h('p', e.message)));
     }
   })();
-  return [h('p.hint.ct-scope', SCOPE), body];
+  return panel({ id: 'coding-tools', icon: 'code', title: 'Coding tools', desc: 'Which coding tools New session offers.' }, body, moreFold(SCOPE));
 }
-
-registerSettingsPage({
-  id: 'codingtools', title: 'Coding tools', icon: 'code', order: 62,
-  desc: 'Claude Code and OpenCode: which ones the dashboard offers, and how to start a session with each.',
-  summary: async () => summaryOf(await api('/api/codetools')),
-  render: codingToolsPage,
-});

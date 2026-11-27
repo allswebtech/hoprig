@@ -8,8 +8,14 @@ export const GW_KEY = 'gateway-own-key-0123456789abcdef';
 // `hold(body)`: for a request it says yes to, the rest of the streamed answer waits until the reader says it has the
 // first part (`release()`), or 5 s: then that it came is certain, however slow the computer is. `writes` records each
 // event of such an answer as it was written: { at (epoch ms), what }.
-export async function fakeGateway({ pauseMs = 300, hold = () => false } = {}) {
+//
+// `managed: { token, ready }`: the gateway's management side as 1.0.11 has it: GET /healthz (200 "ok" while `ready` is
+// true, else 503), and GET/POST /api/keys and DELETE /api/keys/<id>, each only with the command token in the header
+// x-trouteai-cli-token (else 401). A key made there is accepted by /v1/ like GW_KEY; its secret is never listed.
+export async function fakeGateway({ pauseMs = 300, hold = () => false, managed = null } = {}) {
   const seen = [];
+  const keys = []; // { id, name, secret }
+  let nextId = 1;
   const writes = [];
   const held = new Set();
   const srv = http.createServer((req, res) => {
@@ -21,11 +27,31 @@ export async function fakeGateway({ pauseMs = 300, hold = () => false } = {}) {
         res.writeHead(s, { 'content-type': 'application/json', 'set-cookie': 'gw=1', 'x-internal': 'no' });
         res.end(JSON.stringify(b));
       };
+      if (managed && req.url === '/healthz') {
+        res.writeHead(managed.ready === false ? 503 : 200, { 'content-type': 'text/plain' });
+        return res.end(managed.ready === false ? 'starting\n' : 'ok\n');
+      }
+      if (managed && req.url.startsWith('/api/keys')) {
+        if (req.headers['x-trouteai-cli-token'] !== managed.token) return json(401, { error: 'unauthorized' });
+        const del = /^\/api\/keys\/([^/?]+)$/.exec(req.url);
+        if (req.method === 'GET') return json(200, { keys: keys.map((k) => ({ id: k.id, name: k.name, key: `${k.secret.slice(0, 4)}****` })), total: keys.length });
+        if (req.method === 'POST') {
+          const secret = `sk-fake-${nextId}-0123456789abcdef0123456789abcdef`;
+          keys.push({ id: `k${nextId++}`, name: JSON.parse(body || '{}').name, secret });
+          return json(201, { key: secret, name: keys.at(-1).name, id: keys.at(-1).id });
+        }
+        if (req.method === 'DELETE' && del) {
+          const i = keys.findIndex((k) => k.id === del[1]);
+          if (i >= 0) keys.splice(i, 1);
+          return json(i >= 0 ? 200 : 404, { ok: i >= 0 });
+        }
+      }
       if (!req.url.startsWith('/v1/')) {
         res.writeHead(200, { 'content-type': 'text/html' });
         return res.end('<h1>gateway dashboard: settings and keys</h1>');
       }
-      if (req.headers.authorization !== `Bearer ${GW_KEY}`) return json(401, { error: { message: 'unauthorized' } });
+      const bearer = String(req.headers.authorization || '').replace(/^Bearer /, '');
+      if (bearer !== GW_KEY && !keys.some((k) => k.secret === bearer)) return json(401, { error: { message: 'unauthorized' } });
       if (req.url.startsWith('/v1/models')) return json(200, { data: [{ id: 'combo-best' }, { id: 'haiku-like' }] });
       if (req.url.startsWith('/v1/messages')) {
         res.writeHead(200, { 'content-type': 'text/event-stream', 'anthropic-ratelimit-unified-status': 'allowed', 'set-cookie': 'gw=1' });
@@ -59,6 +85,8 @@ export async function fakeGateway({ pauseMs = 300, hold = () => false } = {}) {
   return {
     port: srv.address().port,
     seen,
+    keys,
+    managed,
     writes,
     release: () => [...held].forEach((go) => go('the reader has the first part')),
     close: () => {

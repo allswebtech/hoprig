@@ -50,8 +50,8 @@ function setup({ level = 'work', cards = [chatCard()] } = {}) {
 const staged = (r) => /Waiting for the owner's OK \(card c_/.test(r.text);
 const writes = (ops) => ops.calls.map((c) => c.op);
 
-test('the catalog keeps 25 tools: start_chat and send_to_chat came in, press_key, get_settings and rename_session went into others', () => {
-  assert.equal(TOOLS.length, 25);
+test('the catalog keeps 24 tools: start_chat and send_to_chat came in, press_key, get_settings and rename_session went into others', () => {
+  assert.equal(TOOLS.length, 24);
   for (const n of ['start_chat', 'send_to_chat', 'start_session', 'send_to_session']) assert.ok(byName.has(n), n);
   for (const n of ['press_key', 'get_settings', 'rename_session']) assert.ok(!byName.has(n), n);
 });

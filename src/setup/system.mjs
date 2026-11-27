@@ -447,6 +447,14 @@ export function nodeNpm(platform = process.platform, { node = process.execPath, 
 }
 
 /**
+ * The folder of the Node Hoprig runs on (where its npm puts a global program), or null when HOPRIG_NODE_NPM is set: the
+ * test runner sets it, so no test finds a real program of this computer there. The shipped gateway looks there after PATH.
+ */
+export function ownNodeBin({ node = process.execPath, instead = process.env.HOPRIG_NODE_NPM } = {}) {
+  return instead ? null : path.dirname(node);
+}
+
+/**
  * argv that runs npm with `args`: the npm on PATH when there is one (`env`'s PATH); else the npm of the Node Hoprig
  * runs on (nodeNpm: a service or an ssh login whose PATH lacks the folder of an nvm Node), only for the system this
  * runs on; else plain `npm`, which

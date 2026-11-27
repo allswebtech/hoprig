@@ -76,9 +76,9 @@ test('a chat: no provider yet answers no-provider; a coding tool turned off answ
   saveConfig({ codingTools: ['claude'] });
   r = await owner('POST', `/api/chats/${open}/send`, { text: 'hello' });
   assert.equal(r.status, 409);
-  assert.match(r.json.error, /OpenCode is off on this computer: turn it on under Settings → Coding tools/);
+  assert.match(r.json.error, /OpenCode is off on this computer: turn it on under Settings → New sessions → Coding tools/);
   assert.equal(r.json.code, 'tool-off');
-  assert.equal(WAYS[r.json.code].href, '#/settings/codingtools');
+  assert.equal(WAYS[r.json.code].href, '#/settings/new-sessions?show=coding-tools');
   saveConfig({ codingTools: ['claude', 'opencode'] });
   assert.equal((await owner('POST', `/api/chats/${open}/close`, {})).status, 200);
 });

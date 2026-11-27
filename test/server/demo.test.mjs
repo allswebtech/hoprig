@@ -109,7 +109,10 @@ test('demo: free port, own temp folder, one-time sign-in link, sample data, clea
     }
     assert.equal(chat && chat.status, 'attention', `the chat waits for an OK: ${JSON.stringify(chat)}`);
     assert.match(chat.short, /^~\/Workspace\/projects\/shop-frontend$/);
-    const events = (await get(`/api/chats/${chat.chatId}?from=0`)).events;
+    const view = await get(`/api/chats/${chat.chatId}?from=0`);
+    const events = view.events;
+    // The model it runs on is named, so the chat's pill reads the model (Sonnet), not the word Auto.
+    assert.match(String(view.liveModel), /sonnet/i, `the demo chat names its model: ${view.liveModel}`);
     assert.ok(events.some((e) => e.kind === 'tool' && e.name === 'Edit'), 'an edit');
     assert.ok(events.some((e) => e.kind === 'ask' && /npm test/.test(JSON.stringify(e))), 'the OK it waits for: npm test');
     const cart = fs.readFileSync(path.join(root, 'home', 'Workspace', 'projects', 'shop-frontend', 'src', 'cart.js'), 'utf8');

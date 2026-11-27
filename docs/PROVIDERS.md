@@ -1,8 +1,21 @@
 # Providers: how a stop is named
 
 When a provider stops the coding tool's work, Hoprig names how, from what Claude Code itself wrote, and shows it on
-the Operator page with the one step that recovers (see `docs/OPERATOR.md`). The names come from one closed table in
+Home, as a row of **Needs you** with the one step that recovers (see `docs/OPERATOR.md`). The names come from one closed table in
 `src/providers/table.mjs`. Only Claude Code's records are read; OpenCode's are not.
+
+## Where the providers are in the dashboard
+
+**Providers** (in the menu) is one list: a row for each provider with its state in one line (and its limits, when it
+reports them), **Add provider** at the top, a row for **TRouteAI** and a row **At a limit** that says what happens when a provider is used up.
+A press on a row opens it. **At a limit** opens a sheet with the two choices, **Stop and ask me** and **Carry on with the
+next provider**, the order of the providers and, under **Advanced**, the rest. **TRouteAI** opens its own page
+(`#/providers/trouteai`): is it running, open it, its accounts and combos, its public address, and everything to manage it.
+Adding an account from a list, Open TRouteAI signed in and the public address need TRouteAI 1.0.13 or newer: with an older copy the page says so, with **Update** beside it.
+
+![Providers, At a limit: Stop and ask me or Carry on with the next provider, and the order of providers](screenshots/auto-mode-desktop-light.webp)
+
+![TRouteAI's own page on a computer where it is not set up yet: one button, Set up TRouteAI](screenshots/gateway-desktop-light.webp)
 
 ## What Claude Code writes
 
@@ -65,7 +78,9 @@ request asks for one word (max_tokens 1).
 The answer lists each name as served, not served (with the endpoint's words, cleaned of keys, tokens and e-mail
 addresses) or not told (a limit, an error or no answer says nothing about the name). Each name not served gets the line
 that mends it, ready to copy: a combo of that name at the gateway, or a `MODELS` entry of this provider that names a
-model the same round found served. "Use this" beside a `MODELS` line puts it into that provider's `MODELS` (from the
+model the same round found served. For a provider that runs through TRouteAI the line has a **Make the combo** press: it opens
+the options of the gateway's own combo builder, those that carry the model's name ticked, and makes the combo there
+(your own press; see below). "Use this" beside a `MODELS` line puts it into that provider's `MODELS` (from the
 dashboard's own page only, and only while the provider's `MODELS` are still the ones the line was made from). While the
 provider's map is off for sessions, the line mends nothing for a session: the line says so, and "Use this" asks in the
 same sheet whether to turn the map on too ("Put it in and turn it on", or "Only put the line in"); it is never turned on
@@ -79,6 +94,21 @@ page view or a change to the provider never does. A sign-in has no endpoint of i
 When a new Claude Code changes its aliases or fallbacks, read them again from its model data (`aliases` and each
 model's `fallback_3p`) and from what it sends for `--model opus`, `sonnet`, `haiku` and `fable`, and update
 `names.mjs` with the version.
+
+## TRouteAI, the gateway that comes with Hoprig
+
+Hoprig sets it up with one press (Providers → Add provider → Other providers, or `hoprig addons setup trouteai`): it
+installs it into Hoprig's own folder, starts it with its data folder named (`--data-dir`), waits until it answers, makes
+the key "Hoprig sessions (<computer>)" with the gateway's own `key create` command and saves it as the provider `api`.
+A provider whose key the gateway accepts is left as it is; a copy of the gateway that npm already put on the computer
+stays in use until Install is pressed. Hoprig keeps no management key: the gateway's command token (a file in its data
+folder) goes only from this computer, only to a program that runs as your own user, and a key for a sign-in step is made
+for that step and removed right after. If another user's program answers on its port, Set up and Start refuse and send it nothing.
+
+On Providers its panel lists the accounts it holds (state, last test, limit windows), and you can test, turn off and on,
+remove and add accounts, make and remove combos and remove the keys Hoprig made. Advanced → Service → Gateways has Restart, Log,
+Update, Remove (only its copy in Hoprig's folder; the data and the provider stay) and its own dashboard password. Until
+its next version lists its providers for Hoprig, adding a provider that its catalog should offer opens its own page.
 
 ## The model map for sessions (off until you turn it on)
 
@@ -103,7 +133,7 @@ with the switch on or off, so an Auto session gets no map here.
 
 ## Auto mode and providers billed by use
 
-Auto mode (on Providers, **Carry on with the next provider** under **When a provider reaches its limit**) uses a
+Auto mode (on Providers, **At a limit**, **Carry on with the next provider**) uses a
 provider billed by use only while **Also use pay-per-use providers** is on. Billed by use are an API key that is billed
 for every use and a Claude sign-in on a Console account: such a sign-in is named "Claude sign-in billed by use (Console
 account)", never a subscription. While the switch is off, such a provider can stay in the order, but Auto mode leaves

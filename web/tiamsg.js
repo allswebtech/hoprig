@@ -59,3 +59,62 @@ export function messageView(who, text, { at = null, before = null } = {}) {
   const said = who === 'owner' ? 'You said' : 'Tia said';
   return h(`article.tia-row.${who === 'owner' ? 'owner' : 'tia'}`, { 'aria-label': at ? `${said} at ${time(at)}` : said }, stamp, msg);
 }
+
+// ---------- her answer aloud (voice.js speaks it; these are its words) ----------
+export const SPEAK_MAX = 600; // about this many characters are read aloud; the rest is on the screen
+export const SAY_MORE = 'The rest is on the screen.';
+export const SAY_CARD = 'This needs your tap on the card.';
+
+/**
+ * What to read aloud of one answer: plain words, no code, tables, links or marks, cut at the end of a sentence (else a
+ * word) within `max` characters. → { text, cut }
+ */
+export function speakable(text, max = SPEAK_MAX) {
+  const plain = String(text || '')
+    .replace(/```[\s\S]*?(```|$)/g, ' ')
+    .split('\n').filter((l) => !/^\s*\|/.test(l)).join('\n')
+    .replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1')
+    .replace(/https?:\/\/\S+/g, ' ')
+    .replace(/`([^`]*)`/g, '$1')
+    .replace(/^\s{0,3}(#{1,6}|>|[-*+]|\d+[.)])\s+/gm, '')
+    .replace(/[*_~]{1,3}/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (plain.length <= max) return { text: plain, cut: false };
+  const head = plain.slice(0, max);
+  const sentence = Math.max(head.lastIndexOf('. '), head.lastIndexOf('! '), head.lastIndexOf('? '), head.lastIndexOf('। '));
+  const word = head.lastIndexOf(' ');
+  const at = sentence >= max / 2 ? sentence + 1 : word > 0 ? word : max;
+  return { text: head.slice(0, at).trim(), cut: true };
+}
+
+/**
+ * What she says aloud for one turn of a SPOKEN message, from the conversation's events as they come: her last words of the
+ * turn (cut), and when the turn ended at a card: that it needs his tap. Never for a typed message, never from the history
+ * drawn on a reload (nothing is begun then), never for a turn that failed. A card is confirmed only by a tap on the screen:
+ * nothing here (or in the microphone) can confirm one.
+ * `begin(spoken)` just before a message is sent; `see(event)` for every event drawn. → the words to speak, or null.
+ */
+export function turnVoice() {
+  let turn = null;
+  return {
+    begin(spoken) {
+      turn = spoken ? { mine: false, text: '', card: false } : null;
+    },
+    see(e) {
+      if (!turn) return null;
+      if (e.kind === 'owner') turn.mine = true; // his message is in the conversation: this turn is its answer
+      if (!turn.mine) return null;
+      if (e.kind === 'text') turn.text = e.text;
+      if (e.kind === 'tool_result' && e.card) turn.card = true;
+      if (e.kind === 'notice') turn = null;
+      if (e.kind !== 'done') return null;
+      const t = turn;
+      turn = null;
+      if (!e.ok) return null;
+      const { text, cut } = speakable(t.text);
+      const out = [text, cut ? SAY_MORE : '', t.card ? SAY_CARD : ''].filter(Boolean).join(' ');
+      return out || null;
+    },
+  };
+}

@@ -155,8 +155,14 @@ async function planFrom(map, { dir, projects, brainUrl, run, withProjects = fals
 
 /** The projects restore did not get, by their names, with the command that gets one: { notHere: [ref] } (or nothing). */
 function onDemandOf(plan) {
-  const refs = [...new Set(plan.filter((e) => e.action === 'notHere').map((e) => e.project || e.label))];
-  return refs.length ? { notHere: refs } : {};
+  // A project whose own folder is here but that lacks a code repository is not "not on this computer": it is counted by
+  // the code repositories missing, and `hoprig get <project>` brings them.
+  const here = new Set(plan.filter((e) => e.kind === 'project' && e.action !== 'notHere').map((e) => e.label));
+  const away = plan.filter((e) => e.action === 'notHere');
+  const refs = [...new Set(away.filter((e) => !(e.kind === 'repo' && here.has(e.project))).map((e) => e.project || e.label))];
+  const code = {};
+  for (const e of away) if (e.kind === 'repo' && here.has(e.project)) code[e.project] = (code[e.project] || 0) + 1;
+  return { ...(refs.length ? { notHere: refs } : {}), ...(Object.keys(code).length ? { codeMissing: code } : {}) };
 }
 
 /** Clone the credentials repository into the workspace's credentials folder, owner-only. Its result goes into `e`. */
@@ -189,6 +195,7 @@ async function cloneCredentials(e, { ui, quiet, runner, env, at }) {
     ui.line('fail', `credentials: ${e.result}`);
     return e.result;
   }
+  (await import('./credrepo.mjs')).ownerOnlyTree(e.dest);
   ui.line('ok', 'credentials: cloned');
   return (e.result = c.skipped ? 'left alone: something came into its folder before the clone' : 'cloned');
 }

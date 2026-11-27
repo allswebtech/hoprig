@@ -30,6 +30,7 @@ import { DEV_TMP_PREFIX, isDir, isGitRepo, isLinkedWorktree, projectsIn, remoteO
 import { devTools } from '../pcsetup/devplaces.mjs';
 import { mapTargets } from './groups.mjs';
 import { readMap, sameUrl } from './map.mjs';
+import { cleanPublic, publicKeys } from './transferkeys.mjs';
 
 export const COMPUTERS = 'computers';
 /** The four folders of the tree that are never put in git: described, never their content. */
@@ -59,16 +60,17 @@ export function cleanLabel(v) {
 export const LABEL_RULE = 'a label is 1 to 32 lower-case letters, digits, "-" and "_", starting with a letter or a digit';
 
 /**
- * This computer's label and id from Hoprig's own settings: { label: string|null, id: string|null, wrote: [hash] } (`wrote`:
- * the hashes of the last versions of its own file it wrote, newest first).
+ * This computer's label and id from Hoprig's own settings: { label: string|null, id: string|null, wrote: [hash], notMine }
+ * (`wrote`: the hashes of the last versions of its own file it wrote, newest first; `notMine`: the owner marked this
+ * computer as not his own, so it gets no credentials but per project, src/workspace/credmove.mjs).
  */
 export function thisComputer() {
   try {
     const c = loadConfig().computer;
     const wrote = c && Array.isArray(c.wrote) ? c.wrote.filter((h) => typeof h === 'string' && /^[0-9a-f]{16}$/.test(h)) : [];
-    return { label: c && cleanLabel(c.label) === c.label ? c.label : null, id: c && ID_RE.test(c.id || '') ? c.id : null, wrote };
+    return { label: c && cleanLabel(c.label) === c.label ? c.label : null, id: c && ID_RE.test(c.id || '') ? c.id : null, wrote, notMine: Boolean(c && c.notMine === true) };
   } catch {
-    return { label: null, id: null, wrote: [] };
+    return { label: null, id: null, wrote: [], notMine: false };
   }
 }
 
@@ -198,7 +200,9 @@ export function computersHere(dir = workspaceDir()) {
     const c = checkComputerFile(raw, label);
     // A refused file still says which Hoprig wrote it, when it does (the version gate reads it, mapupgrade.mjs).
     if (!c.ok) out.refused.push({ name, why: c.why, ...(isObj(raw) && typeof raw.hoprig === 'string' && VERSION_RE.test(raw.hoprig) ? { hoprig: raw.hoprig } : {}) });
-    else out.files.push({ label, id: raw.id, hoprig: raw.hoprig || null, here: [...raw.here], folders: raw.folders || {}, ...(leaveOf(raw.leave) ? { leave: leaveOf(raw.leave) } : {}) });
+    // The transfer keys (public halves) and the mark "not the owner's own": read when they are right, otherwise as if
+    // absent, never a reason to refuse the file (a later Hoprig may write more).
+    else out.files.push({ label, id: raw.id, hoprig: raw.hoprig || null, here: [...raw.here], folders: raw.folders || {}, ...(leaveOf(raw.leave) ? { leave: leaveOf(raw.leave) } : {}), ...(cleanPublic(raw.keys) ? { keys: cleanPublic(raw.keys) } : {}), ...(raw.own === false ? { own: false } : {}) });
   }
   return out;
 }
@@ -278,10 +282,10 @@ export async function hereOnThisComputer(map, { dir = workspaceDir(), projects =
 }
 
 /** The file's content for this computer (sorted keys, so its git history shows real changes only). */
-export function fileContent({ label, id, here, folders, leave = null }) {
+export function fileContent({ label, id, here, folders, leave = null, keys = null, own = true }) {
   const sorted = (o) => (Array.isArray(o) ? o.map(sorted) : isObj(o) ? Object.fromEntries(Object.keys(o).sort().map((k) => [k, sorted(o[k])])) : o);
   const marks = leaveOf(leave); // a file without marks keeps its old form
-  return JSON.stringify(sorted({ folders, here, hoprig: VERSION, id, label, ...(marks ? { leave: marks } : {}) }), null, 2) + '\n';
+  return JSON.stringify(sorted({ folders, here, hoprig: VERSION, id, label, ...(marks ? { leave: marks } : {}), ...(keys ? { keys } : {}), ...(own === false ? { own: false } : {}) }), null, 2) + '\n';
 }
 
 /**
@@ -316,7 +320,9 @@ export async function writeOwnFile({ dir = workspaceDir(), projects = projectsIn
   if (tools.length) folders.development.tools = tools;
   // The marks stay as they are unless new ones are handed in; a label taken over after a format starts without them.
   const marks = again ? null : leave !== undefined ? leave : now ? now.leave || null : null;
-  const text = fileContent({ label: me.label, id: me.id, here, folders, leave: marks });
+  // The public transfer keys, once this computer made them (credmove.mjs); an older file's keys stay while it has none.
+  const keys = publicKeys() || (!again && now && now.keys) || null;
+  const text = fileContent({ label: me.label, id: me.id, here, folders, leave: marks, keys, own: !me.notMine });
   if (old && old.toString('utf8') === text) {
     if (!me.wrote.length) rememberWrote(text); // a computer from before this check: what is there is its own
     return { written: false, file, same: true };
@@ -386,7 +392,7 @@ export async function setLabel(typed, { dir = workspaceDir(), projects = project
     state = 'back';
   } else if (file) state = 'same';
   if (dryRun) return { label, id: me.id || null, state, dryRun: true };
-  saveConfig({ computer: { label, id, ...(id === me.id ? { wrote: me.wrote } : {}) } });
+  saveConfig({ computer: { label, id, ...(id === me.id ? { wrote: me.wrote } : {}), ...(me.notMine ? { notMine: true } : {}) } });
   const w = await writeOwnFile({ dir, projects, again: state === 'back' });
   return { label, id, state, written: w.written, ...(w.why ? { why: w.why } : {}), dryRun: false };
 }

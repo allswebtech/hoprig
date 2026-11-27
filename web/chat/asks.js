@@ -7,9 +7,16 @@ import { api, fill, h, toast } from '../lib.js';
 import { mdView } from '../mdtext.js';
 import { inputView } from './tools.js';
 import { heldActCard } from '../handsoff.js';
-import { alwaysWords, askTitle, failText, grantItems, planAnswers, ruleWords } from './words.js';
+import { openMenu } from './menu.js';
+import { askTitle, failText, grantItems, planAnswers, ruleWords } from './words.js';
 
 const FILE_TOOLS = ['Bash', 'Edit', 'MultiEdit', 'Write', 'Read', 'NotebookEdit'];
+
+/** A rule that covers only a part of a longer command (`ls x; exit 2` gives Bash(exit 2)): the menu says so. */
+const onlyPart = (ev) => {
+  const cmd = ev.tool === 'Bash' && ev.input && typeof ev.input.command === 'string' ? ev.input.command.trim() : '';
+  return !!cmd && /[;&|\n]/.test(cmd) && !grantItems(ev.alwaysText).includes(`Bash(${cmd})`);
+};
 
 /** The number a button answers to, shown on it. */
 const keyed = (n, ...kids) => [h('kbd.chat-key', { 'aria-hidden': 'true' }, String(n)), ...kids];
@@ -24,15 +31,16 @@ export function askCard(ev, o) {
   const actions = h('div.chat-ask-actions');
   const body = h('div.chat-ask-body');
   const extra = h('div.chat-ask-extra'); // the deny reason, the plan note
-  const title = ev.type === 'mcp' ? `The MCP server ${ev.server} asks you` : askTitle(ev.tool, ev.input || {}, who);
+  // A permission is asked as a question ("Allow Claude to run a command?"); the other cards keep their own words.
+  const said = askTitle(ev.tool, ev.input || {}, who);
+  const wants = /^(.+?) wants to (.+)$/.exec(said);
+  const title = ev.type === 'mcp' ? `The MCP server ${ev.server} asks you` : (!ev.type || ev.type === 'permission') && wants ? `Allow ${wants[1]} to ${wants[2]}?` : said;
   const el = h(`section.chat-item.chat-ask.chat-ask-${ev.type || 'permission'}`, { 'aria-label': title, tabindex: '-1' },
     h('div.chat-ask-head', icon(ev.type === 'question' || ev.type === 'mcp' ? 'info' : ev.type === 'plan' ? 'book' : 'alert', { size: 18 }), h('strong', title)),
     ev.description && !FILE_TOOLS.includes(ev.tool) ? h('p.chat-hint', ev.description) : null,
     body,
     ev.why ? h('p.chat-hint.chat-ask-why', icon('info', { size: 14 }), h('span', ev.why)) : null,
     actions, extra,
-    // Claude Code's rule in words; it may cover only a part of a longer command, and then says so.
-    ev.canAlways && ev.alwaysText ? h('p.chat-hint.chat-ask-scope', alwaysWords(ev, who)) : null,
     status);
   let keys = [];
   let busy = false;
@@ -154,17 +162,21 @@ export function askCard(ev, o) {
     fill(body, inputView({ ...ev, name: ev.tool, toolKind: kindOf(ev.tool), asking: true }, o.cwd));
     const deny = () => note(`Why not? ${who} reads this (optional)`, 'Do not allow', (msg) => answer(false, msg ? { message: msg } : {}));
     keys = [() => answer(true), ev.canAlways ? () => answer(true, { always: true }) : null, ev.canProject ? () => answer(true, { always: 'project' }) : null, deny].filter(Boolean);
-    let n = 0;
+    // Do not allow first, Allow once in one press; the wider allows are in the menu of the arrow beside Allow.
+    const wider = [
+      ev.canAlways ? { value: 'session', label: ev.always === 'edits' ? 'Allow all edits in this session' : 'Allow in this session',
+        sub: ev.always === 'edits' ? `${who} changes files without asking for the rest of this session` : `${who} does not ask again in this session for: ${ruleWords(ev.alwaysText) || 'this'}` + (onlyPart(ev) ? '. That is only part of this command' : '') } : null,
+      ev.canProject ? { value: 'project', label: 'Always allow in this project',
+        sub: `${who} does not ask again in this project for: ${ruleWords(ev.projectText || ev.alwaysText) || 'this'} (kept in the project's local settings)${grantItems(ev.alwaysText).includes('all edits') ? '; and changes files without asking for the rest of this session' : ''}` } : null,
+    ].filter(Boolean);
+    const arrow = wider.length ? h('button.btn.primary.chat-allow-more', { type: 'button', 'aria-label': 'More ways to allow', 'aria-haspopup': 'menu', onclick: async (e) => {
+      const pick = await openMenu({ from: e.currentTarget, label: 'More ways to allow', title: 'Allow', sections: [{ items: wider }] });
+      if (pick === 'session') answer(true, { always: true });
+      else if (pick === 'project') answer(true, { always: 'project' });
+    } }, icon('chevronDown', { size: 16 })) : null;
     fill(actions,
-      h('button.btn.primary', { type: 'button', onclick: () => answer(true) }, keyed(++n, icon('check', { size: 16 }), h('span', 'Allow'))),
-      ev.canAlways ? h('button.btn.secondary', { type: 'button',
-        title: ev.always === 'edits' ? `${who} changes files without asking for the rest of this session` : `${who} does not ask again in this session for: ${ruleWords(ev.alwaysText) || 'this'}`,
-        onclick: () => answer(true, { always: true }) }, keyed(++n, h('span', ev.always === 'edits' ? 'Allow all edits in this session' : 'Allow in this session'))) : null,
-      // Claude Code keeps it in the project's local settings (.claude/settings.local.json), for every session there.
-      ev.canProject ? h('button.btn.secondary', { type: 'button',
-        title: `${who} does not ask again in this project for: ${ruleWords(ev.projectText || ev.alwaysText) || 'this'} (kept in the project's local settings)${grantItems(ev.alwaysText).includes('all edits') ? '; and changes files without asking for the rest of this session' : ''}`,
-        onclick: () => answer(true, { always: 'project' }) }, keyed(++n, h('span', 'Always allow in this project'))) : null,
-      h('button.btn.secondary.danger-text', { type: 'button', onclick: deny }, keyed(++n, icon('x', { size: 16 }), h('span', 'Do not allow'))));
+      h('button.btn.secondary.chat-deny', { type: 'button', onclick: deny }, h('span', 'Do not allow')),
+      h('div.chat-split', h('button.btn.primary.chat-allow', { type: 'button', onclick: () => answer(true) }, h('span', 'Allow')), arrow));
   }
   if (!el.keys) el.keys = (n) => (keys[n - 1] ? (keys[n - 1](), true) : false);
 
@@ -248,6 +260,7 @@ export const OUTCOME = {
   denied: ['You said no', false],
   cancelled: ['No longer waiting', false],
   hoprig: ['Allowed by Hoprig in bypass mode', true], // the hook allowed it after the card showed (src/chat/asks.mjs)
+  'allowed-all': ['Allowed without asking (Allow everything)', true], // released when the chat was put in Allow everything
   handsoff: ['Answered by Hoprig (Hands-off)', true], // src/chat/handsoff.mjs: the line under it says what and why
   'mcp-accepted': ['You answered the MCP server', true],
   'mcp-declined': ['You declined the MCP server\'s question', false],

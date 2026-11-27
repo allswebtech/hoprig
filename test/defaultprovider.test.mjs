@@ -166,3 +166,17 @@ test('a folder keeps its provider per coding tool: one tool\'s start never chang
   D.rememberFolderProvider(only, 'gw', 'opencode');
   assert.equal(D.lastProviderIn(only), null, 'another tool\'s provider is never Claude Code\'s');
 });
+
+test('a provider that is signed out is passed over while another one works', () => {
+  const auto = { enabled: false, order: ['sub'] };
+  const out = [P('sub', { signedIn: false }), P('key', { kind: 'api', paid: true })];
+  assert.equal(D.chooseDefault({ profiles: out, auto }), 'key', 'a working key beats a signed-out sign-in');
+  assert.equal(D.chooseDefault({ profiles: out, auto, last: 'sub' }), 'key', 'also the folder own one');
+  // Signed-in, or not known: the order as before.
+  assert.equal(D.chooseDefault({ profiles: [P('sub', { signedIn: null }), P('key', { kind: 'api', paid: true })], auto }), 'sub');
+  assert.equal(D.chooseDefault({ profiles: [P('sub', { signedIn: true }), P('key', { kind: 'api', paid: true })], auto }), 'sub');
+  // Another working provider that costs nothing comes before a paid key.
+  assert.equal(D.chooseDefault({ profiles: [P('sub', { signedIn: false }), P('team', { signedIn: true }), P('key', { kind: 'api', paid: true })], auto }), 'team');
+  // Nothing else works: the signed-out one is still the default (the page then says sign in).
+  assert.equal(D.chooseDefault({ profiles: [P('sub', { signedIn: false })], auto }), 'sub');
+});

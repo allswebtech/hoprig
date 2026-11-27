@@ -35,7 +35,7 @@ test('Settings: "turn on Settings → Public link" opens its switch; About\'s Th
   assert.match(read('web/settings.js'), /panel\(\{ id: 'this-device', icon: 'logout', title: 'This device' \}/);
 });
 
-test('Updates and Get started: the Notifications line links there, the closed toast has a button to About', () => {
-  assert.match(read('web/updates.js'), /\(Settings → Notifications says where\)[^\n]*\n\s+h\('a', \{ href: link\('#\/settings\/notifications'\) \}, 'Open Notifications'\)/);
-  assert.match(read('web/getstarted.js'), /toast\('Closed\. Settings → About brings it back\.', \{ ms: 8000, action: \{ label: 'Open About', run: \(\) => \(location\.hash = link\('#\/settings\/about\?show=this-device'\)\) \} \}\)/);
+test('Updates and Get started: the Notifications line links there, the closed toast says where it comes back and has a button to Settings', () => {
+  assert.match(read('web/updates.js'), /Notifications tells you about new versions: ', h\('a', \{ href: link\('#\/settings\/notifications'\) \}, 'Open Notifications'\)/);
+  assert.match(read('web/getstarted.js'), /toast\('Closed\. At the foot of the Settings list, Show Get started again brings it back\.', \{ ms: 8000, action: \{ label: 'Open Settings', run: \(\) => \(location\.hash = link\('#\/settings'\)\) \} \}\)/);
 });

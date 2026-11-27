@@ -184,7 +184,7 @@ test('every route her tools use is in the table, and nothing else', async () => 
     runConfirmed({ id: 'c_inst', tool: 'manage_computer', input: { action: 'addon', addon: 'a', addon_action: 'install' } }, () => ops.addon({ computer: c, id: 'a', action: 'install', confirm: 'box2' })),
     ops.setUp({ computer: c, kits: ['k'] }), ops.updateClaude({ computer: c }), ops.killProcess({ computer: c, pid: 9 }), ops.power({ computer: c, action: 'reboot' }),
     ops.renameComputer({ computer: c, label: 'l' }), ops.renameComputer({ computer: 'box2', label: 'l' }), ops.addons({ computer: c }),
-    ops.addon({ computer: c, id: 'a', action: 'stop' }), ops.publicLink({ computer: c }), ops.setPublicLink({ computer: c, on: false }), ops.automation({ computer: c }), ops.automationSettings({ computer: c, patch: { paused: true } }),
+    runConfirmed({ id: 'c_stop', tool: 'manage_computer', input: { action: 'addon', addon: 'a', addon_action: 'stop' } }, () => ops.addon({ computer: c, id: 'a', action: 'stop' })), ops.publicLink({ computer: c }), ops.setPublicLink({ computer: c, on: false }), ops.automation({ computer: c }), ops.automationSettings({ computer: c, patch: { paused: true } }),
     ops.schedules({ computer: c, body: { op: 'delete', id: 'x' } }), ops.queue({ computer: c, session: 's', body: { op: 'clear' } }), ops.skillsInstalled({ computer: c }),
     ops.skillsSuggested({ computer: c }), ops.skillsFind({ computer: c, query: 'q' }), ops.skillReview({ computer: c, spec: 's' }), ops.skillUpdateReview({ computer: c, name: 'n' }),
     ops.skillApprove({ computer: c, id: 'i' }), ops.skillRemove({ computer: c, name: 'n' }), ops.skillsCheck({ computer: c }), ops.skillCancel({ computer: c, id: 'a'.repeat(24) }), ops.skillUndo({ computer: c, name: 'n' }),
@@ -200,7 +200,7 @@ test('every route her tools use is in the table, and nothing else', async () => 
     ops.answerChat({ computer: c, id: '44444444-4444-4444-8444-444444444444', request: 'r', allow: true, always: false }), ops.stopChat({ computer: c, id: '44444444-4444-4444-8444-444444444444' }),
     ops.startChat({ computer: c, folder: '/p', profile: 'sub', tool: 'opencode' }), ops.startSession({ computer: c, folder: '/p', profile: 'sub', mode: 'new', tool: 'opencode' }),
     ops.codingTools({ computer: c }), ops.setCodingTool({ computer: c, id: 'opencode', on: true }), ops.updates({ computer: c }),
-    ops.checkUpdates({ computer: c }), ops.runUpdate({ computer: c, id: 'claude' }), ops.restartDashboard({ computer: c }),
+    ops.checkUpdates({ computer: c }), ops.runUpdate({ computer: c, id: 'claude' }), runConfirmed({ id: 'c_rs', tool: 'manage_computer', input: { action: 'restart_dashboard', computer: c } }, () => ops.restartDashboard({ computer: c })),
     ops.moveChat({ computer: c, id: '44444444-4444-4444-8444-444444444444', profile: 'sub2' }),
     ops.renameChat({ computer: c, id: '44444444-4444-4444-8444-444444444444', title: 'n' }), ops.closeChat({ computer: c, id: '44444444-4444-4444-8444-444444444444' }), ops.forkChat({ computer: c, id: '44444444-4444-4444-8444-444444444444' }),
     ops.chatToTerminal({ computer: c, id: '44444444-4444-4444-8444-444444444444' }), ops.chatFromSession({ computer: c, session: 's' }), ops.continueSession({ computer: c, session: 's' }),
@@ -213,6 +213,7 @@ test('every route her tools use is in the table, and nothing else', async () => 
     ops.workMissions({ computer: c }), ops.workMission({ computer: c, id: 'm-20261118-abcdef' }), ops.workMissionStop({ computer: c, id: 'm-20261118-abcdef' }), ops.workFixIds({ computer: c }), ops.workTidyPlan({ computer: c }), ops.workTidy({ computer: c, hash: 'a'.repeat(32) }),
     ops.workMissionAdd({ computer: c, id: 'm-20261118-abcdef', task: 't' }), ops.workMissionTests({ computer: c, id: 'm-20261118-abcdef', task: 't' }),
     ops.workPlans({ computer: c }), ops.workPlanOne({ computer: c, id: 'launch-the-shop' }), ops.workTaskPlan({ computer: c, id: 'write-the-notes', at: 0, plan: 'launch-the-shop', milestone: 'ship', after: [] }),
+    ops.route({ computer: c, method: 'POST', path: '/api/work/plans', body: { title: 'Launch', goal: 'Ship it' } }), ops.route({ computer: c, method: 'POST', path: '/api/work/plans/launch-the-shop', body: { seen: 'a'.repeat(16), title: 'Launch two' } }),
     ops.workGoal({ computer: c, goal: 'Make the shop load fast on a phone', project: 'shop', dryRun: true }), ops.workGoal({ computer: c, goal: 'Make the shop load fast on a phone', project: 'shop' }),
   ];
   const results = await Promise.allSettled(runs);
@@ -318,7 +319,7 @@ test('setup and fix: Tia sends the kits or the check, never a password and never
   for (const p of ['/api/addons/public-link/start', '/api/addons/public-link/do/fixed-on', '/api/public-link/custom/sign-in', '/api/public-link/temporary/add-service']) {
     assert.throws(() => checkRoute('POST', p, {}, stubCtx()), `${p} is refused`);
   }
-  assert.equal(checkRoute('POST', '/api/addons/trouteai/start', {}, stubCtx()).tool, 'manage_computer addon');
+  assert.throws(() => checkRoute('POST', '/api/addons/trouteai/start', {}, stubCtx()), /owner's own/, 'a start is his card');
   assert.equal(runConfirmed({ id: 'c_fix', tool: 'manage_computer', input: { action: 'setup_fix', check: 'extras.tmux', computer: 'box2' } }, () => checkRoute('POST', '/m/box2/api/pcsetup/fix', { id: 'extras.tmux' }, stubCtx())).computer, 'box2');
   for (const [p, b] of [['/api/pcsetup/setup', { kits: ['basics'], password: 'x' }], ['/api/pcsetup/setup', { kits: ['basics'], terminal: true }], ['/api/pcsetup/fix', { id: 'x', password: 'x' }], ['/api/pcsetup/fix', 'x']]) {
     refused(() => checkRoute('POST', p, b, stubCtx()));
@@ -334,8 +335,9 @@ test('an encoded spelling is read as the route reads it: the public link\'s old 
     '/api/updates/%73ettings', '/api/codetools/opencode/%73ignin', '/api/%61ssistant/settings', '/api/sessions/a%5cb/send', '/api/sessions/a%00b/send',
   ]) refused(() => checkRoute('POST', p, {}, stubCtx()));
   // What her tools send still passes, and an encoded character that is an ordinary one is read as that character.
-  assert.equal(checkRoute('POST', '/api/addons/trouteai/start', {}, stubCtx()).tool, 'manage_computer addon');
-  assert.equal(checkRoute('POST', '/api/addons/%74routeai/start', {}, stubCtx()).route, '/api/addons/trouteai/start');
+  const startCard = { id: 'c_s', tool: 'manage_computer', input: { action: 'addon', addon: 'trouteai', addon_action: 'start' } };
+  assert.equal(runConfirmed(startCard, () => checkRoute('POST', '/api/addons/trouteai/start', {}, stubCtx())).tool, 'manage_computer addon');
+  assert.equal(runConfirmed(startCard, () => checkRoute('POST', '/api/addons/%74routeai/start', {}, stubCtx())).route, '/api/addons/trouteai/start');
   assert.equal(checkRoute('POST', '/api/sessions/my%20work/send', {}, stubCtx()).route, '/api/sessions/my work/send');
 });
 
@@ -406,7 +408,20 @@ test('a Fix, and an add-on\'s install or update, pass the door only as the act o
   }
   assert.throws(() => runConfirmed(card({ action: 'addon', addon: 'trouteai', addon_action: 'install' }), () => checkRoute('POST', '/api/pcsetup/fix', { id: 'extras.tmux' }, stubCtx())), /owner's own/, 'an install card is not a Fix');
   assert.throws(() => runConfirmed(inst, () => checkRoute('POST', '/api/addons/trouteai/install', { confirm: 'box2', password: 'x' }, stubCtx())), /"password" is the owner's to send/);
-  // Start and stop stay hers at their level: no card needed.
-  assert.equal(checkRoute('POST', '/api/addons/trouteai/start', {}, stubCtx()).tool, 'manage_computer addon');
-  assert.equal(checkRoute('POST', '/api/addons/trouteai/stop', {}, stubCtx()).tool, 'manage_computer addon');
+  // The restart of Hoprig itself ends her own turn: only as the act of a card he confirmed (her tool or her act), for this computer.
+  for (const p of ['/api/updates/restart', '/m/box2/api/updates/restart']) assert.throws(() => checkRoute('POST', p, {}, stubCtx()), /the owner's own: it runs only when he confirms her card/, p);
+  const here = { action: 'restart_dashboard' };
+  assert.equal(runConfirmed(card(here), () => checkRoute('POST', '/api/updates/restart', {}, stubCtx())).tool, 'manage_computer restart_dashboard, hoprig_act restart-hoprig');
+  assert.equal(runConfirmed({ id: 'c_a', tool: 'hoprig_act', input: { act: 'restart-hoprig' } }, () => checkRoute('POST', '/api/updates/restart', {}, stubCtx())).computer, null);
+  assert.equal(runConfirmed({ id: 'c_a', tool: 'hoprig_act', input: { act: 'restart-hoprig', computer: 'box2' } }, () => checkRoute('POST', '/m/box2/api/updates/restart', {}, stubCtx())).computer, 'box2');
+  assert.throws(() => runConfirmed(card({ action: 'update' }), () => checkRoute('POST', '/api/updates/restart', {}, stubCtx())), /owner's own/, 'a card for another action');
+  assert.throws(() => runConfirmed({ id: 'c_a', tool: 'hoprig_act', input: { act: 'clean-own-temp' } }, () => checkRoute('POST', '/api/updates/restart', {}, stubCtx())), /owner's own/, 'a card for another act');
+  assert.throws(() => runConfirmed(card(here), () => checkRoute('POST', '/m/box2/api/updates/restart', {}, stubCtx())), /owner's own/, 'a card for this computer is not one for another');
+  // Start and stop of an add-on (a gateway is one) change what runs for every session: only as the act of his card.
+  for (const a of ['start', 'stop']) {
+    assert.throws(() => checkRoute('POST', `/api/addons/trouteai/${a}`, {}, stubCtx()), /the owner's own: it runs only when he confirms her card/, a);
+    const c = card({ action: 'addon', addon: 'trouteai', addon_action: a });
+    assert.equal(runConfirmed(c, () => checkRoute('POST', `/api/addons/trouteai/${a}`, {}, stubCtx())).tool, 'manage_computer addon');
+    assert.throws(() => runConfirmed(c, () => checkRoute('POST', `/api/addons/relay/${a}`, {}, stubCtx())), /owner's own/, 'another add-on');
+  }
 });

@@ -22,13 +22,15 @@ const P = {
   home: ['M4 11l8-7 8 7', 'M6 9.5V20h4.5v-5.5h3V20H18V9.5'],
   grid: ['M4 4h7v7H4z', 'M13 4h7v7h-7z', 'M4 13h7v7H4z', 'M13 13h7v7h-7z'],
   cpu: ['M7 7h10v10H7z', 'M10 10h4v4h-4z', 'M10 3v4', 'M14 3v4', 'M10 17v4', 'M14 17v4', 'M3 10h4', 'M3 14h4', 'M17 10h4', 'M17 14h4'],
+  gear: ['M19.0 10.3L21.5 10.5 21.5 13.5 19.0 13.7 18.2 15.7 19.8 17.6 17.6 19.8 15.7 18.2 13.7 19.0 13.5 21.5 10.5 21.5 10.3 19.0 8.3 18.2 6.4 19.8 4.2 17.6 5.8 15.7 5.0 13.7 2.5 13.5 2.5 10.5 5.0 10.3 5.8 8.3 4.2 6.4 6.4 4.2 8.3 5.8 10.3 5.0 10.5 2.5 13.5 2.5 13.7 5.0 15.7 5.8 17.6 4.2 19.8 6.4 18.2 8.3z', 'M14.8 12a2.8 2.8 0 1 0-5.6 0 2.8 2.8 0 0 0 5.6 0z'],
   settings: ['M4 7h10', 'M18 7h2', 'M4 17h4', 'M12 17h8', 'M16 5v4', 'M10 15v4'],
   user: ['M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8z', 'M4.5 20a7.5 7.5 0 0 1 15 0'],
   swap: ['M7 7h12', 'M15 3l4 4-4 4', 'M17 17H5', 'M9 13l-4 4 4 4'],
   // A branch: two commits on a line and one off it (git).
   git: ['M6 3v12', 'M6 21a3 3 0 1 0 0-6 3 3 0 0 0 0 6z', 'M18 9a3 3 0 1 0 0-6 3 3 0 0 0 0 6z', 'M18 9a9 9 0 0 1-9 9'],
   zap: ['M13 3L5 14h6l-1 7 8-11h-6z'],
-  stop: ['M7 7h10v10H7z'],
+  // A filled rounded square (FILLED below): a stop sign, not an empty box.
+  stop: ['M8 5.5h8A2.5 2.5 0 0 1 18.5 8v8a2.5 2.5 0 0 1-2.5 2.5H8A2.5 2.5 0 0 1 5.5 16V8A2.5 2.5 0 0 1 8 5.5z'],
   send: ['M12 19V5', 'M6 11l6-6 6 6'],
   paperclip: ['M20 11.5l-7.8 7.8a5 5 0 0 1-7.1-7.1l8.5-8.5a3.3 3.3 0 0 1 4.7 4.7l-8.5 8.5a1.7 1.7 0 0 1-2.4-2.4L15 6.9'],
   more: ['M5 12h.01', 'M12 12h.01', 'M19 12h.01'],
@@ -54,6 +56,7 @@ const P = {
   text: ['M5 6h14', 'M5 10h14', 'M5 14h10', 'M5 18h7'],
   play: ['M8 5l11 7-11 7z'],
   terminalGo: ['M14 5H4a1 1 0 0 0-1 1v12a1 1 0 0 0 1 1h16a1 1 0 0 0 1-1v-5', 'M7 10l3 2-3 2', 'M16 3h5v5', 'M21 3l-7 7'], // a terminal, an arrow out: the conversation goes there
+  panelLeft: ['M4 5h16a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1z', 'M9 5v14'], // a panel at the left
   rail: ['M4 5h16a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1z', 'M15 5v14'], // a panel at the right
   code: ['M8 7l-5 5 5 5', 'M16 7l5 5-5 5', 'M13.5 5l-3 14'],
   // A screen on a stand (the desktop); one square and two stacked ones (a window's maximise and restore).
@@ -76,11 +79,15 @@ const P = {
   micOff: ['M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3z', 'M5.5 11a6.5 6.5 0 0 0 13 0', 'M12 17.5V21', 'M9 21h6', 'M4 4l16 16'],
   // The App's session list: Group and sort (three lines, each shorter).
   sort: ['M4 7h16', 'M7 12h10', 'M10 17h4'],
+  // The Sessions button of a phone's title bar: three lines of one length (a list).
+  list: ['M4 7h16', 'M4 12h16', 'M4 17h16'],
   // A comment on a line of a diff.
   comment: ['M4 5h16v11H9l-5 4z'],
 };
 
 const NS = 'http://www.w3.org/2000/svg';
+// Pictures drawn solid, not as an outline.
+const FILLED = new Set(['stop']);
 
 /** An icon as an <svg> element. `label` makes it visible to screen readers; otherwise it is decorative. */
 export function icon(name, { size = 20, label = '' } = {}) {
@@ -88,7 +95,7 @@ export function icon(name, { size = 20, label = '' } = {}) {
   svg.setAttribute('viewBox', '0 0 24 24');
   svg.setAttribute('width', String(size));
   svg.setAttribute('height', String(size));
-  svg.setAttribute('fill', 'none');
+  svg.setAttribute('fill', FILLED.has(name) ? 'currentColor' : 'none');
   svg.setAttribute('stroke', 'currentColor');
   svg.setAttribute('stroke-width', '1.8');
   svg.setAttribute('stroke-linecap', 'round');

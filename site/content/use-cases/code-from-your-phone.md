@@ -6,7 +6,7 @@ short: The dashboard from anywhere, no server: a chat per project, the OKs and t
 
 # How do I code on my own PC from my phone with Claude Code?
 
-Install Hoprig on the PC and scan the QR code it shows: your phone opens the dashboard, with a chat for every project, the OK buttons and the real terminal. On the same Wi-Fi that is all; from anywhere, one switch turns on a public link through Cloudflare, with no server of your own.
+Install Hoprig on the PC, let your phone reach it and scan a QR code: your phone opens the dashboard, with a chat for every project, the OK buttons and the real terminal. On the same Wi-Fi that is all; from anywhere, one switch turns on a public link through Cloudflare, with no server of your own.
 
 ## Who this is for
 
@@ -18,8 +18,8 @@ You want "Claude Code from my phone" without renting a server, opening ports on 
 
 ## What Hoprig does
 
-1. Install Hoprig on the PC. In setup, the second question is who may open the dashboard; "devices on my network" is the default: your phone on the same Wi-Fi reaches it over plain http, behind its password.
-2. Scan the QR code at the end of setup with your phone's camera. The phone is signed in; no password to type. Later, open **Settings → Security and sign-in** and press **Show a sign-in code** under "Sign in another device": it shows a new one-time link and QR code. In a terminal (the window where you type commands): `hop link`.
+1. Install Hoprig on the PC. A first run lets only this computer open the dashboard. To reach it from your phone, turn on **Settings → Public link**, or, to stay on your own Wi-Fi, run `hoprig setup --access network` in a terminal (the window where you type commands): the phone then reaches it over plain http, behind its password.
+2. Open **Settings → Security and sign-in** and press **Show a sign-in code** under "Sign in another device": it shows a one-time link and QR code. Scan it with your phone's camera: the phone is signed in, with no password to type. In a terminal: `hop link`.
 3. On the phone, **New session**, pick the project: a chat opens. Replies appear as they are written, each change as a diff, with **Allow**, **Allow in this session** and **Do not allow** (and **Always allow in this project** where Claude Code offers it). The real terminal is one tap away.
 4. From anywhere: **Settings → Public link → On**, or in a terminal `hop public on`. *Temporary* gives a new https address at each start, with nothing to set up. *Custom* keeps your own address, on a domain in a free Cloudflare account. It turns on only with a strong dashboard password, and a visitor sees only the sign-in page.
 5. Turn on **Notifications**: a push to your phone when a session waits for you, needs your OK or reaches a limit.
@@ -28,7 +28,7 @@ You want "Claude Code from my phone" without renting a server, opening ports on 
 
 ## What you need
 
-- A PC with Linux that stays on while you work from the phone. On macOS its tests run on every change, but the install and the newer parts (the chat, the editor, the desktop) have not been run on a real Mac yet.
+- A computer with Windows, macOS or Linux that stays on while you work from the phone.
 - A phone with a browser. Nothing to install on it.
 - For the Custom public link only: a domain in a free Cloudflare account.
 

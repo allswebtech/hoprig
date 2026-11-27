@@ -28,7 +28,7 @@ function untrusted(file, stat) {
  * `why` one line, `step` the one step that would help, as words (never run).
  */
 export function findMeans(platform = process.platform, { stat = fs.statSync, real = fs.realpathSync } = {}) {
-  if (platform === 'win32') return { kind: null, why: 'Windows has no box in Hoprig yet', step: 'run Hoprig inside WSL 2 and install bubblewrap there' };
+  if (platform === 'win32') return { kind: null, why: 'the box is not offered on Windows: work that needs it runs on a Linux or Mac computer of yours', step: '' };
   if (platform === 'darwin') {
     let file;
     try {

@@ -309,7 +309,7 @@ async function sessionUnit(r, { key, conv, project, state, item = null, run = nu
 
 /**
  * The progress of this computer's Work, as every reader gets it: o: { cfg, place (null: no Work list), items, now, since
- * (ms or null) }. The time zone is Settings → Work's (else this computer's).
+ * (ms or null) }. The time zone is Work → Tasks → Work settings (at the foot)'s (else this computer's).
  */
 export async function readProgress({ cfg = {}, place = null, items = [], now = Date.now(), since = null, item = null, run = null, alive } = {}) {
   const tz = (cfg && cfg.work && typeof cfg.work.timeZone === 'string' && cfg.work.timeZone) || '';
@@ -412,7 +412,7 @@ export function progressLines(p) {
   // The time it was read, so a reader says "now" with the tool's own clock, never one of its own.
   const out = [`${p.line} (as of ${p.atText})`];
   if (p.running.length) out.push('', 'Running', ...p.running.map((u) => `  ${runningText(u)}`));
-  if (p.waiting.length) out.push('', 'Waits for you', ...p.waiting.map((u) => `  ${titleOf(u)}: ${u.why === 'review' ? 'finished, look at it in Work → Today' : 'waits for your answer'}`));
+  if (p.waiting.length) out.push('', 'Waits for you', ...p.waiting.map((u) => `  ${titleOf(u)}: ${u.why === 'review' ? 'finished, look at it in Work → Tasks' : 'waits for your answer'}`));
   if (p.done.length) out.push('', 'Done', ...p.done.map((u) => `  ${titleOf(u)}: used ${u.tokensText}`));
   if (p.failed.length) out.push('', 'Failed or stopped', ...p.failed.map((u) => `  ${titleOf(u)}: ${u.state}${u.reason ? `: ${u.reason}` : ''}`));
   return out;

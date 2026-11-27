@@ -9,12 +9,13 @@ import path from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { fakeBin, fakeClaude, scratch } from './helpers.mjs';
+import { closedGateways } from '../seal.mjs';
 
 const s = scratch();
 test.after(s.cleanup);
 // The doctor asks the dashboard's port whether a dashboard answers: a free port, never the default one, where the
 // computer running the tests may have its own dashboard.
-(await import('../../src/config.mjs')).saveConfig({ server: { port: await (await import('../../src/machines/tunnels.mjs')).freePort() } });
+(await import('../../src/config.mjs')).saveConfig({ server: { port: await (await import('../../src/machines/tunnels.mjs')).freePort() }, addons: closedGateways() });
 // doctor asks systemd whether user services run here: a stand-in says no, before the runner's traps.
 const standIns = fakeBin(path.join(s.tmp, 'stand-ins'), {
   systemctl: 'exit 1', loginctl: 'exit 1',

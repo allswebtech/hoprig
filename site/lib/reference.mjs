@@ -1,5 +1,5 @@
 // The /tools/ page, read from the product's own code at build time so that it cannot fall behind:
-//  - every command `bin/hoprig.mjs` dispatches (its `case` labels), with its line from `hoprig help`;
+//  - every command `bin/hoprig.mjs` dispatches (its `case` labels), with its line from `hoprig help all` (src/helpall.mjs);
 //  - every usage line in src/ and bin/ that offers --json;
 //  - Tia's tools from `src/assistant/tools.mjs` (TOOLS), with their confirmation levels.
 import fs from 'node:fs';
@@ -40,8 +40,8 @@ function splitUsage(usage, text) {
 
 /** `hoprig help` as [{ command, text }]: the lines that start with `hoprig <word>`, with their continuation lines. */
 function helpLines(root) {
-  const src = fs.readFileSync(path.join(root, 'bin/hoprig.mjs'), 'utf8');
-  const help = /const HELP = `([\s\S]*?)`;/.exec(src)[1];
+  const src = fs.readFileSync(path.join(root, 'src/helpall.mjs'), 'utf8');
+  const help = /const HELP_ALL = `([\s\S]*?)`;/.exec(src)[1];
   const out = [];
   for (const line of help.split('\n')) {
     const m = /^ {2}hoprig(?: (\S.*?))?(?: {2,}(.*))?$/.exec(line);

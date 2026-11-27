@@ -458,8 +458,10 @@ export async function allChecks({ sys = sysInfo(), offline = false } = {}) {
   if (owner) list.push(owner);
   // On a server: a gateway Hoprig started that listens beyond this computer (gatewaycheck.mjs).
   try {
-    const [{ gatewayChecks }, { gatewayAddons }] = await Promise.all([import('./gatewaycheck.mjs'), import('../addons/gateways.mjs')]);
+    const [{ gatewayChecks, ownGatewayChecks }, { gatewayAddons }] = await Promise.all([import('./gatewaycheck.mjs'), import('../addons/gateways.mjs')]);
     list.push(...gatewayChecks(gatewayAddons(), { reason: serverReason(sys), platform: sys.platform, net: sys.net ?? null }));
+    // A gateway with a copy of its own in Hoprig's folder: which copy, its folders, its health route (gatewaycheck.mjs).
+    list.push(...(sys.ownGateways === false ? [] : await ownGatewayChecks(gatewayAddons())));
   } catch {
     /* the add-ons could not load: doctor's own add-on line says so */
   }

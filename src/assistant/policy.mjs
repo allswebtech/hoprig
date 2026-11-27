@@ -60,6 +60,9 @@ export function decideLevel(tool, a, f, tia) {
   const base = tool.levelOf ? tool.levelOf(a) : tool.level;
   if (base === 'L0') return { level: 'L0' };
   const name = tool.name;
+  // hoprig_act: the level is levelFor on the facts of this call, the server's own (hoprigact.mjs decide); no other rule
+  // of this file is about it. A message he spoke only raises it.
+  if (name === 'hoprig_act') return tool.policy(a, f, tia);
   // An administrator command of hers (run_command with sudo): the owner's Tia administrator-rights level decides it
   // (herrights.mjs). The forms that could raise her rights — a shell or a login as administrator, the
   // account and sudoers tools, a set-user-id bit, Hoprig's own folders, a form the reader cannot break down — are

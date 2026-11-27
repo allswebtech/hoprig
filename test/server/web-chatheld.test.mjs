@@ -79,7 +79,7 @@ test('without a held card the same permission ask falls back to the ordinary too
   const el = askCard(ev, opts());
   const words = texts(el).join(' ');
   assert.doesNotMatch(words, /Held by Hoprig before it ran/, 'no wall card without a hold');
-  assert.ok(buttons(el).some((b) => /in this session|Always/i.test(texts(b).join(' '))), 'the ordinary ask offers an "always" answer');
+  assert.ok(buttons(el).some((b) => b.attrs['aria-label'] === 'More ways to allow'), 'the ordinary ask offers the wider allows, behind the arrow beside Allow');
 });
 
 test('a long act-list scrolls inside its box in the chat too, the same height rule as the session page (page-session.css)', () => {

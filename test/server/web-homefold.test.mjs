@@ -1,4 +1,4 @@
-// Home's fold (web/homefold.js, web/home.js): the sessions of "Waiting for your next message" that have waited for
+// Home's fold (web/homefold.js, web/home.js): the sessions of "Finished" that have waited for
 // more than 6 hours stand under one line, newest first. Never one with a background command, a card, or of another
 // group. The rule is one function, its age from statusAt, else activity.
 import assert from 'node:assert/strict';
@@ -62,8 +62,8 @@ test('the split keeps the recent ones in place and puts the old ones newest firs
 });
 
 test('the line and the time it has waited, in plain words', () => {
-  assert.equal(foldLine(12), '12 sessions have waited for more than 6 hours');
-  assert.equal(foldLine(1), '1 session has waited for more than 6 hours');
+  assert.equal(foldLine(12), 'Ready for more than 6 hours: 12');
+  assert.equal(foldLine(1), 'Ready for more than 6 hours: 1');
   assert.equal(waitedFor(waiting(7 * H + 5), NOW), '7 h');
   assert.equal(waitedFor(waiting(30 * H), NOW), '1 day', 'the unit of the card\'s "1 day ago", in a word he knows');
   assert.equal(waitedFor(waiting(50 * H), NOW), '2 days');
@@ -91,7 +91,7 @@ test('the card and the End sheet say one time in one unit', async () => {
 
 test('Home folds only its waiting group, under that line with Show', () => {
   const src = fs.readFileSync(new URL('../../web/home.js', import.meta.url), 'utf8');
-  assert.match(src, /id === 'waiting' \? splitWaiting\(mine\)/);
+  assert.match(src, /id === 'waiting' \? splitWaiting\(mine, now\)/);
   assert.match(src, /foldLine\(old\.length\)/);
   assert.match(src, /foldOpen \? 'Hide' : 'Show'/);
   assert.match(src, /m\.sessions\.map\(\(s\) => foldsAway\(s\)\)/, 'a session that crosses 6 hours is drawn again');

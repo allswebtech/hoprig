@@ -54,7 +54,8 @@ async function run(t, kind) {
     server: { backend: kind, roots: [box.root], passwordHash: await hashPassword('test-password-1') },
     automation: { retry: { enabled: true }, restore: { enabled: true } },
   });
-  writeProfile('work', { label: 'Work', env: { ANTHROPIC_API_KEY: 'sk-test-not-real' } });
+  // A subscription: the retry rule never sends again on a provider paid per use.
+  writeProfile('work', { label: 'Work', env: { CLAUDE_CODE_OAUTH_TOKEN: 'sk-test-not-real' } });
 
   let offset = 0; // how far the automations' clock is ahead of the real one
   const now = () => Date.now() + offset;

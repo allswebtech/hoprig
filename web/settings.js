@@ -1,8 +1,11 @@
-// Settings (#/settings, #/settings/<page>): a list with one row per page — its title and one line with the current
-// state — and the chosen page. Desktop: the list on the left, the page on the right; a phone shows one at a time.
-// The pages: New-session defaults (sessiondefaults.js) · Notifications · Appearance and terminal · Security and
-// sign-in · Tia (tia.js) · Add-ons (addons.js) · Updates (updates.js) · About. Features add theirs with
-// registerSettingsPage.
+// Settings (#/settings, #/settings/<page>): a list of seven rows — its title and one line with the current state — and
+// the chosen page. Desktop: the list on the left, the page on the right; a phone shows one at a time. The rows:
+// New sessions (Hands-off is a fold in it) · Notifications · Appearance · Security and sign-in (the Public link is a
+// fold in it) · Tia · Automations (the Workspace is a fold in it) · Version and updates, and Runs as root where it
+// applies. Add-ons is no row (Security and sign-in and Providers lead to it). Every page is still registered with
+// registerSettingsPage; MERGED_INTO says which row draws it, so an old address (#/settings/public-link) opens the row
+// with that part in view. The foot of the list says the version and brings "Get started" back. Old page names
+// (SETTINGS_ALIASES, MOVED_PARTS) lead to where their content is now.
 // Settings stored on the computer are saved with POST /api/settings (checked there); look and in-page alerts are per
 // device (localStorage). With several computers the switcher picks whose settings these are (#/m/<computer>/settings).
 import { APP_NAME, COMMAND } from './brand.js';
@@ -13,9 +16,10 @@ import { api, applyPageTheme, btn, confirmSheet, fill, h, link, machine, prefs, 
 import { registerPage, registerSettingsPage, registeredSettingsPages } from './registry.js';
 import { field, fold, info, openLabel, panel, saveBar, savedMark, toggle } from './shell.js';
 import { pageNotify, store } from './store.js';
-import { deskStyle, desktopSettings, reachSettings } from './desktop/index.js';
+import { deskStyle, desktopSettings, reachRow } from './desktop/index.js';
+import { editorPanel } from './editor/index.js';
 import { voicePanel } from './voice.js';
-import { workTellPanel } from './worktell.js';
+import { workTellParts } from './worktell.js';
 import { partOf, showPart } from './showpart.js';
 
 const cap = (s) => s.charAt(0).toUpperCase() + s.slice(1);
@@ -23,11 +27,12 @@ const cap = (s) => s.charAt(0).toUpperCase() + s.slice(1);
 // ======================= the pages of Settings =======================
 
 // ---------- Notifications ----------
-const EVENT_LABELS = { waiting: 'Waiting for your next message', attention: 'Needs your OK', limit: 'Limit reached', ended: 'Finished', switched: 'Moved to another provider', automation: 'An automation needs you' };
+const EVENT_LABELS = { waiting: 'Finished', attention: 'Needs your OK', limit: 'Limit reached', ended: 'Ended', switched: 'Moved to another provider', automation: 'An automation needs you' };
 
 function notifyPage({ settings: s }) {
   const n = s.server.notify || {};
-  const st = { url: n.url || '', savedUrl: n.url || '', format: n.format || 'auto', events: n.events || s.notifyEvents, publicUrl: s.server.publicUrl || '', work: n.work || {} };
+  // `format` is kept as it was saved (an old "ntfy" or "json" stays); the page no longer offers it.
+  const st = { url: n.url || '', format: n.format || 'auto', events: n.events || s.notifyEvents, publicUrl: s.server.publicUrl || '', work: n.work || {}, newVersion: null, newVersionSaved: null };
   const browserLine = h('p.hint');
   const browserBtn = btn('secondary small', { icon: 'bell', label: 'Allow notifications in this browser' });
   const paintBrowser = () => {
@@ -46,22 +51,37 @@ function notifyPage({ settings: s }) {
     paintBrowser();
   });
   paintBrowser();
+  const tell = workTellParts(st, { status: () => api('/api/work/tell') });
+  // "A new version is out" is one more line of the list; it is kept by Settings → Version and updates' own key.
+  const newVersion = h('input', { type: 'checkbox', disabled: true, 'data-key': 'updates-notify', onchange: (e) => (st.newVersion = e.target.checked) });
+  const newVersionRow = h('label.check.hidden', newVersion, h('span', 'A new version is out'));
+  api('/api/updates').then((u) => {
+    if (typeof u.notify !== 'boolean') return;
+    st.newVersion = st.newVersionSaved = u.notify;
+    newVersion.checked = u.notify;
+    newVersion.disabled = false;
+    newVersionRow.classList.remove('hidden');
+  }, () => {}); // an older computer: no such line
   return [
-    panel({ icon: 'bell', title: 'While this page is open', desc: 'On this device only.' },
+    panel({ icon: 'bell', title: 'On this device', desc: 'While this page is open. Kept on this device only.' },
       toggle('Sound', pageNotify.sound, (v) => prefs.set('notify.sound', v), 'A short tone when a session starts waiting for you.'),
       toggle('Vibrate', pageNotify.vibrate, (v) => prefs.set('notify.vibrate', v), 'Phones only.'),
       browserLine, browserBtn),
-    panel({ icon: 'send', title: 'Phone push, even with the page closed', desc: 'Install the free ntfy app, subscribe to a long random topic name and paste its address here.' },
-      field('Push address', h('input.field', { type: 'url', value: st.url, placeholder: 'https://ntfy.sh/your-secret-topic', oninput: (e) => (st.url = e.target.value.trim()) }), 'Empty: no push.'),
-      h('div.field-label', 'Push for'),
-      h('div.checks', s.notifyEvents.map((ev) =>
-        h('label.check', h('input', { type: 'checkbox', checked: st.events.includes(ev), onchange: (e) => { st.events = e.target.checked ? [...st.events, ev] : st.events.filter((x) => x !== ev); } }), h('span', EVENT_LABELS[ev] || ev)))),
+    panel({ icon: 'send', title: 'On your phone', desc: 'Even with the page closed.' },
+      field('Push address', h('input.field', { type: 'url', value: st.url, placeholder: 'https://ntfy.sh/your-secret-topic', oninput: (e) => (st.url = e.target.value.trim()) }),
+        'Install the free ntfy app, subscribe to a long random topic name and paste its address here. Empty: no push.'),
       fold('settings-notify', 'Advanced',
-        field('Format', h('select.field', { onchange: (e) => (st.format = e.target.value) },
-          [['auto', 'Automatic'], ['ntfy', 'ntfy'], ['json', 'For a program of your own (JSON)']].map(([v, t]) => h('option', { value: v, selected: st.format === v }, t))),
-        'Automatic uses the ntfy format for ntfy addresses and JSON for everything else.'),
         field('This page\'s address', h('input.field', { id: 'page-address', type: 'url', value: st.publicUrl, placeholder: 'https://pc.example.net', oninput: (e) => (st.publicUrl = e.target.value.trim()) }),
-          'When set, tapping a push opens the session directly.')),
+          'When set, tapping a push opens the session directly.'))),
+    panel({ icon: 'tasks', title: 'Tell me when', desc: 'These go to the push address above: set it first. Each of Work\'s is off until you turn it on.' },
+      tell.notice,
+      h('div.checks', [
+        ...s.notifyEvents.map((ev) =>
+          h('label.check', h('input', { type: 'checkbox', checked: st.events.includes(ev), 'data-key': `event-${ev}`, onchange: (e) => { st.events = e.target.checked ? [...st.events, ev] : st.events.filter((x) => x !== ev); } }), h('span', EVENT_LABELS[ev] || ev))),
+        ...tell.items,
+        newVersionRow]),
+      tell.quiet,
+      fold('settings-notify-more', 'More', ...tell.more),
       h('div.savebar',
         btn('secondary', {
           icon: 'bell',
@@ -79,10 +99,11 @@ function notifyPage({ settings: s }) {
           await api('/api/settings', {
             server: { notify: st.url ? { url: st.url, events: st.events, ...(st.format !== 'auto' ? { format: st.format } : {}), ...(Object.keys(st.work).length ? { work: st.work } : {}) } : null, publicUrl: st.publicUrl },
           });
-          st.savedUrl = st.url;
+          if (st.newVersion !== null && st.newVersion !== st.newVersionSaved) {
+            await api('/api/updates/settings', { notify: st.newVersion });
+            st.newVersionSaved = st.newVersion;
+          }
         }))),
-    // What Work tells by itself (worktell.js): saved with the push address above, kept when it is saved.
-    workTellPanel(st, () => api('/api/settings', { server: { notify: { url: st.savedUrl, events: st.events, ...(st.format !== 'auto' ? { format: st.format } : {}), work: st.work } } }), { status: () => api('/api/work/tell') }),
   ];
 }
 
@@ -120,8 +141,9 @@ function lookPanel() {
   const group = (label, control, hint) => h('div.fieldrow', ids[label] ? { id: ids[label] } : {}, h('span.field-label', label, (marks[keyOf[label]] = savedMark())), control, hint ? h('span.hint', hint) : null);
   return panel({ icon: 'sun', title: 'Colours and text size', desc: 'Saved on this device only.' },
     group('Page colours', seg('page.theme', 'system', [['system', 'System', 'refresh'], ['light', 'Light', 'sun'], ['dark', 'Dark', 'moon']], applyPageTheme), 'System follows your phone or computer setting.'),
+    fold('settings-appearance-terminal', 'Terminal colours and text size',
     group('Terminal colours', seg('term.theme', 'dark', [['dark', 'Dark', 'moon'], ['light', 'Light', 'sun'], ['system', 'System', 'refresh']]), 'Coding tools are drawn for a dark terminal, so dark reads best.'),
-    group('Terminal text size', h('div.stepper-inline', btn('icon secondary', { icon: 'minus', title: 'Smaller', onclick: () => step(-1) }), size, btn('icon secondary', { icon: 'plus', title: 'Larger', onclick: () => step(1) })), 'Smaller text fits more on a phone screen.'));
+    group('Terminal text size', h('div.stepper-inline', btn('icon secondary', { icon: 'minus', title: 'Smaller', onclick: () => step(-1) }), size, btn('icon secondary', { icon: 'plus', title: 'Larger', onclick: () => step(1) })), 'Smaller text fits more on a phone screen.')));
 }
 
 function quickPanel(actions) {
@@ -224,71 +246,154 @@ export function addressHint(s) {
   return /Public link/.test(w) ? h('span', w, ' ', h('a', { href: link(PUBLIC_LINK_SWITCH) }, 'Open the switch')) : w;
 }
 
+/** "Folders Hoprig may open": the allowed folders, and how far Files and the editor reach (server.roots, server.reach). */
+function foldersPanel(settings) {
+  const roots = Array.isArray(settings.server.roots) ? settings.server.roots : [];
+  const area = h('textarea.field.mono', { rows: Math.max(2, roots.length + 1), value: roots.join('\n'), spellcheck: 'false', autocapitalize: 'off' });
+  return panel({ id: 'folders', icon: 'folder', title: 'Folders Hoprig may open', desc: 'Sessions, Tia and automations always stay inside these folders; the choice below is only for Files and the editor.' },
+    field('Folders (one full path per line)', area, 'Fewer folders means less of the computer is reachable from here.'),
+    saveBar('Save', () => api('/api/settings', { server: { roots: area.value.split('\n').map((x) => x.trim()).filter(Boolean) } })),
+    reachRow(settings));
+}
+
+/** Leaving this device (the one place of Log out). */
+function thisDevicePanel() {
+  return panel({ id: 'this-device', icon: 'logout', title: 'This device' },
+    h('div.savebar', btn('secondary', {
+      icon: 'logout',
+      label: 'Log out on this device',
+      onclick: async () => {
+        if (await confirmSheet({ title: 'Log out on this device?', ok: 'Log out' })) {
+          await api('/api/logout', {}).catch(() => {});
+          location.href = url('/login');
+        }
+      },
+    })));
+}
+
 function securityPage(ctx) {
   return [
     ctx.here ? panel({ icon: 'user', title: 'Sign in another device', desc: 'A phone or tablet signs in by scanning a code instead of typing the password.' }, ...signIn(ctx)) : null,
     ctx.here ? passwordPanel() : h('p.banner.muted', icon('lock', { size: 18 }), h('span', `The password of ${openLabel()} is changed on that computer.`)),
-    reachSettings(ctx.settings),
-    fold('settings-security', 'Advanced', networkPanel(ctx.settings)),
+    foldersPanel(ctx.settings),
+    ctx.here ? thisDevicePanel() : null,
+    fold('settings-security', 'Advanced', networkPanel(ctx.settings), h('p.hint', 'Add-on gateways are under ', h('a', { href: link('#/settings/addons') }, 'Add-ons'), '.')),
   ];
 }
 
 // The list's line says what a person looks for here: the password and his phone (the sign-in code is on this page).
 export const securitySummary = ({ settings: s, here }) => (here ? 'Password · sign in your phone' : loopbackOnly(s) ? 'this computer only' : 'open to the network');
 
-// ---------- About ----------
-// Updates (Claude Code's among them) have their own page: Settings → Updates (updates.js).
-function aboutPage({ settings: s, here }) {
-  return [
-    panel({ icon: 'info', title: APP_NAME, desc: 'Which version this is.' },
-      info('Version', s.version || 'unknown'),
-      info('Computer system', s.platform)),
-    here ? panel({ id: 'this-device', icon: 'logout', title: 'This device' },
-      store.data && store.data.getStartedDismissed
-        ? h('div.savebar.start', h('p.hint', '"Get started" on Home is closed.'), btn('secondary', {
-          icon: 'check',
-          label: 'Show it again',
-          onclick: async () => {
-            await api('~/api/settings', { server: { getStartedDismissed: false } }).catch((e) => toast(e, { kind: 'error' }));
-            await store.refresh();
-            toast('"Get started" is back on Home');
-          },
-        }))
-        : null,
-      h('div.savebar', btn('secondary', {
-        icon: 'logout',
-        label: 'Log out on this device',
-        onclick: async () => {
-          if (await confirmSheet({ title: 'Log out on this device?', ok: 'Log out' })) {
-            await api('/api/logout', {}).catch(() => {});
-            location.href = url('/login');
-          }
-        },
-      }))) : null,
-  ];
-}
-
 registerSettingsPage({ id: 'notifications', title: 'Notifications', icon: 'bell', order: 20, desc: 'Get told when a session needs you, so you do not have to keep looking.', summary: notifySummary, render: notifyPage });
 registerSettingsPage({
-  id: 'appearance', title: 'Appearance and terminal', icon: 'sun', order: 30, desc: 'Colours, text size, and the buttons in a session.', summary: lookSummary,
-  render: ({ settings: s }) => [lookPanel(), desktopSettings(), voicePanel(), quickPanel(s.server.quickActions), fold('settings-appearance', 'Advanced', terminalsPanel(s.backend))],
+  id: 'appearance', title: 'Appearance', icon: 'sun', order: 30, desc: 'How Hoprig looks and types on this device.', summary: lookSummary,
+  render: ({ settings: s }) => [lookPanel(), fold('settings-appearance-more', 'Code editor, desktop, voice and quick messages', editorPanel(), desktopSettings(), voicePanel(), quickPanel(s.server.quickActions)), fold('settings-appearance', 'Advanced', terminalsPanel(s.backend))],
 });
-registerSettingsPage({ id: 'security', title: 'Security and sign-in', icon: 'lock', order: 40, desc: 'The password, signing in a phone, and where this page can be reached from.', summary: securitySummary, render: securityPage });
-registerSettingsPage({ id: 'about', title: 'About', icon: 'info', order: 70, desc: 'Which version this is, and leaving this device.', summary: ({ settings: s }) => `${APP_NAME} ${s.version || ''}`.trim(), render: aboutPage });
+registerSettingsPage({ id: 'security', title: 'Security and sign-in', icon: 'lock', order: 40, desc: 'The password, signing in a phone, the folders Hoprig may open, and where this page can be reached from.', summary: securitySummary, render: securityPage });
 
 // ======================= the Settings page =======================
 
-/** Other names of a settings page that an address may hold (a link in a message, Get started's steps). */
-export const SETTINGS_ALIASES = Object.freeze({ 'signin-device': 'security' });
+/**
+ * Other names of a settings page that an address may hold (a link in a message, Get started's steps), and the pages
+ * whose content moved: Editor and Coding tools are cards now, About and Field reports are part of Version and updates.
+ * Used only when no page has the name itself.
+ */
+export const SETTINGS_ALIASES = Object.freeze({ 'signin-device': 'security', editor: 'appearance', codingtools: 'new-sessions', about: 'updates', field: 'updates' });
+/** The part of the page that a moved name opens at (the card it became). */
+const MOVED_PART = Object.freeze({ editor: 'code-editor', codingtools: 'coding-tools', field: 'field-send' });
+/** A page that left Settings for a page of its own: its old address goes there. */
+export const MOVED_OUT = Object.freeze({ work: '#/work/tasks' });
+/** The part of the new page an old address opens at: the one it names (`?show=owner-id`), else the Work settings fold. */
+const MOVED_OUT_PART = Object.freeze({ work: 'work-place' });
+export const movedOutHref = (sub, query) => `${MOVED_OUT[sub]}?show=${partOf(query) || MOVED_OUT_PART[sub]}`;
+/** Parts that moved to another page: `<page>?show=<part>` opens the page and part named here. */
+export const MOVED_PARTS = Object.freeze({ 'new-sessions': { folders: 'security' }, about: { 'this-device': 'security' } });
 
 /**
  * The page an address names: its own id or one of its other names, else the first page. `missing`: the address
  * named a page that is not there, which the page says (never another page shown as if it were the one asked for).
+ * `part`: the `show` part of the address; a part that moved opens the page it moved to.
  */
-export function chooseSettingsPage(pages, sub) {
-  const id = Object.hasOwn(SETTINGS_ALIASES, sub) ? SETTINGS_ALIASES[sub] : sub;
+export function chooseSettingsPage(pages, sub, part = null) {
+  const moved = Object.hasOwn(MOVED_PARTS, sub) && part && Object.hasOwn(MOVED_PARTS[sub], part) ? MOVED_PARTS[sub][part] : null;
+  const own = pages.find((p) => p.id === sub) || null;
+  const id = moved || (own ? sub : Object.hasOwn(SETTINGS_ALIASES, sub) ? SETTINGS_ALIASES[sub] : sub);
   const page = pages.find((p) => p.id === id) || null;
-  return { chosen: page || pages[0], missing: !!sub && !page };
+  // A page drawn inside another row: the address opens that row.
+  const host = page && Object.hasOwn(MERGED_INTO, page.id) ? pages.find((p) => p.id === MERGED_INTO[page.id]) || page : page;
+  return { chosen: host || pages[0], missing: !!sub && !page };
+}
+
+/** The pages drawn inside another row, as a closed fold: old id → the row that holds it. */
+export const MERGED_INTO = Object.freeze({ handsoff: 'new-sessions', 'public-link': 'security', workspace: 'automations' });
+/** The rows of the list, in order. Add-ons has no row: it opens only at its own address. */
+const ROW_ORDER = ['new-sessions', 'root', 'notifications', 'appearance', 'security', 'tia', 'automations', 'updates'];
+const NO_ROW = new Set(['addons']);
+
+/** The rows of the list out of every page shown: the merged ones and Add-ons left out; a page a feature adds comes last. */
+export function settingsRows(pages) {
+  const rank = (p) => (ROW_ORDER.includes(p.id) ? ROW_ORDER.indexOf(p.id) : ROW_ORDER.length + p.order / 1000);
+  return pages.filter((p) => !Object.hasOwn(MERGED_INTO, p.id) && !NO_ROW.has(p.id)).sort((a, b) => rank(a) - rank(b));
+}
+
+/** A closed fold with the old page's name and its content, drawn when first opened (at once when `now`, open when `openIt`). */
+function mergedFold(p, ctx, now, openIt) {
+  const body = h('div.fold-body');
+  const draw = () => {
+    let content;
+    try {
+      content = p.render(ctx);
+    } catch (e) {
+      content = h('p.form-error', e.message);
+    }
+    fill(body, content);
+  };
+  const d = h('details.fold', { id: p.id }, h('summary.fold-summary', h('span', p.title), icon('chevronDown', { size: 18 })), body);
+  let drawn = false;
+  const once = () => {
+    if (drawn) return;
+    drawn = true;
+    draw();
+  };
+  if (now) {
+    if (openIt) d.open = true;
+    once();
+  } else d.addEventListener('toggle', () => d.open && once());
+  return d;
+}
+
+/** What a row shows: its own page, then the pages merged into it as closed folds. `open`: the merged page to open now; `part`: any part an address names (every merged page is then drawn, so the part is there to find). */
+export function pageBody(chosen, pages, ctx, { open = null, part = null } = {}) {
+  let own;
+  try {
+    own = chosen.render(ctx);
+  } catch (e) {
+    own = h('p.form-error', e.message);
+  }
+  const merged = pages.filter((p) => MERGED_INTO[p.id] === chosen.id);
+  return [own, ...merged.map((p) => mergedFold(p, ctx, !!part || open === p.id, open === p.id))];
+}
+
+/** The part to open for an address: the one it names, else the card a moved page became. */
+export const partFor = (sub, part, pages) => part || (Object.hasOwn(MERGED_INTO, sub) && pages.some((p) => p.id === sub) ? sub : !pages.some((p) => p.id === sub) && Object.hasOwn(MOVED_PART, sub) ? MOVED_PART[sub] : null);
+
+/** Close or bring back Home's Get started: the one place that writes the setting (Home's card and the foot of this list ask). */
+export const setGetStartedDismissed = (value) => api('~/api/settings', { server: { getStartedDismissed: value } });
+
+/** The foot of the list: the version, and "Show Get started again" while Home's Get started is closed. */
+function settingsFoot({ settings, state, here }) {
+  const closed = here && !!((state && state.getStartedDismissed) || (store.data && store.data.getStartedDismissed));
+  const again = h('span', ' · ', btn('ghost small', { label: 'Show Get started again', onclick: async () => {
+    try {
+      await setGetStartedDismissed(false);
+    } catch (e) {
+      return toast(e, { kind: 'error' });
+    }
+    await store.refresh();
+    again.remove();
+    toast('"Get started" is back on Home');
+  } }));
+  return h('p.hint.settings-foot', `${APP_NAME} ${settings.version || ''}`.trim(), closed ? again : null);
 }
 
 function viewSettings({ frame, sub, query }) {
@@ -300,11 +405,10 @@ function viewSettings({ frame, sub, query }) {
   frame({
     title: 'Settings',
     page: 'settings',
-    intro: here ? 'How this dashboard and its sessions behave. Each page says what it changes.' : `The settings of ${openLabel()}.`,
+    intro: here ? null : `The settings of ${openLabel()}.`,
     back: sub ? link('#/settings') : null,
     backLabel: 'Settings',
     backOnPhoneOnly: true, // the list stays on the left on a desktop
-    introOnPhone: !sub, // a phone shows one page: its own title and sentence say it
     wide: true,
     body: [split],
   });
@@ -327,7 +431,11 @@ function viewSettings({ frame, sub, query }) {
     const ctx = { settings, state, here, isAlive };
     const shownWhen = (p) => { if (!p.when) return true; try { return p.when(ctx) !== false; } catch { return false; } };
     const pages = registeredSettingsPages().filter((p) => (here || !p.onlyHere) && shownWhen(p));
-    const { chosen, missing } = chooseSettingsPage(pages, sub);
+    if (sub && !pages.some((p) => p.id === sub) && Object.hasOwn(MOVED_OUT, sub)) {
+      location.replace(link(movedOutHref(sub, query)));
+      return;
+    }
+    const { chosen, missing } = chooseSettingsPage(pages, sub, partOf(query));
     const lines = new Map();
     // The one-line states: now, and again after anything on the page is saved.
     summarize = async () => {
@@ -338,7 +446,7 @@ function viewSettings({ frame, sub, query }) {
       }
       for (const [p, line] of lines) Promise.resolve().then(() => p.summary(ctx)).then((t) => (line.textContent = t || ''), () => {});
     };
-    fill(list, h('div.rows', pages.map((p) => {
+    fill(list, h('div.rows', settingsRows(pages).map((p) => {
       const line = h('span.row-sub', '');
       lines.set(p, line);
       Promise.resolve().then(() => p.summary(ctx)).then((t) => (line.textContent = t || ''), () => {});
@@ -347,22 +455,18 @@ function viewSettings({ frame, sub, query }) {
         h('span.row-icon', icon(p.icon)),
         h('span.row-main', h('span.row-title', p.title, p.tag ? h('span.badge.soft.tag', p.tag) : null), line),
         h('span.row-end', icon('chevronRight', { size: 18 })));
-    })));
+    })), settingsFoot(ctx));
     if (missing) {
       return fill(pane, h('div.empty', icon('alert', { size: 32 }), h('p', 'This settings page does not exist.'),
         h('a.btn.secondary', { href: link('#/settings') }, 'See all settings')));
     }
-    let content;
-    try {
-      content = chosen.render(ctx);
-    } catch (e) {
-      content = h('p.form-error', e.message);
-    }
+    // The part to open for an address: the one it names, else the page that was merged into this row.
+    const part = partFor(sub, partOf(query), pages);
+    const content = pageBody(chosen, pages, ctx, { open: part, part });
     fill(pane,
       h('header.split-head', h('h2.split-title', chosen.title, chosen.tag ? h('span.badge.soft.tag', chosen.tag) : null), chosen.desc ? h('p.page-intro', chosen.desc) : null),
       h('div.split-body', content));
     // "?show=<part>": a sentence elsewhere that sends him here opens the page at the switch or field it names.
-    const part = partOf(query);
     if (part) showPart(part, { alive: isAlive });
   }
   load();

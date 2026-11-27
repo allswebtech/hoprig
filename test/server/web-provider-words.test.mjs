@@ -27,7 +27,7 @@ test('the chat\'s panel: the Provider row keeps its name and says in plain words
   const rows = byClass(rail.el, 'chat-rail-rows')[0];
   const words = texts(rows).join(' | ');
   assert.match(words, /Provider/, 'the name stays');
-  assert.match(words, PLAIN);
-  assert.equal(byClass(rows, 'chat-rail-said').length, 1, 'said once');
+  assert.equal(byClass(rows, 'chat-rail-said').length, 0, 'no block of text under the row');
+  assert.match(R.PROVIDER_SAID, PLAIN, 'said in plain words, in the row\'s tooltip');
   assert.doesNotMatch(words, /AI connector|Separate copy/, 'no second name');
 });

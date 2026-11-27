@@ -12,7 +12,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { toolsDir } from '../paths.mjs';
-import { takeLock } from './lock.mjs';
+import { held, takeLock } from './lock.mjs';
 import { forInstalls } from '../secretenv.mjs';
 import { capture, compareVersions, npmArgv, showCommand, stream } from '../setup/system.mjs';
 
@@ -49,7 +49,7 @@ export function installEnv(base, own) {
   return { ...forInstalls(base), ...own };
 }
 
-/** The prefix's own package.json: private, and naming the one install script that may run (or none). */
+/** The prefix's own package.json: private, and naming the install scripts that may run (one name, a list of names, or none). */
 export function writePrefixPackage(dir, scriptOf) {
   const file = path.join(dir, 'package.json');
   let j = {};
@@ -60,7 +60,8 @@ export function writePrefixPackage(dir, scriptOf) {
   }
   if (!j || typeof j !== 'object' || Array.isArray(j)) j = {};
   j.private = true;
-  if (scriptOf) j.allowScripts = { [scriptOf]: true };
+  const names = (Array.isArray(scriptOf) ? scriptOf : [scriptOf]).filter((n) => typeof n === 'string' && n);
+  if (names.length) j.allowScripts = Object.fromEntries(names.map((n) => [n, true]));
   else delete j.allowScripts;
   fs.writeFileSync(file, JSON.stringify(j, null, 2) + '\n', { mode: 0o600 });
 }
@@ -74,9 +75,12 @@ export function writePrefixPackage(dir, scriptOf) {
  *   allowScript (optional): the package's install script must run. npm 11 warns about scripts not named in the
  *     prefix's package.json "allowScripts", and newer npm does not run them: exactly this package at this version
  *     is named there (the same field Hoprig's own package.json uses for its terminal module)
+ *   allowLatest (optional): install() also takes "latest": npm itself resolves the newest (no look-up of the registry here)
+ *   allowScripts (optional): a list of package names whose install scripts may run, as the package's README allows
+ *     them (a gateway builds two helper programs): each is named in the prefix's package.json
  */
 export function npmTool(spec) {
-  const { id, name, pkg, pin, binName, parseVersion, isolate, npmFlags = [], allowScript = false } = spec;
+  const { id, name, pkg, pin, binName, parseVersion, isolate, npmFlags = [], allowScript = false, allowScripts = [], allowLatest = false } = spec;
   const dir = () => path.join(toolsDir(), id);
   const binPath = (platform = process.platform) => path.join(dir(), 'node_modules', '.bin', platform === 'win32' ? `${binName}.cmd` : binName);
   const pkgFile = () => path.join(dir(), 'node_modules', ...pkg.split('/'), 'package.json');
@@ -134,7 +138,7 @@ export function npmTool(spec) {
       lines.push(l);
       onLine(l);
     };
-    if (!VERSION_RE.test(String(version))) {
+    if (!VERSION_RE.test(String(version)) && !(allowLatest && version === 'latest')) {
       say(`"${version}" is not a version (like ${pin}).`);
       return { ok: false, version: installedVersion(), output: lines.join('\n') };
     }
@@ -154,7 +158,7 @@ export function npmTool(spec) {
 
   async function installLocked(version, say, lines, { run, check, env }) {
     fs.mkdirSync(dir(), { recursive: true, mode: 0o700 });
-    writePrefixPackage(dir(), allowScript ? `${pkg}@${version}` : null);
+    writePrefixPackage(dir(), allowScripts.length ? allowScripts : allowScript ? `${pkg}@${version}` : null);
     const scratch = fs.mkdtempSync(path.join(dir(), '.install-'));
     try {
       const own = installEnv(env, isolate(scratch));
@@ -193,5 +197,8 @@ export function npmTool(spec) {
     return install({ ...rest, version: latest, onLine });
   }
 
-  return { id, name, pkg, pin, managed: true, dir, binPath, argv: toolArgv, installedVersion, info, install, update };
+  /** Is an install or update of this tool running right now, in any process of this computer? */
+  const installing = () => held(lockDir(), { staleMs: 30 * 60_000 });
+
+  return { id, name, pkg, pin, managed: true, dir, binPath, argv: toolArgv, installedVersion, installing, info, install, update };
 }

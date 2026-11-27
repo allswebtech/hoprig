@@ -25,8 +25,11 @@
 .ph-by::before { content: ' '; }
 @media (max-width: 560px) { .ph-map .ph-by { flex-basis: 100%; } }
 
-/* A phone with the floating button: the Providers page keeps room at its bottom for it (the list scrolls clear of it),
-   so a switch's sentence takes the card's whole width instead of a narrow column beside the button's room. */
+/* A phone with the floating button: the gateway's page (under Providers) keeps room at its bottom for it (the page scrolls
+   clear of it), so a switch's sentence takes the card's whole width instead of a narrow column beside the button's room. */
 @media (max-width: 899px) {
-  body.has-fab main.page:has(#gateways) .card .switchrow { padding-right: 0; }
+  body.has-fab main.page:has(.tr-page) .card .switchrow { padding-right: 0; }
 }
+
+/* At a limit: the sheet behind its row. */
+.limitsheet { display: grid; gap: 14px; }

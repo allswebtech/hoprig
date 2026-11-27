@@ -74,6 +74,19 @@ test('every forbidden route refuses a valid token', async () => {
   assert.equal((await withToken('/api/state')).status, 200);
 });
 
+test('a request that carries the mark of her relay (a hub relaying her) never reaches what her door never gives her', async () => {
+  const relayed = (p, method = 'POST') => fetch(dash.base + p, { method, headers: { Authorization: `Bearer ${token}`, 'x-hoprig-self': '1', 'Content-Type': 'application/json' }, body: method === 'POST' ? '{}' : undefined }).then(async (r) => ({ status: r.status, json: await r.json().catch(() => ({})) }));
+  for (const p of ['/api/gateways/trouteai/share', '/api/addons/public-link/start', '/api/workspace/drop', '/api/herrights', '/api/workspace/credentials', '/api/updates/settings', '/api/settings/bypass/everything', '/api/gatewayhost/trouteai/restart', '/api/gatewayhost/trouteai/start', '/api/gatewayhost/trouteai/stop']) {
+    const r = await relayed(p);
+    assert.equal(r.status, 403, p);
+    assert.ok(['her-never', 'token-forbidden'].includes(r.json.code), p + ' ' + r.json.code);
+    if (p.startsWith('/api/gatewayhost/')) assert.equal(r.json.code, 'her-never', p);
+  }
+  // what she may do still passes the gate; the same token without her mark is the owner's other computer and is not asked
+  assert.equal((await relayed('/api/state', 'GET')).status, 200);
+  assert.notEqual((await withToken('/api/gateways/trouteai/share', { method: 'POST', body: {} })).json.code, 'her-never');
+});
+
 test('WebSocket: a token reaches /ws/term (no cookie, no Origin forwarded); never /m/...; a bad one gets 401', async () => {
   assert.equal(await wsStatus('/ws/term?name=one', { Authorization: `Bearer ${token}` }), 'hello one cookie=no origin=no');
   assert.equal(await wsStatus('/m/box2/ws/term?name=one', { Authorization: `Bearer ${token}` }), 403);

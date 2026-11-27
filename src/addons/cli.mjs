@@ -2,27 +2,47 @@
 // usable profile.
 import { ask, askHidden } from '../menu.mjs';
 import { readProfile, validName, writeProfile } from '../profiles.mjs';
+import { hasSetUp, setupShippedGateway } from '../gateway/trouteai.mjs';
+import { defaultHubLabel } from '../machines/hub.mjs';
 import { allAddons, findAddon, listAddons } from './index.mjs';
 import { noteStarted, noteStopped } from './stopmark.mjs';
 
 export const usage = () => `usage: hoprig addons                     list the add-ons and their state
        hoprig addons setup <id>          install it, start it and make a profile for it
        hoprig addons install|update|start|stop|status <id>
+       hoprig addons remove <id>         take its copy out of Hoprig's folder (its data is kept)
 add-ons: ${allAddons().map((a) => a.id).join(', ')}`;
 
 const line = (text) => process.stdout.write(`  ${text}\n`);
 
 async function show(list) {
   for (const a of list) {
-    const state = !a.installed ? 'not installed' : a.running ? `running at ${a.url}` : a.foreign ? `not running: another program answers at ${a.url}` : 'installed, not running';
+    const state = !a.installed ? 'not installed' : a.running ? `running at ${a.url}` : a.foreign ? `not running: ${a.note || `another program answers at ${a.url}`}` : 'installed, not running';
     console.log(`${a.id}  ${a.title}${a.version ? ` ${a.version}` : ''} · ${state}`);
     console.log(`  ${a.summary}`);
     if (a.homepage) console.log(`  ${a.homepage}`);
   }
 }
 
+/**
+ * The shipped gateway: installed when missing, started, its key made by its own command and the profile
+ * written, with no question and no terminal needed (src/gateway). 0 when it is set up, else 1 and one
+ * sentence with the next step.
+ */
+export async function setupShipped(addon, { setup = setupShippedGateway, out = line, err = (t) => console.error(t), computer = defaultHubLabel() } = {}) {
+  const r = await setup({ addon, computer, onLine: out });
+  if (!r.ok) {
+    err(r.error);
+    return 1;
+  }
+  console.log(r.kept ? `${addon.title} is set up: the provider ${r.name} was left as it is.` : `${addon.title} is set up: the provider ${r.name} uses the key "Hoprig sessions (${computer})".`);
+  console.log(`Start a session on it: hoprig ${r.name}. Add your providers in ${addon.title}'s own page (Providers in the dashboard opens it).`);
+  return 0;
+}
+
 /** Install if needed, start, then ask for the key and write the profile. Interactive. */
 async function setup(addon) {
+  if (hasSetUp(addon)) return setupShipped(addon);
   let s = await addon.status();
   if (!s.installed) {
     console.log(`Installing ${addon.title}…${addon.builds ? ` ${addon.builds}` : ''}`);
@@ -99,8 +119,20 @@ export async function main(command, args) {
     case 'install':
       if (addon.builds) console.log(addon.builds);
       return (await addon.install({ onLine: line })).ok ? 0 : 1;
-    case 'update':
-      return (await addon.update({ onLine: line })).ok ? 0 : 1;
+    case 'update': {
+      const r = await addon.update({ onLine: line });
+      if (!r.ok && r.error) console.error(r.error);
+      return r.ok ? 0 : 1;
+    }
+    case 'remove': {
+      if (typeof addon.remove !== 'function') {
+        console.error(`${addon.title} has nothing in Hoprig's own folder to remove.`);
+        return 2;
+      }
+      const r = await addon.remove({ onLine: line });
+      if (!r.ok) console.error(r.error || `${addon.title} was not removed.`);
+      return r.ok ? 0 : 1;
+    }
     case 'start': {
       // An add-on may explain itself and ask first (the public link), and show more once it runs.
       if (addon.beforeStart && !(await addon.beforeStart({ args: args.slice(2), ask }))) return 1;

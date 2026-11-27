@@ -276,7 +276,7 @@ export async function runCheck(real, dir, { run = capture, busy = overloaded, en
   if (!check) throw fail(409, errors.length ? `the check cannot be used: ${errors[0]}` : 'this project has no "check" in its project.json');
   if (!isAllowed(real, 'check', check)) throw fail(409, 'these check commands are not confirmed for this project on this computer: look at them and confirm them first', 'not-confirmed');
   const lim = limiterOf();
-  if (lim.run && !lim.allowed) throw fail(409, 'the words before each check command in Settings → Go live changed after you confirmed them: confirm them again there first', 'limiter-changed');
+  if (lim.run && !lim.allowed) throw fail(409, 'the words before each check command in Work → Go live changed after you confirmed them: confirm them again there first', 'limiter-changed');
   const b = busy();
   if (b.over) throw fail(409, `the check waits: ${b.why}`, 'overloaded');
   await closeLeftCheck();

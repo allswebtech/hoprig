@@ -1,8 +1,8 @@
 // Opening a chat: the one way the dashboard starts coding (New session, Workspace, a new project, a conversation
 // to continue). What is not chosen is left out, so the server uses what the last chat in that folder ran with
 // (src/chat/folders.mjs), else the folder's default provider for that coding tool (src/defaultprovider.mjs) and
-// Settings → New-session defaults.
-import { api, at, cardTool, isClaudeCard, link, machine } from '../lib.js';
+// Settings → New sessions.
+import { api, at, cardTool, isClaudeCard, link, machine, toast } from '../lib.js';
 import { store } from '../store.js';
 
 // The coding tools a chat can run on each computer (GET /api/chats/tools; an older computer: Claude Code only).
@@ -56,9 +56,12 @@ export async function startChat(dir, o = {}, m = null) {
   const body = { dir };
   for (const k of ['tool', 'sessionId', 'text', 'profile', 'permissionMode', 'model', 'effort']) if (o[k]) body[k] = o[k];
   if (typeof o.lead === 'boolean') body.lead = o.lead; // "Lead model" chosen in the sheet; left out: as the folder's last chat, else Settings
+  if (o.worktree === true) body.worktree = true; // "Worktree" in the sheet: Claude Code's new conversation on a branch of its own
   if (Array.isArray(o.others)) body.others = o.others; // "Use other providers": the ticks chosen in the sheet
   if (Array.isArray(o.with) && o.with.length) body.with = o.with; // "Also open": checked again on the server
-  const { id } = await api(at(m, '/api/chats'), body);
+  const { id, worktree } = await api(at(m, '/api/chats'), body);
+  // A computer on an older version does not know the key and answers without a `worktree` field: the chat runs in the folder itself.
+  if (body.worktree && !worktree) toast('That computer does not offer a branch of its own yet: the chat runs in the folder itself.', { kind: 'error', ms: 8000 });
   store.refresh();
   const to = link(`#/chat/${id}`, m);
   if (o.replace) location.replace(to);

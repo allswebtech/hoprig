@@ -6,10 +6,13 @@
 //         is brought in step by the map's own rule (src/workspace/mapkeep.mjs) when only the map differs here.
 //   sync  (off by default) the brain, each group's own repository and the other repositories of the map are fetched
 //         and a clean branch that is only behind is fast-forwarded, with the same engine as `hoprig workspace sync`
-//         (tools, "sync": false in the map, are left alone). It never touches a project: in the places that hold
-//         projects nothing is fetched, fast-forwarded or pushed by itself (`hoprig workspace sync` and the page's Sync
-//         do that when the owner asks). It pushes only when the owner turned pushing on. It never merges, rebases,
+//         (tools, "sync": false in the map, are left alone). A project is not moved by it but by the look below (`hoprig
+//         workspace sync` and the page's Sync do the rest when the owner asks). It pushes only when the owner turned pushing on. It never merges, rebases,
 //         forces or stashes.
+//   look  (on for the projects folder, off for every group of the owner's own: "ffProjects", one switch per place) every
+//         30 minutes and right after start the projects are fetched and a clean branch that is only behind is
+//         fast-forwarded (src/workspace/instep.mjs); never a merge, reset, rebase, stash or push. What is left is
+//         kept as one row each for the page.
 //   branches (off by default, one switch per place: "pushBranches") committed work on a branch that is not the
 //         default branch is pushed in the projects of that place (src/workspace/branchpush.mjs); a default branch
 //         never is.
@@ -34,19 +37,27 @@ export function decide({ data, now, boot = false, settings }) {
   const every = settings.everyHours * 3600_000;
   const actions = [];
   const next = { ...d };
-  if (settings.sync && now - d.lastAt >= every) {
-    // The map part runs the map's rule this round: the brain it settles is left to it (sync.mjs mapRule).
-    const mapRule = settings.map === true && settings.commitMap === true && settings.push === true;
+  const syncDue = settings.sync && now - d.lastAt >= every;
+  if (syncDue) {
+    // The map part runs the map's rule this round: the brain it settles is left to it (sync.mjs mapRule). With the
+    // "push" switch off too: the rule then uploads Hoprig's own map commits and nothing else (mapkeep.mjs ownOnly).
+    const mapRule = settings.map === true && settings.commitMap === true;
     actions.push({ type: 'sync', push: settings.push === true, ...(mapRule ? { mapRule } : {}) });
     next.lastAt = now;
   }
-  if (settings.map && (boot || now - d.lastMapAt >= every)) {
+  if (settings.map && (boot || syncDue || now - d.lastMapAt >= every)) {
     actions.push({ type: 'map', commit: settings.commitMap === true, push: settings.push === true, memory: settings.memory === true });
     next.lastMapAt = now;
   }
   if (settings.credentials === true && (boot || now - d.lastCredsAt >= every)) {
     actions.push({ type: 'credentials' });
     next.lastCredsAt = now;
+  }
+  // The light look at the projects: every 30 minutes and right after start, while any place's switch is on.
+  const ff = settings.ffProjects || {};
+  if (Object.values(ff).some((v) => v === true) && (boot || now - (d.lastLookAt || 0) >= LOOK_EVERY_MS)) {
+    actions.push({ type: 'look', ff });
+    next.lastLookAt = now;
   }
   const places = Object.keys(settings.pushBranches || {}).filter((k) => settings.pushBranches[k] === true);
   if (places.length && now - d.lastBranchesAt >= every) {
@@ -65,6 +76,7 @@ export function decide({ data, now, boot = false, settings }) {
   return { actions, data: next };
 }
 const DAY_MS = 86_400_000;
+const LOOK_EVERY_MS = 30 * 60_000;
 
 /** ctx: { record, notify, data, save, workspaceSync({ push, mapRule }) → syncAll's result, workspaceMap({ commit, push, memory }) → upkeepMap's result, workspaceBranches({ places }) → pushBranches' result }. */
 export async function apply(actions, ctx) {
@@ -72,7 +84,7 @@ export async function apply(actions, ctx) {
   const sync = actions.find((x) => x.type === 'sync');
   // Said once to an owner who had keeping in step on: projects used to be fetched and pushed by it, and no longer are.
   if (sync && !data.saidOnDemand) {
-    ctx.notify({ title: 'Workspace: a project is kept in step when you ask', message: 'Keeping the workspace in step now covers the AI brain, your groups\' own repositories and the other repositories, never a project: Sync on the Workspace page (or hoprig sync <name>) brings a project in step. A project with commits to push, or to pull as of its last fetch, is still told here. Committed work on branches other than the default one can go up by itself: Settings → Workspace → Push my other branches.', session: '' });
+    ctx.notify({ title: 'Workspace: a project is kept in step when you ask', message: 'This covers the AI brain, your groups\' own repositories and the other repositories. The projects are looked at every 30 minutes and before a session starts: a clean branch that is only behind is moved by itself, anything else is listed as Not in step on the Projects page; hoprig sync <name> brings one in step when you ask. Committed work on branches other than the default one can go up by itself: Settings → Workspace → Push my other branches.', session: '' });
     data = { ...data, saidOnDemand: true };
   }
   if (sync) {
@@ -107,6 +119,12 @@ export async function apply(actions, ctx) {
     const print = (r.needs || []).join('\n');
     if (print && print !== data.toldMap) ctx.notify({ title: 'Workspace map: something needs you', message: r.needs.slice(0, 5).join('\n'), session: '' });
     data = { ...data, toldMap: print };
+  }
+  const look = actions.find((x) => x.type === 'look');
+  if (look && ctx.workspaceLook) {
+    const r = await ctx.workspaceLook({ ff: look.ff }).catch((e) => ({ error: e.message, moved: [] }));
+    if (r.error) ctx.record({ automation: 'workspace', did: 'could not look at the projects', outcome: `failed: ${r.error}` });
+    for (const m of r.moved || []) ctx.record({ automation: 'workspace', did: `${m.label}: pulled ${m.n}`, outcome: 'ok' });
   }
   const br = actions.find((x) => x.type === 'branches');
   if (br && ctx.workspaceBranches) {
@@ -188,6 +206,9 @@ export async function realWorkspaceServers() {
 }
 export async function realWorkspaceCredentials() {
   return (await import('../workspace/credrepo.mjs')).upkeepCredentials();
+}
+export async function realWorkspaceLook({ ff }) {
+  return (await import('../workspace/instep.mjs')).lookProjects({ ff });
 }
 export async function realWorkspaceBranches({ places }) {
   return (await import('../workspace/branchpush.mjs')).pushBranches({ on: places });

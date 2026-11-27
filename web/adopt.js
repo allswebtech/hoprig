@@ -32,8 +32,8 @@ export function repoLine(r) {
 
 function viewAdopt({ frame }) {
   const box = h('div.adopt');
-  frame({ title: 'Projects found on this computer', page: 'adopt', back: link('#/workspace'), backLabel: 'Workspace',
-    intro: 'Bring projects you already have on this computer into your workspace. Nothing is looked at before you press Find or choose the folders, and your old folders are copied, never moved or changed.', body: [box] });
+  frame({ title: 'Projects found on this computer', page: 'adopt', back: link('#/workspace'), backLabel: 'Projects',
+    intro: 'Copies projects here. Nothing is moved.', body: [box] });
   let alive = true;
   let state = null; // GET /api/adopt
 

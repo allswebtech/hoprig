@@ -12,8 +12,8 @@ import { store } from './store.js';
 
 const HREF = /^#\/[A-Za-z0-9_\-./%:]{0,190}$/;
 export const STATE_WORDS = {
-  starting: 'Starting', working: 'Working', waiting: 'Waiting for your next message', asks: 'Needs your OK', limit: 'Stopped at a usage limit',
-  ended: 'Finished', shell: 'Terminal', online: 'Online', offline: 'Not reachable now', unknown: 'Not known now', gone: 'Gone',
+  starting: 'Starting', working: 'Working', waiting: 'Finished', asks: 'Needs your OK', limit: 'Stopped at a usage limit',
+  ended: 'Ended', shell: 'Terminal', online: 'Online', offline: 'Not reachable now', unknown: 'Not known now', gone: 'Gone',
 };
 export const RUN_WORDS = { working: 'Working', waiting: 'Waiting for you', done: 'Done', stuck: 'Stuck', stopped: 'Stopped', failed: 'Failed', limit: 'Stopped at a usage limit', unknown: 'Not known now', gone: 'Gone' };
 const PILL = { asks: 'attention', limit: 'limit', failed: 'limit', stuck: 'limit', offline: 'limit', waiting: 'waiting', working: 'working', starting: 'working', online: 'working' };

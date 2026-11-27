@@ -19,14 +19,15 @@ test('no use case calls the main computer a hub (the option --hub keeps its name
 
 test('the Mac line names the newer parts a real Mac has not run, never a version number a newcomer cannot place', () => {
   for (const [f, s] of pages) assert.doesNotMatch(s, /what is new (in|since) 0\.2\b/, f);
-  for (const f of ['not-a-developer.md', 'code-from-your-phone.md', 'api-key-or-gateway.md']) assert.match(pages.find(([n]) => n === f)[1], /On macOS its tests run on every change, but the install and the newer parts \(the chat, the editor, the desktop\) have not been run on a real Mac yet\./, f);
+  assert.match(pages.find(([n]) => n === 'not-a-developer.md')[1], /On a Mac, the newer parts \(the chat, the editor, the desktop\) have not been tried by hand on a real Mac;/);
+  for (const f of ['code-from-your-phone.md', 'api-key-or-gateway.md']) assert.match(pages.find(([n]) => n === f)[1], /A computer with Windows, macOS or Linux that stays on while you work/, f);
 });
 
-test('no use case says the Mac installs were checked read-only: the first screen says they were not tried yet', () => {
-  // site/content/index.md card 1 and site/lib/seo.mjs say "not tried"; a newcomer cannot place "checked read-only".
+test('no use case says the Mac installs were checked read-only: the installs ran on GitHub\'s Mac machines', () => {
+  // A newcomer cannot place "checked read-only".
   for (const [f, s] of pages) assert.doesNotMatch(s, /checked read-only/, f);
   const computer = pages.find(([f]) => f === 'new-computer.md')[1];
-  assert.match(computer, /These installs were run on clean Ubuntu, Debian and Fedora; on a Mac they were not tried yet\./);
+  assert.match(computer, /These installs were run on clean Ubuntu, Debian, Fedora and Alpine, and on GitHub's Windows and Mac machines\./);
 });
 
 test('the Providers picture is described as the README describes it: what the picture shows', () => {

@@ -291,11 +291,11 @@ test('the owner\'s own turn-on of what a hub turned on makes it his; a second te
 
   // Another local service gets a temporary address while the link is on as Temporary, and only then.
   const look = async () => ({ status: 401, headers: new Headers(), text: async () => '<form>password</form>' });
-  const add = () => S.temporaryStep('add-service', { port: 20017 }, { fetchImpl: look, waitMs: 8000 });
+  const add = () => S.temporaryStep('add-service', { port: 20027 }, { fetchImpl: look, waitMs: 8000 });
   const r = await add();
   assert.equal(r.ok, true, r.error);
   const svc = JSON.parse(fs.readFileSync(path.join(tmp, 'state', 'addons', 'public-link-service.json'), 'utf8')).pid;
-  assert.deepEqual(S.status().service, { port: 20017, url: r.url });
+  assert.deepEqual(S.status().service, { port: 20027, url: r.url });
   await S.turnOff();
   assert.ok(await until(() => dead(svc)), 'off: the second address stops too, nothing stays open');
   assert.equal(S.status().service, null);

@@ -6,6 +6,8 @@ export { CopyButton } from './CopyButton';
 export { Field } from './Field';
 export { Icon, Logo } from './icons';
 export { InstallLine } from './InstallLine';
+export { InstallLines } from './InstallLines';
+export type { InstallSystem } from './InstallLines';
 export { Table } from './Table';
 export { ThemeSwitch } from './ThemeSwitch';
 export { THEME_SCRIPT } from './theme-script';

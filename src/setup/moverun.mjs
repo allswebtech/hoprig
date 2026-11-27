@@ -39,8 +39,8 @@ export function realSteps(low = {}) {
     own,
     endTerminals: (t) => endTerminals(t),
     gateways: async () => {
-      const { gatewayAddons, portOf } = await import('../addons/gateways.mjs');
-      return gatewayAddons().map((a) => ({ id: a.id, title: a.title, port: portOf(a), dataDir: a.dataDir || null }));
+      const { gatewayAddons } = await import('../addons/gateways.mjs');
+      return gatewayAddons().map((a) => ({ id: a.id, title: a.title, port: a.gateway.port(), dataDir: a.dataDir || null, ...(a.ownCopy ? { own: true } : {}) }));
     },
     gatewaySys: (plan) => realGatewaySys(plan, low),
     sleep: (ms) => new Promise((r) => setTimeout(r, ms)),

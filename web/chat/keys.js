@@ -5,13 +5,15 @@
 // sheet (Cmd/Ctrl+/, and "?"), the mode, model and effort menus, the transcript views and the diff pane, wherever the
 // browser leaves the key to the page; a key the browser keeps for itself (Chrome's published list of its shortcuts)
 // gets the nearest one it leaves alone, and the sheet says why in one line. Ctrl+Shift+] and [ go through the session
-// list. The desktop app's keys no page ever gets (Cmd/Ctrl+N, W, Ctrl+Tab) are listed under "Kept by the browser" with
+// list, Ctrl+\ hides and shows it. The desktop app's keys no page ever gets (Cmd/Ctrl+N, W, Ctrl+Tab) are listed under "Kept by the browser" with
 // where the App has them, and inside a window of the desktop a key the desktop takes for its windows says so on its row.
 import { BARE, h, openSheet, prefs } from '../lib.js';
 import { DESK_KEYS, deskKeyOf, keySet } from '../desktop/keymap.js';
 
 const typing = (el) => !!el && (el.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(el.tagName));
 /** A Mac (Cmd), else Ctrl. Asked each time: a test sets the platform. */
+/** Is there a keyboard to give hints about? A touch screen has none: no key is named there (Esc, Ctrl, Shift+Tab). */
+export const hasKeys = () => !(typeof matchMedia !== 'undefined' && (matchMedia('(pointer: coarse)').matches || matchMedia('(any-pointer: coarse)').matches) && !matchMedia('(any-pointer: fine)').matches);
 export const isMac = () => typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent || '');
 const ESC_TWICE_MS = 700;
 
@@ -39,6 +41,17 @@ export function desktopKeys(mac = isMac()) {
     { id: 'diff', letter: 'D', what: 'Open or close the diff pane', ...near('D', 'bookmarking every tab') },
     // The next and the previous session in the session list. Chrome on a Mac keeps Cmd+Shift+] and [ for its tabs and
     // has no Control+Shift key there; elsewhere Ctrl+Shift+] and [ are free.
+    // Hide or show the session list (Hoprig's own: the desktop app has no key for its sidebar). Cmd+\ and Ctrl+\ are
+    // free in the browsers; Ctrl+B is Claude Code's "run in the background" in a terminal, so it is not taken.
+    { id: 'side', code: 'Backslash', keys: `${C}+\\`, mod: 'cmd', what: 'Hide or show the session list' },
+    // The terminal pane under the chat (termpane.js): the desktop app's key, the Control key on a Mac too. Chrome keeps
+    // no Ctrl+` for itself.
+    { id: 'terminal', code: 'Backquote', keys: 'Ctrl+`', mod: 'ctrl', what: 'Show or hide the terminal under the chat (its shell is kept)' },
+    // New session: the desktop app's Cmd+N (Ctrl+N), which the browser keeps for a new window. The nearest key it
+    // leaves: Ctrl+Alt+N, on a Mac Ctrl+Shift+N (as the keys above).
+    { id: 'new', letter: 'N', what: 'A new session', ...(mac
+      ? { keys: 'Ctrl+Shift+N', mod: 'ctrl-shift', why: `The desktop app's Cmd+N; the browser keeps it for a new window.` }
+      : { keys: 'Ctrl+Alt+N', mod: 'ctrl-alt', why: `The desktop app's Ctrl+N (Cmd+N on a Mac); the browser keeps it for a new window.` }) },
     { id: 'next', code: 'BracketRight', what: 'The next session in the session list', ...(mac
       ? { keys: 'Ctrl+Shift+]', mod: 'ctrl-shift', why: 'The desktop app\'s Cmd+Shift+]; the browser keeps it for the next tab.' }
       : { keys: 'Ctrl+Shift+]', mod: 'cmd-shift' }) },
@@ -56,7 +69,7 @@ export function browserKeeps(mac = isMac(), inDesk = false) {
   const C = mac ? 'Cmd' : 'Ctrl';
   // In a window of the desktop the App has no session list: the desktop's own Sessions takes its place.
   return [
-    [`${C}+N`, 'A new session', `The browser keeps it for a new window. Here: ${inDesk ? 'New session in the desktop\'s Sessions' : '+ New at the top of the session list'}.`],
+    [`${C}+N`, 'A new session', `The browser keeps it for a new window. Here: ${mac ? 'Ctrl+Shift+N' : 'Ctrl+Alt+N'}, or ${inDesk ? 'New session in the desktop\'s Sessions' : '+ New at the top of the session list'}.`],
     [`${C}+W`, 'Close the session', 'The browser keeps it for closing the tab. Here: Archive in the session menu.'],
     ['Ctrl+Tab', 'The next session', `The browser keeps it for the next tab. Here: ${inDesk ? 'the desktop\'s Sessions' : 'Ctrl+Shift+] and Ctrl+Shift+['}.`],
   ];
@@ -107,7 +120,7 @@ export function isKey(e, k) {
  * The sheet's rows: [keys, what, why?]. Keys read Cmd on a Mac, Ctrl elsewhere. `desk`: the desktop's chosen keys when
  * the page is in a window of the desktop (a key of the App the desktop takes there says so on its row).
  */
-export function shortcuts(mac = isMac(), desk = null) {
+export function shortcuts(mac = isMac(), desk = null, keys = hasKeys()) {
   const K = Object.fromEntries(desktopKeys(mac).map((k) => [k.id, k]));
   const row = (id) => {
     const taken = deskTakes(K[id], desk, mac);
@@ -117,19 +130,23 @@ export function shortcuts(mac = isMac(), desk = null) {
   return [
     ['Enter', 'Send the message (also while Claude works: it reads it after its current step); on a touch screen a new line (the Send button sends)'],
     ['Shift+Enter', 'A new line'],
-    ['Esc', 'Stop Claude (the turn ends; background tasks go on) or a running ! command; in an open menu: close it'],
-    ['Esc Esc', 'In an empty box: rewind to before one of your messages. With words in the box: clear them (Up brings them back)'],
+    ...(keys ? [
+      ['Esc', 'Stop Claude (the turn ends; background tasks go on) or a running ! command; in an open menu: close it'],
+      ['Esc Esc', 'In an empty box: rewind to before one of your messages. With words in the box: clear them (Up brings them back)'],
+    ] : []),
     row('shortcuts'),
     row('mode'),
     row('model'),
     row('effort'),
     row('view'),
     row('diff'),
+    row('terminal'),
+    row('new'),
     // In a window of the desktop there is no session list (the desktop has its own Sessions): no keys for it.
-    ...(desk ? [] : [row('next'), row('prev')]),
+    ...(desk ? [] : [row('side'), row('next'), row('prev')]),
     ['1 … 9', 'In an open menu: pick its item. Else: answer the newest card that waits for you (also from an empty box)'],
     ['↑ ↓', 'In an open menu: move. In an empty box: your earlier messages'],
-    ['Shift+Tab', 'The next permission mode (as in the terminal)'],
+    ...(keys ? [['Shift+Tab', 'The next permission mode (as in the terminal)']] : []),
     ['/', 'Commands at the start of the box: compact, clear, model, skills …'],
     ['@', 'A file of this folder, for the coding tool to read'],
     ['! at the start', 'A shell command in the session\'s folder; its output goes with your next message'],
@@ -178,8 +195,8 @@ export async function helpSheet(own, tool) {
  * The page's own keys (the box handles its own in composer.js). o: { working(), stop(), stopShell() (a "!" command
  * runs: it is stopped → true), nextMode(), openAsk(), box (the message box: while it is empty a number answers the
  * open card, as in Claude Code), menu(id) (the desktop keys' menus: 'mode', 'model', 'effort'), view() (the next
- * transcript view), diff() (open or close the diff pane), go(1 | -1) (the next or previous session of the session list),
- * rewind(), clearDraft() (Esc Esc with words in the box) } → remove(). While a composer menu is open
+ * transcript view), diff() (open or close the diff pane), go(1 | -1) (the next or previous session of the session list), side() (hide or show it),
+ * terminal() (show or hide the shell pane), newSession(), rewind(), clearDraft() (Esc Esc with words in the box) } → remove(). While a composer menu is open
  * (menu.js) its own keys take every plain key first; a sheet (a dialog) has the keys to itself.
  */
 export function installKeys(o) {
@@ -193,6 +210,9 @@ export function installKeys(o) {
       if (k.id === 'shortcuts') shortcutsSheet();
       else if (k.id === 'view') o.view && o.view();
       else if (k.id === 'diff') o.diff && o.diff();
+      else if (k.id === 'side') o.side && o.side();
+      else if (k.id === 'terminal') o.terminal && o.terminal();
+      else if (k.id === 'new') o.newSession && o.newSession();
       else if (k.id === 'next' || k.id === 'prev') o.go && o.go(k.id === 'next' ? 1 : -1);
       else o.menu && o.menu(k.id);
       return;

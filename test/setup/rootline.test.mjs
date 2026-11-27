@@ -3,12 +3,13 @@ import assert from 'node:assert/strict';
 import path from 'node:path';
 import { test } from 'node:test';
 import { fakeBin, fakeClaude, fakeFetch, pathWith, scratch } from './helpers.mjs';
+import { closedGateways } from '../seal.mjs';
 
 const s = scratch();
 test.after(s.cleanup);
 globalThis.fetch = fakeFetch({});
 // A free port of its own: the doctor asks whether a dashboard answers there, never on the default port.
-(await import('../../src/config.mjs')).saveConfig({ server: { port: await (await import('../../src/machines/tunnels.mjs')).freePort() } });
+(await import('../../src/config.mjs')).saveConfig({ server: { port: await (await import('../../src/machines/tunnels.mjs')).freePort() }, addons: closedGateways() });
 const K = await import('../../src/setup/checks.mjs');
 const O = await import('../../src/setup/overview.mjs');
 const H = await import('../../src/machines/health.mjs');

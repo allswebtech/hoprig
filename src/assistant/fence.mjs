@@ -8,7 +8,7 @@
 // reveal a secret. The text inside cannot close the fence early: every "<" that starts something looking like an
 // untrusted_ tag (also full-width and small "<" look-alikes, any case, spaces or a slash in between) is replaced
 // by "‹", and in the JSON fence every "<" at all is escaped as \u003c (still valid JSON, still readable).
-import { redact } from './secrets.mjs';
+import { SHAPES, redact } from './secrets.mjs';
 
 const TAG_START = /[<\uFF1C\uFE64\u2039\u3008]\s*\/?\s*untrusted/gi;
 // ANSI escapes and other control characters (tab and newline kept): a screen dump must not carry terminal codes.
@@ -60,6 +60,16 @@ export function cleanInput(value) {
 export function neutralize(text, max = 20_000) {
   let s = redact(stripped(text));
   if (s.length > max) s = '…' + s.slice(s.length - max + 1); // a screen's newest lines matter most
+  return s;
+}
+
+/**
+ * The last line before a tool result goes to the model: every secret-shaped part of the whole text (summary, fences,
+ * errors) is masked, whatever an earlier step let through. Only the shapes, so the JSON in a fence stays valid.
+ */
+export function maskShapes(text) {
+  let s = String(text ?? '');
+  for (const re of SHAPES) s = s.replace(re, '***');
   return s;
 }
 

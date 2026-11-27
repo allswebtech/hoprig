@@ -91,7 +91,7 @@ test('the chat is the default: the folder\'s last settings, Home\'s card, the re
   assert.equal(first.status, 200, JSON.stringify(first.json));
   const v1 = await view(first.json.id);
   assert.equal(v1.profile.name, recommended, 'no provider chosen: the one recommended now');
-  assert.equal(v1.permissionMode, 'manual', 'Settings → New-session defaults');
+  assert.equal(v1.permissionMode, 'manual', 'Settings → New sessions');
   assert.equal(v1.model, null);
 
   // the owner changes the chat's chips: provider, mode, model, effort, ultracode
@@ -103,7 +103,10 @@ test('the chat is the default: the folder\'s last settings, Home\'s card, the re
   const again = await owner('POST', '/api/chats', { dir: shop });
   assert.notEqual(again.json.id, first.json.id, 'a new chat');
   const v2 = await view(again.json.id);
-  assert.deepEqual([v2.profile.name, v2.permissionMode, v2.model, v2.effort, v2.ultracode], ['api', 'acceptEdits', 'sonnet', 'high', true]);
+  assert.deepEqual([v2.profile.name, v2.permissionMode, v2.model, v2.effort, v2.ultracode], ['api', 'acceptEdits', 'sonnet', 'high', false], 'the many-agents chip does not come along: it costs tokens in every request');
+  const asked = await view((await owner('POST', '/api/chats', { dir: shop, ultracode: true })).json.id);
+  assert.equal(asked.ultracode, true, 'chosen in the start: on');
+  assert.equal((await view(first.json.id)).ultracode, true, 'the chat that had it keeps it');
   // what is chosen wins; null is "Auto"
   const chosen = await view((await owner('POST', '/api/chats', { dir: shop, profile: 'sub', model: null })).json.id);
   assert.deepEqual([chosen.profile.name, chosen.model, chosen.effort], ['sub', null, 'high']);

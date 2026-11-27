@@ -55,8 +55,7 @@ test('after "Start new work on Box 2" the Computers part is read again at once, 
   const fs = await import('node:fs');
   const page = fs.readFileSync(new URL('../../web/operator.js', import.meta.url), 'utf8');
   const tap = page.slice(page.indexOf('async function tap('), page.indexOf('async function load('));
-  assert.match(tap, /redrawsRooms\(a\.id\)\) rooms\.load\(\)/, 'the tap reads the rooms again after such an act');
-  assert.match(page, /export const redrawsRooms = \(actId\) => actId === 'elsewhere'/);
+  assert.match(tap, /if \(alive\) load\(\)/, 'the row reads the list again after every act, the hold one too');
 });
 
 test('how the hold ends and where its Undo is are said in visible words, on the card and on the hold line, not only on hover', async () => {

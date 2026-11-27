@@ -145,3 +145,59 @@ test('R3 sits only on a tool that declares its risk by its argument', async () =
     box.cleanup();
   }
 });
+
+// The rule: every row carries six facts and its level is levelFor's, never a free word.
+test('a row without one of its six facts, or with a level other than levelFor gives, or a tool action with no row, fails', async () => {
+  const { A, box, lists } = await codeLists();
+  try {
+    const rows = A.loadInventory().rows;
+    const p = (rs) => A.inventoryProblems(rs, lists).join('\n');
+    const edit = (act, fn) => rows.map((r) => (r.act === act ? fn(structuredClone(r)) : r));
+    for (const k of ['reads', 'own', 'undo', 'spends', 'seen', 'other', 'never']) {
+      assert.match(p(edit('POST /api/sessions', (r) => (delete r.facts[k], r))), new RegExp(`POST /api/sessions: the fact "${k}" is missing`), k);
+    }
+    assert.match(p(edit('POST /api/sessions', (r) => (delete r.facts, r))), /no facts/);
+    assert.match(p(edit('POST /api/sessions', (r) => ((r.level = 'L2'), r))), /the row says L2, levelFor gives L1/);
+    assert.match(p(edit('POST /api/sessions', (r) => ((r.facts.spends = true), r))), /the row says L1, levelFor gives L2/);
+    assert.match(p(edit('POST /api/settings/password', (r) => ((r.facts.never = 'none'), r))), /levelFor gives L2/);
+    // A tool that runs less strictly than the rule gives: the stricter level wins.
+    assert.match(p(edit('POST /api/sessions', (r) => ((r.facts.spends = true), (r.level = 'L2'), r))), /the stricter level wins/);
+    // A tool action no row names.
+    assert.match(p(rows.filter((r) => !(r.hers || []).some((h) => h.action === 'clean-own-temp'))), /hoprig_act clean-own-temp: a tool action that changes something has no row/);
+    assert.match(p(rows.filter((r) => r.act !== 'act watch-session')), /watch_session: a tool action that changes something has no row/);
+  } finally {
+    box.cleanup();
+  }
+});
+
+test('the written levels are what the rule gives, and the NEVER classes are the six', async () => {
+  const A = await import('../../src/assistant/acts.mjs');
+  const rows = A.loadInventory().rows;
+  for (const r of rows) {
+    assert.deepEqual(A.factProblems(r.facts), [], r.act);
+    assert.equal(r.level, A.levelFor(r.facts), r.act);
+  }
+  const classes = new Set(rows.map((r) => r.facts.never).filter((n) => n !== 'none'));
+  for (const c of classes) assert.ok(A.NEVER_CLASSES[c], `${c} is a NEVER class`);
+  // Her acts: a row that carries the facts of an act with no route names the tool that does it.
+  for (const act of ['restart-gateway', 'stop-gateway', 'restart-hoprig', 'reopen-session', 'continue-session', 'hold-starts', 'clean-own-temp', 'change-plan', 'undo-act', 'auto-order', 'auto-mode', 'change-setting', 'probe-provider']) {
+    const row = rows.find((r) => r.act === `act ${act}`);
+    assert.ok(row && row.hers.some((h) => h.tool === 'hoprig_act' && h.action === act), act);
+  }
+  assert.equal(rows.find((r) => r.act === 'act restart-gateway').level, 'L2');
+  assert.equal(rows.find((r) => r.act === 'act stop-gateway').level, 'L2');
+  assert.equal(rows.find((r) => r.act === 'act probe-provider').level, 'L0');
+  assert.equal(rows.find((r) => r.act === 'act auto-order').level, 'L2');
+  assert.equal(rows.find((r) => r.act === 'act clean-own-temp').facts.undo, false, 'deleted files are not put back by one press');
+  assert.equal(rows.find((r) => r.act === 'act clean-own-temp').level, 'L2');
+  // The keeper's command is in the inventory, not an act of anyone's: the service manager runs it.
+  const keep = rows.find((r) => r.act === 'hoprig keep');
+  assert.equal(keep.not, 'not-an-act');
+});
+
+test('levelDifferences lists the rows whose tool runs stricter than the rule gives', async () => {
+  const A = await import('../../src/assistant/acts.mjs');
+  const rows = A.loadInventory().rows;
+  const edited = rows.map((r) => (r.act === 'POST /api/chats/<id>/close' ? { ...r, hers: r.hers.map((h) => ({ ...h, level: 'L2', card: 'yes' })) } : r));
+  assert.deepEqual(A.levelDifferences(edited).map((d) => d.act), ['POST /api/chats/<id>/close']);
+});

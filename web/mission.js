@@ -1,13 +1,13 @@
-// Tia's missions on the Work page (src/mission): the Team tab (#/work/team: her switches and limits, her missions,
-// the roles and their numbers), one mission's screen (#/work/mission/<id>), the sheet "Give Tia a goal" (Plans) and
+// Tia's missions on the Work page (src/mission): her missions under Plans (#/work/plans; the old #/work/team lands there; her switches and limits are in Settings, Tia), one mission's screen (#/work/mission/<id>), the sheet "Give Tia a goal" (Plans) and
 // the morning brief on Today. Everything here reads GET /api/work/missions; nothing is worked out in the page that
 // the server did not count.
 import { icon } from './icons.js';
 import { api, btn, confirmSheet, fill, h, kindLabel, openSheet, toast } from './lib.js';
-import { emptyState, errorBox, field, groupHead, skeletonRows, toggle } from './shell.js';
+import { emptyState, errorBox, field, fold, groupHead, skeletonRows, toggle } from './shell.js';
 import { money } from './chat/words.js';
 import { keepFocus } from './workdo.js';
 import { placeLinks } from './operator-ways.js';
+import { openFoldsAround } from './showpart.js';
 
 // running: a session of it works now; waiting: none does (the line under it says why); paused: Tia is OFF.
 export const MISSION_WORDS = { planning: 'Planning', running: 'Working', waiting: 'Waiting', paused: 'Paused: Tia OFF', done: 'Done', waits: 'Waits for you', failed: 'Failed', stopped: 'Stopped' };
@@ -49,7 +49,7 @@ export function offBar(s, after, { steps = [], turnOn = null } = {}) {
     return h('div.banner.info.ms-offbar', { role: 'status', tabindex: -1, dataset: { key: 'offbar' } }, icon('power', { size: 18 }),
       h('span', h('strong', 'Tia is OFF. '), 'A goal you give her becomes a plan for you to accept and start yourself.', left.length ? ` To turn her on: ${left.map((x) => x.words).join('; ')}.` : ''),
       turnOn ? btn('secondary small', { icon: 'power', label: 'Turn Tia on…', onclick: () => turnOn(left.length ? left[0].key : 'on') })
-        : h('a.btn.secondary.small', { href: '#/work/team' }, 'Her switches on Team'));
+        : h('a.btn.secondary.small', { href: '#/settings/tia' }, 'Her switches in Settings'));
   }
   return h('div.banner.ok-box.ms-offbar', icon('zap', { size: 18 }),
     h('span', h('strong', 'Tia is ON. '), 'She starts the tasks of plans you accept, in the projects you turned on, and where you turned Auto on, their ready tasks, within your limits.'),
@@ -91,6 +91,7 @@ export function paintTeam(content, { onGoal }) {
     if (fold) fold.open = true;
     const at = content.querySelector(`[data-step="${step}"]`);
     if (!at) return;
+    openFoldsAround(at); // the step may sit in a closed block
     at.focus();
     at.scrollIntoView({ block: 'center' });
   }
@@ -145,7 +146,11 @@ function teamPart(d) {
     d.team.some((r) => r.costUnknown) ? h('p.hint.ms-hint', '+ : some runs reported no cost; their tokens are counted.') : null);
 }
 
-function settingsPart(d, reload, open) {
+/** The switches and limits as one body (no fold of its own): the master switch, projects, limits, providers, roles. */
+/** One block of her switches and limits as a closed fold (the body would be five screens long otherwise). */
+const block = (title, ...kids) => fold(`ms-block-${title.toLowerCase().replace(/[^a-z]+/g, '-')}`, title, ...kids);
+
+function settingsBody(d, reload) {
   const s = d.settings;
   const save = async (patch) => {
     try {
@@ -196,8 +201,8 @@ function settingsPart(d, reload, open) {
     h('div.card.ms-block',
       toggle('Tia works by herself', s.on, (v) => save({ on: v }), 'The master switch. Off is "Tia OFF": nothing of hers starts, in any project.', { key: 'on', step: 'on' }),
       toggle('Tia OFF stops what runs', s.offStops, (v) => save({ offStops: v }), s.offStops ? 'When you press Tia OFF, her sessions that run are stopped.' : 'When you press Tia OFF, her sessions that run go to their end; nothing further starts.', { key: 'offStops' })),
-    h('div.card.ms-block', h('h3.ms-h3', 'Projects'), projects.length ? projects : h('p.hint', 'No project in the workspace yet.')),
-    h('div.card.ms-block', h('h3.ms-h3', 'Limits'),
+    block('Projects', projects.length ? projects : h('p.hint', 'No project in the workspace yet.')),
+    block('Limits',
       h('div.ms-grid',
         num('Spend cap per day ($)', 'capUsd', s.capUsd, { min: 0, max: 10000, step: 0.5 }, 'Counted from each run\'s own cost line. At the cap nothing new starts. 0: nothing starts.'),
         num('Token cap per day', 'capTokens', s.capTokens, { min: 0, step: 1000 }, 'For providers that report tokens but no cost. 0: such providers are not used.', (x) => Math.round(Number(x))),
@@ -206,17 +211,41 @@ function settingsPart(d, reload, open) {
         num('Time limit (minutes)', 'minutes', s.minutes, { min: 1, max: 240 }, 'Each session is stopped at this time limit.', (x) => Math.round(Number(x)))),
       toggle('Only in working hours', !!s.hours, (v) => save({ hours: v ? { from: from.value || '09:00', to: to.value || '18:00' } : null }), 'Outside them nothing of hers starts; this computer\'s time zone of Work.', { key: 'hours' }),
       s.hours ? h('div.ms-hours', field('From', from), field('To', to), btn('small secondary', { label: 'Save hours', dataset: { key: 'hours-save' }, onclick: () => save({ hours: { from: from.value, to: to.value } }).then(() => toast('Saved')).catch(() => {}) })) : null),
-    h('div.card.ms-block', h('h3.ms-h3', 'Providers'), h('p.hint.ms-hint', ORDER_WORDS),
+    block('Providers', h('p.hint.ms-hint', ORDER_WORDS),
       known.length ? h('div.ms-provs', allowed.map((n, i) => provRow(n, i, true)), others.map((p) => provRow(p.name, 0, false))) : h('p.hint', 'There is no provider for Claude Code yet: add one under Providers.')),
-    h('div.card.ms-block', h('h3.ms-h3', 'Accept by itself'),
+    block('Accept by itself',
       h('p.hint.ms-hint', 'Only for these kinds, only when their check and their review passed. It is Work\'s Accept: nothing is merged or pushed.'),
       kinds.map(([k, label]) => toggle(label, s.selfAccept.includes(k), (v) => save({ selfAccept: v ? [...s.selfAccept, k] : s.selfAccept.filter((x) => x !== k) }), undefined, { key: `self:${k}` }))),
-    h('div.card.ms-block', h('h3.ms-h3', 'Roles'),
+    block('Roles',
       h('p.hint.ms-hint', 'A task whose role is off is yours to do.'),
       Object.keys(ROLE_WORDS).map((r) => toggle(ROLE_WORDS[r], !s.rolesOff.includes(r), (v) => save({ rolesOff: v ? s.rolesOff.filter((x) => x !== r) : [...s.rolesOff, r] }), ROLE_SUBS[r], { key: `role:${r}` }))));
+  return body;
+}
+
+function settingsPart(d, reload, open) {
   return h('details.fold.ms-settings', { open },
     h('summary.fold-summary', h('span', 'Tia\'s switches and limits'), icon('chevronDown', { size: 18 })),
-    h('div.fold-body', body));
+    h('div.fold-body', settingsBody(d, reload)));
+}
+
+/**
+ * Settings -> Tia, the fold "Limits and roles": her switches and limits as one body, and her team's numbers in a closed
+ * fold of their own. Reads itself from the missions (the same data Work -> Plans lists); a save draws it again.
+ */
+export function missionLimits() {
+  const box = h('div.ms-limits');
+  async function load() {
+    let d;
+    try {
+      d = await api('/api/work/missions');
+    } catch (e) {
+      return fill(box, errorBox(`Could not load Tia's limits: ${e.message}`, load));
+    }
+    keepFocus(box, () => fill(box, settingsBody(d, load), fold('tia-team', 'Her team: roles and numbers', teamPart(d))));
+  }
+  fill(box, skeletonRows(3));
+  load();
+  return box;
 }
 
 // ---------- one mission ----------
@@ -349,7 +378,7 @@ export function viewMission(content, id) {
       [d, { mission: m }] = await Promise.all([api('/api/work/missions'), api(`/api/work/missions/${enc(id)}`)]);
     } catch (e) {
       drawn = null;
-      if (alive) fill(content, h('a.btn.ghost.ms-back', { href: '#/work/team' }, icon('back', { size: 16 }), 'Team'), errorBox(e, load));
+      if (alive) fill(content, h('a.btn.ghost.ms-back', { href: '#/work/plans' }, icon('back', { size: 16 }), 'Plans'), errorBox(e, load));
       return;
     }
     if (!alive) return;
@@ -406,7 +435,7 @@ export function viewMission(content, id) {
     const line = h('section.wk-section', groupHead('What happened', m.line.length),
       h('ol.ms-line', [...m.line].reverse().slice(0, 100).map((l) => h('li', h('time', { datetime: l.at }, new Date(l.at).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })), h('span', l.task ? h('strong', `${l.task}: `) : null, l.words)))));
     keepFocus(content, () => fill(content,
-      h('a.btn.ghost.small.ms-back', { href: '#/work/team', dataset: { key: 'back' } }, icon('back', { size: 16 }), 'Team'),
+      h('a.btn.ghost.small.ms-back', { href: '#/work/plans', dataset: { key: 'back' } }, icon('back', { size: 16 }), 'Plans'),
       offBar(d.settings, load, { steps: d.steps || [] }), sum,
       h('section.wk-section', groupHead('Tasks', m.tasks.length), m.tasks.length ? h('div.rows', m.tasks.map(taskRow)) : h('p.hint.wk-hint', m.state === 'planning' ? 'Its tasks are the ones of the plan you accept.' : 'This mission has no tasks.')),
       line));
@@ -489,7 +518,7 @@ export async function paintBrief(slot) {
     h('span.row-main', h('span.row-title.ms-goal', x.title), h('span.row-sub', `${x.project} · ${x.why || (why === 'finished' ? 'done' : '')}`)),
     h('span.row-end', icon('chevronRight', { size: 18 })));
   fill(slot, h('section.wk-section.ms-brief', groupHead('Tia\'s brief'),
-    h('div.card.ms-brief-card', h('ul.ms-lines', b.lines.map((l) => h('li', l))), b.running ? h('p.hint', `${b.running} mission${b.running === 1 ? '' : 's'} still going.`) : null, h('a.ms-more', { href: '#/work/team' }, 'Missions and the team')),
+    h('div.card.ms-brief-card', h('ul.ms-lines', b.lines.map((l) => h('li', l))), b.running ? h('p.hint', `${b.running} mission${b.running === 1 ? '' : 's'} still going.`) : null, h('a.ms-more', { href: '#/work/plans' }, 'Missions and the team')),
     b.waits.length ? h('div.rows', b.waits.slice(0, 10).map((x) => item(x, 'waits'))) : null,
     b.failed.length ? h('div.rows', b.failed.slice(0, 10).map((x) => item(x, 'failed'))) : null));
 }

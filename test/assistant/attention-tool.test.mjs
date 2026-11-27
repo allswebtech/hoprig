@@ -214,7 +214,7 @@ test('for every kind, the next act a result gives is accepted as it is, and leav
 test('show "rules" and "done" read the owner\'s standing rules and what they did, in a short fixed shape; she only reads', async () => {
   const att = await listOf({ sessions: () => [session({ name: 'a', limit: { at: ago(3) } })] });
   att.reflexes = {
-    acts: true, tia: true, active: true, said: 'Tia does by herself only what the rules that are on say, within their limits.', projectsOut: ['shop'], his: {}, undoable: [],
+    acts: true, tia: true, active: true, said: 'Tia does by herself only what the rules that are on say, within their limits, and small jobs on Hoprig itself, each with Undo.', projectsOut: ['shop'], his: {}, undoable: [],
     rules: [
       { id: 'limit', sentence: 'When a session stops at a usage limit, continue it on the next provider of my order.', on: true, undo: 'Move it back', noUndo: null, budget: { perHour: 3, perDay: 10, waitMinutes: 10 }, left: { hour: 2, day: 9 } },
       { id: 'leftover', sentence: 'End a test\'s left-over processes.', on: false, undo: null, noUndo: 'An ended process cannot be undone.', budget: { perHour: 3, perDay: 10, waitMinutes: 10 }, left: { hour: 3, day: 10 } },

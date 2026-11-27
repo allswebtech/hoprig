@@ -27,7 +27,8 @@ export function chatCard(chat, ev) {
   const cfg = chat.o && chat.o.handsOffConfig ? chat.o.handsOffConfig() : {};
   // A chat of hers carries the hold whatever Hands-off says (hook.mjs sessionHold), so its card is drawn there too.
   const hers = !!(chat.byTia || chat.hers || chat.restoredMark);
-  if (ev.type === 'permission' && (handsOffOffered(cfg) || hers)) {
+  // The floor of "Allow everything" (asks.mjs): its card is the floor's own words, not Hands-off's wall card.
+  if (ev.type === 'permission' && !ev.floor && (handsOffOffered(cfg) || hers)) {
     const places = chatPlaces(chat, cfg);
     let held = wallHeld({ tool: ev.tool, input: ev.full, cwd: chat.cwd, places });
     // In a chat of hers the hook held what her level leaves (at Full: not the administrator act), unless Hands-off's

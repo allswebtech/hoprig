@@ -8,6 +8,7 @@ import { AuditLog } from '../../src/assistant/audit.mjs';
 import { CardStore } from '../../src/assistant/cards.mjs';
 import { createAssistantCore } from '../../src/assistant/core.mjs';
 import { scheduleSentence } from '../../src/assistant/domains.mjs';
+import { runConfirmed } from '../../src/assistant/confirmed.mjs';
 import { checkRoute } from '../../src/assistant/door.mjs';
 import { JobStore } from '../../src/assistant/jobs.mjs';
 import { Skills } from '../../src/assistant/skills.mjs';
@@ -131,7 +132,7 @@ test('manage_project: new and get are cards that show what will be made; sync is
   assert.ok(staged(await call('manage_project', { action: 'add_repository', project: 'shop', repo: 'mobile' })));
 });
 
-test('manage_computer: rename is L1; setup fix and set up show what runs; add-on start L1, the rest cards; no remove', async () => {
+test('manage_computer: rename is L1; setup fix and set up show what runs; add-on start is a card too; no remove', async () => {
   const { call, ops } = setup();
   await call('get_computer_status', {});
   assert.equal((await call('manage_computer', { action: 'rename', label: 'Work laptop' })).isError, false);
@@ -146,31 +147,26 @@ test('manage_computer: rename is L1; setup fix and set up show what runs; add-on
   r = await call('manage_computer', { action: 'set_up', kits: ['tools'] });
   assert.match(r.text, /Developer tools: apt install gh/);
   assert.match((await call('manage_computer', { action: 'set_up', kits: ['nope'] })).text, /not setup kits: nope/);
-  assert.equal((await call('manage_computer', { action: 'addon', addon: 'trouteai', addon_action: 'start' })).isError, false);
+  assert.ok(staged(await call('manage_computer', { action: 'addon', addon: 'trouteai', addon_action: 'start' })), 'a gateway start is a card, never done alone');
   assert.ok(staged(await call('manage_computer', { action: 'addon', addon: 'trouteai', addon_action: 'install' })));
   assert.ok(staged(await call('manage_computer', { action: 'update', item: 'claude' })));
-  assert.ok(staged(await call('manage_computer', { action: 'add', ssh_target: 'me@box3' })));
   assert.match((await call('manage_computer', { action: 'remove', computer: 'box2' })).text, /action: must be one of/, 'removing a computer is the owner\'s own step');
-  assert.deepEqual(writes(ops), ['renameComputer', 'addon']);
+  assert.deepEqual(writes(ops), ['renameComputer']);
 });
 
-test('manage_computer public_link: on is his own press, her card only opens Settings → Public link; off runs; never as an add-on', async () => {
-  const { call, ops, core } = setup();
+test('manage_computer public_link: on is his own press and no card of hers; off runs; never as an add-on', async () => {
+  const { call, ops } = setup();
   // The old way around the card is closed: the public link is not started as an add-on.
   const old = await call('manage_computer', { action: 'addon', addon: 'public-link', addon_action: 'start' });
   assert.match(old.text, /not switched as an add-on.*public_link/);
   assert.match((await call('manage_computer', { action: 'public_link' })).text, /needs "turn"/);
   assert.match((await call('manage_computer', { action: 'public_link', turn: 'off', link_kind: 'custom' })).text, /off needs no kind/);
+  // On: no card that only opens a page. She says it is his own press and shows the page with open_screen.
   const r = await call('manage_computer', { action: 'public_link', turn: 'on', link_kind: 'temporary' });
-  assert.ok(staged(r), r.text);
-  assert.match(r.text, /Open Settings → Public link of this, where you turn it ON yourself \(Temporary, a new https address at each start\); Tia turns nothing on/);
-  assert.match(r.text, /Anyone who has the address reaches its sign-in page/);
-  assert.deepEqual(writes(ops), [], 'nothing before the owner\'s OK');
-  const id = /card (c_[0-9a-f]{12})/.exec(r.text)[1];
-  const done = await core.confirm(id);
-  assert.equal(done.ok, true, JSON.stringify(done));
-  assert.equal(done.open, '#/settings/public-link');
-  assert.deepEqual(writes(ops), [], 'his tap opened the page and turned nothing on');
+  assert.equal(r.isError, true, r.text);
+  assert.doesNotMatch(r.text, /Waiting for the owner's OK/);
+  assert.match(r.text, /owner's own press.*open_screen "settings\/public-link"/);
+  assert.deepEqual(writes(ops), [], 'nothing was turned on');
   // Off: no card.
   const off = await call('manage_computer', { action: 'public_link', turn: 'off' });
   assert.equal(off.isError, false, off.text);
@@ -178,14 +174,13 @@ test('manage_computer public_link: on is his own press, her card only opens Sett
   assert.deepEqual(ops.calls.map((c) => c.args), [{ computer: 'this', on: false }]);
 });
 
-test('manage_computer add: adding a computer by SSH is his, her card only opens Computers → Add a computer', async () => {
-  const { call, ops, core } = setup();
-  const r = await call('manage_computer', { action: 'add', ssh_target: 'me@box3' });
-  assert.ok(staged(r), r.text);
-  assert.match(r.text, /Open Computers → Add a computer, where you add me@box3 by SSH yourself; Tia adds nothing/);
-  const done = await core.confirm(/card (c_[0-9a-f]{12})/.exec(r.text)[1]);
-  assert.equal(done.ok, true, JSON.stringify(done));
-  assert.equal(done.open, '#/computers/add');
+test('manage_computer add: pairing or adding a computer is on the never list, she refuses in words and stages nothing', async () => {
+  const { call, ops } = setup();
+  const r = await call('manage_computer', { action: 'add', ssh_target: 'me@box3', name: 'box3' });
+  assert.equal(r.isError, true, r.text);
+  assert.ok(!staged(r), 'no card');
+  assert.match(r.text, /owner's own press/);
+  assert.match(r.text, /open_screen "computers\/add"|open_screen "computers"/);
   assert.deepEqual(writes(ops), [], 'no computer was added and no token made');
 });
 
@@ -592,7 +587,8 @@ test('manage_computer restart_dashboard: a card with the versions, what happens 
 
 test('her door: the restart takes no field; how updates run stays his', () => {
   const ctx = { caller: 'tia' };
-  assert.equal(checkRoute('POST', '/api/updates/restart', {}, ctx).tool, 'manage_computer restart_dashboard');
-  assert.throws(() => checkRoute('POST', '/api/updates/restart', { force: true }, ctx), (e) => e.status === 403);
+  const card = { id: 'c_r', tool: 'manage_computer', input: { action: 'restart_dashboard' } };
+  assert.equal(runConfirmed(card, () => checkRoute('POST', '/api/updates/restart', {}, ctx)).tool, 'manage_computer restart_dashboard, hoprig_act restart-hoprig');
+  assert.throws(() => runConfirmed(card, () => checkRoute('POST', '/api/updates/restart', { force: true }, ctx)), (e) => e.status === 403);
   assert.throws(() => checkRoute('POST', '/api/updates/settings', { mode: 'auto' }, ctx), (e) => e.status === 403);
 });

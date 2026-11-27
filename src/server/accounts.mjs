@@ -61,6 +61,7 @@ import { MODEL_RE, listModels, probeShapes, scrub, shapesAfterTest, testModel } 
 import { withoutSecrets } from '../secretenv.mjs';
 import { billedLogin } from '../routerstate.mjs';
 import { lastBackup, ownEndpoint, ownEndpointWords, ownGatewaySecret, removeOwnEndpoint, restoreBackup } from '../codetools/ownsettings.mjs';
+import { hasSetUp } from '../gateway/trouteai.mjs';
 import { firstCheck } from '../providers/check.mjs';
 import { deleteProfile, knownShapes, listProfiles, metaOf, ownFolder, readProfile, servesTools, validName, writeProfile } from '../profiles.mjs';
 
@@ -426,7 +427,7 @@ export function accountsFeature(ctx, opts = {}) {
         try {
           const p = g.profile();
           return {
-            id: g.id, title: g.title, words: g.words, page: g.page ? g.page() : null, installable: g.installable !== false,
+            id: g.id, title: g.title, words: g.words, page: g.page ? g.page() : null, installable: g.installable !== false, setup: hasSetUp(g),
             ...(await g.status()), defaults: { name: freeName(p.name), label: p.label, baseUrl: p.env.ANTHROPIC_BASE_URL },
           };
         } catch {
@@ -438,7 +439,7 @@ export function accountsFeature(ctx, opts = {}) {
       const oldDefaults = {};
       for (const g of gateways().filter((x) => x.oldNames)) {
         const e = gws.find((x) => x.id === g.id);
-        old[g.oldNames.state] = e ? (({ id, title, words, page, installable, defaults, ...st }) => ({ ...st, baseUrl: defaults.baseUrl }))(e) : null;
+        old[g.oldNames.state] = e ? (({ id, title, words, page, installable, setup, defaults, ...st }) => ({ ...st, baseUrl: defaults.baseUrl }))(e) : null;
         if (e) oldDefaults[g.oldNames.state] = { ...e.defaults };
       }
       return {

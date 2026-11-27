@@ -151,16 +151,16 @@ test('a sentence on Work\'s and Schedules\' files that names another place opens
   const auto = read('automation.js');
   assert.doesNotMatch(auto, /add one under Providers\.'/, 'no "add one under Providers" in words only');
   assert.equal((auto.match(/add one under ', h\('a', \{ href: link\('#\/providers'\) \}, 'Providers'\)|add one under `, h\('a', \{ href: link\('#\/providers'\) \}, 'Providers'\)/g) || []).length, 2);
-  assert.match(auto, /h\('a', \{ href: link\('#\/settings\/updates'\) \}, 'Settings → Updates'\)/);
+  assert.match(auto, /h\('a', \{ href: link\('#\/settings\/updates'\) \}, 'Settings → Version and updates'\)/);
   const doit = read('workdo.js');
   const back = doit.slice(doit.indexOf('export async function sendBack'));
   assert.match(back.slice(0, 600), /h\('a', \{ href: link\('#\/skills\/learned'\) \}, 'Skills → Learned'\)/, 'Send back\'s learning line links Skills → Learned');
 });
 
-test('Progress is drawn again when the chats\' titles arrive after it, so a chat\'s row is never left as "A session in …"', () => {
+test('Running now is drawn again when the chats\' titles arrive after it, so a chat\'s row is never left as "A session in …"', () => {
   const src = read('workpulse.js');
-  const body = src.slice(src.indexOf('export async function paintProgress'), src.indexOf('export function needsNoneWords'));
+  const body = src.slice(src.indexOf('export async function paintRunning'), src.indexOf('/** A task\'s own progress'));
   assert.match(body, /store\.subscribe\(/, 'it listens to the store');
   assert.match(body, /if \(now === seen\) return;/, 'only when the chats\' titles changed');
-  assert.match(body, /slot\.isConnected === false\) return off && off\(\)/, 'it stops once its slot left the page');
+  assert.match(body, /slot\.isConnected === false\) return off\(\)/, 'it stops once its slot left the page');
 });

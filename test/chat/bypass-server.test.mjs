@@ -1,5 +1,5 @@
 // "Allow bypass permissions mode" in the real dashboard (createServer): off, no list offers Bypass permissions and
-// every way to ask for it is refused (a new App session, its mode, a terminal session, New-session defaults); on, all
+// every way to ask for it is refused (a new App session, its mode, a terminal session, New sessions); on, all
 // of them offer it. The coding tool is the stand-in (fixtures/fake-claude.mjs).
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -140,7 +140,7 @@ test('the switch gates every list and every request for Bypass permissions', { t
   const owner = (method, p, body) => request(base, method, p, { body, headers: { Cookie: cookie } });
 
   assert.equal((await owner('GET', '/api/settings/bypass')).json.allow, false, 'the one-time step: off');
-  assert.ok(!(await owner('GET', '/api/settings')).json.sessionChoices.permissionModes.includes('bypassPermissions'), 'New-session defaults and the new-session options do not offer it');
+  assert.ok(!(await owner('GET', '/api/settings')).json.sessionChoices.permissionModes.includes('bypassPermissions'), 'New sessions and the new-session options do not offer it');
   const oc = (await owner('GET', '/api/chats/tools')).json.tools.filter((x) => x.modes);
   assert.ok(oc.every((x) => !x.modes.includes('bypassPermissions')), 'nor another coding tool\'s App session');
   assert.equal((await owner('POST', '/api/chats', { dir: proj, profile: 'sub', permissionMode: 'bypassPermissions' })).status, 400, 'a new App session in bypass is refused');

@@ -149,7 +149,7 @@ export function workRuns(o) {
     if (serves('auto', tool)) out.unshift({ name: 'auto', label: 'Auto mode', kind: 'auto' });
     return out;
   }
-  // The saved values a check keeps accepting (the default of Settings → New-session defaults); the provider's own list
+  // The saved values a check keeps accepting (the default of Settings → New sessions); the provider's own list
   // comes from src/models/catalog.mjs (chat/tools.mjs choicesOf).
   const models = () => {
     const saved = (cfg().sessionDefaults || {}).model;

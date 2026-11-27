@@ -33,7 +33,7 @@ function fakeWindows(answers = {}) {
     // Windows' own whoami comes by its full path there (setup/winowner.mjs whoamiBin): recorded by its name.
     if (/[\\/]whoami\.exe$/i.test(cmd)) cmd = 'whoami';
     calls.push([cmd, ...args]);
-    if (cmd === 'schtasks' && args[0] === '/Create') xml = fs.readFileSync(args[args.indexOf('/XML') + 1]).subarray(2).toString('utf16le');
+    if (cmd === 'schtasks' && args[0] === '/Create' && args[args.indexOf('/TN') + 1] === 'hoprig') xml = fs.readFileSync(args[args.indexOf('/XML') + 1]).subarray(2).toString('utf16le');
     // The task starts the new dashboard: it writes its record and answers its key on its port (deps below).
     if (cmd === 'schtasks' && args[0] === '/Run') fs.writeFileSync(path.join(box.state, 'dashboard.json'), JSON.stringify({ pid: 9100, port: 7433, host: '127.0.0.1', key: NEW_KEY, state: stateKey() }));
     const a = answers[cmd];

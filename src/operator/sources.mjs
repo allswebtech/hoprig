@@ -14,6 +14,7 @@ import { noteStarted, stoppedAt } from '../addons/stopmark.mjs';
 import { knock } from '../knock.mjs';
 import { gitRead } from '../gitread.mjs';
 import { loadMachines } from '../machines/store.mjs';
+import { readNote } from '../keeper/keep.mjs';
 import { repoInfo, syncRepo } from '../pcsetup/workspace.mjs';
 import { system as identity, statStart } from '../procid.mjs';
 import { endProcess } from '../desktop/procs.mjs';
@@ -36,6 +37,8 @@ import { listMissions } from '../mission/file.mjs';
 import { resolvePlace } from '../work/place.mjs';
 import * as link from '../addons/linkswitch.mjs';
 import { passBack } from '../oneturn.mjs';
+import { stateDir } from '../paths.mjs';
+import { bytesWords, cleanOwnTemp, defaultNext, httpLook, ownTempBytes, portHolder, reopenSession, probeAddress } from './mends.mjs';
 
 const MIN = 60_000;
 // The program a Work run's task came from (a Work token's name), read once per look of the board's work source.
@@ -222,10 +225,11 @@ export function namedReset(text, usage, t = Date.now(), at = null) {
 
 /** The product's sources. `port()`: the port this dashboard answers on; `address()`: the address it was reached on. */
 export function defaultSources(ctx, { port, address = () => null, now = Date.now, gateways = gatewayAddons, usersOf = providersOf, keepLeftover = null, rooms = null }) {
-  const seenCoding = new Map(); // name → last time it was a coding session (for "ended")
+  const seenCoding = new Map(); // name → { provider, cwd, sessionId, runId, carryArgs, tool } as last seen (for "ended")
   const ended = new Map(); // name → { at, provider }
   const liveSince = { local: null, link: null };
   const liveLast = { local: null, link: null };
+  const offlineSince = {}; // linked computer → when it was first found not answering
   // The coding tool's own records, for sessions Hoprig did not start (providers/transcripts.mjs): read only, a bounded
   // part per look.
   const outside = transcriptReader({ now });
@@ -245,9 +249,9 @@ export function defaultSources(ctx, { port, address = () => null, now = Date.now
     for (const c of st.sessions || []) {
       if (c.kind === 'shell' || !c.profile) continue;
       coding.add(c.name);
-      seenCoding.set(c.name, c.profile.name);
       const chat = c.kind === 'chat';
       const run = (chat ? chatRuns.get(c.chatId) : c.runId && runs.get(c.runId)) || {};
+      seenCoding.set(c.name, { provider: c.profile.name, cwd: run.cwd || c.cwd || null, sessionId: c.sessionId || run.sessionId || null, runId: c.runId || null, carryArgs: Array.isArray(run.carryArgs) ? run.carryArgs.filter((a) => typeof a === 'string') : [], tool: c.tool || 'claude' });
       const convDir = c.cwd && c.sessionId ? projectDir(run.cwd || c.cwd) : null;
       const conv = convDir ? mtime(path.join(convDir, `${c.sessionId}.jsonl`)) : null;
       // A workflow or background agents the session started: they write their own transcripts, so their progress counts.
@@ -256,7 +260,8 @@ export function defaultSources(ctx, { port, address = () => null, now = Date.now
       const progress = Math.max(Number(run.statusAt) || 0, conv || 0, agentsAt || 0, Number(c.statusAt) || 0) || null;
       const lim = c.runLimit || c.limit || (chat ? run.limit : null);
       const claude = (c.tool || 'claude') === 'claude';
-      const next = c.profile.name === 'auto' ? null : nextProfile(c.profile.name);
+      // The owner's order first; with none set, his subscription providers in list order (a paid one is never named here).
+      const next = c.profile.name === 'auto' ? null : nextProfile(c.profile.name) || defaultNext(c.profile.name, st.profiles, now());
       out.push({
         name: c.name,
         tool: c.tool || 'claude',
@@ -292,14 +297,23 @@ export function defaultSources(ctx, { port, address = () => null, now = Date.now
     // last is there to read (kept for a day). A session that went away with its terminal was closed by the owner (the
     // Sessions page, this panel's Stop): nothing is left to read, so it is no item.
     const terminals = new Set((st.sessions || []).map((c) => c.name));
-    for (const [name, provider] of seenCoding) {
+    for (const [name, seen] of seenCoding) {
       if (coding.has(name)) continue;
       seenCoding.delete(name);
-      if (terminals.has(name)) ended.set(name, { at: now(), provider });
+      if (terminals.has(name)) ended.set(name, { at: now(), ...seen });
     }
     for (const [name, e] of ended) {
-      if (now() - e.at > ENDED_KEEP_MS || coding.has(name) || !terminals.has(name)) ended.delete(name);
-      else out.push({ name, state: 'ended', provider: e.provider, providerLabel: labelOf(e.provider), statusAt: iso(e.at), asks: [], agents: [] });
+      if (now() - e.at > ENDED_KEEP_MS || coding.has(name) || !terminals.has(name)) {
+        ended.delete(name);
+        continue;
+      }
+      // The coding tool left its pane with no end of its own: Claude Code's SessionEnd never reached its run record
+      // (a killed process, a crash). Only then can it be reopened; /exit and the like wrote their end, and such a session
+      // is the person's, as is one whose conversation is not known. Claude Code's sessions only.
+      const rec = e.runId ? runs.get(e.runId) : null;
+      const own = !rec || (rec.status !== 'ended' && !rec.endReason);
+      const reopen = own && e.tool === 'claude' && e.sessionId && e.cwd && e.provider && e.provider !== 'auto' ? { cwd: e.cwd, sessionId: e.sessionId, profile: e.provider, carryArgs: e.carryArgs, tool: e.tool } : null;
+      out.push({ name, state: 'ended', provider: e.provider, providerLabel: labelOf(e.provider), folder: e.cwd || null, statusAt: iso(e.at), asks: [], agents: [], ...(reopen ? { reopen } : {}) });
     }
     // Sessions the coding tool ran without Hoprig: the same items. A session Hoprig started (a run record or a chat
     // names its conversation, now or in the last day) is left out: the hook's record of it wins.
@@ -332,9 +346,51 @@ export function defaultSources(ctx, { port, address = () => null, now = Date.now
     }
   };
 
+  // A provider's address that answers nothing (a plain gateway, an endpoint the owner added): looked at every 5 minutes,
+  // only for the providers an open session goes through now, with a knock and one request that carries no key.
+  const reachCheck = slow(5 * MIN, async () => {
+    const st = await ctx.state();
+    const open = new Map();
+    for (const c of st.sessions || []) {
+      if (c.kind === 'shell' || !c.profile || (c.kind === 'chat' && c.running !== true)) continue;
+      open.set(c.profile.name, (open.get(c.profile.name) || 0) + 1);
+    }
+    const out = {};
+    for (const [name, sessions] of [...open].slice(0, 12)) {
+      const prof = readProfile(name);
+      const base = prof?.env?.ANTHROPIC_BASE_URL;
+      // A subscription has no address of its own; the add-ons' gateways have their own check (the gateways source).
+      if (typeof base !== 'string' || !base) continue;
+      // A gateway add-on's own port is the gateways source's: a restart rule looks after it.
+      let addonPort = false;
+      try {
+        const u = new URL(base);
+        addonPort = (gatewaysCheck.read() || []).some((g) => g.port && String(g.port) === (u.port || (u.protocol === 'https:' ? '443' : '80')) && /^(127\.0\.0\.1|localhost|\[::1\])$/.test(u.hostname));
+      } catch { /* not a URL */ }
+      if (addonPort) continue;
+      const r = await probeAddress(base);
+      if (r.state === 'skipped') continue;
+      let host = '';
+      try {
+        const u = new URL(base);
+        host = u.host;
+      } catch { /* not a URL: said without an address */ }
+      out[name] = { answers: r.state === 'answers', address: host, sessions, since: iso(now()) };
+    }
+    return out;
+  }, now);
+  let reachSince = {}; // provider → when its address was first found silent: a row keeps its age between looks
+
   async function providers() {
     const st = await ctx.state();
+    let reach = {};
+    try {
+      reach = reachCheck.read() || {};
+    } catch { /* not looked at yet: no row */ }
+    for (const k of Object.keys(reachSince)) if (!(k in reach) || reach[k].answers) delete reachSince[k];
+    for (const [k, v] of Object.entries(reach)) if (!v.answers) reachSince[k] ||= v.since;
     return (st.profiles || []).filter((p) => !p.virtual).map((p) => ({
+      ...(reach[p.name] ? { reach: { ...reach[p.name], ...(reachSince[p.name] ? { since: reachSince[p.name] } : {}) } } : {}),
       name: p.name,
       label: p.label || null, // the item names it as the Providers page does
       signedIn: typeof p.signedIn === 'boolean' ? p.signedIn : null,
@@ -354,6 +410,12 @@ export function defaultSources(ctx, { port, address = () => null, now = Date.now
       const users = s.installed ? usersOf(a.id) : [];
       const usedBy = users.length;
       const knocked = p && (s.running || usedBy) ? (await knock({ port: p, host: '127.0.0.1' }, 1500)) === 'open' : null;
+      // A gateway that runs and accepts the connection is asked once for its own health address (no key, no body): a
+      // server error there is as much a stop as no answer. 404 (no such address) still means it is up.
+      const status = s.running && knocked === true && p ? await httpLook(`http://127.0.0.1:${p}/health`, { timeoutMs: 3000 }) : null;
+      // Another program holds its port (the add-on says it answers but is not ours): named, never touched.
+      const foreign = !s.running && s.foreign === true;
+      const heldBy = foreign && p ? portHolder(p) : null;
       // A provider's PRERUN starts its gateway before each of its sessions: a gateway that is not running stops work
       // only for a session of such a provider that is open now. A chat counts only while its process runs (as in
       // src/automation/idle.mjs): a chat restored after a restart runs the PRERUN again with its next message. Null
@@ -367,7 +429,7 @@ export function defaultSources(ctx, { port, address = () => null, now = Date.now
         } catch { /* left unknown: the item stays stopped work */ }
       }
       // `ownerStopped`: it is not running because the owner stopped it himself (stopmark.mjs).
-      out.push({ name: a.id, port: p, running: !!s.running, installed: !!s.installed, usedBy, users: users.slice(0, 3).map((u) => String(u).slice(0, 40)), live, answers: knocked, ownerStopped: !s.running && stoppedAt(a.id) != null });
+      out.push({ name: a.id, port: p, running: !!s.running, installed: !!s.installed, usedBy, users: users.slice(0, 3).map((u) => String(u).slice(0, 40)), live, answers: knocked, status, ...(foreign ? { foreign: true, heldBy } : {}), ownerStopped: !s.running && stoppedAt(a.id) != null });
     }
     return out;
   }, now);
@@ -416,7 +478,10 @@ export function defaultSources(ctx, { port, address = () => null, now = Date.now
         const s = await repoInfo(dir);
         if (!s.ok) continue;
         const rel = path.relative(root, dir);
-        out.push({ name: rel.split(path.sep).join('/'), path: rel, project: p.name, branch: s.branch || null, upstream: s.upstream || null, behind: s.behind || 0, ahead: s.ahead || 0, dirty: s.changes || 0, fetchedAt: iso(mtime(path.join(dir, '.git', 'FETCH_HEAD'))) });
+        // A merge or a rebase left half done: git's own marks inside the .git folder (a linked worktree has none here).
+        const g = path.join(dir, '.git');
+        const merging = fs.existsSync(path.join(g, 'MERGE_HEAD')) ? 'merge' : fs.existsSync(path.join(g, 'rebase-merge')) || fs.existsSync(path.join(g, 'rebase-apply')) ? 'rebase' : null;
+        out.push({ name: rel.split(path.sep).join('/'), path: rel, project: p.name, ...(merging ? { merging } : {}), branch: s.branch || null, upstream: s.upstream || null, behind: s.behind || 0, ahead: s.ahead || 0, dirty: s.changes || 0, fetchedAt: iso(mtime(path.join(dir, '.git', 'FETCH_HEAD'))) });
       }
     }
     return out;
@@ -440,10 +505,17 @@ export function defaultSources(ctx, { port, address = () => null, now = Date.now
     } catch {
       /* not known on this system */
     }
+    // What Hoprig itself made and may remove (mends.mjs): the bytes only, nothing is read of it.
+    let ownTemp = 0;
+    try {
+      ownTemp = ownTempBytes({ state: stateDir(), now: now() });
+    } catch { /* not known: no clean is offered */ }
     return {
+      ownTemp,
       cpus: s.cpus, load1: s.load?.[0] ?? null, memTotal: s.mem?.total ?? null, memAvailable: s.mem?.available ?? null,
       disks: (s.disks || []).filter((d) => d.size > 1e9).slice(0, 8).map((d) => ({ mount: d.mount, usedPct: Math.round((d.used / d.size) * 100) })),
       tmp,
+      keeper: readNote(),
     };
   }, now);
 
@@ -453,9 +525,9 @@ export function defaultSources(ctx, { port, address = () => null, now = Date.now
   // `keepLeftover` (tests only): which processes count, so a test's rule never ends what another program runs.
   const leftoversCheck = slow(MIN, async () => (await leftovers({ ownSocket: ownSockets(), ownPort: port() })).filter((p) => !keepLeftover || keepLeftover(p)), now);
 
-  const checks = [gatewaysCheck, liveCheck, reposCheck, changesCheck, machineCheck, leftoversCheck];
+  const checks = [gatewaysCheck, liveCheck, reposCheck, changesCheck, machineCheck, leftoversCheck, reachCheck];
   // The checks an act changes the answer of: run again right after it, so the next look does not show the old state.
-  const AFTER = { sync: [reposCheck], push: [reposCheck], end: [leftoversCheck], 'restart-gateway': [gatewaysCheck] };
+  const AFTER = { sync: [reposCheck], push: [reposCheck], end: [leftoversCheck], 'restart-gateway': [gatewaysCheck], clean: [machineCheck] };
   return {
     sources: {
       sessions,
@@ -469,7 +541,16 @@ export function defaultSources(ctx, { port, address = () => null, now = Date.now
       gateways: () => gatewaysCheck.read(),
       live: () => liveCheck.read(),
       // `rooms`: what the room keeper holds (src/operator/rooms.mjs view): read from memory, never asked here.
-      computers: () => (rooms ? rooms().computers.filter((c) => !c.here).map((c) => ({ name: c.name, online: c.reached ? true : c.seenAt ? false : null, room: c.room, why: c.why, cpus: c.cpus, load1: c.load1, memFreePct: c.memFreePct })) : loadMachines().map((m) => ({ name: m.name, online: null }))),
+      computers: () => {
+        const list = rooms ? rooms().computers.filter((c) => !c.here).map((c) => ({ name: c.name, online: c.reached ? true : c.seenAt ? false : null, room: c.room, why: c.why, cpus: c.cpus, load1: c.load1, memFreePct: c.memFreePct, seenAt: c.seenAt || null })) : loadMachines().map((m) => ({ name: m.name, online: null }));
+        // How long a linked computer has been silent: from the last time it answered, else from the first look that missed it.
+        for (const n of Object.keys(offlineSince)) if (!list.some((c) => c.name === n && c.online === false)) delete offlineSince[n];
+        return list.map((c) => {
+          if (c.online !== false) return c;
+          offlineSince[c.name] ||= c.seenAt && Date.parse(c.seenAt) > now() - 24 * 3600_000 ? Date.parse(c.seenAt) : now();
+          return { ...c, offlineSince: iso(offlineSince[c.name]) };
+        });
+      },
       repos: () => reposCheck.read(),
       changes: () => changesCheck.read(),
       schedules: () => ((ctx.config().automation || {}).schedules?.list || []).map((s) => ({ name: String(s.name || s.label || s.id || 'schedule').slice(0, 40), on: s.enabled !== false })),
@@ -694,7 +775,7 @@ export const todoText = (todo, platform = process.platform) => todo.map((x) => {
  * when given, is the same list of add-ons the look checks (the demo's pretend one): restarting a gateway looks the id
  * up there first, so the look and the act mean one gateway. Without it, the computer's own add-ons (findAddon).
  */
-export function defaultActs({ projects = () => projectsIn(), run = capture, runs = listRuns, proc = '/proc', gateways = null } = {}) {
+export function defaultActs({ projects = () => projectsIn(), run = capture, runs = listRuns, proc = '/proc', gateways = null, start = null, now = Date.now } = {}) {
   const repoDir = (rel) => {
     const root = path.resolve(projects());
     const dir = path.resolve(root, String(rel || ''));
@@ -734,6 +815,17 @@ export function defaultActs({ projects = () => projectsIn(), run = capture, runs
       const r = await syncRepo(dir, '.', capture, { push: true, root: project });
       if (r.todo?.length) throw Object.assign(new Error(todoText(r.todo)), { status: 409 });
       return { did: r.did };
+    },
+    // The same conversation again with resume, nothing sent (mends.mjs): the dashboard's own start, as a restart does it.
+    async reopen(t) {
+      if (!start) throw Object.assign(new Error('reopening a session is not possible here'), { status: 409 });
+      return reopenSession(t, { start });
+    },
+    // Hoprig's own old logs and temporary folders (mends.mjs ownTemp): never anything else.
+    async clean() {
+      const r = cleanOwnTemp({ state: stateDir(), now: now() });
+      if (!r.files) throw Object.assign(new Error('there is nothing of Hoprig\'s own to clean'), { status: 409 });
+      return { did: `freed ${bytesWords(r.freed)} of Hoprig's own old files` };
     },
     async restartLink() {
       const kind = link.readSwitch().kind;

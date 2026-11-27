@@ -5,6 +5,7 @@
 .sp-pick, .sp-inline { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; font-size: var(--fs-sm); color: var(--text-2); }
 .sp-project { width: auto; min-width: 180px; max-width: 100%; }
 .sp-body { display: grid; gap: 14px; margin-top: 10px; min-width: 0; }
+.sp-settings { margin-top: 14px; min-width: 0; }
 .sp-card { padding: 14px 16px; display: grid; gap: 10px; min-width: 0; }
 .sp-title { display: flex; align-items: center; gap: 8px; margin: 0; font: 650 var(--fs)/1.35 var(--font); color: var(--text); overflow-wrap: anywhere; }
 .sp-title > svg { flex: none; color: var(--muted); }

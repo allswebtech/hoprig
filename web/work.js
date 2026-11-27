@@ -1,41 +1,46 @@
-// Work (#/work, #/work/tasks, #/work/activity): everything the workspace has to do, kept in a file of the workspace
-// (src/work). Three parts, each with its own address:
-//   Today     (#/work)           "Needs you" (items overdue or due within seven days, items waiting for you, and the
-//                                sessions that need an OK or reached a limit, as Home knows them), "To review" (what
-//                                a session has done: Accept or Send back), "This week" day by day, "Done lately"
-//   Tasks     (#/work/tasks)     every item in groups by status and date, filtered by project and by who does it
-//   Plans     (#/work/plans)     plans with their progress, one plan with its milestones and timeline, and "Plan with
-//                                AI" with its proposals (workplans.js, workpropose.js)
-//   Schedules (#/work/schedules) the schedules and the repeating tasks in one list, the queue below (workschedules.js)
-//   Activity  (#/work/activity)  the one history of the workspace, newest first: sessions, runs, commits, saves,
-//                                what the automations did and errors, by project, day and who (workhistory.js)
-// "Do it" on a task starts a coding session that does it (workdo.js). "Save" commits the Work file (and the run files)
-// in its git repository and shows what it will commit first. Where the data lives is Settings → Work (also in this
-// file). Rows and sheets are workitems.js.
+// Work (#/work, #/work/plans, #/work/schedules, #/work/activity): everything the workspace has to do, kept in a file of
+// the workspace (src/work). Four parts, each with its own address:
+//   Tasks     (#/work, #/work/tasks)  what waits for your yes, what is due this week, the other tasks; Go live and Work
+//                                     settings are closed folds at the end
+//   Plans     (#/work/plans)     Plan with AI (also: write it yourself, give it to Tia), Tia's missions and the plans
+//   Schedules (#/work/schedules) the schedules and the repeating tasks in one list; the switches are in Advanced
+//   Activity  (#/work/activity)  what runs now, then the one history of the workspace, newest first, 20 at a time
+// The old addresses are sent on: #/work/today to Tasks, #/work/team to Plans, #/work/golive to the Go live fold.
+// "Do it" on a task starts a coding session that does it (workdo.js). Rows and sheets are workitems.js.
 import { icon } from './icons.js';
-import { api, btn, fill, h, needsYou, needsYouFirst, openSheet, prefs, statusPill, toast } from './lib.js';
-import { registerPage, registerSettingsPage } from './registry.js';
+import { api, btn, fill, h, machine, openSheet, prefs, toast } from './lib.js';
+import { registerPage } from './registry.js';
 import { accessPanel } from './workaccess.js';
 import { emptyState, errorBox, field, fold, groupHead, panel, radioCards, saveBar, skeletonRows, tabBar } from './shell.js';
-import { sessionHref } from './sessionitem.js';
-import { store } from './store.js';
-import { dayWord, itemRow, itemSheet, weekLabel, whoText } from './workitems.js';
+import { partOf, showPart } from './showpart.js';
+import { itemRow, itemSheet, whoText } from './workitems.js';
 import { keepFocus, runsSheet } from './workdo.js';
 import { paintHistory } from './workhistory.js';
+import { paintRunning } from './workpulse.js';
 import { paintPlans } from './workplans.js';
-import { planWithAiSheet, proposalSections } from './workpropose.js';
+import { planWithAiSheet } from './workpropose.js';
 import { paintSchedules } from './workschedules.js';
-import { goalSheet, paintBrief, paintTeam, viewMission } from './mission.js';
-import { needsNoneWords, paintProgress } from './workpulse.js';
+import { viewMission } from './mission.js';
 import { paintShip } from './ship.js';
 
-const TABS = [['today', 'Today', 'sun'], ['tasks', 'Tasks', 'tasks'], ['plans', 'Plans', 'stack'], ['schedules', 'Schedules', 'refresh'], ['activity', 'Activity', 'clock'], ['golive', 'Go live', 'zap'], ['team', 'Team', 'user']];
+export const TABS = [['tasks', 'Tasks', 'tasks'], ['plans', 'Plans', 'stack'], ['schedules', 'Schedules', 'refresh'], ['activity', 'Activity', 'clock']];
+/** Where an address of the old Work goes: Today and Go live are in Tasks, Team is in Plans. */
+export const OLD_ADDRESSES = { today: 'tasks', golive: 'tasks', team: 'plans' };
 const CLOSED = ['done', 'dropped'];
 let cache = null; // the last answer of GET /api/work: a page opened again shows it at once
 
-function viewWork({ frame, sub }) {
-  // Team (#/work/team) and one mission of Tia's (#/work/mission/<id>): mission.js.
-  const tab = sub === 'tasks' || sub === 'activity' || sub === 'schedules' || sub === 'golive' || sub === 'team' ? sub : /^mission\/[^/]+$/.test(sub) ? 'team' : sub === 'plans' || /^(plans|proposal)\/[^/]+$/.test(sub) ? 'plans' : sub ? null : 'today';
+function viewWork({ frame, sub, query }) {
+  // One mission of Tia's (#/work/mission/<id>): mission.js, under Plans. The old addresses are sent on: Today and Go
+  // live to Tasks (Go live as its closed fold, opened), Team to Plans.
+  const old = OLD_ADDRESSES[sub];
+  if (old) {
+    const q = new URLSearchParams(query && query.toString ? query.toString() : '');
+    if (sub === 'golive' && !q.get('show')) q.set('show', 'golive');
+    const qs = q.toString();
+    location.replace(`#/work/${old}${qs ? `?${qs}` : ''}`);
+    return () => {};
+  }
+  const tab = sub === '' || sub === undefined || sub === 'tasks' ? 'tasks' : sub === 'activity' || sub === 'schedules' ? sub : /^mission\/[^/]+$/.test(sub) || sub === 'plans' || /^(plans|proposal)\/[^/]+$/.test(sub) ? 'plans' : null;
   if (!tab) {
     location.replace('#/work');
     return () => {};
@@ -45,10 +50,9 @@ function viewWork({ frame, sub }) {
   const top = h('div.wk-top');
   const content = h('div.wk-content');
   const foot = h('div.wk-foot');
-  const tabs = tabBar('Parts of Work', TABS.map(([id, label, ic]) => ({ id, label, icon: ic, href: id === 'today' ? '#/work' : `#/work/${id}` })), tab);
-  // Five parts are wider than a phone: page-work.css drops their icons there, and the open one is scrolled into view.
+  const band = h('div.wk-band'); // the offer to keep a copy of the list: at the end of Tasks and Plans, not over them
+  const tabs = tabBar('Parts of Work', TABS.map(([id, label, ic]) => ({ id, label, icon: ic, href: id === 'tasks' ? '#/work' : `#/work/${id}` })), tab);
   tabs.classList.add('wk-tabs');
-  setTimeout(() => tabs.querySelector?.('[aria-current="page"]')?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' }), 0);
   // Tasks' filter, per device.
   const filter = { project: prefs.get('work.project', ''), by: prefs.get('work.by', '') };
   const ctx = () => ({ projects: (data && data.projects) || [], today: data && data.today, project: tab === 'tasks' && filter.project !== '-' ? filter.project || '' : '', runs: (data && data.runs) || {}, doIt: !!(data && data.doIt), planTitles: (data && data.planTitles) || {} });
@@ -56,14 +60,13 @@ function viewWork({ frame, sub }) {
   // The Plans part reads the page's data as it is now (it stays drawn while the page looks again: a proposal being
   // changed is not drawn anew under the owner's hands).
   const live = new Proxy({}, { get: (_, k) => (data ? data[k] : undefined) });
-  // The page's main action. None on a proposal's screen (its own Accept is the one thing to press there), and none
-  // while the list could not be read: then Try again is the one thing to press, and an Add task would go nowhere.
+  // The page's main action. None on a proposal's or a mission's screen (its own buttons are the things to press there),
+  // and none while the list could not be read: then Try again is the one thing to press, and an Add task would go nowhere.
   let unread = false;
-  const primary = () => (unread || /^proposal\//.test(sub) || tab === 'golive' ? null : tab === 'team' ? { label: 'Give Tia a goal', icon: 'sparkle', onclick: () => goalSheet((data && data.projects) || []).then((r) => r && teamPart && teamPart.refresh()) } : tab === 'schedules' ? { label: 'Add schedule', icon: 'plus', onclick: () => schedulesPart && schedulesPart.add() } : tab === 'plans' ? { label: 'Plan with AI', icon: 'sparkle', onclick: () => planWithAiSheet(live) } : { label: 'Add task', icon: 'plus', onclick: add });
+  const primary = () => (unread || /^(proposal|mission)\//.test(sub) ? null : tab === 'schedules' ? { label: 'Add schedule', icon: 'plus', onclick: () => schedulesPart && schedulesPart.add() } : tab === 'plans' ? { label: 'Plan with AI', icon: 'sparkle', onclick: () => planWithAiSheet(live) } : tab === 'activity' ? null : { label: 'Add task', icon: 'plus', onclick: add });
   const drawFrame = () => frame({
     title: 'Work',
     page: 'work',
-    intro: 'Your tasks and plans. Today: what is due, and what waits for your yes.',
     primary: primary(),
     primaryInHead: true, // on a phone in the page head: a floating button would sit on a task's text
     body: [tabs, top, content, foot],
@@ -76,87 +79,6 @@ function viewWork({ frame, sub }) {
     drawFrame();
   };
 
-  // Today's "Needs you" (paintToday makes it). Declared before the store's first call below, which may draw into it at
-  // once: a page opened again has its last answer (cache) and is drawn before the first look.
-  let needsSlot = null;
-  let pulseWaits = 0; // what Progress lists as waiting for him: Needs you's empty line points to it
-  // The sessions that need an OK or reached a limit, on every computer: what Home shows first. Redrawn on each poll.
-  const sessionsSlot = h('div.wk-sessions');
-  let lastSessions = '';
-  const paintSessions = () => {
-    const list = store.all.flatMap((m) => m.sessions || []).filter(needsYou).sort(needsYouFirst);
-    const key = JSON.stringify(list.map((s) => [s.machine, s.name, s.status, s.limit, s.runLimit]));
-    if (key === lastSessions) return;
-    lastSessions = key;
-    fill(sessionsSlot, list.map((s) => h('a.row.wk-session', { href: sessionHref(s) },
-      h('span.row-icon', icon(s.limit || s.runLimit ? 'clock' : 'alert')),
-      h('span.row-main', h('span.row-title', s.title || s.name), h('span.row-sub', statusPill(s, { time: true }), store.multi ? ` · ${s.machineLabel}` : '')),
-      h('span.row-end', icon('chevronRight', { size: 18 })))));
-    if (data && tab === 'today') paintNeeds();
-  };
-  const unsubscribe = store.subscribe(() => alive && paintSessions());
-
-  function paintNeeds() {
-    if (!needsSlot) return;
-    const items = data.todayView.needsYou;
-    const sessions = sessionsSlot.childElementCount;
-    const head = groupHead('Needs you', items.length + sessions);
-    if (!items.length && !sessions) {
-      const [title, sub] = needsNoneWords(pulseWaits);
-      fill(needsSlot, head, h('div.rows', h('div.row.static.wk-calm', h('span.row-icon', icon('check')),
-        h('span.row-main', h('span.row-title', title), h('span.row-sub', sub)))));
-      return;
-    }
-    fill(needsSlot, head, h('div.rows', sessionsSlot.childElementCount ? [...sessionsSlot.children].map((n) => n.cloneNode(true)) : null,
-      items.map((it) => itemRow(it, ctx(), load, { why: cap(it.why) }))));
-  }
-
-  const afterProgress = (p) => {
-    pulseWaits = p ? p.counts.waiting : 0;
-    if (alive && tab === 'today') paintNeeds();
-  };
-
-  function paintToday() {
-    const t = data.todayView;
-    const year = Number(t.today.slice(0, 4));
-    needsSlot = h('section.wk-section');
-    const inWeek = t.week.reduce((n, d) => n + d.items.length, 0);
-    const chip = (it) => h(`button.wk-day-item.wk-st-${it.status}`, { type: 'button', title: it.title, onclick: () => itemSheet(it, ctx()).then((ok) => ok && load()) },
-      it.status === 'done' ? icon('check', { size: 14 }) : h('span.wk-dot'), h('span.wk-day-title', it.title), it.by !== 'me' ? h('span.wk-who', whoText(it.by)) : null);
-    const week = h('section.wk-section', groupHead('This week', inWeek), inWeek
-      ? h('div.wk-week', t.week.map((d, i) => h(`div.wk-day${d.items.length ? '' : '.wk-day-empty'}${i === 0 ? '.wk-day-now' : ''}`,
-        h('div.wk-day-name', ...weekLabel(d.date, i).map((x, k) => h(k ? 'span' : 'strong', x))),
-        d.items.length ? h('div.wk-day-items', d.items.map(chip)) : h('span.wk-none', 'Nothing due'))))
-      : h('div.rows', h('div.row.static.wk-calm', h('span.row-icon', icon('clock')), h('span.row-main', h('span.row-title', 'Nothing due in the next seven days'), h('span.row-sub', 'Give a task a date and it shows here on its day.')))));
-    const doneWord = (date) => {
-      const n = daysFrom(t.today, date);
-      return n === 0 ? 'Done today' : n === -1 ? 'Done yesterday' : `Done on ${dayWord(date, n, year)}`;
-    };
-    const done = h('section.wk-section', groupHead('Done lately', t.doneLately.length),
-      t.doneLately.length
-        ? h('div.rows', t.doneLately.map((it) => itemRow(it, ctx(), load, { why: doneWord(it.doneAt) })))
-        : h('p.hint.wk-hint', 'What you mark done in the last seven days shows here.'));
-    if (!data.items.length) {
-      const pulse0 = h('div.wk-pulse-slot');
-      paintProgress(pulse0).then(afterProgress);
-      fill(content, pulse0, needsSlot, plansToLook(), h('div.card.wk-start', emptyState('tasks', 'No tasks of your own yet. Add your first one: what is to be done and, if it has one, the day it is due. Whatever is due in the next seven days then shows here.', btn('primary', { icon: 'plus', label: 'Add your first task', onclick: add }))));
-      paintNeeds();
-      return;
-    }
-    // What a session has done: Accept or Send back, right here.
-    const review = t.toReview && t.toReview.length ? h('section.wk-section', groupHead('To review', t.toReview.length), h('div.rows', t.toReview.map((it) => itemRow(it, ctx(), load, { why: 'A session has done it' })))) : null;
-    // Progress first: what runs, how far, when it will be done, what waits for you (workpulse.js).
-    const pulse = h('div.wk-pulse-slot');
-    fill(content, pulse, needsSlot, briefSlot, plansToLook(), review, week, done);
-    paintProgress(pulse).then(afterProgress);
-    paintBrief(briefSlot);
-    paintNeeds();
-  }
-
-  // "Plan with AI": the proposals that wait for the owner (a plan to look at or one that could not be read, a session
-  // still planning, one that ended without a proposal).
-  const plansToLook = () => proposalSections(data.proposals || []);
-
   function paintTasks() {
     const items = data.items;
     const projectsHere = [...new Set([...data.projects, ...items.map((i) => i.project).filter(Boolean)])].sort();
@@ -166,15 +88,19 @@ function viewWork({ frame, sub }) {
       prefs.set(`work.${key}`, filter[key]);
       paintTasks();
     } }, options.map(([v, t]) => h('option', { value: v, selected: v === filter[key] }, t))));
-    const bar = h('div.wk-filters',
-      sel('Project', 'project', [['', 'All projects'], ['-', 'No project'], ...projectsHere.map((p) => [p, p])]),
-      sel('Who', 'by', [['', 'Anyone'], ...whos.map((w) => [w, whoText(w)])]));
     const shown = items.filter((i) => (!filter.project || (filter.project === '-' ? !i.project : i.project === filter.project)) && (!filter.by || i.by === filter.by));
     const groups = taskGroups(shown);
+    // The two filters are one closed fold at the end (open while one is set, so a hidden task is never a surprise).
+    const filtered = !!(filter.project || filter.by);
+    const bar = items.length > 4 || filtered ? fold('work-filter', filtered ? `Filter: ${[filter.project === '-' ? 'no project' : filter.project, filter.by ? whoText(filter.by) : null].filter(Boolean).join(', ')}` : 'Filter', h('div.wk-filters',
+      sel('Project', 'project', [['', 'All projects'], ['-', 'No project'], ...projectsHere.map((p) => [p, p])]),
+      sel('Who', 'by', [['', 'Anyone'], ...whos.map((w) => [w, whoText(w)])]))) : null;
+    if (bar && filtered) bar.open = true;
     const parts = groups.filter((g) => !g.closed && g.items.length).map((g) => h('section.wk-section', groupHead(g.title, g.items.length), h('div.rows', g.items.map((it) => itemRow(it, ctx(), load)))));
     const closed = groups.filter((g) => g.closed && g.items.length).map((g) => fold(`work-${g.id}`, `${g.title} (${g.items.length})`, h('div.rows', g.items.map((it) => itemRow(it, ctx(), load)))));
+    // One empty line: the page's own Add task is the one action (a second button here would be a second door).
     const empty = !items.length
-      ? h('div.card.wk-start', emptyState('tasks', 'No tasks of your own yet. Add one: a title is enough, a date and a project help.', btn('primary', { icon: 'plus', label: 'Add a task', onclick: add })))
+      ? h('p.hint.wk-hint.wk-empty', 'No tasks of your own yet. Add one with Add task: a title is enough.')
       : !shown.length ? emptyState('search', 'Nothing matches this filter.', btn('secondary', { label: 'Show everything', onclick: () => {
         filter.project = '';
         filter.by = '';
@@ -182,13 +108,13 @@ function viewWork({ frame, sub }) {
         prefs.set('work.by', '');
         paintTasks();
       } })) : !parts.length ? h('p.hint.wk-hint', 'Nothing open: everything here is done or dropped.') : null;
-    fill(content, items.length ? bar : null, empty, parts, closed);
+    fill(content, empty, parts, closed, bar);
   }
 
-  // The bar over both parts: why the Work folder cannot be used, a file a change would alter (with "Tidy the file
+  // The bar over the parts: why the Work folder cannot be used, a file a change would alter (with "Tidy the file
   // once"), or the offer to keep a copy of the list in its repository (saveBand).
   async function paintTop() {
-    if (!data || data.problem) return fill(top, data && data.problem ? h('div.banner.warn', icon('alert', { size: 18 }), h('span', data.problem, ' ', h('a', { href: '#/settings/work' }, 'Settings → Work'))) : null);
+    if (!data || data.problem) return fill(top, data && data.problem ? h('div.banner.warn', icon('alert', { size: 18 }), h('span', data.problem, ' ', h('a', { href: '#/work/tasks?show=work-place' }, 'Work settings'))) : null);
     const tidy = data.untidy ? h('div.banner.warn.wk-untidy', icon('alert', { size: 18 }),
       h('div.wk-untidy-text',
         h('strong', 'This file has things a change would alter, so Work changes nothing in it yet.'),
@@ -244,35 +170,53 @@ function viewWork({ frame, sub }) {
       } })) : null;
     const lead = [recovered, interrupted, owner, tidy, doubles];
     let plan;
+    // The offer to keep a copy belongs to the list and the plans only: not to Schedules, Activity or a mission.
+    if (tab !== 'tasks' && tab !== 'plans') return fill(top, lead);
     try {
       plan = await api('/api/work/save');
     } catch {
       return fill(top, lead);
     }
     if (!alive) return;
-    if (plan.problem || plan.nothing) return fill(top, lead);
+    fill(top, lead);
+    if (plan.problem || plan.nothing) return fill(band);
     const words = saveBand(plan, data.place);
-    if (!words) return fill(top, lead);
+    if (!words) return fill(band);
     const save = () => saveSheet().then(load);
     // An earlier copy of the Work file not on the server (an older version, or made by hand): said quietly; the button
     // sends it. A save of this version never leaves one: it reaches the server or stays a change in the file.
-    if (words.quiet) return fill(top, lead, h('p.hint.wk-hint', icon('git', { size: 14 }), ` ${words.text} `, btn('small secondary', { label: words.label, onclick: save })));
-    fill(top, lead, h('div.banner.info.wk-savebar', icon('git', { size: 18 }),
+    if (words.quiet) return fill(band, h('p.hint.wk-hint', icon('git', { size: 14 }), ` ${words.text} `, btn('small secondary', { label: words.label, onclick: save })));
+    fill(band, h('div.banner.info.wk-savebar', icon('git', { size: 18 }),
       h('span', words.text),
       btn('small primary', { icon: 'upload', label: words.label, onclick: save })));
   }
 
+  // The folds at the end of Tasks: Go live, then "Work settings". Drawn once, from the answer the page already has (no
+  // second request); Work settings only on this computer's own page: they are this computer's. "…?show=work-place"
+  // and "…?show=golive" (or a part inside it, such as sp-limiter) open the fold at the place.
+  let settingsFoot = null;
+  let goLive = null;
   function paintFoot() {
-    if (!data || !data.place) return fill(foot);
-    fill(foot, h('p.hint.wk-hint', icon('folder', { size: 14 }), ` Kept in ${data.place.label}/${data.place.fileName} · `, h('a', { href: '#/settings/work' }, 'change where')));
+    if (tab === 'plans') return fill(foot, band);
+    if (tab !== 'tasks') return fill(foot);
+    if (!goLive) {
+      goLive = goLiveFold(() => alive);
+    }
+    if (!machine.current && data && data.settings && !settingsFoot) settingsFoot = workSettingsPart(data);
+    fill(foot, band, goLive.el, !machine.current ? settingsFoot : null);
+    const part = partOf(query);
+    if (part && !partShown) {
+      partShown = true;
+      if (part === 'golive' || part.startsWith('sp-')) goLive.open();
+      setTimeout(() => alive && showPart(part, { alive: () => alive }), 0);
+    }
   }
+  let partShown = false;
 
   let activity = null; // the Activity part's handle (workhistory.js paintHistory): refresh, working
   let plansPart = null; // the Plans part's handle (paintPlans): drawn once, then refreshed
   let schedulesPart = null; // the Schedules part's handle (paintSchedules): drawn once
-  let teamPart = null; // the Team part's or a mission's handle (mission.js): drawn once, then refreshed
-  const briefSlot = h('div.ms-brief-slot'); // Today: Tia's morning brief (mission.js paintBrief), only when she has missions
-  let shipPart = null; // the Go live part's handle (ship.js paintShip): drawn once, it loads its own data
+  let missionPart = null; // one mission of Tia's (mission.js viewMission)
   const historySlot = h('div.wk-history-slot');
   const openRuns = (id) => {
     const it = data && data.items.find((x) => x.id === id);
@@ -281,18 +225,11 @@ function viewWork({ frame, sub }) {
   };
   function paint() {
     activity = null;
-    if (tab === 'team') {
-      const m = /^mission\/([^/]+)$/.exec(sub);
-      if (teamPart) teamPart.refresh();
-      else teamPart = m ? viewMission(content, decodeURIComponent(m[1])) : paintTeam(content, { onGoal: () => goalSheet((data && data.projects) || []).then((r) => r && teamPart && teamPart.refresh()) });
-      paintTop();
-      paintFoot();
-      return;
-    }
-    if (tab === 'golive') {
-      if (!shipPart) shipPart = paintShip(content);
-      fill(top); // Work's own banners (where its list is kept) are not about going live
-      paintFoot();
+    if (/^mission\//.test(sub)) {
+      if (!missionPart) missionPart = viewMission(content, decodeURIComponent(/^mission\/([^/]+)$/.exec(sub)[1]));
+      else missionPart.refresh();
+      fill(top);
+      fill(foot);
       return;
     }
     if (tab === 'schedules') {
@@ -313,21 +250,21 @@ function viewWork({ frame, sub }) {
       return;
     }
     if (data.problem) {
-      fill(content, data.place ? null : h('div.card.wk-start', emptyState('folder', 'Work keeps its list in a folder of your workspace. Choose where in Settings → Work.', btn('primary', { label: 'Open Settings → Work', onclick: () => (location.hash = '#/settings/work') }))),
+      fill(content, data.place ? null : h('div.card.wk-start', emptyState('folder', 'Work keeps its list in a folder of your workspace. Choose where in Work settings, at the foot of Tasks.', btn('primary', { label: 'Open Work settings', onclick: () => (location.hash = '#/work/tasks?show=work-place') }))),
         // The history (what the automations did, Hands-off's answers among them, the sessions, the commits) needs no
         // list of tasks: it is shown all the same.
         tab === 'activity' ? h('section.wk-section', historySlot) : null);
       if (tab === 'activity') activity = paintHistory(historySlot, { prefs, isAlive: () => alive });
-    } else if (tab === 'today') paintToday();
-    else if (tab === 'activity') {
-      // The one history: sessions, the runs of the tasks, commits, saves, what the automations did and errors.
-      if (!content.contains(historySlot)) fill(content, historySlot);
+    } else if (tab === 'activity') {
+      // What runs now, then the one history: sessions, the runs of the tasks, commits, saves, what the automations did.
+      if (!content.contains(historySlot)) fill(content, runningSlot, historySlot);
+      paintRunning(runningSlot);
       activity = paintHistory(historySlot, { prefs, today: data.today, onTask: openRuns, isAlive: () => alive });
-    }
-    else paintTasks();
+    } else paintTasks();
     paintTop();
     paintFoot();
   }
+  const runningSlot = h('div.wk-running-slot');
 
   let drawn = null; // what the page was drawn from: a look that brings the same draws nothing (focus and filters stay)
   let failed = false; // a refresh failed and said so: said once, until one works again
@@ -370,11 +307,32 @@ function viewWork({ frame, sub }) {
   return () => {
     alive = false;
     plansPart?.stop?.();
-    teamPart?.stop?.();
-    shipPart?.stop?.();
+    missionPart?.stop?.();
+    goLive && goLive.ship && goLive.ship.stop && goLive.ship.stop();
     clearInterval(watch);
-    unsubscribe();
   };
+}
+
+/**
+ * Go live, the closed fold at the end of Tasks (it was a tab of its own): finished task branches put together on one
+ * branch, checked and made live (ship.js). Its part is drawn when the fold is first opened (or at once when the owner
+ * left it open). → { el, ship, open() }.
+ */
+export function goLiveFold(isAlive = () => true) {
+  const slot = h('div.wk-golive');
+  const out = { ship: null };
+  const start = () => {
+    if (!out.ship && isAlive()) out.ship = paintShip(slot);
+  };
+  const el = fold('work-golive', 'Go live', slot);
+  el.id = 'golive';
+  el.classList.add('wk-golive-fold');
+  el.addEventListener('toggle', () => el.open && start());
+  if (el.open) start();
+  return { el, get ship() { return out.ship; }, open: () => {
+    el.open = true;
+    start();
+  } };
 }
 
 const cap = (s) => (s ? s.charAt(0).toUpperCase() + s.slice(1) : s);
@@ -403,20 +361,18 @@ export function unsavedText(plan) {
   return parts.length ? parts.join(' and ') : plural(plan.files.length, 'change');
 }
 const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
-const daysFrom = (a, b) => Math.round((Date.parse(`${b}T00:00:00Z`) - Date.parse(`${a}T00:00:00Z`)) / 86_400_000);
 
-/** The groups of the Tasks part, in order: by status first (waiting, review, doing), then open ones by date. */
+/**
+ * The groups of the Tasks part, in order: what waits for your yes (waiting for you, or ready for your review), what a
+ * session works on, what is due this week (overdue, today, the next seven days, by date), then later ones (the undated last).
+ */
 export function taskGroups(items) {
   const rank = (a, b) => (a.priority === 'high' ? 0 : 1) - (b.priority === 'high' ? 0 : 1) || String(a.date || '9').localeCompare(String(b.date || '9')) || a.title.localeCompare(b.title);
   const g = [
-    { id: 'waiting', title: 'Waiting for you', test: (i) => i.status === 'waiting' },
-    { id: 'review', title: 'Ready for your review', test: (i) => i.status === 'review' },
+    { id: 'yes', title: 'Waits for your yes', test: (i) => i.status === 'waiting' || i.status === 'review' },
     { id: 'doing', title: 'A session works on it', test: (i) => i.status === 'doing' },
-    { id: 'overdue', title: 'Overdue', test: (i) => typeof i.days === 'number' && i.days < 0 },
-    { id: 'today', title: 'Today', test: (i) => i.days === 0 },
-    { id: 'week', title: 'Next seven days', test: (i) => i.inWeek }, // the server's one rule (model.mjs inWeek)
-    { id: 'later', title: 'Later', test: (i) => typeof i.days === 'number' },
-    { id: 'nodate', title: 'No date', test: () => true },
+    { id: 'week', title: 'Due this week', test: (i) => typeof i.days === 'number' && (i.days <= 0 || i.inWeek) }, // inWeek: the server's one rule (model.mjs)
+    { id: 'later', title: 'Later', test: () => true }, // due after this week, or no date (the undated come last)
   ];
   const open = items.filter((i) => !CLOSED.includes(i.status));
   const out = g.map((x) => ({ ...x, items: [] }));
@@ -555,20 +511,14 @@ function saveSheet() {
 
 registerPage({ id: 'work', title: 'Work', icon: 'tasks', group: 'main', order: 5, render: viewWork });
 
-// ---------- Settings → Work ----------
+// ---------- Work settings (the foot of Work > Tasks) ----------
 
-registerSettingsPage({
-  id: 'work', title: 'Work', icon: 'tasks', order: 16, onlyHere: true,
-  desc: 'Where your tasks are kept, and how a save is committed.',
-  summary: () => api('/api/work').then((w) => (w.place ? `Kept in ${w.place.label}` : 'Not set up yet'), () => ''),
-  render: () => {
-    const slot = h('div', skeletonRows(2));
-    api('/api/work').then((w) => fill(slot, settingsPanels(w)), (e) => fill(slot, errorBox(e)));
-    return [slot];
-  },
-});
-
-function settingsPanels(w) {
+/**
+ * "Work settings", folded at the foot of Tasks (they were a Settings page, far from the work): where the tasks are
+ * kept stays open inside it; the time zone, your id in a planning file and "Another program" (tokens, webhooks,
+ * limits) sit in its More. The commit subject has no field: Work's own default is used, an old value keeps working.
+ */
+export function workSettingsPart(w) {
   const s = { ...w.settings };
   const projectPart = h('div.wk-where');
   const paintProject = () => fill(projectPart, s.place !== 'project' ? null : [
@@ -578,7 +528,7 @@ function settingsPanels(w) {
       'A folder inside the project. A planning list already there (deadlines.json) is used as it is.'),
   ]);
   paintProject();
-  const where = panel({ icon: 'folder', title: 'Work data lives in', desc: 'Your tasks are one file in a git repository of your workspace, so every computer that has it sees the same list.' },
+  const where = panel({ id: 'work-place', icon: 'folder', title: 'Where your tasks are kept', desc: 'Your tasks are one file in a git repository of your workspace, so every computer that has it sees the same list.' },
     radioCards('work-place', [
       { value: 'brain', title: 'The AI brain', sub: 'ai_brain/work: on every computer that has your brain' },
       { value: 'project', title: 'A project', sub: 'A folder of one project, for a list that belongs to it' },
@@ -588,10 +538,9 @@ function settingsPanels(w) {
     }),
     projectPart,
     saveBar('Save', () => api('/api/work/settings', { place: s.place, project: s.project, path: s.path }), 'Saved: Work uses this folder'));
-  const more = panel({ title: 'Saving, dates and planning files' },
-    field('Commit subject', h('input.field', { value: s.saveSubject, maxlength: 100, oninput: (e) => (s.saveSubject = e.target.value) }), 'The message of the commit each Save makes.'),
+  const more = panel({ title: 'Dates and planning files' },
     field('Time zone', h('input.field', { value: s.timeZone, placeholder: 'This computer\'s own', autocapitalize: 'off', spellcheck: 'false', oninput: (e) => (s.timeZone = e.target.value.trim()) }), 'What "today" means for due dates. Empty: this computer\'s clock. Or a name such as Europe/Berlin.'),
     field('Your id in a planning file', h('input.field.mono', { id: 'owner-id', value: s.ownerId, autocapitalize: 'off', spellcheck: 'false', oninput: (e) => (s.ownerId = e.target.value.trim()) }), 'A planning tool\'s list names who does an item; this is the word it uses for you. Items with it are yours, and only the ones you added can be removed.'),
-    saveBar('Save', () => api('/api/work/settings', { saveSubject: s.saveSubject, timeZone: s.timeZone, ownerId: s.ownerId })));
-  return [where, more, accessPanel()];
+    saveBar('Save', () => api('/api/work/settings', { timeZone: s.timeZone, ownerId: s.ownerId })));
+  return fold('work-settings', 'Work settings', where, fold('work-settings-more', 'More', more, accessPanel()));
 }

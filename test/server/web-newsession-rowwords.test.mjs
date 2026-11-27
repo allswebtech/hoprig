@@ -1,4 +1,4 @@
-// New session: one action per project row, in words: "Start" on the row itself (a new session there), and
+// New session: one action per project row: the row itself is the button (a new session there, no Start word on it), and
 // "Continue" / "Continue (2)" beside it where sessions run already.
 import assert from 'node:assert/strict';
 import test from 'node:test';
@@ -151,14 +151,15 @@ const tile = (n, id) => find(n, (x) => x.attrs['data-choice'] === id);
 const off = (el) => el.disabled === true || (el.disabled === undefined && 'disabled' in el.attrs);
 const settle = () => new Promise((r) => realTimeout(r, 30));
 
-test('a project row says Start; where sessions run, Continue beside it, with their number when several', async () => {
+test('a project row has no Start word; where sessions run, Continue beside it, with their number when several', async () => {
   localStorage.removeItem('pref:new.openAs');
   location.hash = '#/';
   const done = P.openNewSession({ m: null });
   await settle();
   const sheet = body.children.find((x) => x.tag === 'dialog');
   const shop = sheet.querySelector('button.row[data-name="shop"]');
-  assert.match(text(shop), /shop .*Start/, 'the row says what a press does');
+  assert.doesNotMatch(text(shop), /Start/, 'the line over the list says what a tap does, once');
+  assert.equal(find(shop, (x) => /ns-startword|row-end/.test(x.className || '')), undefined, 'and no word or picture at the end of the row');
   assert.equal(find(sheet, (x) => x.attrs['data-open'] === 'shop'), undefined, 'nothing runs there: one action');
   const one = find(sheet, (x) => x.attrs['data-open'] === 'api');
   assert.equal(text(one).trim(), 'Continue');

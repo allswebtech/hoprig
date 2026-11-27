@@ -1,4 +1,4 @@
-// What Settings → Updates looks after: Hoprig itself, the coding tools this version offers and the tunnel helper (cloudflared, for
+// What Settings → Version and updates looks after: Hoprig itself, the coding tools this version offers and the tunnel helper (cloudflared, for
 // the public link). One item each, all with the same shape, so the page, the command line and the automatic rule
 // treat them alike:
 //
@@ -24,6 +24,7 @@ import { gitRead } from '../gitread.mjs';
 import { forInstalls } from '../secretenv.mjs';
 import { capture, compareVersions, npmMajor, showCommand, stream } from '../setup/system.mjs';
 import { busy, toolOf } from './cards.mjs';
+import { beginUpdate, undoUpdate } from '../keeper/keep.mjs';
 
 export { toolOf };
 const plural = (n, one) => `${n} ${one} session${n === 1 ? '' : 's'}`;
@@ -63,7 +64,7 @@ export function hoprigItem(deps = {}) {
     id: 'hoprig',
     title: 'Hoprig',
     whenRunning:
-      'The new version is used after the dashboard restarts: sessions kept by tmux go on through the restart, sessions in the built-in terminals end then (their conversations can be continued). Hoprig never updates itself: Automatic tells you, and you choose the moment.',
+      'The new version is used after the dashboard restarts: sessions kept by tmux (a program that keeps terminals running) go on through the restart, sessions in the built-in terminals end then (their conversations can be continued). Hoprig never updates itself: Automatic tells you, and you choose the moment.',
     installable: false,
     async info() {
       const [{ installKind, newestVersion }, { appRoot, appVersion }] = await Promise.all([sel(), chk()]);
@@ -105,11 +106,20 @@ export function hoprigItem(deps = {}) {
         onLine('This install cannot update itself: install it again the way you did first.');
         return { ok: false, version: appVersion(), output: '' };
       }
+      // The running version is kept aside first; a step that fails puts it back (src/keeper/keep.mjs).
+      const begun = beginUpdate({ kind, root, version: appVersion(), ...(deps.keeperState ? { state: deps.keeperState } : {}) });
+      if (begun.error) {
+        onLine(`The running version could not be kept aside (${begun.error}), so nothing was changed.`);
+        return { ok: false, version: appVersion(), output: begun.error };
+      }
       for (const step of plan) {
         onLine(`$ ${showCommand(step.argv)}`);
         const r = await (deps.stream || stream)(step.argv, { cwd: step.cwd, env: forInstalls(process.env), onLine });
         if (!r.ok && step.ifFails) onLine(step.ifFails);
-        else if (!r.ok) return { ok: false, version: appVersion(), output: `exit code ${r.code}` };
+        else if (!r.ok) {
+          if (begun.kept) onLine(undoUpdate(deps.keeperState ? { state: deps.keeperState } : {}));
+          return { ok: false, version: appVersion(), output: `exit code ${r.code}` };
+        }
       }
       onLine('Done. Restart the dashboard to use the new version (hoprig service restart starts the background one again; on Windows type it in PowerShell, not in the dashboard\'s own terminal). Until then it runs the version it started with.');
       return { ok: true, version: appVersion(), output: '', restart: true };

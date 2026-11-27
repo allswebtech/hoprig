@@ -17,4 +17,4 @@ export const startingPill = (s = null) => {
   return h('span.pill.st-starting', h('span.dot'), `Starting ${TOOL_NAMES[tool] || 'Claude Code'}…`);
 };
 
-export { folderSub, outsideProjects, repoWords, runningIn } from './newsession-words.js';
+export { folderSub, outsideProjects, runningIn } from './newsession-words.js';

@@ -12,16 +12,26 @@ const read = (f) => fs.readFileSync(path.join(ROOT, f), 'utf8');
 const flat = (s) => s.replace(/\s+/g, ' ');
 const { KITS, FLUTTER } = await import('../src/pcsetup/kits.mjs');
 const { DEV_PLACES } = await import('../src/workspace/layout.mjs');
+const { withPlatform } = await import('./pin-platform.mjs');
+// The defaults are those of Linux and macOS; Windows has two more optional kits, and the docs say which.
+const WIN_OPTIONAL = ['Python', 'Terminal extras'];
+const onLinux = (fn) => withPlatform('linux', fn);
 
 // Only the kits in the kit data: a kit named in README or the changelog before it is there fails here.
 const kits = KITS;
 const words = (s) => s.split(/, | and /).map((x) => x.trim());
 
-test('README names every kit, the default ones and the optional ones, as the kit data has them', () => {
-  const m = /\*\*Kits\*\*: (.+?) are set up by default; (.+?) are optional, off until you choose them\./.exec(flat(read('README.md')));
+test('README names every kit, the default ones and the optional ones, as the kit data has them', async () => {
+  const text = flat(read('README.md'));
+  const m = /\*\*Kits\*\*: (.+?) are set up by default; (.+?) are optional, off until you choose them\. On Windows, (.+?) are optional too\./.exec(text);
   assert.ok(m, 'README has the Kits line');
-  assert.deepEqual(words(m[1]), kits.filter((k) => k.defaultOn).map((k) => k.title));
-  assert.deepEqual(words(m[2]), kits.filter((k) => !k.defaultOn).map((k) => k.title));
+  await onLinux(() => {
+    assert.deepEqual(words(m[1]), kits.filter((k) => k.defaultOn).map((k) => k.title));
+    assert.deepEqual(words(m[2]), kits.filter((k) => !k.defaultOn).map((k) => k.title));
+  });
+  await withPlatform('win32', () => {
+    assert.deepEqual(words(m[3]), kits.filter((k) => !k.defaultOn && !words(m[2]).includes(k.title)).map((k) => k.title), 'what is optional on Windows besides those');
+  });
 });
 
 test('the changelog names the Flutter kit by its id, its place and the vendor\'s host, and no kit that is not there', () => {
@@ -71,11 +81,17 @@ test('the sheet\'s promise in the changelog is what the page draws', () => {
   assert.match(job, /did not work: \$\{why\}\./, 'a failed check says what went wrong');
 });
 
-test('docs/PC-SETUP.md has a row in its Kits table for every kit, by the title the Setup page shows', () => {
+test('docs/PC-SETUP.md has a row in its Kits table for every kit, by the title the Setup page shows', async () => {
   const doc = read('docs/PC-SETUP.md');
   const table = doc.slice(doc.indexOf('| Kit | Items | How |'), doc.indexOf('\n\n', doc.indexOf('| Kit | Items | How |')));
   const rows = [...table.matchAll(/^\| \*\*(.+?)\*\*( \(optional, off by default\))? \|/gm)].map((m) => ({ title: m[1], optional: Boolean(m[2]) }));
-  assert.deepEqual(rows, kits.map((k) => ({ title: k.title, optional: !k.defaultOn })));
+  await onLinux(() => assert.deepEqual(rows, kits.map((k) => ({ title: k.title, optional: !k.defaultOn }))));
+  await withPlatform('win32', () => {
+    for (const k of kits.filter((x) => !x.defaultOn && !rows.find((r) => r.title === x.title).optional)) {
+      assert.ok(WIN_OPTIONAL.includes(k.title), k.title);
+      assert.match(table.split('\n').find((l) => l.startsWith(`| **${k.title}** `)), /on Windows this kit is optional/, `${k.title}: the row says it is optional on Windows`);
+    }
+  });
   const flutter = table.split('\n').find((l) => l.startsWith('| **Flutter** '));
   assert.match(flutter, new RegExp(`\`${DEV_PLACES.flutter.rel}\``), 'the Flutter row names its place');
   assert.match(flutter, new RegExp(FLUTTER.host.replace(/\./g, '\\.')), 'the Flutter row names the host');

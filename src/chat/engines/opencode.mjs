@@ -20,11 +20,11 @@ const TOOL = 'opencode';
 const fail = (status, message, code = null) => Object.assign(new Error(message), { status, ...(code ? { details: { code } } : {}) });
 const enc = encodeURIComponent;
 
-// Turned off in Settings → Coding tools: an open chat of it runs no turn and starts no server any more. o.enabled: a
+// Turned off in Settings → New sessions → Coding tools: an open chat of it runs no turn and starts no server any more. o.enabled: a
 // stand-in (tests).
 const isOn = (o) => (o.enabled ? o.enabled() : enabledToolIds(loadConfig()).includes(TOOL));
 function assertOn(o) {
-  if (!isOn(o)) throw fail(409, 'OpenCode is off on this computer: turn it on under Settings → Coding tools to go on with this chat.', 'tool-off');
+  if (!isOn(o)) throw fail(409, 'OpenCode is off on this computer: turn it on under Settings → New sessions → Coding tools to go on with this chat.', 'tool-off');
 }
 
 /** A turn runs on the server now (its last start is later than its last end). */

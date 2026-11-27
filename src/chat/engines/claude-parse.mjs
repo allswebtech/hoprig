@@ -147,6 +147,7 @@ function taskEvent(m) {
   if (typeof status === 'string') ev.status = status === 'killed' ? 'stopped' : status;
   if (p.error || m.error) ev.error = plainText(String(p.error || m.error), 500);
   if (m.usage && typeof m.usage === 'object') ev.usage = { tokens: num(m.usage.total_tokens), tools: num(m.usage.tool_uses), ms: num(m.usage.duration_ms) };
+  if (typeof m.output_file === 'string' && m.output_file.length < 1000) ev.outputFile = m.output_file; // a shell's output (tasks.mjs taskOutput)
   if (typeof m.summary === 'string') ev.summary = plainText(m.summary, 300);
   if (typeof m.last_tool_name === 'string') ev.lastTool = m.last_tool_name.slice(0, 100);
   if (Array.isArray(m.workflow_progress)) Object.assign(ev, workflowTree(m.workflow_progress));

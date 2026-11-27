@@ -1,5 +1,12 @@
 /* Home's own styles (home.js, homefold.js, closesheet.js). */
 
+/* A new install shows ONE card (firstrun.js): nothing that an empty Home would add stays beside it. */
+body.first-run .pagehead-primary, body.first-run .page-intro, body.first-run .accountsline, body.first-run .home-groups, body.first-run .home-op, body.first-run .nav-badge { display: none; }
+.firstrun .gs-buttons { display: flex; flex-wrap: wrap; gap: 8px; }
+.firstrun .gs-paid { font-size: var(--fs-xs); color: var(--muted); text-decoration: underline; }
+.firstrun .gs-step { flex-wrap: wrap; }
+@media (max-width: 600px) { .firstrun .gs-buttons { flex-basis: 100%; padding-left: 32px; } }
+
 /* The fold of the sessions that have waited for more than 6 hours: one line, Show and End them… beside it. */
 .home-fold { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; margin-top: 12px; padding: 10px 12px; border-radius: var(--r); background: var(--surface); border: 1px dashed var(--border-strong); }
 /* Scrolled to, the line stays below the sticky page head (style.css .pagehead), as a panel does. */
@@ -21,3 +28,21 @@
 .close-row-sub { font-size: 12.5px; color: var(--muted); overflow-wrap: anywhere; }
 .close-result { margin: 4px 0 10px; }
 .close-result ul { margin: 6px 0 0; padding-left: 20px; }
+
+/* A card's second row: where it runs, the computer, the provider, the folder. One line, never wrapping; the folder is
+   what gives way. */
+.card-where { display: flex; align-items: center; flex-wrap: nowrap; gap: 0 6px; margin-top: 4px; min-width: 0; overflow: hidden; font-size: 12.5px; color: var(--muted); white-space: nowrap; }
+.card-where > * { flex: none; }
+.card-where .badge.toolchip { margin-right: 2px; }
+.cw { display: inline-flex; align-items: center; gap: 4px; }
+.cw + .cw::before, .card-where .badge + .cw::before { content: '\00b7'; margin-right: 2px; }
+.card-where .card-path { flex: 0 1 auto; min-width: 0; }
+.card-path-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+/* The state at the right of the title, in words. */
+.home-groups .card-top { flex-wrap: nowrap; align-items: flex-start; gap: 8px; }
+.home-groups .card-name { flex: 1 1 0; white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
+.home-groups .card-top .pill { flex: none; }
+/* A phone: a tighter card, so more of them are on the first screen. */
+@media (max-width: 600px) {
+  .home-groups article.card { padding: 12px 14px; }
+}

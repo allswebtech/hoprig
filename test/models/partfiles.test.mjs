@@ -44,7 +44,8 @@ test('at the start, files an earlier run left are removed; a chat from before sa
   door.configFor(old);
   door.configFor(old);
   assert.equal(old.pushed.length, 1, 'said once');
-  assert.match(old.pushed[0].text, /restarted: parts this session handed before are no longer followed/);
+  assert.match(old.pushed[0].text, /^Hoprig restarted\. Parts this chat handed to other models before that are no longer shown here/);
+  assert.equal(old.pushed[0].topic, 'parts-restart', 'the page shows it only where a part was handed');
   const fresh = chatOf('55555555-5555-4555-8555-555555555555');
   door.configFor(fresh);
   assert.equal(fresh.pushed.length, 0, 'a chat opened since says nothing');

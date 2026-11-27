@@ -10,6 +10,10 @@
 // invalid_request, model_not_found, server_error, max_output_tokens, cloud_credential_error, unknown.
 // A dropped connection arrives as "unknown".
 //
+// Only on a subscription provider: a session on a provider paid per use (card.paidProfile, set by the server adapter)
+// is never tried again by a rule, and an error that says a 4xx status is never tried again (the same request fails the
+// same way). Both get the give-up line and a row instead.
+//
 // Stored per session: { attempts, handled (failure.at acted on), sentAt, toldFor (failure.at we gave up on) }
 import { atLimit, busy, isClaudeCard } from './cards.mjs';
 import { classify } from '../providers/table.mjs';
@@ -18,6 +22,8 @@ export const RETRY_KINDS = new Set(['server_error', 'overloaded', 'unknown']);
 // What fails the same way each time it is sent: a model name the endpoint refuses, an input it does not take for the
 // model, and the provider's own refusal (never sent again by a rule). Claude Code says `unknown` for the first two.
 const NOT_AGAIN = new Set(['model', 'input', 'refusal']);
+// An error text that names a 4xx status ("API Error: 400 ..."): the request itself is refused.
+const CLIENT_ERROR = /(?:^|[^\d.])4\d\d(?:[^\d]|$)/;
 
 /** When the next retry of a session is due, for a tick that wants to wake up in time. */
 export const dueAt = (failureAt, attempts, firstMinutes) => failureAt + firstMinutes * 60_000 * 2 ** attempts;
@@ -38,6 +44,7 @@ export function decide({ cards, data, now, max, firstMinutes }) {
     const f = c.failure;
     if (!f || !RETRY_KINDS.has(f.error) || busy(c) || atLimit(c) || f.at === st.handled) continue;
     if (NOT_AGAIN.has(classify({ error: f.error, text: f.text })?.reason)) continue;
+    if (c.paidProfile === true || CLIENT_ERROR.test(String(f.text || ''))) continue;
     if (st.attempts >= max) {
       if (st.toldFor !== f.at) {
         actions.push({ type: 'give-up', session: c.name, attempts: st.attempts, error: f.error });

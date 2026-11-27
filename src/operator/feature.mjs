@@ -25,7 +25,7 @@ import { projectsIn, workspaceDir } from '../workspace/layout.mjs';
 import { projectFolders } from '../workspace/groups.mjs';
 import { readMap } from '../workspace/map.mjs';
 import { reflexes } from './reflex.mjs';
-import { applyOperatorPatch } from './rules.mjs';
+import { RULES, applyOperatorPatch } from './rules.mjs';
 import { KIND_SOURCES, attention, publicAttention } from './attention.mjs';
 import { boardCache, buildBoard, publicBoard } from './board.mjs';
 import { KINDS, allowedActs, itemId, publicItem } from './item.mjs';
@@ -38,6 +38,7 @@ import { elsewhereOf, endElsewhere, readElsewhere, setElsewhere } from './where-
 import { applyLookPatch, looks as lookPart } from './look.mjs';
 import { applyCorrectionsPatch, correctionCounts, forgetCorrections, noteCorrection, readCorrections, writeEvidence } from './corrections.mjs';
 import { replaceFile } from '../replacefile.mjs';
+import { createActivityLog } from '../automation/store.mjs';
 
 const TAP_KEEP_MS = 60_000;
 const TIMELINE_SHOWN = 30;
@@ -76,11 +77,14 @@ const writeJson = (file, value) => {
 
 /** The timeline: one JSON line per tap, the newest last; cut to its newest half when it grows too big. */
 export function timeline({ file = () => path.join(dir(), 'timeline.jsonl') } = {}) {
+  const FREE = new Set(RULES.filter((r) => r.cost === 'none').map((r) => r.id));
   return {
     add({ keep, ...raw }) {
       const line = raw.by ? { ...raw, result: plain(raw.result, keep) } : raw;
       fs.mkdirSync(path.dirname(file()), { recursive: true });
       fs.appendFileSync(file(), `${JSON.stringify(line)}\n`);
+      // A mend that costs nothing and worked is also one line in Activity: with Tia off her tab is hidden, and this is where he sees it.
+      if (FREE.has(raw.by) && raw.ok !== false && !raw.refused) createActivityLog(path.join(path.dirname(path.dirname(file())), 'automation.log')).add({ automation: 'mend', did: `Mended: ${line.result}`, outcome: 'ok' });
       try {
         if (fs.statSync(file()).size > TIMELINE_MAX_BYTES) {
           const lines = fs.readFileSync(file(), 'utf8').trim().split('\n');
@@ -175,7 +179,7 @@ export function operatorFeature(ctx, { sources = null, session = {}, acts = {}, 
   // `gateways`: the add-ons the look checks (the demo's pretend one); by default the computer's own (gatewayAddons).
   const own = sources ? null : defaultSources(ctx, { port: () => port, address: () => address, now, keepLeftover, rooms, ...(gateways ? { gateways } : {}) });
   const src = sources || own.sources;
-  const doer = { ...defaultActs({ now, gateways }), ...acts };
+  const doer = { ...defaultActs({ now, gateways, start: session.start }), ...acts };
 
   const cache = boardCache((t) => buildBoard(src, { now: t, timeoutMs, extra: { port, lastLook: looks().prev, ...(rooms ? elsewhereOf({ view: rooms(), computers: ctx.config().assistant?.computers, held: readElsewhere(now(), { computers: ctx.config().assistant?.computers ?? null }) }) : {}) } }), { ttlMs: cacheMs, clock: now });
 
@@ -259,6 +263,10 @@ export function operatorFeature(ctx, { sources = null, session = {}, acts = {}, 
         return doer.restartLink(t);
       case 'restart-gateway':
         return doer.restartGateway(t);
+      case 'reopen':
+        return doer.reopen(t);
+      case 'clean':
+        return doer.clean(t);
       default:
         if (ANSWERS.includes(id)) {
           const option = ANSWERS.indexOf(id) + 1;
@@ -368,7 +376,7 @@ export function operatorFeature(ctx, { sources = null, session = {}, acts = {}, 
     const st = await ctx.state();
     return { profiles: st.profiles || [], autoSwitch: st.autoSwitch || {} };
   });
-  const rx = reflexes({ ctx, perform, fresh, line, dir, now, accounts: accountsNow, projectOf, move: async (name, to) => {
+  const rx = reflexes({ ctx, perform, fresh, peek: list, line, dir, now, accounts: accountsNow, projectOf, move: async (name, to) => {
     if (!session.move) throw fail(409, 'moving a session is not possible here');
     await session.move(name, to);
     cache.forget();

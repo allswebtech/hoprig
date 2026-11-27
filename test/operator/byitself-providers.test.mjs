@@ -45,9 +45,9 @@ test('the start and three ticks read an agent\'s stop into an item: nothing is s
   process.env.PATH = [traps, ...PATH.split(path.delimiter).filter((d) => !fs.existsSync(path.join(d, 'trouteai')))].join(path.delimiter);
   t.after(() => { process.env.PATH = PATH; });
 
-  // The provider's endpoint: any request to it fails the test.
+  // The provider's endpoint: it must never be asked anything.
   const asked = [];
-  const relay = http.createServer((req, res) => { asked.push(`${req.method} ${req.url}`); res.writeHead(500).end(); });
+  const relay = http.createServer((req, res) => { asked.push(`${req.method} ${req.url}${req.headers.authorization || req.headers['x-api-key'] || req.headers['content-length'] ? ' WITH A KEY OR A BODY' : ''}`); res.writeHead(500).end(); });
   await new Promise((r) => relay.listen(0, '127.0.0.1', r));
   t.after(() => relay.close());
   const relayUrl = `http://127.0.0.1:${relay.address().port}`;
@@ -117,7 +117,7 @@ test('the start and three ticks read an agent\'s stop into an item: nothing is s
   const out = r.items.find((x) => x.kind === 'providerstop' && /not started by Hoprig/.test(x.subject));
   assert.equal(out?.subject, 'session 8cbd5db6 in blog, not started by Hoprig', JSON.stringify(r.items.map((x) => x.subject)));
   assert.ok(out.facts.some((f) => f.startsWith('agent a77 stopped: the endpoint refuses this model name')), out.facts.join('|'));
-  assert.deepEqual(asked, [], 'no request reached the provider');
+  assert.deepEqual(asked, [], 'no provider is asked');
   assert.ok(!fs.existsSync(trapLog), `a program of the real system was started: ${fs.existsSync(trapLog) ? fs.readFileSync(trapLog, 'utf8') : ''}`);
   assert.ok(!programs.some((p) => /^(claude|codex|opencode|node|curl|wget) /.test(`${p} `)), `no coding tool or request: ${programs.join(' | ')}`);
   // The run record is read, not written; outside the state folder nothing changes; in it, only what the dashboard

@@ -12,12 +12,16 @@
 //   server      dashboard settings (see src/server)
 import fs from 'node:fs';
 import { configDir, configFile } from './paths.mjs';
+import { ALL } from './bypassgate.mjs';
 import { patiently, replaceFile } from './replacefile.mjs';
 
 export const DEFAULTS = { claudeBin: 'claude', claudeArgs: [], sessionDefaults: {}, launcher: null, server: {} };
 
 // The values Claude Code accepts (`claude --help`, 2.1.325).
 export const PERMISSION_MODES = ['manual', 'acceptEdits', 'auto', 'plan', 'dontAsk', 'bypassPermissions'];
+// Session defaults may also name Allow everything (bypassgate.mjs ALL), which only the owner's own page start takes; no other
+// list (schedules, Work, Tia, the plan and new-project starts) has it.
+export const OWNER_MODES = [...PERMISSION_MODES, ALL];
 export const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'];
 // The model aliases a session may start with from the page (Claude Code resolves each to its newest model).
 export const MODELS = ['opus', 'sonnet', 'haiku'];
@@ -30,7 +34,7 @@ export function cleanSessionDefaults(input) {
   for (const [k, v] of Object.entries(input)) {
     if (v === null || v === '' || v === undefined) continue; // "not set": Claude Code's own default
     if (k === 'permissionMode') {
-      if (!PERMISSION_MODES.includes(v)) throw new Error(`permission mode must be one of: ${PERMISSION_MODES.join(', ')}`);
+      if (!OWNER_MODES.includes(v)) throw new Error(`permission mode must be one of: ${OWNER_MODES.join(', ')}`);
     } else if (k === 'effort') {
       if (!EFFORTS.includes(v)) throw new Error(`effort must be one of: ${EFFORTS.join(', ')}`);
     } else if (k === 'model') {
@@ -60,7 +64,7 @@ export function sessionArgs(cfg = loadConfig()) {
     return []; // a broken setting must not stop a session from starting; the doctor and Settings report it
   }
   return [
-    ...(d.permissionMode ? ['--permission-mode', d.permissionMode] : []),
+    ...(d.permissionMode ? ['--permission-mode', d.permissionMode === ALL ? 'bypassPermissions' : d.permissionMode] : []),
     ...(d.effort ? ['--effort', d.effort] : []),
     ...(d.model ? ['--model', d.model] : []),
   ];

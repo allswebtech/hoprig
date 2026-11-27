@@ -1,5 +1,5 @@
-// The unreleased block of the changelog (site/content/changelog.md, from "## 0.3.6") and the released 0.3.5, 0.3.4 and
-// 0.3.3 blocks after it (to the next "## "; each entry is read where it stands now) quote what a
+// The unreleased block of the changelog (site/content/changelog.md, from "## 0.4.0") and the released 0.3.6, 0.3.5, 0.3.4
+// and 0.3.3 blocks after it (to the next "## "; each entry is read where it stands now) quote what a
 // person sees and types: the labels and buttons in bold, the words of a page in quotes, the commands and options in
 // code. Each one must exist at this head, spelled as there. This test reads the block and looks each one up in the
 // product's own files (web/, src/, bin/, the installer and the skill package's command); a quoted name that points
@@ -13,8 +13,9 @@ import { fileURLToPath } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const text = fs.readFileSync(path.join(ROOT, 'site/content/changelog.md'), 'utf8').replace(/\r\n?/g, '\n');
-const at = text.indexOf('\n## 0.3.6 ');
-const mid0 = text.indexOf('\n## ', at + 1);
+const at = text.indexOf('\n## 0.4.0 ');
+const mid00 = text.indexOf('\n## ', at + 1);
+const mid0 = text.indexOf('\n## ', mid00 + 1);
 const mid = text.indexOf('\n## ', mid0 + 1);
 const mid2 = text.indexOf('\n## ', mid + 1);
 const end = text.indexOf('\n## ', mid2 + 1);
@@ -101,6 +102,8 @@ const EXAMPLE = {
 
 /** Quoted words that are not a label of today: what it said before, a word of a tool or a person, a value. */
 const NOT_A_LABEL = {
+  'On Workstation · in the App · with Claude Code': 'the folded line of choices of the released 0.3.3 New session, gone since 0.4.0 (a tap on a project starts, More options holds the rest), said as what it was',
+  'Name sessions with a short title': 'the switch of a released version; since 0.4.0 a title is always made, said as what it was',
   '22 or newer': 'the old floor, said as what it was',
   'missing': 'the old state of a project only in the map, said as what it was',
   'moved on both sides': 'git\'s state of two computers that both moved, said as what it was',
@@ -111,6 +114,7 @@ const NOT_A_LABEL = {
   'Settings → …': 'the old form of a sentence on the pages, said as what it was',
   '/rename': 'a command of Claude Code itself, typed in Claude Code',
   '/exit': 'a command of Claude Code itself, typed in a terminal session',
+  'Waiting for your next message': 'the old name of Home\'s group of sessions that finished their turn (now Finished), said in the released blocks as what it was',
 };
 
 /**
@@ -145,8 +149,9 @@ function place({ kind, name }) {
 }
 
 test('the unreleased block is found and quotes names', () => {
-  assert.ok(at >= 0 && end > mid2 && mid2 > mid && mid > mid0 && mid0 > at);
-  assert.ok(text.startsWith('\n## 0.3.5 (25 November 2026)\n', mid0), 'the released 0.3.5 block follows the unreleased one');
+  assert.ok(at >= 0 && end > mid2 && mid2 > mid && mid > mid0 && mid0 > mid00 && mid00 > at);
+  assert.ok(text.startsWith('\n## 0.3.6 (26 November 2026)\n', mid00), 'the released 0.3.6 block follows the unreleased one');
+  assert.ok(text.startsWith('\n## 0.3.5 (25 November 2026)\n', mid0), 'then the released 0.3.5 block');
   assert.ok(text.startsWith('\n## 0.3.4 (25 November 2026)\n', mid), 'then the released 0.3.4 block');
   assert.ok(text.startsWith('\n## 0.3.3 (24 November 2026)\n', mid2), 'then the released 0.3.3 block');
   assert.ok(entries.length > 100, `${entries.length} entries`);

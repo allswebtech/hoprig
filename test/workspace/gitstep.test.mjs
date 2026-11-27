@@ -85,8 +85,8 @@ test('in a terminal: sign in, gh auth setup-git, the no-reply address offered; o
   A.use();
   fs.writeFileSync(process.env.GIT_CONFIG_GLOBAL, fs.readFileSync(process.env.GIT_CONFIG_GLOBAL, 'utf8').replace(/\[user\][^[]*/, ''));
   const gh = fakeGh();
-  // confirm the sign-in, Enter for the name, Enter for the e-mail, no to starting a workspace now.
-  const { ui: u, text, left } = ui(['y', '', '', 'n']);
+  // confirm the sign-in (the name and GitHub's no-reply address are then taken, not asked), no to starting a workspace now.
+  const { ui: u, text, left } = ui(['y', 'n']);
   const r = await runGitStep({ ui: u, run: gh.run, term: gh.term, has, dir: A.ws });
   assert.equal(r.ok, true);
   assert.deepEqual(left(), []);
@@ -95,12 +95,27 @@ test('in a terminal: sign in, gh auth setup-git, the no-reply address offered; o
   assert.equal(w.sh(w.root, 'config', '--global', 'user.name'), 'Alex Example');
   assert.equal(w.sh(w.root, 'config', '--global', 'user.email'), '12345+alex@users.noreply.github.com');
   assert.match(text(), /signed in to GitHub/);
+  assert.match(text(), /commits as Alex Example <12345\+alex@users\.noreply\.github\.com>/);
   assert.match(text(), /No workspace of yours on GitHub yet\. Start it here/);
   assert.match(text(), /Later: hoprig workspace git/);
   assert.equal(fs.existsSync(path.join(A.ws, 'ai_brain')), false, 'a no makes nothing');
   assert.ok(!text().includes('gho_') && !JSON.stringify(r.state).includes('gho_'), 'no token is ever shown');
   assert.equal(r.state.gh.account, 'alex');
   assert.equal(r.state.helper, true);
+});
+
+test('an e-mail of his own already set: only the name is taken, and the line does not call it the no-reply address', async () => {
+  const A = w.computer('alex');
+  A.use();
+  fs.writeFileSync(process.env.GIT_CONFIG_GLOBAL, fs.readFileSync(process.env.GIT_CONFIG_GLOBAL, 'utf8').replace(/\[user\][^[]*/, ''));
+  w.sh(w.root, 'config', '--global', 'user.email', 'me@example.org');
+  const gh = fakeGh();
+  gh.st.signedIn = true;
+  const { ui: u, text } = ui(['n']);
+  await runGitStep({ ui: u, run: gh.run, term: gh.term, has, dir: A.ws });
+  assert.match(text(), /commits as Alex Example <me@example\.org>/);
+  assert.doesNotMatch(text(), /no-reply/);
+  assert.equal(w.sh(w.root, 'config', '--global', 'user.email'), 'me@example.org');
 });
 
 test('start new: the brain made, a PRIVATE repository created, the map committed and pushed', async () => {
@@ -226,4 +241,17 @@ test('GitHub cannot be asked (rate limit, no network): set-up never says there i
   assert.doesNotMatch(text(), /No workspace of yours on GitHub yet/);
   assert.ok(!gh.st.calls.some((c) => c.includes('repo create')), 'nothing was created');
   assert.equal(fs.existsSync(path.join(A.ws, 'ai_brain')), false);
+});
+
+test('not signed in to GitHub (and not now): the name and e-mail are asked, as only then nothing can give them', async () => {
+  const A = w.computer('nogh');
+  A.use();
+  fs.writeFileSync(process.env.GIT_CONFIG_GLOBAL, fs.readFileSync(process.env.GIT_CONFIG_GLOBAL, 'utf8').replace(/\[user\][^[]*/, ''));
+  const gh = fakeGh();
+  const { ui: u, text, left } = ui(['n', 'Sam Doe', 'sam@example.com']);
+  const r = await runGitStep({ ui: u, run: gh.run, term: gh.term, has, dir: A.ws });
+  assert.equal(r.ok, true, text());
+  assert.deepEqual(left(), []);
+  assert.equal(w.sh(w.root, 'config', '--global', 'user.name'), 'Sam Doe');
+  assert.equal(w.sh(w.root, 'config', '--global', 'user.email'), 'sam@example.com');
 });

@@ -5,7 +5,7 @@ import path from 'node:path';
 import { test } from 'node:test';
 import { fakeBin, pathWith, scratch } from './helpers.mjs';
 
-const s = scratch();
+const s = scratch({ fresh: true });
 test.after(s.cleanup);
 const K = await import('../../src/setup/checks.mjs');
 const S = await import('../../src/setup/system.mjs');

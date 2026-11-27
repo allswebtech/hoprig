@@ -630,7 +630,7 @@ export function pcsetupFeature(sctx, opts = {}) {
       const ct = opts.codingTools || (await import('../codetools/index.mjs'));
       const t = typeof b.id === 'string' ? ct.findTool(b.id) : null;
       if (!t || !t.managed) throw fail(400, 'that is not a coding tool Hoprig installs');
-      if (t.installedVersion()) throw fail(409, `${t.name} is already installed: Settings → Updates keeps it up to date`);
+      if (t.installedVersion()) throw fail(409, `${t.name} is already installed: Settings → Version and updates keeps it up to date`);
       return startJob('tool', async (onLine, j) => {
         j.data = { tool: t.id, name: t.name, version: null };
         onLine(`${t.name} ${t.pin}: ${t.about}. A download of ${t.size}, into Hoprig's own tools folder; this takes a minute or two.`);

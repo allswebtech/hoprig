@@ -46,9 +46,9 @@ export const USAGE = `usage: hoprig tasks [today]                      what need
                          by task, and a task changed on both is yours to decide (the save prints the token of what it
                          showed you); --drop-interrupted drops the record of an interrupted save you have looked at
        hoprig tasks tokens [revoke <id or name>]     the Work tokens of other programs (made, last used, their webhooks);
-                         revoke ends one at once and removes its webhooks (they are made in Settings → Work)
+                         revoke ends one at once and removes its webhooks (they are made in Work → Tasks → Work settings (at the foot))
   Every command takes --json; the ones that change something take --dry-run.
-  Where the data lives: Settings → Work in the dashboard (the AI brain's work/ folder by default).`;
+  Where the data lives: Work → Tasks → Work settings (at the foot) in the dashboard (the AI brain's work/ folder by default).`;
 
 /** The lines of USAGE about one command: its own line and the lines under it that go on with it. */
 export function usageOf(sub) {
@@ -288,7 +288,7 @@ export async function main(args, { out = (s) => process.stdout.write(`${s}\n`), 
       if (!t.week.some((d) => d.items.length)) lines.push('  nothing dated');
       lines.push('', 'Done lately');
       lines.push(...(t.doneLately.length ? t.doneLately.map((it) => `  ${it.doneAt}  ${it.title}${fromText(it)}`) : ['  nothing yet']));
-      lines.push('', 'Sessions that need an OK are on the dashboard\'s Today.');
+      lines.push('', 'Sessions that need an OK are on the dashboard\'s Home, in Needs you.');
       show({ place: where, ...t, proposals }, lines.join('\n'));
       return 0;
     }
@@ -321,7 +321,7 @@ export async function main(args, { out = (s) => process.stdout.write(`${s}\n`), 
       return 0;
     }
     if (sub === 'owner') {
-      // Your id in a planning tool's file: shown, or set (the "ownerId" setting, as Settings → Work sets it).
+      // Your id in a planning tool's file: shown, or set (the "ownerId" setting, as Work → Tasks → Work settings (at the foot) sets it).
       const { planner } = store.list();
       if (!id) {
         const line = `Your id in a planning file: ${place.settings.ownerId}${planner ? (planner.needsId ? ` (this file does not use it; it uses "${planner.suggested}" most: hoprig tasks owner ${planner.suggested || '<id>'})` : ' (this file uses it)') : ''}`;

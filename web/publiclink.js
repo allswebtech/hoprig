@@ -6,7 +6,7 @@
 // the page asks for that in place (linkforms.js). The rarer things are under Advanced.
 import { APP_NAME } from './brand.js';
 import { icon } from './icons.js';
-import { add, api, btn, confirmSheet, copyText, fill, h, openSheet, qrSvg, toast, wayLink } from './lib.js';
+import { add, api, btn, confirmSheet, copyText, fill, h, link, openSheet, qrSvg, toast, wayLink } from './lib.js';
 import { customBody, forgetText, makePassword, needBox, strongForm, tokenForm } from './linkforms.js';
 import { registerSettingsPage } from './registry.js';
 import { panel } from './shell.js';
@@ -302,11 +302,11 @@ function render({ here, isAlive }) {
       parts.push(h('div.fieldrow',
         h('span.field-label', 'Another service on this computer'),
         h('span.hint', 'One more local service under a name of its own. It should have its own sign-in page: you are asked first when it has none.'),
-        f.extra.map((x) => h('div.addon-svc', ext(x.url, x.url), h('span.hint', `port ${x.port}`),
+        f.extra.map((x) => (x.gateway === 'trouteai' ? h('div.addon-svc', ext(x.url, x.url), h('span.hint', 'TRouteAI · turned on and off on its page'), h('a.btn.small.ghost', { href: link('#/providers/trouteai') }, 'Open its page')) : h('div.addon-svc', ext(x.url, x.url), h('span.hint', `port ${x.port}`),
           btn('small ghost', { icon: 'trash', label: 'Remove', disabled: ui.busy, onclick: async () => {
             const text = `${x.hostname} no longer leads to port ${x.port}. Its DNS record stays in Cloudflare (cloudflared cannot remove it): delete it under your domain → DNS → Records.`;
             if (await confirmSheet({ title: 'Remove this name?', text, ok: 'Remove', danger: true })) job('custom', 'remove-service', { hostname: x.hostname }, 'advanced');
-          } }))),
+          } })))),
         f.extra.length < 5 ? h('form.addon-form', { onsubmit: async (e) => {
           e.preventDefault();
           const r = await job('custom', 'add-service', { port: Number(draft.svcPort), hostname: draft.svcHost }, 'advanced');

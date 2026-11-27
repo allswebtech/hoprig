@@ -1,9 +1,8 @@
-// Field reports on the page (docs/FIELD-REPORTS.md): Settings → Field reports, and the lines Home shows for them (a
+// Field reports on the page (docs/FIELD-REPORTS.md): the fold at the foot of Settings → Version and updates, and the lines Home shows for them (a
 // trouble that came up twice, the one question about sending, a report that waits with "ask each time"). Every press
 // is the owner's own: nothing here sends, changes or installs anything without one.
 import { icon } from './icons.js';
 import { api, btn, fill, h, link, toast } from './lib.js';
-import { registerSettingsPage } from './registry.js';
 import { field, panel, radioCards, savedMark } from './shell.js';
 
 const CHOICES = [
@@ -28,9 +27,10 @@ const findKeep = (n, k) => {
 };
 const reportText = (text) => h('pre.output.field-report', { tabindex: '0', 'aria-label': 'The whole report, exactly as it would be sent' }, text);
 
-// ---------- Settings → Field reports ----------
+// ---------- Settings → Version and updates → Reports to Hoprig's developers ----------
 
-function fieldPage() {
+/** The parts of the fold (an array of nodes); updates.js puts them in its fold on this computer's own settings. */
+export function fieldReports() {
   const box = h('div', h('div.empty', h('div.spinner', { 'aria-hidden': 'true' }), h('p', 'Loading…')));
   let v = null;
   async function set(patch, mark) {
@@ -62,7 +62,7 @@ function fieldPage() {
         h('p', 'A report never holds a path, a computer\'s or a person\'s name, an address, a project or repository name, a file\'s content or a line a program printed. Only words from fixed lists, counts and times. ', h('a', { href: 'https://github.com/allswebtech/hoprig/blob/main/docs/FIELD-REPORTS.md', target: '_blank', rel: 'noopener' }, 'Every field explained')),
         h('p.hint', `The newest 50 are kept, each under 1 KB. ${v.reports.length ? `${v.reports.length} on this computer now.` : 'None on this computer yet.'}`),
         last ? h('details.fold', h('summary.fold-summary', h('span', `The newest report (${when(last.time)})`), icon('chevronDown', { size: 18 })), h('div.fold-body', reportText(last.text))) : null),
-      panel({ icon: 'send', title: 'Send reports to Hoprig\'s developers', desc: 'Only if you want to, and only what you can read first.' },
+      panel({ id: 'field-send', icon: 'send', title: 'Send reports to Hoprig\'s developers', desc: 'Only if you want to, and only what you can read first.' },
         field('Where reports go', h('div.field-addr', addr, addrMark),
           h('span', { id: 'field-addr-hint' }, 'An https address the developers give you. Empty means nothing is ever sent and nothing is asked.')),
         h('div.savebar', btn('secondary', { label: 'Save the address', dataset: { keep: 'addr-save' }, onclick: () => set({ sendTo: addr.value }, addrMark) })),
@@ -81,16 +81,6 @@ function fieldPage() {
   }, (e) => fill(box, h('div.empty', icon('alert', { size: 28 }), h('p', e.message))));
   return [box];
 }
-
-registerSettingsPage({
-  id: 'field', title: 'Field reports', icon: 'info', order: 68, onlyHere: true,
-  desc: 'Small reports of Hoprig\'s own work: kept here, and sent to its developers only if you choose.',
-  summary: async () => {
-    const v = await api('/api/field');
-    return v.choice === 'never' ? `${v.reports.length} kept here, none sent` : v.choice === 'ask' ? 'Asks before each one is sent' : 'Each one is sent';
-  },
-  render: fieldPage,
-});
 
 // ---------- the Home lines ----------
 
@@ -123,8 +113,8 @@ export function fieldLines() {
     if (v.question) {
       lines.push(h('div.banner.muted.field-line', { role: 'status' }, icon('send', { size: 18 }),
         h('div.field-line-text', h('strong', 'Send field reports to Hoprig\'s developers?'),
-          h('p', 'An address is set in Settings → Field reports. Until you choose, nothing is sent.')),
-        h('span.banner-actions', h('a.btn.small.primary', { href: link('#/settings/field') }, 'Choose'))));
+          h('p', 'An address is set in Settings → Version and updates → Reports to Hoprig\'s developers. Until you choose, nothing is sent.')),
+        h('span.banner-actions', h('a.btn.small.primary', { href: link('#/settings/updates?show=field-send') }, 'Choose'))));
     }
     // "Ask each time": one line for all that wait, each report folded under it (its whole text one press away).
     const waiting = v.waiting;

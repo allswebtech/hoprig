@@ -18,6 +18,8 @@
 //   GET  /api/chats/<id>/commands                 the / menu: the coding tool's commands and skills
 //   GET  /api/chats/<id>/usage                    context and plan usage, asked of the running process
 //   GET  /api/chats/<id>/changes                  what changed in the folder (git): the session rail's Changes card
+//   GET  /api/chats/<id>/pr                       the branch's pull request and its checks (gh): the rail's PR line; POST .../pr/merge (confirm: true) merges when ready
+//   GET  /api/chats/<id>/tasks/<task>/output      a background task opened: a shell's last 2000 lines, an agent's report
 //   GET  /api/chats/<id>/diff?path=               one changed file's diff (git): the App's diff pane
 //   POST /api/chats/<id>/shell                    { command }   "!" in the box: the owner's shell command, run in the
 //                                                 folder (bang.mjs) → { code, output, cut, timedOut, stopped, ms }
@@ -34,6 +36,8 @@ import { handsOffOffered } from '../handsoff.mjs';
 import { within } from '../server/folders.mjs';
 import { bangCommand, runBang } from './bang.mjs';
 import { fileDiff, folderChanges } from './changes.mjs';
+import { mergeWhenReady, prState } from './pr.mjs';
+import { taskOutput } from './tasks.mjs';
 import { LEAD_ONLY_CLAUDE, leadPlan } from '../models/lead.mjs';
 import { partsOf } from '../models/parts.mjs';
 import { cleanOthers } from '../models/others.mjs';
@@ -59,8 +63,8 @@ export function stateOf(c) {
     // message queued). now: this computer's clock, so a page elsewhere counts a tool's seconds right.
     status: c.status(), running: !!c.session, working: c.busy(), turn: !!c.turn, activity: c.activity, pending: [...c.pending.keys()], now: Date.now(),
     asking: c.pending.size ? [...c.pending.values()][0].type : null, // permission | question | plan: the status line's words
-    todos: c.todos, tasks: [...c.tasks.values()], queue: c.queue.list(),
-    live: [...c.live.values()], usage: c.usage, limits: c.limits, limit: c.limit, lastError: c.lastError, lastEnd: c.lastEnd, title: c.currentTitle(),
+    todos: c.todos, tasks: c.tasks.forPage(), queue: c.queue.list(),
+    live: [...c.live.values()], usage: c.usage, limits: c.limits, limit: c.limit, lastError: c.lastError, lastEnd: c.lastEnd, hasMessage: c.events.some((e) => e.kind === 'user'), title: c.currentTitle(),
     engine: { id: c.engine.id, label: c.engine.label, capabilities: c.engine.capabilities, version: c.info.version || null },
     // lead: the switch; leadLine: which models it uses on this provider (or why it cannot), said before the next start.
     lead: c.lead, leadLine: c.lead ? leadLineOf(c) : null, others: c.others,
@@ -87,7 +91,7 @@ export function stateOf(c) {
  * still the open chat of its id: its process ends at a restart, not the chat) } from feature.mjs. The feature emits
  * 'gone' on a chat that left the list for good, and 'kept' on one whose hand-off to a terminal failed.
  */
-export function liveRoutes(ctx, { chatOr404, toolStillOn = () => {}, save, remember, bad, choices, pickModel, folderOf, uploadsDir, openChatOf, about, terminalOf, shutOf = () => null, openNow = () => true, handed = () => [] }) {
+export function liveRoutes(ctx, { chatOr404, toolStillOn = () => {}, save, remember, bad, choices, modeCheck = () => {}, pickModel, folderOf, uploadsDir, openChatOf, about, terminalOf, shutOf = () => null, openNow = () => true, handed = () => [] }) {
   const { HttpError } = ctx;
   const pick = (val, list, what) => {
     if (val === undefined) return undefined;
@@ -274,6 +278,7 @@ export function liveRoutes(ctx, { chatOr404, toolStillOn = () => {}, save, remem
       const b = await ctx.readJson(req);
       const mode = pick(b.mode, choices(c).modes, 'permission mode');
       if (!mode) throw bad('say which mode');
+      modeCheck(req, c, mode);
       const r = await c.setSettings({ mode });
       save();
       remember(c, req);
@@ -334,6 +339,13 @@ export function liveRoutes(ctx, { chatOr404, toolStillOn = () => {}, save, remem
       await c.stopTask(m[2]);
       return { ok: true };
     }],
+    // A task's output (a shell's last lines, an agent's report): read from the table, so only a file the coding tool named.
+    ['GET', new RegExp(`^/api/chats/${ID}/tasks/([A-Za-z0-9_-]{1,100})/output$`), async (req, m) => {
+      const c = chatOr404(m[1]);
+      const t = c.tasks.get(m[2]);
+      if (!t) throw new HttpError(404, 'no such task in this chat');
+      return taskOutput(t);
+    }],
     ['POST', new RegExp(`^/api/chats/${ID}/rewind$`), async (req, m) => {
       const c = chatOr404(m[1]);
       const b = await ctx.readJson(req);
@@ -374,6 +386,16 @@ export function liveRoutes(ctx, { chatOr404, toolStillOn = () => {}, save, remem
     ['GET', new RegExp(`^/api/chats/${ID}/changes$`), async (req, m) => {
       const c = chatOr404(m[1]);
       return folderChanges(folderOf(c)); // the chat's own folder, inside the allowed roots (feature.mjs)
+    }],
+    ['GET', new RegExp(`^/api/chats/${ID}/pr$`), async (req, m) => prState(folderOf(chatOr404(m[1])))],
+    ['POST', new RegExp(`^/api/chats/${ID}/pr/merge$`), async (req, m) => {
+      const c = chatOr404(m[1]);
+      const b = await ctx.readJson(req);
+      if (b.confirm !== true) throw bad('a merge needs the owner\'s confirmation: others see it');
+      if (!Number.isInteger(b.number)) throw bad('say which pull request: the number is missing');
+      const r = await mergeWhenReady(folderOf(c), { number: b.number });
+      if (!r.ok) throw new HttpError(409, r.error);
+      return { ok: true };
     }],
     ['POST', new RegExp(`^/api/chats/${ID}/shell$`), async (req, m) => {
       const c = chatOr404(m[1]);

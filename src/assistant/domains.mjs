@@ -220,18 +220,14 @@ export const manage_computer = actionTool({
   },
   actions: {
     add: {
-      level: 'L2',
-      need: ['ssh_target'],
-      allow: ['name'],
-      check(a) {
-        if (a.computer) throw toolError('for add, give ssh_target (and name), not computer', 'leave computer out');
-      },
-      // Adding a computer by SSH pairs it and stores a new machine token: who may control a computer is his alone.
-      // Her card only opens Computers → Add a computer, where he adds it himself.
-      before: async (ops) => ({ taken: (await ops.computers()).map((m) => m.name).sort() }),
-      cardLines: (a) => [`Open Computers → Add a computer, where you add ${a.ssh_target}${a.name ? ` as ${a.name}` : ''} by SSH yourself; Tia adds nothing (it makes a new token for that computer, which is yours to hand out)`],
-      async run(ops, a) {
-        return { summary: `The page to add ${a.ssh_target} is opened for the owner; nothing was added. He adds it there himself.`, data: { added: false, link: '#/computers/add' }, ui: { open: '#/computers/add' } };
+      // Pairing or adding a computer is on the never list: it hands out a token that lets another computer be
+      // controlled. No card of hers (a card that only opens a page is one thing more on his screen): she says so and
+      // shows the page with open_screen.
+      // Level L0 only so that no card can ever be staged: the action only answers with the refusal.
+      level: 'L0',
+      allow: ['ssh_target', 'name'],
+      async run() {
+        throw toolError('adding or pairing a computer is the owner\'s own press: it makes a token that lets that computer be controlled', 'tell him so in one line and call open_screen "computers/add"');
       },
     },
     rename: {
@@ -296,9 +292,9 @@ export const manage_computer = actionTool({
       },
     },
     addon: {
-      // Starting a gateway that is installed is harmless; installing, updating (they run installers) and stopping
-      // (sessions may use it) need the owner.
-      level: (a) => (a.addon_action === 'start' ? 'L1' : 'L2'),
+      // Every action is a card: a gateway start changes which providers work for every session of the computer
+      // (and would undo a stop he made himself), install and update run installers, a stop cuts sessions off.
+      level: 'L2',
       need: ['addon', 'addon_action'],
       check(a) {
         // The public link opens the computer to the internet: it has its own action, with a card for on.
@@ -319,30 +315,17 @@ export const manage_computer = actionTool({
       },
     },
     public_link: {
-      // On opens the computer's sign-in page to the internet: his own press (her card opens that page). Off only closes it.
-      level: (a) => (a.turn === 'on' ? 'L2' : 'L1'),
+      // On opens the computer's sign-in page to the internet: his own press, never a card of hers (a card that only
+      // opens a page is one thing more on his screen). She tells him so and shows the page with open_screen.
+      // Off only closes it: L1.
+      level: 'L1',
       need: ['turn'],
       allow: ['link_kind'],
       check(a) {
-        if (a.turn === 'off' && a.link_kind) throw toolError('off needs no kind', 'leave link_kind out');
+        if (a.turn === 'on') throw toolError('turning the public link on is the owner\'s own press: it opens the computer to the internet', 'tell him so in one line and call open_screen "settings/public-link"');
+        if (a.link_kind) throw toolError('off needs no kind', 'leave link_kind out');
       },
-      before: async (ops, a) => {
-        const s = await ops.publicLink({ computer: comp(a) });
-        return { on: s.on === true, kind: a.link_kind || (s.kind === 'custom' ? 'custom' : 'temporary'), customReady: !!(s.custom && s.custom.state === 'ready') };
-      },
-      // On opens the computer to the internet, which is his alone: her card only opens Settings → Public link there.
-      cardLines: (a, b) => [
-        `Open Settings → Public link of ${comp(a)}, where you turn it ON yourself (${b.kind === 'custom' ? 'Custom, its own address on your domain' : 'Temporary, a new https address at each start'}); Tia turns nothing on`,
-        'Anyone who has the address reaches its sign-in page; the dashboard password protects it.',
-        `Now: ${b.on ? `on (${b.kind === 'custom' ? 'Custom' : 'Temporary'})` : 'off'}`,
-      ],
       async run(ops, a) {
-        const on = a.turn === 'on';
-        if (on) {
-          const link = `${comp(a) === 'this' ? '#' : `#/m/${comp(a)}`}/settings/public-link`;
-          return { summary: `Settings → Public link of ${comp(a)} is opened for the owner; nothing was turned on. He turns it on there himself.`, data: { on: false, link }, ui: { open: link } };
-        }
-        // Off only closes it: hers to do at once.
         await ops.setPublicLink({ computer: comp(a), on: false });
         return { summary: `The public link of ${comp(a)} is off.`, data: { on: false } };
       },
@@ -372,7 +355,7 @@ export const manage_computer = actionTool({
         const where = { computer: comp(a) };
         const [u, s, au] = await Promise.all([ops.updates(where), ops.settings(where), ops.automation(where)]);
         const h = (u.items || []).find((x) => x && x.id === 'hoprig');
-        if (!h || !h.last || h.last.ok !== true || h.last.restart !== true) throw toolError(`no update of Hoprig waits for a restart on ${onWhich(a)}`, 'tell the owner there is nothing to restart for; manage_computer update installs a new version first (a card)');
+        if (!h || !h.last || h.last.ok !== true || h.last.restart !== true) throw toolError(`no update of Hoprig waits for a restart on ${onWhich(a)}`, 'to restart Hoprig with no update waiting, call hoprig_act with act "restart-hoprig" (a card); manage_computer update installs a new version first (a card)');
         return { running: said(s && s.version, VERSION, 'a version it does not say'), installed: said(h.last.version || h.installed, VERSION, 'a version it does not say'), builtIn: !!au && au.restoreDefault === true, reopen: !!au && au.restoreOn === true };
       },
       cardLines: (a, b) => [
@@ -444,7 +427,7 @@ const jobResult = (j, what) => {
 export const manage_project = actionTool({
   name: 'manage_project',
   description: 'Use when the owner asks to create, get, sync, set up or take off a project, or to change the workspace; not to list projects (list_projects) and not for coding in one (start_chat). Projects: new, get, sync (what needs a decision comes back to you, never decided), add_repository, install, create_folders. The whole workspace: workspace_map, workspace_sync (pushing is the owner\'s own press: push opens his page), workspace_sync_from, workspace_restore, workspace_places, workspace_forget. Read only: where (which computer has which project), find, drop_check. drop and group_add are always a card that only opens the owner\'s sheet on the Workspace page, where he answers and types the name himself; you never drop. dry_run says what would happen. Signing in to GitHub is the owner\'s own step (open_screen).',
-  actionDesc: 'new: a project folder from the template, optionally with a GitHub repository; get: clone a project by name, owner/name or Git address; sync: fetch and fast-forward one project; install: its dependencies; create_folders: the workspace folders that are missing; workspace_map: write the map (never commits); workspace_sync: fetch and fast-forward everything; workspace_sync_from: get commits from another computer; workspace_restore: bring a workspace here from the brain\'s address; workspace_places: where the workspace and projects folder are; workspace_forget: take an entry out of the map; where: which computer has which project, from each computer\'s own file; find: what the hosting site has that fits a place\'s naming rule; drop_check: what of a project exists only on this computer.',
+  actionDesc: 'new: a project folder from the template (optionally with a GitHub repository); get: clone one by name, owner/name or Git address; sync: fetch and fast-forward one; install: its dependencies; create_folders: the missing workspace folders; workspace_map: write the map (never commits); workspace_sync: fetch and fast-forward all; workspace_sync_from: commits from another computer; workspace_restore: bring a workspace here from the brain\'s address; workspace_places: where the workspace and projects folder are; workspace_forget: take an entry out of the map; where: which computer has which project; find: what the hosting site has for a place\'s naming rule; drop_check: what of a project exists only here.',
   fields: {
     project,
     name: str({ max: 100, pattern: NAME, desc: 'new: the project name (letters, digits, ".", "_", "-").' }),
@@ -691,20 +674,12 @@ export const manage_project = actionTool({
       },
     },
     drop: {
-      // A drop is the owner's alone (whomay.mjs): her card only opens his sheet, filled in, on the Workspace page.
-      level: 'L2',
-      need: ['project'],
-      before: async (ops, a) => {
-        const r = await ops.dropCheck({ computer: comp(a), name: a.project });
-        if (r.result === 'not here') throw toolError(`${a.project} is not on ${onWhich(a)}`, 'nothing to drop; manage_project where says which computer has it');
-        if (r.refusals && r.refusals.length) throw toolError(`${a.project} cannot be dropped now: ${r.refusals.map((x) => x.what).slice(0, 3).join('; ')}`, 'tell the owner the command each refusal names (manage_project drop_check shows them)');
-        return { result: r.result, questions: (r.questions || []).map((q) => q.words), items: (r.confirm || []).length };
-      },
-      cardLines: (a, b) => [`Open the drop sheet for ${a.project} on ${onWhich(a)}: you answer its questions and press Drop there yourself`, ...(b.questions.length ? b.questions.map((q) => `It asks: ${q}`) : ['Nothing of it exists only here']), ...(b.items ? [`You type the project's name there to delete ${b.items} item(s) that cannot be made again`] : [])],
-      async run(ops, a) {
-        const link = `${comp(a) === 'this' ? '#' : `#/m/${comp(a)}`}/workspace?drop=${encodeURIComponent(a.project)}`;
-        // She is never told what he pressed there: nothing to promise to report.
-        return { summary: `The drop sheet for ${a.project} on ${onWhich(a)} is opened for the owner; nothing was dropped. You are not told whether he drops it: do not promise to report it.`, data: { project: a.project, link, dropped: false, next: 'you are not told whether he dropped it, so do not say you will tell him; if he asks later, call drop_check again (it says "not here" once it is gone)' }, ui: { open: link } };
+      // A drop is the owner's alone (whomay.mjs) and deleting work is on the never list: no card of hers, not even one
+      // that only opens his sheet. She tells him what drop_check found and shows the Workspace page.
+      level: 'L0',
+      allow: ['project'],
+      async run() {
+        throw toolError('dropping a project is the owner\'s own press on his sheet: it removes work from the computer', 'say what drop_check found in one line and call open_screen "workspace" (with computer when it is not this one)');
       },
     },
     group_add: {

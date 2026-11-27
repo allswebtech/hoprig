@@ -7,7 +7,9 @@
 // assistant and a coding tool that tries it in passing; it is no wall against a program of the owner's user that sets
 // out to do it: such a one can edit config.json itself. Once added, a gateway is an add-on like the shipped one:
 // `hoprig addons setup|start|stop <id>`, and Providers → Add provider.
+import path from 'node:path';
 import { loadConfig } from '../config.mjs';
+import { toolsDir } from '../paths.mjs';
 import { ask as askLine, askHidden } from '../menu.mjs';
 import { verifyPassword } from '../server/auth.mjs';
 import { showCommand } from '../setup/system.mjs';
@@ -72,7 +74,7 @@ export function parseAdd(args) {
 export function runsLines(def, { typed = null, cfg = undefined, fingerprint = false } = {}) {
   const words = [def.bin, ...def.args.map((a) => a.replaceAll('PORT', String(portOf(def, cfg))))].join(' ');
   return [
-    ...(def.npm ? [`Hoprig installs and updates it with: ${showCommand(['npm', 'install', '-g', ...(installFlags(def) || []), def.npm])}`, ...(buildsLine(def) ? [buildsLine(def)] : [])] : []),
+    ...(def.npm ? [`Hoprig installs and updates it with: ${showCommand(def.own ? ['npm', 'install', '--prefix', path.join(toolsDir(), def.id), '--save-exact', ...(installFlags(def) || []).filter((f) => !f.startsWith('--allow-scripts=')), `${def.npm}@${def.own.pin}`] : ['npm', 'install', '-g', ...(installFlags(def) || []), def.npm])}`, ...(def.own ? [`That is a copy in Hoprig's own folder (${path.join(toolsDir(), def.id)}); Update takes the newest. A copy that npm install -g made earlier is used until you press Install.`] : []), ...(buildsLine(def) ? [buildsLine(def)] : [])] : []),
     'When it starts (by you, on the page, or for a session on a provider that uses it), Hoprig runs:',
     `  ${words}`,
     ...(typed && typed !== def.bin ? [`(${typed} is that file on this computer now.)`] : []),

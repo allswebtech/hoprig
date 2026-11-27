@@ -1,5 +1,5 @@
-// New session's words for a folder (newsession.js): whether it is a project, how its row and its repositories read,
-// where a tap on it goes when something already works there, and which provider it starts on when none is chosen.
+// New session's words for a folder (newsession.js): whether it is a project, how its row reads, one row per project,
+// and where a tap on it goes when something already works there.
 
 /**
  * True when `dir` is outside the projects folder: not it, not inside it, and not one of the folders that hold it (the
@@ -25,11 +25,47 @@ export function folderSub(f, projectsShort) {
   return f.short;
 }
 
-/** A repository of a project as a person names it: "bookshop-api", "repository in bookshop" (not "code/bookshop-api"). */
-export function repoWords(rel, project) {
-  if (!rel || rel === '.') return { name: project, sub: null }; // a project's own folder: its name says it
-  const name = rel.split(/[\\/]/).filter(Boolean).pop() || rel;
-  return { name, sub: project ? `repository in ${project}` : 'repository' };
+const underDir = (path, dir) => path === dir || path.startsWith(`${dir}/`) || path.startsWith(`${dir}\\`);
+
+/**
+ * The rows of the popup: ONE row per project. A project's row is its own folder; a session that was started in one of
+ * its code folders counts for it (once), and a row holds `dirs` (its folder and its code folders) so that Continue finds
+ * every session that runs in them. A folder that is no project stays as it was opened. The code folders have no rows
+ * (Another folder reaches one). `recent`: GET /api/folders/recent's folders, newest first; `workspaces`, `repos`: GET
+ * /api/pcsetup/projects; `subOf(f)`: a plain folder's second line; `tilde`: a path written as ~/…
+ * -> { recent: the newest `max` rows, more: the others A to Z }.
+ */
+export function projectRows({ recent, workspaces = [], repos = [], max = 5, subOf = () => null, tilde = (x) => x }) {
+  const projects = workspaces.map((w) => ({ w, name: w.place ? w.id : w.name, dirs: [w.dir, ...(w.repos || []).filter((r) => r.rel !== '.' && r.dir).map((r) => r.dir)] }));
+  const home = (f) => projects.find((p) => p.dirs.some((d) => underDir(f.path, d)));
+  const seen = new Set();
+  const all = [];
+  for (const f of recent) {
+    const p = home(f);
+    const key = p ? p.w.dir : f.path;
+    const mine = p ? recent.filter((x) => home(x) === p) : [f];
+    if (seen.has(key)) continue;
+    seen.add(key);
+    if (!p) {
+      all.push({ path: f.path, name: f.name, short: f.short, live: f.live, chat: f.chat, session: f.session });
+      continue;
+    }
+    const exact = mine.find((x) => x.path === p.w.dir);
+    const busy = mine.find((x) => x.live) || {};
+    const short = exact ? exact.short : (mine[0].short || '').slice(0, Math.max(0, (mine[0].short || '').length - (mine[0].path.length - p.w.dir.length))) || tilde(p.w.dir);
+    all.push({ path: p.w.dir, name: p.name, short, dirs: p.dirs, live: busy.live, chat: busy.chat, session: busy.session });
+  }
+  const newest = all.slice(0, max);
+  const listed = new Set(newest.map((f) => f.path));
+  const rest = [
+    ...projects.map((p) => ({ path: p.w.dir, name: p.name, short: tilde(p.w.dir), dirs: p.dirs, sub: null })),
+    ...repos.map((r) => ({ path: r.dir, name: r.place ? r.id : r.rel, short: tilde(r.dir), sub: null })),
+    ...all.slice(max).filter((f) => !f.dirs).map((f) => ({ ...f, sub: subOf(f) })),
+  ];
+  const have = new Set();
+  const more = rest.filter((f) => !listed.has(f.path) && !have.has(f.path) && have.add(f.path))
+    .sort((a, b) => String(a.name).localeCompare(String(b.name)));
+  return { recent: newest, more };
 }
 
 /**
@@ -40,33 +76,4 @@ export function runningIn(f) {
   if (!f || !f.live) return null;
   if (f.chat) return `#/chat/${f.chat}`;
   return f.session ? `#/s/${encodeURIComponent(f.session)}` : null;
-}
-
-/**
- * The line under the Provider list when nothing is chosen and Auto mode is on, yet the session starts on another
- * provider because Auto mode's is slow or refusing now (the server's `autoSlow`, src/defaultprovider.mjs
- * fasterThanAuto). null otherwise.
- */
-export function autoSlowLine(m, profiles) {
-  const p = m && m.autoSlow && profiles.find((x) => x.name === m.recommended);
-  return p ? `Auto mode's provider is slow now; this session starts on ${p.label}.` : null;
-}
-
-/**
- * What "nothing chosen" means, in the Provider list. The server decides per folder and coding tool
- * (src/defaultprovider.mjs): the provider that tool used last in that folder while it can work, else the computer's
- * default for it; Auto mode, when on, everywhere (Claude Code only). Once a folder is open (`dir`: Another folder,
- * its real path), its own default by name (`recommendedIn`). A chat first takes what the last chat in the project had
- * (`same`). Another tool's defaults are the computer's `toolDefaults[tool]`; an older computer has none: "the first
- * that serves it". `m`: the computer's state, `profiles`: the providers that serve the tool.
- */
-export function defaultWords(m, profiles, same, tool = 'claude', dir = null) {
-  const label = (n) => (profiles.find((p) => p.name === n) || {}).label;
-  const d = !m ? null : tool === 'claude' ? m : m.toolDefaults && m.toolDefaults[tool];
-  const rec = d && label(d.recommended);
-  if (!rec) return same || (tool === 'claude' ? 'The default' : 'The first that serves it');
-  const perFolder = d.recommendedIn && !(tool === 'claude' && m.autoSwitch && m.autoSwitch.enabled);
-  const here = perFolder && dir ? label(d.recommendedIn[dir]) || rec : null;
-  const folder = here || (perFolder ? `the one used last in the folder, else ${rec}` : rec);
-  return same ? `${same}, else ${folder}` : `The default${here ? ' here' : ''}: ${folder}`;
 }
