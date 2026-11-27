@@ -72,7 +72,9 @@ ARGS="--yes --only base --access local"
 if [ "$WIN" = 1 ]; then
   # The runner's own account is an administrator, which the installer refuses unless it is allowed on purpose.
   export HOPRIG_ALLOW_ADMIN=1
-  step install powershell -NoProfile -ExecutionPolicy Bypass -File "$(cygpath -w "$REPO/install.ps1")" $ARGS
+  # The line is pasted into a NEW PowerShell window: its PATH is the saved one (a runner step also has the Node.js of its
+  # own setup first, which a person does not have, so the installer would find a Node.js it must not take as theirs).
+  step install powershell -NoProfile -ExecutionPolicy Bypass -Command "\$env:Path = [Environment]::GetEnvironmentVariable('Path','Machine') + ';' + [Environment]::GetEnvironmentVariable('Path','User'); & '$(cygpath -w "$REPO/install.ps1")' $ARGS; exit \$LASTEXITCODE"
   # A NEW PowerShell window of that person reads the PATH saved in the registry (all users, then their own): the
   # installer put Node.js and the hoprig command into the person's own folder and saved it there. This window did not
   # start from it, so it is read the same way here.
