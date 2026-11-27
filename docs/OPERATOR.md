@@ -17,6 +17,7 @@ address `#/operator` opens Home. It recommends one step for each thing; nothing 
   first: then the other computers are read only when you open the page or press Refresh.
 - **What Tia does by herself** (under **Settings**, **Tia**): the main switch **Tia acts by herself**, the button **Tia OFF**
   (shown while she may act), **Tia decides**, her other switches and her five rules (below).
+- **Tia herself**: the round button at the foot of the page (the sparkle in the head on a phone) opens her chat, and **Open the full page** gives her **Chat**, **Jobs** and **Activity**. All her switches are in Settings → Tia; with her off, that is where to turn her on.
 - **Done by Tia** (in the same part): every step a rule or a decision of hers did, or was refused, with Undo where the step has one. A line never shows a
   path or an address, so a word with a slash in it (such as "and/or") may show as "...".
 - Every step you tap is still one line in `operator/timeline.jsonl` of the state folder, and every place Hoprig looks at is still
@@ -94,7 +95,7 @@ nothing those say can switch a rule on or change what it does. There are five ru
 | Rule | What it does | Undo |
 |---|---|---|
 | limit | When a session stops at a usage limit, continue it on the next provider of my order (the **Order of providers** under **At a limit** on Providers). Only when Claude Code itself reported the limit (a limit line that only shows on the screen stays yours), only to a provider Tia may use (Settings → Tia), to a provider billed by use only when her level is Hands off, never while Auto mode is on (Auto mode does it then), never back to a provider the session left within the hour, whoever moved it then (your tap, Auto mode, the rule, or you by hand in a terminal). | Move it back with one tap under Done by Tia, once the old provider is free again; refused in plain words when the session ended, moved since, or the old provider is still at its limit. |
-| gateway | When a gateway that open sessions go through does not answer, restart it. Not a gateway that is only not started yet, and never one you stopped yourself (Settings → Add-ons → Stop, or `hoprig addons stop`) until it is started again. | none |
+| gateway | When a gateway that open sessions go through does not answer, restart it. Not a gateway that is only not started yet, and never one you stopped yourself (Settings → Security and sign-in → Advanced → Add-ons → Stop, or `hoprig addons stop`) until it is started again. | none |
 | link | When the public link is on and does not answer, restart it. | none |
 | leftover | End a test's left-over processes: only what this page calls left over, once older than an hour, and only a test's: an idle tmux server that a test or a try of Hoprig started (its state folder is in the temporary folder), or a test's dashboard. Your own tmux servers stay yours, also one started in the temporary folder. | none: an ended process cannot be undone |
 | elsewhere | When this computer is overloaded, start new work where there is room. Only Tia's new starts, only on a computer you let her use (Settings → Tia) that has room, until this computer has been calm for 10 minutes (2 hours at most). Nothing that runs moves. | **Undo** under **Computers** on this page ends it at once. **Tia OFF** on this page ends it too when this rule or Tia set it; one you started with your own tap stays until it ends by itself or you press Undo. |
@@ -267,10 +268,10 @@ transcript). At most 200 in 24 hours, no model, no cost. They are kept 90 days, 
 state folder: an older record goes from the file at the next read, whatever the switch says. They never leave this
 computer: no field report has a place for a word of them.
 
-Nothing changes by itself from them. They are shown where you decide: on this page under each rule and under **Tia
+Nothing changes by itself from them. They are shown where you decide: in **Settings → Tia → What she may do alone** under each rule and under **Tia
 decides** ("You took this back 3 times this week": an Undo of her decision or a hold of hers you lifted; a step you
-picked yourself, a chat card you declined and a plan you changed each have a line of their own), on Work's Team tab
-under each role ("You sent back 4 of its tasks this week") and on the Skills page per skill. **Forget these** removes
+picked yourself, a chat card you declined and a plan you changed each have a line of their own), in **Settings → Tia → Limits and roles**
+under each role ("You sent back 4 of its tasks this week") and on **Projects → Skills** per skill. **Forget these** removes
 them all in one press, with the evidence file written from them. **Use these as
 evidence** writes the corrections of skills, in the evidence shape of an improvement loop
 (`{"target":"skill:<name>","kind":"correction","text":…,"seen":"YYYY-MM-DD"}`), into one file of the state folder

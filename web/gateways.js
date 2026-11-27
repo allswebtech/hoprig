@@ -50,7 +50,7 @@ const LOOPBACK = ['localhost', '127.0.0.1', '[::1]', '::1'];
  */
 export function gatewayPageLink(page, { title = 'The gateway', pageHost = '', signedIn = [], other = false } = {}) {
   if (!page) return null;
-  if (other) return { text: `${title}'s own page opens only in a browser on that computer itself. For a computer added by SSH, Open its page under that computer's Health opens it in a browser on the computer this dashboard runs on.` };
+  if (other) return { text: `${title}'s own page opens only in a browser on that computer itself. For a computer added by SSH, Open its page under that computer's Advanced → Service opens it in a browser on the computer this dashboard runs on.` };
   const u = new URL(page);
   const own = String(pageHost).toLowerCase();
   if (!LOOPBACK.includes(own)) {

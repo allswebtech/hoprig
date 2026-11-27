@@ -56,10 +56,10 @@ const tia = await import('../../web/tia.js');
 const mission = await import('../../web/mission.js');
 const src = read('web/tia.js');
 
-test('her page is out of the menu and lights Settings; her head is one short line that keeps the promise', () => {
+test('her page is out of the menu and lights Home, as the App chat does; her head is one short line that keeps the promise', () => {
   const p = pageById('tia');
   assert.equal(p.group, null, 'no menu item of her own');
-  assert.equal(p.navAs, 'settings');
+  assert.equal(p.navAs, 'home');
   assert.equal(typeof tia.HEAD_LINE, 'string');
   assert.ok(tia.HEAD_LINE.split(' ').length <= 9, tia.HEAD_LINE);
   assert.match(tia.HEAD_LINE, /risky/);

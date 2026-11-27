@@ -20,7 +20,7 @@ The official phone and remote features are built for subscriptions. [Claude Code
 
 1. On the **Providers** page, press **Add provider** to add the provider: an API key (a secret code that lets a program use an AI provider, billed per use), or a gateway's address and key. The key stays in a file readable by you only, and is given to the coding tool in its environment when it starts, never written into the tool's own files. In a terminal (the window where you type commands): `hop add`.
 2. **New session**, pick the project and that provider. The chat looks and works the same as on a subscription: the diffs, the OKs, the terminal one tap away.
-3. Reach it from your phone with the QR code, or from anywhere with the public link (**Settings → Public link**).
+3. Reach it from your phone with a sign-in QR code (**Settings → Security and sign-in**), or from anywhere with the public link (**Settings → Public link**).
 4. A gateway on another of your computers: **Providers → TRouteAI → Gateways on your computers** lists every gateway on every linked computer, and **Use here** makes one a provider of this computer in one step. The other computer gets a key of its own; the gateway keeps its own key.
 5. On **Settings → Add-ons**, press **Install** on an optional add-on gateway that lets Claude Code use other AI providers, and **Settings → Add-ons → Add a gateway** defines another gateway program of your own, which Hoprig runs only after you confirm it. In a terminal: `hop addons`, and `hop gateways add`.
 6. OpenCode, the second coding tool, runs on API keys and gateways that speak its API, with the same rules, skills and memory as Claude Code.
@@ -30,7 +30,7 @@ The official phone and remote features are built for subscriptions. [Claude Code
 ## What you need
 
 - An API key, or a gateway's address and key.
-- A computer with Linux that stays on while you work. On macOS its tests run on every change, but the install and the newer parts (the chat, the editor, the desktop) have not been run on a real Mac yet.
+- A computer with Windows, macOS or Linux that stays on while you work.
 
 ## What it does not do
 

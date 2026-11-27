@@ -39,6 +39,9 @@ async function press(row, reload) {
   await reload();
 }
 
+/** The button's name for a screen reader and for the one-door rule: its words and its project, so rows do not repeat. */
+const named = (r) => (r.project ? `${r.button} ${r.project}` : r.button);
+
 /** The block, or null when everything is in step. `reload()` draws the page again after a press. */
 export function instepBlock(list, { reload = async () => {} } = {}) {
   const rows = instepRows(list);
@@ -52,8 +55,8 @@ export function instepBlock(list, { reload = async () => {} } = {}) {
     h('ul.instep-list', rows.map((r) => h('li.instep-row', { dataset: { id: r.id } },
       h('span.instep-text', r.text),
       r.action === 'show'
-        ? h('a.btn.small', { href: link(`#/workspace/project/${encodeURIComponent(r.project)}`) }, r.button)
-        : btn('small', { label: r.button, onclick: async (e) => {
+        ? h('a.btn.small', { href: link(`#/workspace/project/${encodeURIComponent(r.project)}`), 'aria-label': named(r) }, r.button)
+        : btn('small', { label: r.button, 'aria-label': named(r), onclick: async (e) => {
           e.currentTarget.disabled = true;
           try {
             await press(r, reload);

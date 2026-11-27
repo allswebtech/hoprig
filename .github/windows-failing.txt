@@ -1,4 +1,0 @@
-test/setup/firstrun-quiet.test.mjs
-test/pcsetup/optional-route.test.mjs
-test/pcsetup/detect-status.test.mjs
-test/docs-claims-kits.test.mjs

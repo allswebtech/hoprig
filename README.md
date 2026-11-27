@@ -5,19 +5,22 @@
 <h1 align="center">Hoprig</h1>
 
 <p align="center">
-  <b>One command, and a computer is ready to code with AI.<br>
-  Your rules, skills and memory come along to every machine, and every session is on one page, also on your phone.</b>
+  <b>One command, and a computer is ready to code with AI.</b>
 </p>
 
 <p align="center">
-  Free · runs on your own computers · for Claude Code and OpenCode · <a href="https://hoprig.com">hoprig.com</a>
+  Free · open source · runs on your own computers · <a href="https://hoprig.com">hoprig.com</a>
 </p>
 
 <p align="center">
   <a href="LICENSE"><img alt="Apache-2.0 license" src="https://img.shields.io/badge/license-Apache--2.0-4f46e5"></a>
   <a href="https://github.com/allswebtech/hoprig/actions/workflows/test.yml"><img alt="tests" src="https://github.com/allswebtech/hoprig/actions/workflows/test.yml/badge.svg"></a>
-  <img alt="Linux and macOS" src="https://img.shields.io/badge/runs%20on-Linux%20%C2%B7%20macOS-10b981">
+  <img alt="Windows, macOS and Linux" src="https://img.shields.io/badge/runs%20on-Windows%20%C2%B7%20macOS%20%C2%B7%20Linux-10b981">
 </p>
+
+- **It sets the computer up.** One line installs what coding with AI needs, asks nothing, and opens your browser on Hoprig, signed in.
+- **Every chat is on one page.** Your sessions, your rules, skills and memory are on one page, also on your phone, and a session goes on with another account when one reaches its usage limit.
+- **It is yours.** Free, open source, and it runs on your own computers; the AI it uses is your own Claude plan or key.
 
 **Windows**: press the Windows key, type PowerShell, press Enter, paste this line and press Enter.
 
@@ -40,6 +43,13 @@ wget -qO- https://raw.githubusercontent.com/allswebtech/hoprig/main/install.sh |
 <p align="center">
   <img src="docs/screenshots/hero.webp" alt="The Hoprig dashboard on a desktop and on a phone: Home with the chats and sessions that need you, and a chat waiting for an OK to run the tests" width="900">
 </p>
+
+**What happens next**
+
+1. The line says what the computer is missing, installs it and ticks each step. It asks nothing.
+2. Your browser opens on Hoprig, already signed in. At first only this computer can open it.
+3. Press **Sign in to Claude** (or **No Claude plan? Pay as you use**), then **New project** or **My own folder**.
+4. Tell Claude what to make. You see each change and press **Allow** or **Do not allow**, at your desk or, once you turn it on in Settings, on your phone.
 
 ## What it does
 
@@ -101,20 +111,14 @@ wget -qO- https://raw.githubusercontent.com/allswebtech/hoprig/main/install.sh |
 - **A computer ready for coding**: git, Node.js, Python, the GitHub CLI, your projects and skills that fit them,
   installed by one guided run. What is already there is left alone.
 
-Linux and macOS today.
-On Windows (natively, without WSL) the main paths were used by hand on one Windows 11 computer: setup, doctor, the
-computer setup with winget, projects, the background service and the dashboard with sessions and a chat. That first
-run needed ways round (a new project needed a global git identity, programs winget installed stayed "missing", the
-Python kit gave no Python, installing the service again left the old dashboard serving); this version has fixes for
-them that were not yet tried there. The test suite passes on GitHub's Windows runners with Node 24 and 26, about 835
-tests skipped there, each with its cause, and a skipped test proves nothing. A runner does not prove Task Scheduler
-(the service), winget, icacls (which hands a folder back to you), a restart of the service or the `.cmd` launcher in a
-real console, nor whether a check or a go-live command opens a console window on the desktop while it runs, so Windows
-support is experimental until it has run on real Windows computers. Two things work differently there: a go-live
-command ended at its time limit also ends a server it started in the background (on Linux that server goes on
-running), and a scheduled run whose coding tool could not be ended switches its schedule off until you switch it on
-again in Work → Schedules (a schedule that names another computer is not switched off). Hands-off and the box are not
-offered on Windows, and `install.ps1` itself was not tried.
+**Windows, macOS and Linux.** The install line and the whole test suite run on GitHub's Windows, macOS and Linux
+machines (the Windows test jobs are still allowed to fail), and the first run was walked on Windows four ways: a new
+PC with scripts off, scripts allowed, an administrator window, and Git missing. Windows is new here, and a real home
+Windows PC has seen less of Hoprig than a Linux computer has: the background service (Task Scheduler), winget and a
+restart of the service were not run on one. Two things work differently on Windows: a go-live command ended at its time
+limit also ends a server it started in the background (on Linux that server goes on running), and a scheduled run whose
+coding tool could not be ended switches its schedule off until you switch it on again in Work → Schedules. Hands-off and
+the box are not offered on Windows.
 Much else was not tried there (see "Where it runs"). Not affiliated with Anthropic or with OpenCode's makers;
 "Claude" and "Claude Code" are Anthropic's.
 
@@ -184,7 +188,7 @@ sets Hoprig up as that user. An older Hoprig that already runs as root moves wit
 the network ([docs/INSTALL.md](docs/INSTALL.md#a-server-with-only-a-root-login)).
 
 <p align="center">
-  <img src="docs/screenshots/get-started-desktop-light.webp" alt="Home with Get started: what is set up on this computer and what comes next, above the chats and sessions" width="760">
+  <img src="docs/screenshots/first-run-desktop-light.webp" alt="Home on a new install: one card, Welcome to Hoprig, with Signed in to Claude and Start your first chat, New project or My own folder" width="760">
 </p>
 
 Just want to look? `hoprig demo` opens the dashboard with sample data: no coding tool and no account needed.
@@ -199,11 +203,13 @@ terminals they end, and come back only if "Reopen sessions after a restart" is o
 ## Code in a chat
 
 <p align="center">
-  <img src="docs/screenshots/chat-desktop-light.webp" alt="A chat: the to-do list, a changed file, and Claude Code asking to run the tests, with Allow, Allow in this session, Always allow in this project and Do not allow" width="760">
+  <img src="docs/screenshots/chat-desktop-light.webp" alt="A chat: the to-do list, a changed file, and Claude Code asking to run the tests, with Do not allow and Allow" width="760">
 </p>
 
 **New session** on Home opens with **Tap a project to start**: the projects as big rows (**Recent**, then **All
-projects**, then **Another folder…**), and one tap on a row starts an App chat there with nothing else asked. The App
+projects**, then **Another folder…**), and one tap on a row starts an App chat there with nothing else asked. A project is one row and its session starts in
+the project's own folder, where its rules and AI brain are (a session you started in one of its code folders counts for
+the same row); a code folder alone is reached by **Another folder…**. The App
 takes the provider, mode, model and effort of the last session in that folder (the first time: **Settings → New
 sessions**); the chat's own chips change them at any time. Where two or more computers are linked, a row of small
 chips over the projects chooses the computer. **More options** holds only what must be chosen before the start:
@@ -320,9 +326,9 @@ From a terminal on that computer, `hop chat [folder]` prints the chat's address 
   **Files** in the title bar opens the editor; the diff pane's editor button opens its Changes view.
 
 <p align="center">
-  <img src="docs/screenshots/chat-phone-light.webp" alt="The same chat on a phone: the OK card with its answers and the message box with its chips" width="250">
+  <img src="docs/screenshots/chat-phone-light.webp" alt="The same chat on a phone: the OK card with Do not allow and Allow, the to-do list and the message box" width="250">
   &nbsp;
-  <img src="docs/screenshots/new-session-phone-light.webp" alt="New session on a phone: one line that names the computer, the App and the coding tool, with Change beside it, and the recent projects" width="250">
+  <img src="docs/screenshots/new-session-phone-light.webp" alt="New session on a phone: Tap a project to start, the computers to choose from, a search box, the recent projects with Continue and all projects" width="250">
   &nbsp;
   <img src="docs/screenshots/session-phone-light.webp" alt="A terminal session on a phone: the real terminal, a key bar and a message box" width="250">
 </p>
@@ -374,7 +380,7 @@ subscription's sign-in is for Claude Code only, always). Auto mode, plan usage a
 Code's only.
 
 <p align="center">
-  <img src="docs/screenshots/coding-tools-desktop-light.webp" alt="Settings, New sessions: the Coding tools card with Claude Code and OpenCode, each on, and the providers that serve it" width="760">
+  <img src="docs/screenshots/coding-tools-desktop-light.webp" alt="Settings, New sessions: how new sessions start, and the Coding tools card with Claude Code and OpenCode, each with a switch" width="760">
 </p>
 
 ### One brain for both
@@ -495,7 +501,7 @@ the same request is answered by the next provider, with no error on screen and n
 subscription is free again, requests go back to it.
 
 <p align="center">
-  <img src="docs/screenshots/auto-mode-desktop-light.webp" alt="Providers with &quot;Carry on with the next provider&quot; chosen: the order of providers, and the switch for pay-per-use providers" width="760">
+  <img src="docs/screenshots/auto-mode-desktop-light.webp" alt="Providers, At a limit: Carry on with the next provider chosen, the order of providers, and the switch for pay-per-use providers" width="760">
 </p>
 
 Good to know:
@@ -551,7 +557,7 @@ same apps, each opening as a page.
 ## From anywhere: the public link
 
 <p align="center">
-  <img src="docs/screenshots/public-link-desktop-light.webp" alt="Settings, Public link: one switch, and the two kinds, Temporary and Custom" width="760">
+  <img src="docs/screenshots/public-link-desktop-light.webp" alt="Settings, Security and sign-in: the Public link, one switch, and the two kinds, Temporary and Custom" width="760">
 </p>
 
 **Settings → Public link** (or `hop public on`) makes this dashboard reachable from anywhere through a Cloudflare
@@ -640,7 +646,7 @@ nothing else (not Tia, not an automation, not another computer) types into that 
   what it changes before the one yes.
 
 <p align="center">
-  <img src="docs/screenshots/projects-desktop-light.webp" alt="The Projects page: every project with its state and a New session button" width="760">
+  <img src="docs/screenshots/projects-desktop-light.webp" alt="The Projects page: the tabs Projects, Skills and Memory, what is not in step, and every project with its state and a New session button" width="760">
 </p>
 
 ### The workspace and the AI brain
@@ -679,13 +685,13 @@ leads out of it is not followed, unless you name it as yours on that computer wi
 `hop workspace mylink add <path>` (a project kept on another disk). Details: [docs/WORKSPACE.md](docs/WORKSPACE.md).
 
 <p align="center">
-  <img src="docs/screenshots/project-page-desktop-light.webp" alt="A project's page: its sessions, its earlier conversations and its code repositories" width="760">
+  <img src="docs/screenshots/project-page-desktop-light.webp" alt="A project's page: its sessions, its earlier conversations, and its repositories, skills and memory as one row each" width="760">
 </p>
 
 ## It keeps going without you
 
 <p align="center">
-  <img src="docs/screenshots/work-today-desktop-light.webp" alt="Work, Tasks: three tasks with their due days" width="760">
+  <img src="docs/screenshots/work-tasks-desktop-light.webp" alt="Work, Tasks: what waits for your yes, what is due this week and later, with Add task at the top" width="760">
 </p>
 
 The rules that start things are fixed, with no AI deciding: a schedule starts at its time, the queue sends at the end
@@ -899,7 +905,7 @@ front there, without control characters; your own typing on the page goes in as 
 a restart and **End session** end the programs in the terminal first, and only then start the new one or end it.
 
 <p align="center">
-  <img src="docs/screenshots/settings-desktop-light.webp" alt="Settings: one row per page, most with their current state in one line, and New sessions open beside them" width="760">
+  <img src="docs/screenshots/settings-desktop-light.webp" alt="Settings: seven rows, each with its state in one line, and New sessions open beside them" width="760">
 </p>
 
 ## Not built, or not proven yet
@@ -1029,14 +1035,14 @@ The dashboard is a remote control for your computer, and it is built that way:
 | | Providers, Auto mode | Dashboard | Fresh-computer setup |
 |---|---|---|---|
 | Linux | run and tested | run and tested (tmux and built-in terminals), systemd service | run in clean Ubuntu, Debian and Fedora; the install line itself, from a packed build, also in Debian 12, Fedora, Alpine and Ubuntu 24.04 on arm64 |
-| macOS | run and tested | run and tested (built-in terminals) before this version; what is new in it was not run there (see above); the launchd service is written, not yet installed for real | checked read-only; installs not yet run |
-| Windows | used by hand once (Claude Code, a subscription and a gateway on the computer); the test suite passes on GitHub's Windows runners (Node 24 and 26, about 835 tests skipped there, each with its cause) | used by hand once (built-in terminals, a chat, the Task Scheduler service); not tried: updates, the desktop, the editor, other computers, the public link | `pc setup` with winget used once; `install.ps1` itself not tried |
+| macOS | run and tested | run and tested (built-in terminals) before this version; what is new in it was not run there (see above); the launchd service is written, not yet installed for real | the install line and the first run run green on GitHub's macOS machines; an install on a real Mac not yet run by hand |
+| Windows | used by hand once (Claude Code, a subscription and a gateway on the computer); the whole test suite runs green on GitHub's Windows machines (Node 24 and 26) | used by hand once (built-in terminals, a chat, the Task Scheduler service); not tried: updates, the desktop, the editor, other computers, the public link | the install line (`install.ps1`) and the first run walked on GitHub's Windows machines four ways (scripts off, scripts allowed, an administrator window, Git missing); `pc setup` with winget used once |
 
 Requires Node.js 24.13.1 or newer (Node.js 22 and older are not supported; `hoprig` says so in one sentence on an
 older Node.js, with the line that installs the newest one). The tests run on Linux and macOS with Node 24 and 26 on
-every change, and on Windows as a job that is still allowed to fail (a failure there does not fail the run). They pass
-there on GitHub's runners with Node 24 and 26, about 835 tests skipped, each with its cause; Windows support is
-experimental until it has run on real Windows computers. tmux is used from
+every change, and on Windows as a job that is still allowed to fail (a failure there does not fail the run). It runs
+green there on GitHub's machines with Node 24 and 26; Windows is new here, and a real home PC has seen less of it
+than a Linux computer has (see the Windows paragraph near the top). tmux is used from
 version 3.2 on; with an older one (or none) the built-in terminals are used. With npm 12 there is nothing to do
 yourself: setup builds the one module that needs a build (`node-pty`, the only install script Hoprig's
 `package.json` approves), and `hoprig doctor` names the cause when it did not build.

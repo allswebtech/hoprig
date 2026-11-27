@@ -12,7 +12,7 @@ import { chooseTool, computerChips, lackLine, openAsDefault, providerState, tool
 import { roomHint, roomsById, useHint } from './newsession-room.js';
 import { alsoChoices, alsoOpen } from './newsession-also.js';
 import { moreButton, optionsFor, summaryOf } from './newsession-options.js';
-import { folderSub, outsideProjects, repoWords, runningIn, tellApart } from './newsession-words.js';
+import { folderSub, outsideProjects, projectRows, runningIn } from './newsession-words.js';
 import { atNewAddress, startSession } from './newsession-start.js';
 import { sessionHref } from './sessionitem.js';
 import { groupHead } from './shell.js';
@@ -279,7 +279,9 @@ export function openNewSession({ m, project = null, address = false } = {}) {
       h('span.row-main', h('span.row-title', f.name), sub ? h('span.row-sub', sub) : null));
   // What runs in a folder stays one tap away, as its own button beside the row (a divider between the two, so a
   // thumb on a phone cannot take one for the other): the session runningIn() names, or the list where several run.
-  const runningHere = (f) => ((where() || {}).sessions || []).filter((s) => s.cwd === f.path);
+  // A project's row stands for its own folder and its code folders (f.dirs); a plain folder for itself.
+  const runningIn_ = (f, dirs) => ((where() || {}).sessions || []).filter((s) => dirs.includes(s.cwd));
+  const runningHere = (f) => runningIn_(f, f.dirs || [f.path]);
   function openRunning(f) {
     const list = runningHere(f);
     const one = runningIn(f);
@@ -393,15 +395,11 @@ export function openNewSession({ m, project = null, address = false } = {}) {
     if (!alive || asked !== st.m || st.preset || blocked()) return;
     projectsDir = proj && proj.projectsDir ? proj.projectsDir : null;
     projectsShort = proj && (proj.projectsShort || (proj.projectsDir && tildePath(proj.projectsDir))) || null;
-    // Recent: the newest five. All projects: every other project and recent folder, A to Z.
-    const newest = recent.folders.slice(0, RECENT_MAX);
-    const seen = new Set(newest.map((f) => f.path));
-    const known = proj
-      ? [...proj.workspaces.flatMap((w) => w.repos.map((r) => ({ path: r.dir, ...repoWords(r.rel, w.place ? w.id : w.name) }))), ...proj.repos.map((r) => ({ path: r.dir, ...repoWords(r.rel, null), ...(r.place ? { name: r.id } : {}), sub: null }))]
-      : [];
-    const listed = new Set(known.map((f) => f.path));
-    const more = tellApart([...known, ...recent.folders.slice(RECENT_MAX).filter((f) => !listed.has(f.path)).map((f) => ({ path: f.path, name: f.name, short: f.short, sub: folderSub(f, projectsShort) }))]
-      .filter((f) => !seen.has(f.path)).sort((a, b) => String(a.name).localeCompare(String(b.name))));
+    // One row per project (its own folder: a session started there is the project's, in whichever of its folders it
+    // runs). Recent: the newest five. All projects: every other project and recent folder, A to Z.
+    const rows = projectRows({ recent: recent.folders, workspaces: proj ? proj.workspaces : [], repos: proj ? proj.repos : [], max: RECENT_MAX, subOf: (f) => folderSub(f, projectsShort), tilde: tildePath });
+    const newest = rows.recent;
+    const more = rows.more;
     const lists = h('div', { tabindex: '-1' });
     const draw = () => {
       const q = st.query.trim().toLowerCase();
@@ -475,7 +473,7 @@ export function openNewSession({ m, project = null, address = false } = {}) {
   // taps, or Back and again, never pile them up). Only for the plain start: no earlier conversation, no branch, nothing
   // else to read.
   const emptyChatIn = (f) => (run() === 'chat' && !st.earlier && !st.worktree && !st.also.length
-    ? runningHere(f).find((s) => s.kind === 'chat' && s.status === 'waiting' && !s.lastMessage && !s.title && !s.byTia && (s.tool || 'claude') === st.tool) || null
+    ? runningIn_(f, [f.path]).find((s) => s.kind === 'chat' && s.status === 'waiting' && !s.lastMessage && !s.title && !s.byTia && (s.tool || 'claude') === st.tool) || null
     : null);
   async function start(f, pressed = null) {
     if (starting) return; // a second tap while one is on its way starts nothing

@@ -1,8 +1,20 @@
 # Providers: how a stop is named
 
 When a provider stops the coding tool's work, Hoprig names how, from what Claude Code itself wrote, and shows it on
-the Operator page with the one step that recovers (see `docs/OPERATOR.md`). The names come from one closed table in
+Home, as a row of **Needs you** with the one step that recovers (see `docs/OPERATOR.md`). The names come from one closed table in
 `src/providers/table.mjs`. Only Claude Code's records are read; OpenCode's are not.
+
+## Where the providers are in the dashboard
+
+**Providers** (in the menu) is one list: a row for each provider with its state in one line (and its limits, when it
+reports them), **Add provider** at the top, a row for **TRouteAI** and a row **At a limit** that says what happens when a provider is used up.
+A press on a row opens it. **At a limit** opens a sheet with the two choices, **Stop and ask me** and **Carry on with the
+next provider**, the order of the providers and, under **Advanced**, the rest. **TRouteAI** opens its own page
+(`#/providers/trouteai`): is it running, open it, its accounts and combos, its public address, and everything to manage it.
+
+![Providers, At a limit: Stop and ask me or Carry on with the next provider, and the order of providers](screenshots/auto-mode-desktop-light.webp)
+
+![TRouteAI's own page on a computer where it is not set up yet: one button, Set up TRouteAI](screenshots/gateway-desktop-light.webp)
 
 ## What Claude Code writes
 

@@ -3,7 +3,7 @@ title: One command, and a computer is ready to code with AI.
 description: Hoprig sets a computer up for coding with AI, brings your workspace and AI memory back from git, and moves a session to another provider at a usage limit.
 kicker: Free · open source (Apache-2.0) · runs on your own computer
 lead: Your rules, skills and memory come along to every machine, and every session is on one page, also on your phone.
-under: Works on Linux. On a Mac the tests pass, but the install and the newer parts (the chat, the editor, Work) were not tried on a real Mac. Windows is not ready.
+under: Works on Windows, macOS and Linux. Windows is new: a real home Windows PC has seen less of it than a Linux computer has.
 heroAlt: The Hoprig dashboard on a desktop and on a phone: Home with the chats and sessions that need you, and a chat waiting for an OK to run the tests
 ---
 
@@ -21,7 +21,7 @@ Each of these exists somewhere on its own. Hoprig puts the three together, on yo
 :::card
 ### 1. It sets up the computer
 
-One line installs Hoprig. It then checks what the computer has and installs what is missing: git, Node.js, Python, GitHub's own program and your sign-in to it, Claude Code, your projects, and the skills (short instructions for the AI) that fit them. It asks a few questions, each once, and leaves alone what is already there. Works on Linux; on a Mac these installs were not tried yet.
+One line installs Hoprig. It then checks what the computer has and installs what is missing: git, Node.js, Python, GitHub's own program and your sign-in to it, Claude Code, your projects, and the skills (short instructions for the AI) that fit them. It asks nothing on a first run and leaves alone what is already there. Works on Windows, macOS and Linux.
 
 [A new computer in one run](/use-cases/new-computer/)
 :::
@@ -50,9 +50,9 @@ Find your case. Each page says who it is for, what Hoprig does step by step with
 ## How it works
 
 :::steps
-1. **Install.** Paste one line into a terminal. It adds what is missing, asks a few questions (about 7 on a fresh desktop, each asked once), and ends with a QR code (on a server: how to reach it from your own computer).
-2. **Open the dashboard.** Scan the QR code with your phone, or open it on the computer. Until everything is set up, Home shows a Get started list.
-3. **Code in a chat.** Pick a project and start a chat with Claude Code or OpenCode. You see each change and press **Allow** or **Do not allow**, at your desk or on your phone.
+1. **Install.** Paste the line of your system into its terminal (Windows, Mac and Linux each have one). It says what the computer is missing, installs it and asks nothing.
+2. **Your browser opens.** Hoprig is open on this computer, already signed in. Its first page says the next step: sign in to Claude, then start your first chat.
+3. **Code in a chat.** Pick a project and start a chat with Claude Code or OpenCode. You see each change and press **Allow** or **Do not allow**, at your desk or, once you turn it on in Settings, on your phone.
 :::
 
 <!-- install -->
@@ -63,13 +63,13 @@ Other tools do some of this, and some of it better. Checked on 17 Nov 2026 from 
 
 | | Hoprig | Claude Code's own apps | Happy | tmux, SSH and a VPN |
 |---|---|---|---|---|
-| Sets up a fresh computer for coding | Yes on Linux; on a Mac not tried yet | No | No | No |
+| Sets up a fresh computer for coding | Yes, on Windows, macOS and Linux | No | No | No |
 | Rules, skills and project memory come back on a new computer | Yes, from git | Partly: project memory stays on one computer | No | No |
 | A session goes on with another provider or account at a limit | Yes | No: it waits for the reset, or you pay for extra usage | No | No |
 | From a phone | Yes, in the browser | Yes, an app | Yes, an app | Yes, in a terminal app |
 | From a phone with an API key or a gateway | Yes | No | Not checked | Yes |
 | Goes on with your computer switched off | No | Yes, cloud sessions | No | No |
-| Windows | Not yet | Yes | Not checked | Depends on the tools |
+| Windows | Yes, new | Yes | Not checked | Depends on the tools |
 
 - [Hoprig and Claude Code's own apps and Remote Control](/compare/claude-code-remote-control/)
 - [Hoprig and Happy](/compare/happy/)
@@ -88,7 +88,7 @@ No. One computer is enough. Your phone reaches it on the same Wi-Fi, or from any
 
 ### Does it work on Windows?
 
-Not yet. Its code is written and its tests pass on GitHub's Windows runners, but it has not run on real Windows computers beyond one, so Windows support is experimental. Linux is run and tested. On a Mac the tests pass on every change and switching providers was tried there, but the install itself and the newer parts (the chat, the editor, the desktop, Work) have not been tried on a real Mac.
+Yes, and it is new. The install line and the tests run on GitHub's Windows machines (with Node.js 24 and 26), and the first run was walked on Windows four ways: a new PC with scripts off, scripts allowed, an administrator window, and Git missing. A real home Windows PC has seen less of Hoprig than a Linux computer has. The same line works on a Mac and on Linux; on a Mac the newer parts (the chat, the editor, the desktop, Work) have not been tried by hand on a real Mac.
 
 ### Does it change Claude Code?
 
@@ -112,7 +112,7 @@ The **Operator** is one page of the dashboard that lists what needs you now, the
 
 ### How ready is it?
 
-Its tests run on Linux and macOS with Node.js 24 and 26 on every change. Hoprig needs Node.js 24.13.1 or newer, and the install adds it. The newer parts (the chat, the editor, the desktop, Work) were tried by hand on Linux only, not on a real Mac, and the last checks of this version ran on stand-ins for the coding tools, not on real Claude Code or OpenCode. Everything that is not built or not proven yet is on one page: [Not built, or not proven yet](/docs/not-proven-yet/).
+Its tests run on Linux, macOS and Windows with Node.js 24 and 26 on every change (the Windows jobs are still allowed to fail). Hoprig needs Node.js 24.13.1 or newer, and the install adds it. The newer parts (the chat, the editor, the desktop, Work) were tried by hand on Linux and not on a real Mac, and the last checks of this version ran on stand-ins for the coding tools, not on real Claude Code or OpenCode. Everything that is not built or not proven yet is on one page: [Not built, or not proven yet](/docs/not-proven-yet/).
 :::
 
 ## Start now

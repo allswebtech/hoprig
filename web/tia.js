@@ -971,7 +971,7 @@ const convGet = () => prefs.get('tia.conversation', null);
 const convSet = (v) => prefs.set('tia.conversation', v);
 
 registerPage({
-  id: 'tia', title: NAME, icon: 'sparkle', navAs: 'settings', render: viewTia,
+  id: 'tia', title: NAME, icon: 'sparkle', navAs: 'home', render: viewTia,
   badge: () => (lastOverview && lastOverview.cards ? lastOverview.cards.length : 0),
 });
 

@@ -25,8 +25,8 @@ alone, never reinstalled or downgraded.
 
 The same is on the dashboard: **Computers**, open the computer, **Setup** (one of its three parts: **Overview**,
 **Setup** and **Advanced**). Setup also has a link to the workspace folders, which live in
-**Settings → Workspace**. It shows the status with a **Fix**
-button where a fix exists, and **Set up this computer** lets you tick kits. The installs run as a job on the
+**Settings → Automations → Workspace**. It opens on the things to fix, red ones first, each with a **Fix**
+button where a fix exists, and what is fine is folded away under "things are fine" (**Git and GitHub** is one row of its own); and **Set up this computer** lets you tick kits. The installs run as a job on the
 Setup part itself: each step with ✓ or ✗, the output as it comes, the result and **Check again**. The job goes on
 when you leave the page and shows again when you come back. This works for another computer through the main computer too.
 
@@ -233,7 +233,7 @@ and a report.
 every project (the language you are answered in, your country, currency and time zone, your providers, where you
 deploy, your stack, your targets). The skill takes them without asking. Hoprig never writes that file.
 
-The dashboard does the same: **Workspace → New project** takes the brief, the kind and the scope, and "Start with
+The dashboard does the same: **Projects → Add project → New project** takes the brief, the kind and the scope, and "Start with
 AI" opens the session and goes to it (`POST /api/pcsetup/project/new`, then `POST /api/pcsetup/project/start`).
 
 Every command here that changes something takes `--dry-run` (`new`, `add`, `clone`/`get`, `setup`, `sync`, `link`):

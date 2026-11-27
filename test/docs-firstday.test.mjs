@@ -35,9 +35,9 @@ test('README Install: what the line does in one sentence, and the checks on Setu
   assert.doesNotMatch(install, /Check a computer at any time with `hoprig doctor`/);
 });
 
-test('INSTALL: not signed in to Claude yet, the sign-in is Get started\'s press; the terminal is the other way', () => {
+test('INSTALL: not signed in to Claude yet, the sign-in is the card\'s press; the terminal is the other way', () => {
   const p = flat(part('docs/INSTALL.md', 'Not logged in to Claude yet?'));
-  assert.match(p, /Setup says so in one line and carries on\. Sign in on the dashboard: \*\*Home → Get started → Sign in to Claude\*\* \(or \*\*Computers → this computer → Setup\*\*, the Claude login row's \*\*Sign in\*\*\) opens Claude's sign-in page in your browser\./);
+  assert.match(p, /Setup says so in one line and carries on\. Sign in on the dashboard: \*\*Sign in to Claude\*\* on the card on Home \(or \*\*Providers\*\*, the \*\*Sign in\*\* button of the Claude row, or \*\*Computers → this computer → Setup\*\*, the Claude login row's \*\*Sign in\*\*\) opens Claude's sign-in page in your browser\./);
   // After /login the person is still inside Claude Code: /exit brings the terminal back.
   assert.match(p, /In a terminal instead: run `claude`, type `\/login`, sign in in the browser, then type `\/exit`\./);
   assert.doesNotMatch(p, /then run `hoprig setup` again/);
@@ -67,7 +67,7 @@ test('INSTALL Troubleshooting: Health first, the doctor in a terminal second; th
   assert.match(flat(raw), /Open \*\*Computers → this computer → Setup\*\* on the dashboard: the same checks as `hoprig doctor`, with a \*\*Fix\*\* button where one press can fix a problem \(it shows what it runs and asks first\)\. In a terminal: ```sh hoprig doctor ```/);
   // The table rows keep the doctor's own two spaces, so they are read as written, not flattened.
   const p = raw;
-  assert.ok(p.includes('| `✗ Claude login  not logged in` | **Home → Get started → Sign in to Claude** on the dashboard; in a terminal: `claude`, then type `/login` |'), p);
+  assert.ok(p.includes('| `✗ Claude login  not logged in` | **Sign in to Claude** on the card on Home, or **Providers → Sign in**; in a terminal: `claude`, then type `/login` |'), p);
   assert.ok(!p.includes('| `✗ Claude login  not logged in` | `claude`, then type `/login` |'));
   // Lingering: the press on Advanced → Service first (web/health.js, the Gateways part), the command as the other way.
   assert.match(flat(raw), /On Linux, to keep the dashboard running while you are logged out: open \*\*Computers → this computer → Advanced → Service\*\* and press \*\*Let them start after a restart\*\* \(it asks first; where sudo would ask for a password, the page shows the line to type\)\. In a terminal: `sudo loginctl enable-linger \$USER`\./);

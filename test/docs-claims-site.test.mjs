@@ -39,17 +39,18 @@ test('a mission\'s tasks run one after another at first; Sessions at once lets u
   assert.match(page, /Her tasks run one after another at first\. \*\*Sessions at once\*\* on Work → Team lets up to four run side by side, never more than \*\*At most this many at once\*\* on Work → Schedules \(also one at first\)\./);
 });
 
-test('the index: the tests run on the systems and Node.js versions of the workflow; what is new was tried by hand on Linux only', () => {
+test('the index: the tests run on the systems and Node.js versions of the workflow; what is new was tried by hand on Linux and not on a real Mac', () => {
   const wf = read('.github/workflows/test.yml');
   assert.match(wf, /os: \[ubuntu-latest, macos-latest\]\n\s+node: \[24, 26\]/, 'the blocking job: Linux and macOS, Node 24 and 26');
   const index = flat(read('site/content/index.md'));
-  assert.match(index, /Its tests run on Linux and macOS with Node\.js 24 and 26 on every change\./);
+  assert.match(wf, /windows:\n\s+name: windows-latest[^\n]*\(allowed to fail\)[\s\S]*?continue-on-error: true/, 'the Windows job runs, and is still allowed to fail');
+  assert.match(index, /Its tests run on Linux, macOS and Windows with Node\.js 24 and 26 on every change \(the Windows jobs are still allowed to fail\)\./);
   // The tests run on macOS too, so "run on Linux only" would be untrue; by hand is what only Linux had.
   assert.doesNotMatch(index, /was run on Linux only/);
-  assert.match(index, /The newer parts \(the chat, the editor, the desktop, Work\) were tried by hand on Linux only, not on a real Mac/);
+  assert.match(index, /The newer parts \(the chat, the editor, the desktop, Work\) were tried by hand on Linux and not on a real Mac/);
 });
 
-test('the index: setup ends with a QR code, and on a server with how to reach it instead', async (t) => {
+test('the index: a first run opens the browser signed in; a later full setup ends with a QR code, and on a server with how to reach it instead', async (t) => {
   // With a phone address setup's last step makes a one-time sign-in link, kept in <state folder>/login-links.json.
   // The folders are this test's own: in the run's shared state folder the link landed while test/docs-claims.test.mjs
   // checked that this folder stays as it was, and that check failed when the two files ran side by side.
@@ -73,7 +74,7 @@ test('the index: setup ends with a QR code, and on a server with how to reach it
   };
   assert.match(await end({ phoneUrl: 'http://192.168.1.20:7433/' }), /Scan with your phone's camera/);
   assert.doesNotMatch(await end({ server: { kind: 'ssh' } }), /Scan with/, 'no QR code on a server');
-  assert.match(flat(read('site/content/index.md')), /ends with a QR code \(on a server: how to reach it from your own computer\)\./);
+  assert.match(flat(read('site/content/index.md')), /2\. \*\*Your browser opens\.\*\* Hoprig is open on this computer, already signed in\. Its first page says the next step: sign in to Claude, then start your first chat\./);
 });
 
 test('the tmux compare page: on a server (public address, SSH without a desktop, a cloud) setup does not offer "devices on my network"', async () => {
@@ -161,12 +162,20 @@ test('the Operator use case: the order of the list, and every switch of Tia off 
   const page = flat(read('site/content/use-cases/what-needs-you.md'));
   assert.match(read('site/content/use-cases/what-needs-you.md'), /^---\norder: 19\n/);
   assert.match(page, /While Tia's rules, \*\*Tia decides\*\* and her looks are off, nothing happens until you tap\. All of them are off at first\./);
-  assert.match(page, /\*\*Needs you\*\* lists the items in this order: \*\*Can lose work\*\*, \*\*Stopped\*\*, \*\*Waits for you\*\*, \*\*This computer\*\*, then \*\*For your information\*\*\. Inside each group the oldest comes first\./);
+  assert.match(page, /# How do I see on one page what needs me\? Open \*\*Home\*\*\. Its \*\*Needs you\*\* group lists what needs you now/);
+  assert.match(page, /\*\*Needs you\*\* lists the rows in this order: work that can be lost, stopped work, what waits for you, then this computer\. Inside each the oldest comes first\./);
+  assert.doesNotMatch(page, /Operator\*\*|group \*\*More\*\*|Beside the list|Done by you|Watched/, 'the Operator page is gone: the page says where things are now');
+  // Where the page sends you: Home's group, Settings -> Tia's fold, the computer's Overview.
+  assert.match(read('web/home.js'), /\['needs', 'Needs you'/);
+  assert.match(read('web/operator-tia.js'), /fold\('tia-alone', 'What she may do alone'/);
+  assert.match(read('web/operator-tia.js'), /fold\('tia-part-done', 'Done by Tia'/);
+  assert.match(read('web/operator-rooms.js'), /LOOK_SENTENCE = 'Look at my other computers too'/);
+  assert.match(page, /In \*\*Settings\*\*, \*\*Tia\*\*, the fold \*\*What she may do alone\*\* holds switches/);
   assert.match(page, /A rule acts at most 3 times an hour and 10 times a day, with 10 minutes between two tries on the same thing/);
   assert.match(page, /about 3,400 tokens of her provider, at most 30 decisions and 125,000 tokens a day at first/);
   assert.match(page, /at most 2 looks and \$3 a day at first/);
   assert.match(page, /a session with no progress for 20 minutes/);
-  assert.match(page, /!\[The Operator page: [^\]]+\]\(\/screenshots\/operator-desktop-light\.webp\)/);
+  assert.match(page, /!\[Home, Needs you: [^\]]+\]\(\/screenshots\/home-desktop-light\.webp\)/);
 });
 
 test('the Operator use case: the switches in the panel\'s order, what each needs, and a tap that can move work to a paid key', async () => {
@@ -183,7 +192,7 @@ test('the Operator use case: the switches in the panel\'s order, what each needs
   // Tia OFF is drawn only while she may act; turning the main switch on asks first.
   assert.match(read('web/operator-tia.js'), /const off = v\.acts \? h\('button\.btn\.danger\.op-off'/);
   assert.match(read('web/operator-tia.js'), /if \(on && !\(await confirm\(\)\)\)/);
-  assert.match(page, /Turning it on asks you to confirm first\. .*While it is on, the button \*\*Tia OFF\*\* stands at the top of this part and stops her at once\./);
+  assert.match(page, /Turning it on asks you to confirm first\. .*While it is on, the button \*\*Tia OFF\*\* stands at the top of the fold and stops her at once\./);
   // Five rules, and the guide that lists them.
   const { RULES } = await import('../src/operator/rules.mjs');
   assert.equal(RULES.length, 5);
@@ -223,8 +232,9 @@ test('the Operator use case: the switches in the panel\'s order, what each needs
   // A rule of Tia's refuses that move below Hands off (src/operator/reflex.mjs).
   assert.match(read('src/operator/reflex.mjs'), /const paid = !p \|\| p\.kind === 'api' \|\| p\.paid === true;\n\s*if \(paid && tia\.level !== 'handsoff'\) throw refusal\('paid'/);
   assert.match(page, /\*\*Continue on the next provider\*\* goes to the next provider of your order under Providers → Auto mode, and it does not ask first\. When that order holds a pay-per-use API key, the work from there on costs money\. A rule of Tia's or \*\*Tia decides\*\* makes that move only at her level \*\*Hands off\*\*/);
-  // (The menu has no More group since 27 Nov 2026 (web/shell.js); the docs page below is rewritten by the operator lane.)
-  assert.match(page, /\*\*Operator\*\* is in the menu's group \*\*More\*\*, on a phone too\./);
+  // Home is the menu's first item and carries its one badge; the old address opens Home.
+  assert.match(page, /\*\*Home\*\* is the first item of the menu, on a phone too\. It carries the only number in the menu: the count of what needs you; information alone is not counted\. The old address of the Operator page, `#\/operator`, opens Home\./);
+  assert.match(read('web/operator.js'), /registry\.registerHomeCount\(homeCount\)/);
   assert.doesNotMatch(page, /last fetch|never fetches/);
 });
 
@@ -468,7 +478,7 @@ test('money, the stop and Auto mode: a rule and Tia decides spend on a paid prov
   assert.equal(CAP_SWITCH, '#/settings/tia?show=tia-daily-cap');
   assert.match(read('web/operator.js'), /'Set a daily limit for paid use'/);
   assert.doesNotMatch(read('web/operator.js'), /'Set the daily cap'/);
-  assert.match(needs, /A rule of Tia's or \*\*Tia decides\*\* makes that move only at her level \*\*Hands off\*\* \(Settings → Tia\) and only within her daily limit for paid use, which counts it\. With no limit set, or the limit used up, the move stays yours: the card says so in one line and offers \*\*Set a daily limit for paid use\*\*\. Your own tap is not counted\./);
+  assert.match(needs, /A rule of Tia's or \*\*Tia decides\*\* makes that move only at her level \*\*Hands off\*\* \(Settings → Tia\) and only within her daily limit for paid use, which counts it\. With no limit set, or the limit used up, the move stays yours: the row says so in one line and offers \*\*Set a daily limit for paid use\*\*\. Your own tap is not counted\./);
   const changelog = flat(read('site/content/changelog.md'));
   assert.doesNotMatch(changelog, /A repository, a message to a session, money, a sign-in, a push and a release are never a rule\./);
   assert.match(changelog, /Money is one only at \*\*Hands off\*\* and within Tia's daily limit for paid use \(Settings → Tia\): there the limit rule may move a session onto a provider paid per use, and the limit counts that move\./);

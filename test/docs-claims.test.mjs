@@ -450,7 +450,7 @@ test('at a usage limit a task waits until an hour after the first limit, or Tia 
   const { missionSteps } = await import('../src/operator/decide-table.mjs');
   assert.deepEqual(missionSteps('mission-limit', { to: 'gw2', waitMs: 30 * 60_000 }).map((s) => s.id), ['next-provider', 'wait']);
   assert.deepEqual(missionSteps('mission-sent-back', {}), []);
-  assert.match(m, /With \*\*Tia decides\*\* and its switch \*\*Also a mission's choices\*\* on \(Operator page; both off until you turn them on\)/);
+  assert.match(m, /With \*\*Tia decides\*\* and its switch \*\*Also a mission's choices\*\* on \(Settings → Tia, in the fold What she may do alone; both off until you turn them on\)/);
   assert.match(m, /a provider billed by use only at "Hands off"/);
   assert.match(read('web/tiaactivity.js'), /handsoff: 'Hands off'/);
   assert.match(m, /A task sent back twice stays yours/);
@@ -476,7 +476,7 @@ test('the Operator does nothing about a mission session at a limit, stuck, ended
     assert.equal(engineOwns({ kind: k, target: { mission: true } }), true, k);
   }
   const m = missions();
-  assert.match(m, /the Operator page's rules and Tia's decisions there do nothing: only the mission moves its own tasks/);
+  assert.match(m, /the Operator's rules and Tia's decisions there do nothing: only the mission moves its own tasks/);
   assert.doesNotMatch(m, /she does nothing about it by herself yet/);
 });
 
@@ -722,13 +722,13 @@ test('the install guide names Keep Hoprig on root on purpose with the sentence t
   const { STAY_ROOT_SENTENCE, stayRootChoice } = await import('../src/setup/rootfacts.mjs');
   const page = read('web/rootsettings.js');
   assert.match(page, /title: 'Keep Hoprig on root on purpose'/);
-  assert.match(page, /Bypass permissions mode stays unavailable, and doctor and Health then show root as information only/);
+  assert.match(page, /Bypass permissions mode stays unavailable, and the doctor and Setup then show root as information only/);
   assert.throws(() => stayRootChoice({ sentence: 'keep it' }, true), /type the sentence/);
   assert.equal(stayRootChoice({ sentence: ` ${STAY_ROOT_SENTENCE} ` }, true), true);
   assert.equal(stayRootChoice(false, true), false, 'the choice can be taken back');
   const doc = flat(read('docs/INSTALL.md'));
   assert.ok(doc.includes(`**Keep Hoprig on root on purpose**: you type \`${STAY_ROOT_SENTENCE}\`, the choice is kept in this computer's settings and can be taken back there`));
-  assert.match(doc, /bypass permissions mode stays unavailable, and doctor and Health then show root as information only/);
+  assert.match(doc, /bypass permissions mode stays unavailable, and the doctor and Setup then show root as information only/);
 });
 
 // README.md:749-750 "Codex is not part of this version": the one list of offered coding tools leaves it out
@@ -947,7 +947,7 @@ test('HANDS-OFF says when the first-time sheet shows, where it is kept, how to r
   assert.match(t, /The first time you turn on a Hands-off switch in a browser \(a session's, a project's or an App chat's\), a sheet "What Hands-off does" explains/);
   assert.match(t, /It only explains: the switch is already on, and closing the sheet does not turn it off\./);
   assert.match(t, /so you see it once per browser, not once per computer: another browser or a phone shows it again\./);
-  assert.match(t, /To read it again, open Settings → Hands-off and press "Read the first-time summary again"\./);
+  assert.match(t, /To read it again, open Settings → New sessions → Hands-off and press "Read the first-time summary again"\./);
   assert.match(t, /Hands-off costs nothing by itself: it reads the questions by fixed rules, with no model,/);
   const sheet = read('web/handsoff.js');
   assert.match(sheet, /const CONSENT_SEEN = 'handsoff\.firstSeen';/, 'the flag is one per browser');

@@ -68,9 +68,6 @@ export function ownNeedsOf(all, multi) {
   const sessions = oneCardPerKey(all.flatMap((m) => m.sessions || [])).filter((s) => groupOf(s) === 'needs').length;
   return sessions + (all.length && accountsLine(all.filter((m) => m.status === 'online'), multi).warn ? 1 : 0);
 }
-if (typeof window !== 'undefined' && typeof location !== 'undefined' && !location.pathname.startsWith('/login')) {
-  store.subscribe(() => store.all.length && setOwnNeeds(ownNeedsOf(store.all, store.multi)));
-}
 
 /** The Set up card stays only while set-up is unfinished (getstarted.js planGetStarted: mode "open"); the first-run card (firstrun.js) always shows while it is the one thing on Home. */
 export const setupShown = (plan, first = false) => first || (!!plan && plan.mode === 'open');
@@ -388,4 +385,10 @@ export function viewHome() {
     gs.stop();
     stopOp();
   };
+}
+
+// Last in the file: a store that already holds the computers (the Desktop's Sessions window) calls this at once, and it
+// reaches every const above.
+if (typeof window !== 'undefined' && typeof location !== 'undefined' && !location.pathname.startsWith('/login')) {
+  store.subscribe(() => store.all.length && setOwnNeeds(ownNeedsOf(store.all, store.multi)));
 }

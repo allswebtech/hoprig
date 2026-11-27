@@ -4,7 +4,7 @@ Several sessions finish their tasks, each on a branch of its own. Going live is 
 are put together on one branch, the whole check runs on what was put together, and on your tap the project is updated,
 checked to answer, and compared with what it was. When it is not right, one press takes it back.
 
-It is the **Go live** tab of the Work page, and `hoprig ship` on the command line. Nothing here pushes, merges into your
+It is the **Go live** fold at the end of Work → Tasks, and `hoprig ship` on the command line. Nothing here pushes, merges into your
 default branch or tags: publishing stays your own press, separate, always.
 
 ## The steps
@@ -27,7 +27,7 @@ default branch or tags: publishing stays your own press, separate, always.
    the check that it answers, and the picture again. When both are right: "live since 14:05" in Work → Activity.
    When not, it says which check failed or which kept files changed, and **Take it back** runs your project's `back`.
 
-**The limiter** (at the foot of Work → Go live): a list of words every check command runs behind, such as `["nice", "-n", "15"]`
+**The limiter** (at the foot of Work → Tasks → Go live): a list of words every check command runs behind, such as `["nice", "-n", "15"]`
 or a script of yours that waits for a free place. It is confirmed like a command: the sheet shows the words, your yes
 is for those, and a change asks again. Until it is confirmed, no check starts: the check stops with "confirm them
 again there first", and you start it again after your yes.

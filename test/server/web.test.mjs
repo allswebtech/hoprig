@@ -136,9 +136,9 @@ test('structure: the main pages, the second group, the Settings pages, and old a
   assert.deepEqual(group('main'), ['work', 'workspace', 'providers', 'computers'], 'Home is the router\'s own, then Work · Workspace · Providers · Computers');
   // Automations has no page of its own any more: Work → Schedules, Settings → Automations, Work → Activity.
   // The menu is Home, Work, Workspace, Providers, Computers and Settings last (shell.js menuItems); no More page.
-  // Skills and Memory are tabs of Projects (navAs: 'workspace'); Tia has no item of her own (her button and Settings -> Tia).
+  // Skills and Memory are tabs of Projects (navAs: 'workspace'); Tia has no item of her own (her button and Settings -> Tia); her page lights Home, as the App chat does.
   assert.deepEqual(group('more'), ['settings']);
-  assert.match(src('tia.js'), /registerPage\(\{\s*id: 'tia', title: NAME, icon: 'sparkle', navAs: 'settings'/);
+  assert.match(src('tia.js'), /registerPage\(\{\s*id: 'tia', title: NAME, icon: 'sparkle', navAs: 'home'/);
   // Every address in PAGE_ADDRESSES (what Tia's open_screen may open) leads to a page that exists.
   const ids = new Set([...pages.map((m) => m[1]), ...[...pageFiles().map(src).join('\n').matchAll(/registerPage\(\{\s*id: '([a-z-]+)'/g)].map((m) => m[1])]);
   const list = /export const PAGE_ADDRESSES = \[([\s\S]*?)\];/.exec(src('app.js'))[1];
@@ -1056,16 +1056,13 @@ test('new session: what runs in a folder (a terminal session, or a chat at work)
   assert.doesNotMatch(fs.readFileSync(path.join(WEB, 'newsession-options.js'), 'utf8'), /plain terminal/i, 'a plain shell opens from the chat, the Projects page and the editor');
 });
 
-test('new session: repositories by their own name, and a path only where it says more than the name', async () => {
-  const { folderSub, repoWords } = await import('../../web/newsession.js');
-  assert.deepEqual(repoWords('code/bookshop-api', 'bookshop'), { name: 'bookshop-api', sub: 'in bookshop' });
-  assert.deepEqual(repoWords('.', 'bookshop'), { name: 'bookshop', sub: null }, 'a project\'s own folder: its name, no second line');
+test('new session: a path only where it says more than the name', async () => {
+  const { folderSub } = await import('../../web/newsession.js');
   assert.equal(folderSub({ name: 'shop', short: '~/Workspace/projects/shop' }, '~/Workspace/projects'), null, 'no "project" under every row');
   assert.equal(folderSub({ name: 'tool', short: '~/src/tool' }, '~/Workspace/projects'), '~/src/tool');
   assert.equal(folderSub({ name: 'x', short: '~/x' }, null), '~/x', 'projects folder not known: the path');
   const src = fs.readFileSync(path.join(WEB, 'newsession-popup.js'), 'utf8');
   assert.match(src, /sub \? h\('span\.row-sub', sub\) : null/, 'a row without a second line draws none');
-  assert.deepEqual(repoWords('code/tool', null), { name: 'tool', sub: null }, 'a repository of no project: no second line');
 });
 
 test('Home cards: the pill leaves out what the heading says; the folder only when it is not projects/<name>', async () => {

@@ -1,4 +1,4 @@
-// What a look at the phone found in Home and the shared parts (polish of 27 Nov): rows of one name told apart, a card's
+// What a look at the phone found in Home and the shared parts (polish of 27 Nov): a card's
 // last line as plain text, the card's shape, Home not jumping, no floating button over a row, no wrong way back, a
 // gear of 44, one touch rule, the same order after a hand-over, an old address that finds its conversation.
 import assert from 'node:assert/strict';
@@ -7,24 +7,10 @@ import test from 'node:test';
 import './chat/fakedom.mjs';
 
 globalThis.window = globalThis.window || { addEventListener() {} };
-const { tellApart } = await import('../web/newsession-words.js');
 const { folderLast, lastLine, plainText, saidBy, whereNow, whereWord } = await import('../web/sessionitem.js');
 const { cardOrder, firstTime, holdFirstDraw, ownNeedsOf } = await import('../web/home.js');
 const { isTopPage } = await import('../web/shell.js');
 const src = (p) => fs.readFileSync(new URL(`../web/${p}`, import.meta.url), 'utf8');
-
-test('a project and its code folder of one name are told apart; names of their own stay', () => {
-  const rows = [
-    { name: 'shop', sub: null, path: '/p/shop' },
-    { name: 'shop', sub: 'in shop', path: '/p/shop/code/shop' },
-    { name: 'shop-api', sub: 'in shop', path: '/p/shop/code/shop-api' },
-    { name: 'notes', sub: null, path: '/p/notes' },
-  ];
-  const out = tellApart(rows);
-  assert.deepEqual(out.map((r) => r.sub), ['The whole project', 'Code in shop', 'in shop', null]);
-  assert.deepEqual(out.map((r) => r.path), rows.map((r) => r.path));
-  assert.equal(new Set(out.filter((r) => r.name === 'shop').map((r) => r.sub)).size, 2, 'no two rows read the same');
-});
 
 test('a card\'s last line is plain text: no marks of formatting', () => {
   assert.equal(plainText('The branch is ready. **Live now:** `abc123` a [link](http://x.y/z) _fine_ __bold__'), 'The branch is ready. Live now: abc123 a link _fine_ bold');

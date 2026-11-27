@@ -40,16 +40,16 @@ test('Guides: every head cell of a table begins with a capital letter or a code 
   assert.ok(headRows('docs/WORKSPACE.md').includes('| Coding tool | What is linked or named | In the brain |'));
 });
 
-test('WORK: a project\'s test command is set on Work → Team, in Tia\'s switches and limits, under Projects, and kept in the dashboard\'s settings', () => {
+test('WORK: a project\'s test command is set in Settings → Tia → Limits and roles, under Projects, and kept in the dashboard\'s settings', () => {
   const page = flat(part('docs/WORK.md', 'Missions: a goal Tia does by herself'));
-  assert.ok(page.includes('You set it per project on **Work → Team**: open **Tia\'s switches and limits**, and under **Projects** type it into the project\'s field **Its test command**, then press **Save**. It is kept in the dashboard\'s settings, not in the project\'s files.'), 'the page says where');
+  assert.ok(page.includes('You set it per project in **Settings → Tia → Limits and roles**: under **Projects** type it into the project\'s field **Its test command**, then press **Save**. It is kept in the dashboard\'s settings, not in the project\'s files.'), 'the page says where');
   assert.ok(!page.includes('(set per project on Team;'), 'the old half-sentence is gone');
   const ui = read('web/mission.js');
   assert.ok(ui.includes("field('Its test command', test,"), 'the field is named so');
   assert.ok(ui.includes("block('Projects'"), 'under Projects');
   assert.ok(ui.includes("h('span', 'Tia\\'s switches and limits')"), 'in the fold Tia\'s switches and limits');
   assert.ok(ui.includes("label: 'Save', dataset: { key: `save:${p}` }"), 'its own Save');
-  assert.ok(ui.includes("export function paintTeam("), 'on the Team tab');
+  assert.ok(read('web/tia.js').includes("fold('tia-limits', 'Limits and roles', limitsBox, missionLimits())"), 'in Settings → Tia, the fold Limits and roles');
   assert.match(read('src/mission/settings.mjs'), /projects +\{ <name>: \{ on, auto, test: \[argv\] \} \}/, 'kept in the config under missions.projects');
   assert.ok(read('src/mission/feature.mjs').includes('saveConfig({ missions: next })'), 'saved into the dashboard\'s settings');
 });
@@ -134,10 +134,10 @@ test('WORK: with fewer than two like it, Today says once under the count that th
   assert.ok(read('src/work/tellmsg.mjs').includes("if (u.basis.count < 2) lines.push(`Running: ${name}, no estimate yet`);"), 'the digest');
 });
 
-test('WORK: a mission\'s money limit is its own field "Spend cap per day ($)" under Limits on Team; Tia\'s daily limit for paid use counts of a mission only her paid move of a task and a mission\'s call of Tia decides there', () => {
+test('WORK: a mission\'s money limit is its own field "Spend cap per day ($)" under Limits in Settings → Tia → Limits and roles; Tia\'s daily limit for paid use counts of a mission only her paid move of a task and a mission\'s call of Tia decides there', () => {
   const page = flat(part('docs/WORK.md', 'Missions: a goal Tia does by herself'));
   assert.ok(page.includes('is what is left of today\'s **Spend cap per day ($)** (below) after what was spent and what her sessions that run now hold'));
-  assert.ok(page.includes('and the **Spend cap per day ($)**, the missions\' own cap, set under **Limits** in **Tia\'s switches and limits** on Work → Team and counted from each run\'s own cost line (with no cap set, nothing starts). Tia\'s daily limit for paid use (Settings → Tia) does not count these sessions; of a mission, it counts only what the Operator does on a provider billed by use: her move of a task there (below), and a call of **Tia decides** about a mission\'s choice that runs there.'));
+  assert.ok(page.includes('and the **Spend cap per day ($)**, the missions\' own cap, set under **Limits** in **Settings → Tia → Limits and roles** and counted from each run\'s own cost line (with no cap set, nothing starts). Tia\'s daily limit for paid use (Settings → Tia) does not count these sessions; of a mission, it counts only what the Operator does on a provider billed by use: her move of a task there (below), and a call of **Tia decides** about a mission\'s choice that runs there.'));
   assert.ok(!page.includes('it counts only her own move of a task'), 'the old words are gone');
   assert.ok(read('web/mission.js').includes("h('summary.fold-summary', h('span', 'Tia\\'s switches and limits')"), 'the fold that holds Limits');
   assert.ok(read('web/mission.js').indexOf("block('Limits'") < read('web/mission.js').indexOf("return h('details.fold.ms-settings'"), 'Limits is drawn inside the fold');
@@ -448,7 +448,7 @@ test('README: Tia runs on, Automatic is the first subscription that can answer n
 test('README: the Providers picture and the Settings picture say only what they show', () => {
   const page = read('README.md');
   assert.match(page, /<img src="docs\/screenshots\/accounts-desktop-light\.webp" alt="The Providers page: four providers, the first two numbered in Auto mode's order, Claude Max with its 5-hour and weekly limits, and a Sign in button for one that is not signed in"/);
-  assert.match(page, /<img src="docs\/screenshots\/settings-desktop-light\.webp" alt="Settings: one row per page, most with their current state in one line, and New sessions open beside them"/);
+  assert.match(page, /<img src="docs\/screenshots\/settings-desktop-light\.webp" alt="Settings: seven rows, each with its state in one line, and New sessions open beside them"/);
   const acc = read('web/accounts.js');
   // The number is the place in Auto mode's order, drawn only while Auto mode is on, and not for a provider billed by
   // use while pay-per-use is off. The demo's order is max, api; its api key goes straight to Anthropic, so it is
@@ -730,7 +730,7 @@ test('README: a part started by your yes counts $0.50 until its turn reports a c
 
 test('README: the New session picture on a phone shows the recent projects, as the sheet draws them', () => {
   const page = read('README.md');
-  assert.ok(page.includes('<img src="docs/screenshots/new-session-phone-light.webp" alt="New session on a phone: one line that names the computer, the App and the coding tool, with Change beside it, and the recent projects"'));
+  assert.ok(page.includes('<img src="docs/screenshots/new-session-phone-light.webp" alt="New session on a phone: Tap a project to start, the computers to choose from, a search box, the recent projects with Continue and all projects"'));
   const popup = read('web/newsession-popup.js');
   assert.ok(popup.includes("groupHead('Recent')"), 'the recent projects');
 });

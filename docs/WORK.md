@@ -8,7 +8,7 @@ hand or proposed by a session that researched the goal ("Plan with AI"). It also
 
 **Work** is in the sidebar right under Home, and in the phone's bar.
 
-![Work, Tasks: three tasks with their due days](screenshots/work-today-desktop-light.webp)
+![Work, Tasks: what waits for your yes, what is due this week and later, with Add task at the top](screenshots/work-tasks-desktop-light.webp)
 
 - **Tasks**: every task, in groups: **Waits for your yes** (waiting for you, and ready for your review: a session has
   done it and you Accept or Send back), a session works on it, **Due this week** (overdue, today and the next seven
@@ -34,7 +34,7 @@ hand or proposed by a session that researched the goal ("Plan with AI"). It also
   started (their title, coding tool, provider and how each ended: ended, at a usage limit, with an error), the runs of
   "Do it" (see "Do it" below), the commits and saves of the projects, what the automations did (a schedule ran, waited
   or was missed, the queue sent a message, a session came back after a restart), and errors (a failed run, an
-  automation that failed or was missed, an Operator action that did not work), each line marked **Session**, **Run**,
+  automation that failed or was missed, an action of a Home row that did not work), each line marked **Session**, **Run**,
   **Commit**, **Save**, **Automation** or **Error**. Filter it by **Project**, by **Day** and by **Who** (Everyone,
   You, Tia, A schedule); **Show more** gives older lines. A Do it run Tia started for you shows under Tia, as her chat
   does. A commit shows who made it only when a run of Work made it; any other commit shows under Everyone and is
@@ -56,7 +56,6 @@ hand or proposed by a session that researched the goal ("Plan with AI"). It also
   today and for the last 7 days. Every figure is read from the run's own records; one they do not hold says
   "not measured" and why (a subscription has no price per token, so its saving is said in tokens only).
 - **Go live**: a closed fold at the end of Tasks (the old address `#/work/golive` opens it): finished task branches put together, checked, and made live on your tap ([GO-LIVE.md](GO-LIVE.md)).
-- **Team**: Tia's missions and the roles of her sessions (see "Missions" below).
 - **Save**: when the list has changes that are not committed, a bar says so ("2 changes not saved in git yet").
   Save shows first what it will do (the file, and per task: added, done, dropped, changed, removed, new id), then
   does it. A save reaches the server or leaves your change in the file: there are no saves "not sent yet".
@@ -138,7 +137,7 @@ written (the file needs a tidy, two tasks share the id), the run is written all 
 Tia (README, "Tia") works with Work through one tool, `manage_work`, whose every action runs the page's own route, so
 the dashboard checks her as it checks the page:
 
-- **Reading** runs at once: Today (what needs you, what is to review, this week), the list (by project, who does it,
+- **Reading** runs at once: the top of Tasks (what needs you, what is to review, this week), the list (by project, who does it,
   status), one task with its runs, what a run left (its answer, commits and files), your plans, and one plan with its
   milestones and its tasks in the plan's own order, each with its state, date, who does it and what it waits for.
 - **Acting** runs at once and she says it in her reply: add a task, change its title, date, project, who does it and
@@ -303,7 +302,7 @@ new places.
 ## Progress, how long, and being told
 
 What runs, how far it is, when it will be done and what waits for you are **read from the files**, never told by a
-model. One function (`src/work/pulse.mjs`) gives it, and Today, a task's runs, `hoprig tasks progress` and Tia all
+model. One function (`src/work/pulse.mjs`) gives it, and Activity, a task's runs, `hoprig tasks progress` and Tia all
 read that one. It reads files only: no program is started for it. It never holds the dashboard for long: Claude
 Code's workflow records are read newest first, one written before the earliest time asked for is not read, at most
 300 a folder, what was read is kept for the next look, and the dashboard's thread is given back between small
@@ -324,7 +323,7 @@ pieces.
   the digest says "no estimate yet" beside the run. A duration below zero or over seven days (a clock set back, a lost end) does
   not count. One that runs longer than any like it says so ("longer than any like it (the longest took 2 h)"), and
   gets no new number.
-- **Today** starts with it: one line ("5 running · 2 wait for you · 1 done · 1 failed"; the command and Tia add the time it was read, "(as of 06:00)"), what runs, what waits for you
+- **Activity** starts with it: one line ("5 running · 2 wait for you · 1 done · 1 failed"; the command and Tia add the time it was read, "(as of 06:00)"), what runs, what waits for you
   (a finished task to look at, a session that waits for your answer), and, folded, what finished and failed in the
   last 24 hours. A task's **Runs** shows its own part above its runs.
 
@@ -504,7 +503,7 @@ http.createServer((req, res) => {
 
 A mission is a goal you give Tia for a project: Plan with AI plans it, you accept the plan, and her sessions do its
 tasks, each checked by code and by a reviewer session before it comes back to you. **It is off until you turn it on**,
-twice: the master switch and a switch per project ("Tia works on this by herself"), both on **Work → Team**. With
+twice: the master switch and a switch per project ("Tia works on this by herself"), both in **Settings → Tia → Limits and roles**. With
 either off, a goal you give becomes a plain proposal of Plan with AI, and its tasks are yours to start, as before.
 
 **What runs by itself.** With everything off: nothing of missions. A look at the missions reads their folder and, when
@@ -513,7 +512,7 @@ one project on and its Auto off: still nothing until you give a goal for it and 
 tasks start, one after another within your limits.
 
 **Auto: Tia starts a project's ready tasks by herself.** A third switch per project, "Tia starts this project's ready
-tasks by herself", shown on Work → Team only under her switch for that project and off until you turn it on (turning
+tasks by herself", shown in Settings → Tia → Limits and roles only under her switch for that project and off until you turn it on (turning
 her switch for the project off turns it off too). With it on, each look (every 15 seconds) takes at most one task of
 your list that is **ready** and starts it as a mission of that one task, with no plan. A task is ready when all of
 these hold: its project is that project by name; who does it is "ai" or one of her roles that is on (never you, never
@@ -529,7 +528,7 @@ Activity** ("Tia (Auto) started …") and the first line of its mission, "Starte
 **End** where another has Stop: its session is stopped at once, and Tia never takes that task by herself again (the
 task stays open in Work for you). With Auto off nothing of it reads the list or writes anything.
 
-**Giving a goal**: **Give Tia a goal** on Work → Plans or Work → Team (the goal and its project; the sheet says
+**Giving a goal**: **Give Tia a goal** in **Work → Plans** (the goal and its project; the sheet says
 whether Tia will work on it or it will be your plan to start), or ask Tia; her card says the same before your yes.
 The planning session is Plan with AI's own. Nothing starts before you **Accept** its plan, and the mission's tasks are
 exactly the tasks that Accept made (a task another mission still holds stays that mission's). A task another program added with a Work token is never taken by itself: it stays yours
@@ -571,8 +570,8 @@ project's default branch (your checkout must stand on it), in the mode that asks
 
 **The check owns "done".** When a session ends, code checks its branch: nothing left uncommitted; the branch changed
 something; when the brief names its files on a line `Files: a, b`, it changed only those; for the developer and the
-tester, the project's **test command** (none set is a check that does not pass). You set it per project on
-**Work → Team**: open **Tia's switches and limits**, and under **Projects** type it into the project's field **Its test
+tester, the project's **test command** (none set is a check that does not pass). You set it per project in
+**Settings → Tia → Limits and roles**: under **Projects** type it into the project's field **Its test
 command**, then press **Save**. It is kept in the dashboard's settings, not in the project's files. A session
 that may write could change what that command runs, so the product never runs a session's test code by itself
 outside the **box** ([BOX.md](BOX.md)): no network, without your home, only the task's worktree to write and the
@@ -610,7 +609,7 @@ coding tool what to do (`CLAUDE.md`, `AGENTS.md`, a `.claude/` folder and the li
 in its worktree untracked, changed or ignored, gets no reviewer session: the task is yours to look at first. "Fix" gives the task a
 fix session with the reviewer's points fenced as the reviewer's words; fix and review at most twice, then it is yours.
 A passed task waits in **review** in Work for your **Accept** or **Send back**, as any run's result does. "Accept by
-itself" (Team) is only for the writer's and the tester's tasks you named, only after their check and review passed,
+itself" (Settings → Tia → Limits and roles) is only for the writer's and the tester's tasks you named, only after their check and review passed,
 and for the tester only when its tests ran in the box and passed (never tests that were not run, and never your own
 run of them); it is Work's Accept and pushes nothing. The mission's report says for each task where its tests ran and
 how they ended, one line per result ("Tests passed in the box: …", "Tests failed in the box: …", "Tests not run: …").
@@ -642,12 +641,12 @@ file tools only.
 **What a role may run is a closed list in its role file** (`runs:`, some of `tests`, `build` and `scripts`, or
 nothing), read as strictly as every other key; a role that may not write runs nothing. The developer, the tester and
 ops may run the project's tests, its build and its scripts; the writer, the researcher and the reviewer run nothing.
-Work → Team shows each role's list in plain words ("May run: the project's tests, its build and its scripts, in a
+Settings → Tia → Limits and roles shows each role's list in plain words ("May run: the project's tests, its build and its scripts, in a
 box: no network, only its own folder"), and says so when this computer has no box, since then nothing of it runs.
 Each kind is one tool of the same server, with the same token, the same limits (12 runs and 30 minutes of runs per
 session for all kinds together, one run of a worktree at a time) and one audit line per run that says what ran:
 `run_tests` as above; `run_build`, which runs **your build command** for the project (set beside its test command on
-Work → Team, words split by spaces, no shell; with none set it is refused in one line); and `run_script`, which takes
+Settings → Tia → Limits and roles, words split by spaces, no shell; with none set it is refused in one line); and `run_script`, which takes
 one name of a script that your checkout's `package.json` names and the task's branch has too (lowercase letters,
 digits and `: . _ -`, at most 50) and runs `npm run <name>`. **Hoprig's wall reads every command first**, a script
 also by the text it runs: where npm, pnpm or yarn runs a script (`npm test`, `npm run build`, a named script), the
@@ -661,7 +660,7 @@ no shell for any of this: the dashboard builds each command as a list of words.
 sessions at once (never more than "runs by themselves at once" of this computer, and never two in one project: those
 of one project run one after another); none while this computer's load is
 above 1.5 per CPU or less than 10 % of its memory is free; and the **Spend cap per day ($)**, the missions' own
-cap, set under **Limits** in **Tia's switches and limits** on Work → Team and counted from each run's own cost line
+cap, set under **Limits** in **Settings → Tia → Limits and roles** and counted from each run's own cost line
 (with no cap set, nothing starts). Tia's daily limit for paid use (Settings → Tia) does not count these sessions; of a
 mission, it counts only what the Operator does on a provider billed by use: her move of a task there (below), and a
 call of **Tia decides** about a mission's choice that runs there. A provider that reports tokens but no cost is used only with a token cap
@@ -669,10 +668,10 @@ set; one that reports neither is not used again by her. At the cap nothing new s
 A session that reported no cost and no tokens (stopped at its time limit, failed, or ended while the dashboard was
 stopped) counts at its whole budget.
 
-**Providers**: only those you allow on Team, in your order; gateways and API keys first, a subscription only when you
+**Providers**: only those you allow in Settings → Tia, in your order; gateways and API keys first, a subscription only when you
 put it in the order (a subscription is meant for a person at the keyboard). At a usage limit the task goes on with the
 next one; when none is free it waits until an hour after the first limit, says until when, and tries again. With
-**Tia decides** and its switch **Also a mission's choices** on (Operator page; both off until you turn them on), she
+**Tia decides** and its switch **Also a mission's choices** on (Settings → Tia, in the fold What she may do alone; both off until you turn them on), she
 chooses that step instead: the next provider of your order, or the wait; a provider billed by use only at "Hands off"
 and inside her daily limit for paid use.
 A task sent back twice stays yours, and what she cannot choose is yours too.
@@ -681,8 +680,8 @@ A task sent back twice stays yours, and what she cannot choose is yours too.
 that moved another branch while it ran comes back to you at once. What a session wrote, a file, a web page and a
 reviewer's points are information: only the check's result and the verdict's own field move a task.
 
-**Tia OFF**, one press on Team (or the master switch): nothing new starts. Her sessions that run go to their end and
-go no further (no review, no fix after them), or are stopped, as "Tia OFF stops what runs" says on Team. Each mission
+**Tia OFF**, one press in Settings → Tia (or the master switch): nothing new starts. Her sessions that run go to their end and
+go no further (no review, no fix after them), or are stopped, as "Tia OFF stops what runs" says in Settings → Tia. Each mission
 says in one line where it stands. **Stop this mission** does the same for one mission.
 
 **A mission is a file** of Work's folder, `missions/<id>.json` beside `runs/`: its goal, project and plan, each task's
@@ -696,7 +695,7 @@ named in the Save plan and left alone.
 
 **The numbers.** For each task: its tokens and its minutes on the clock (the sums of its runs: the work, its reviews
 and fixes), its cost, and whether its check and review passed the first time. A mission's screen
-(`#/work/mission/<id>`) shows them with its tasks and what happened; **Team** shows each role (on or off) with its
+(`#/work/mission/<id>`) shows them with its tasks and what happened; **Settings → Tia → Limits and roles** shows each role (on or off) with its
 tasks, how many passed the first time, its tokens, cost and minutes (a reviewer's runs count for the reviewer).
 **Tia's brief** on Plans, shown when something happened since yesterday or waits for you: what was finished since
 yesterday, what failed and why (a goal whose planning failed since yesterday among them), what waits for you, and what the runs of
@@ -704,7 +703,7 @@ yesterday and today cost. All of it is counted by code from the missions' files:
 asked.
 
 Her sessions never wait for an OK (a role asks nothing, above), and a usage limit is the mission's own step
-(Providers, above). For a mission's session at a limit, with no progress, ended or asking, the Operator page's rules
+(Providers, above). For a mission's session at a limit, with no progress, ended or asking, the Operator's rules
 and Tia's decisions there do nothing: only the mission moves its own tasks.
 
 ## Where the data lives
@@ -907,7 +906,7 @@ written). A command refuses an option it does not understand (`add --status done
 an id that two tasks share (it names both and points to `fix-ids`). With `--json` a refusal is one JSON object on
 standard output, `{ "ok": false, "code": "...", "message": "..." }`, with the same exit code (2: not understood,
 1: refused or failed). `tidy` writes only with `--yes` or a yes typed on the terminal. The command does not list the
-sessions that need an OK: they are on Home and on the Operator page.
+sessions that need an OK: they are on Home, in Needs you.
 
 ## Not built yet
 

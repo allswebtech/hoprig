@@ -85,9 +85,9 @@ test('Work: the page names every tab of Work, and repeating work and saving miss
   // Save commits mission files beside the list (src/work/save.mjs isExtra, saveplan.mjs isMissionFile).
   assert.match(read('src/work/save.mjs'), /isMissionFile\(file\)/);
   assert.doesNotMatch(flat(part(WORK, 'Not built yet')), /missions' files/);
-  // The command's Today does not list sessions; Home and the Operator page do.
-  assert.match(read('src/work/cli.mjs'), /Sessions that need an OK are on the dashboard\\?'s Today\./);
-  assert.match(flat(part(WORK, 'Commands')), /The command does not list the sessions that need an OK: they are on Home and on the Operator page\./);
+  // The command does not list sessions; Home does, in Needs you.
+  assert.match(read('src/work/cli.mjs'), /Sessions that need an OK are on the dashboard\\?'s Home, in Needs you\./);
+  assert.match(flat(part(WORK, 'Commands')), /The command does not list the sessions that need an OK: they are on Home, in Needs you\./);
 });
 
 test('Work: Activity is one history of 30 days, filtered by who as the page lists it; its session file keeps 30 days and 256 KB', () => {
@@ -208,7 +208,7 @@ test('Workspace: the shell files that get the PATH line are the ones the code pi
   assert.match(page, /at the \*\*top\*\* of `~\/\.bashrc`, before the line that stops a non-interactive shell \(when bash is your shell or that file is there\); in `~\/\.zshenv` \(when zsh is your shell, on macOS, or that file is there\); and in `~\/\.config\/fish\/conf\.d\/hoprig\.fish` when fish is your shell\./);
 });
 
-test('Workspace: the route list names every route of the workspace feature, and the folders are in Settings → Workspace', () => {
+test('Workspace: the route list names every route of the workspace feature, and the folders are in Settings → Automations → Workspace', () => {
   const src = read('src/workspace/feature.mjs');
   const routes = [...src.matchAll(/\['(GET|POST)', \/\^((?:\\\/|[a-z])+)\$\//g)].map((m) => [m[1], m[2].replace(/\\\//g, '/')]);
   assert.ok(routes.length >= 20, 'the feature has its routes table');
@@ -217,10 +217,10 @@ test('Workspace: the route list names every route of the workspace feature, and 
     const named = new RegExp(`\`(?:${method}|GET\\|POST) ${p.replace(/\//g, '\\/')}(?:\\?[^\`]*)?\``);
     assert.match(page, named, `${method} ${p} is named`);
   }
-  // The workspace folders panel is drawn by Settings → Workspace; the Setup part of a computer's page only links there.
+  // The workspace folders panel is drawn by Settings → Automations → Workspace; the Setup part of a computer's page only links there.
   assert.match(read('web/workspace.js'), /fill\(box, placesPanel\(st, draw\), workspaceFolders\(\)/);
   assert.match(read('web/pcsetup.js'), /h\('a\.row', \{ href: link\('#\/settings\/workspace'\) \}/);
-  assert.match(page, /The workspace folders themselves are in \*\*Settings → Workspace\*\* \(the \*\*Setup\*\* part of a computer's page links there\)\./);
+  assert.match(page, /The workspace folders themselves are in \*\*Settings → Automations → Workspace\*\* \(the \*\*Setup\*\* part of a computer's page links there\)\./);
 });
 
 test('Workspace: the once-only note after the update comes only when keeping the workspace in step is on', async () => {
