@@ -19,10 +19,9 @@
 // `said` (toolkit.mjs: an id of this code's own form, or one of the ids it knows), never its own words (a title, a
 // why, a name, a version text, a route's error text): those go into the data, or into a ToolError's `detail`, which
 // is told inside the fence.
-import os from 'node:os';
-import path from 'node:path';
 import { askLine } from '../askcard.mjs';
 import { isSecretFolder } from '../server/folders.mjs';
+import { expandHome } from './commandplaces.mjs';
 import { maskValues } from './maskvalues.mjs';
 import { arr, bool, int, obj, ref, str } from './schema.mjs';
 import { LOCAL } from './shown.mjs';
@@ -275,7 +274,7 @@ const start_session = tool({
   }, { required: ['folder'] }),
   check(a) {
     // The credentials folder and the sign-in places are the owner's: the dashboard refuses a start there for her too.
-    if (comp(a) === LOCAL && isSecretFolder(a.folder.startsWith('~/') ? path.join(os.homedir(), a.folder.slice(2)) : a.folder)) throw toolError('that folder holds the owner\'s credentials or a sign-in: only the owner starts a session there, from his own page', 'tell the owner; start the session in the project folder instead');
+    if (comp(a) === LOCAL && isSecretFolder(expandHome(a.folder))) throw toolError('that folder holds the owner\'s credentials or a sign-in: only the owner starts a session there, from his own page', 'tell the owner; start the session in the project folder instead');
     const mode = a.mode || 'new';
     if (mode === 'resume' && !a.conversation) throw toolError('mode "resume" needs a conversation id', 'call list_projects with the folder');
     if (mode !== 'resume' && a.conversation) throw toolError('a conversation id only goes with mode "resume"', 'set mode to "resume" or leave conversation out');

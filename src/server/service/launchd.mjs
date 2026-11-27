@@ -108,7 +108,9 @@ export function files({ home = os.homedir(), node, bin, env = process.env } = {}
   ];
 }
 
-const domain = () => `gui/${process.getuid()}`;
+// launchd exists only on macOS (service/index.mjs picks it by platform); elsewhere process.getuid is missing, so the
+// argv can still be built (the unit test reads it) and 0 stands in: it is never run there.
+const domain = () => `gui/${typeof process.getuid === 'function' ? process.getuid() : 0}`;
 
 /** launchctl argv for each step (the modern bootstrap/bootout interface). */
 export const launchctlArgs = {

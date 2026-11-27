@@ -2,7 +2,6 @@
 // a session, moving it to another provider, Auto mode, a setting, a command. Their usual level is L2, a confirm card;
 // policy.mjs lets some calls run at once (her own session, Hands off).
 import os from 'node:os';
-import path from 'node:path';
 import { anyJson, arr, bool, int, obj, str } from './schema.mjs';
 import { isCodingCard } from '../automation/cards.mjs';
 import { ASSISTANT_NAME } from './tia.mjs';
@@ -10,6 +9,7 @@ import { sudoArgv } from './adminrun.mjs';
 import { hoprigOwnDirs } from '../paths.mjs';
 import { wallKind } from '../wall.mjs';
 import { isSecretFolder } from '../server/folders.mjs';
+import { commandPlaces } from './commandplaces.mjs';
 import { account, comp, computer, conversation, findSession, folder, providerNote, session, statusOf, tool, toolError } from './toolkit.mjs';
 
 const ABS = /^(\/|~\/|~$|[A-Za-z]:[\\/])/;
@@ -242,7 +242,7 @@ export const run_command = tool({
     // refuses what is his alone in EVERY mode and is not an administrator command: the system's services and
     // packages, a push or a merge, and data sent out.
     // The credentials folder (and any other place that holds a sign-in) is the owner's alone: a command run in it or naming a path in it is refused with no card, as a start there is.
-    const places = [a.folder, ...String(a.command).split(/\s+/).map((x) => x.replace(/^['"]|['"]$/g, '')).filter((x) => x.startsWith('/') || x.startsWith('~/')).map((x) => (x.startsWith('~/') ? path.join(os.homedir(), x.slice(2)) : x))];
+    const places = commandPlaces(a.command, a.folder);
     if (places.some((x) => typeof x === 'string' && isSecretFolder(x))) throw toolError('that folder holds the owner\'s credentials or a sign-in: a command there, or on a path in it, is his own step', 'tell the owner it is his own step');
     if (wallKind(a.command) === 'admin') return;
     // A command the wall cannot read with certainty (a program hidden in $(…), a backtick, an unclosed quote, or
