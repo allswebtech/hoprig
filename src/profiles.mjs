@@ -116,7 +116,7 @@ export function isPayPerUse(env) {
   }
 }
 
-const DEFAULT_LABEL = { login: 'Claude account (stored login)', subscription: 'Claude subscription', api: 'API', openai: 'OpenAI API', chatgpt: 'Codex sign-in' };
+const DEFAULT_LABEL = { login: 'Claude account', subscription: 'Claude subscription', api: 'API', openai: 'OpenAI API', chatgpt: 'Codex sign-in' };
 
 function fileOf(name) {
   return path.join(profilesDir(), `${name}.env`);

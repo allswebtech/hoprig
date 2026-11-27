@@ -18,8 +18,8 @@ test('the install line installs Node.js and Hoprig; Claude Code is set-up\'s own
   assert.doesNotMatch(sh, /claude\.ai\/install/);
   assert.doesNotMatch(sh, /Install now/, 'the installer asks nothing before it installs');
   assert.doesNotMatch(read('install.ps1'), /Install now|Confirm-Step/);
-  assert.match(sh, /sudo may ask for your computer password\./);
-  assert.match(setup, /ui\.line\('warn', 'Claude Code is not installed\.'\);/);
+  assert.match(sh, /If your computer asks for its password, type it and press Enter/);
+  assert.match(setup, /if \(!ui\.quiet\) ui\.line\('warn', 'Claude Code is not installed\.'\);/);
   // No question where Claude Code is on in Coding tools and someone is there or said --yes; asked (and skipped with no terminal) elsewhere.
   assert.match(setup, /includes\('claude'\) && \(ui\.interactive \|\| ui\.yes\)\) && !\(await ui\.confirm\('Install it now\?', true\)\)/);
   const page = flat(read(PAGE));

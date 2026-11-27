@@ -60,10 +60,12 @@ const MARK = { here: 'ok', notHere: 'info', missing: 'warn', notFollowed: 'warn'
 const SAY = { here: '', missing: 'in the map, not on this computer: get it with  hoprig workspace restore', notFollowed: 'behind a link that leads out: not followed', different: 'another folder is where the map puts it', unmapped: 'not in the map: add it with  hoprig workspace map' };
 
 /** The map against this computer (status). */
-export function printMapStatus(ui, ms) {
+export function printMapStatus(ui, ms, { brainBehind = 0 } = {}) {
   if (ms.errors) return ui.line('fail', `the workspace map was refused: ${ms.errors.join('; ')}`);
   ui.out(`\n${bold('Map')}  ${ms.exists ? dim('ai_brain/workspace.json') : dim('none yet: hoprig workspace map')}`);
-  const line = (e) => ui.line(MARK[e.state], `${e.label}${e.url ? dim(`  ${e.url}`) : dim('  not on a git server yet')}${SAY[e.state] ? `  ${SAY[e.state]}` : ''}${e.fix ? `  (${e.fix})` : ''}`);
+  // A folder the map lacks is not "to add" while the brain here is behind its git server: the map there may have it.
+  const say = (e) => (e.state === 'unmapped' && brainBehind ? `not in the map here: the AI brain here is behind its git server (${brainBehind} commit${brainBehind > 1 ? 's' : ''}), so the map may have it:  hoprig sync` : SAY[e.state]);
+  const line = (e) => ui.line(MARK[e.state], `${e.label}${e.url ? dim(`  ${e.url}`) : dim('  not on a git server yet')}${say(e) ? `  ${say(e)}` : ''}${e.fix ? `  (${e.fix})` : ''}`);
   // Only in the map: the normal state, in a group of its own. A project not here is one line (its code repositories
   // come with it); a code repository missing in a project that IS here has its own line.
   const away = ms.entries.filter((e) => e.state === 'notHere' && !e.tool);
@@ -114,7 +116,7 @@ const dryOrLocked = (dry, fn) => (dry ? fn() : brainLocked(fn));
 const ONOFF = { on: true, off: false };
 /** `workspace auto`: the switches of the workspace automation (the setting the dashboard uses: automation.workspace). */
 async function auto(args, { ui, json, failed, usage }) {
-  const o = flags(args, { map: 'v', commit: 'v', memory: 'v', sync: 'v', push: 'v', 'push-branches': 'v', credentials: 'v', 'only-here': 'v', servers: 'v', every: 'v', json: 'bool' });
+  const o = flags(args, { map: 'v', commit: 'v', memory: 'v', sync: 'v', push: 'v', 'push-branches': 'v', ff: 'v', credentials: 'v', 'only-here': 'v', servers: 'v', every: 'v', json: 'bool' });
   if (o.errors.length || o._.length) return usage();
   const { loadConfig, saveConfig } = await import('../config.mjs');
   const { cleanSettingsPatch, commitMapState, readSettings } = await import('../automation/settings.mjs');
@@ -131,6 +133,12 @@ async function auto(args, { ui, json, failed, usage }) {
     const m = /^([^=]+)=(on|off)$/.exec(o['push-branches']);
     if (!m) return failed(new Error('--push-branches is <place>=on or <place>=off ("projects" for the projects folder)'));
     patch.pushBranches = { ...cur.workspace.pushBranches, [m[1]]: m[2] === 'on' };
+  }
+  // --ff <place>=on|off: one place's switch for moving a project that is only behind ("projects" for the projects folder).
+  if (o.ff !== undefined) {
+    const m = /^([^=]+)=(on|off)$/.exec(o.ff);
+    if (!m) return failed(new Error('--ff is <place>=on or <place>=off ("projects" for the projects folder)'));
+    patch.ffProjects = { ...cur.workspace.ffProjects, [m[1]]: m[2] === 'on' };
   }
   if (o.every !== undefined) patch.everyHours = o.every;
   let next = cur;
@@ -156,7 +164,9 @@ async function auto(args, { ui, json, failed, usage }) {
   say(w.credentials, 'credentials: a change in the credentials repository is committed ("Update credentials") and pushed to the address the map names, only while it is private');
   say(w.onlyHere, 'only-here: once a day, what exists only on this computer is counted (no git server is asked; nothing is changed)');
   say(w.servers, 'servers: once a week, each repository of the map is asked on its git server whether it is still there (a read only)');
-  ui.note('a project is never fetched, fast-forwarded or pushed by itself otherwise: hoprig sync <name> does it when you ask');
+  const ffOn = Object.keys(w.ffProjects || {}).filter((k) => w.ffProjects[k]);
+  say(ffOn.length > 0, `ff: a project that is only behind is moved by itself, never a merge or a push${ffOn.length ? ` (${ffOn.join(', ')})` : ' (per place: --ff projects=on)'}; every 30 minutes and before a session starts`);
+  ui.note('a project is never merged, rebased or pushed by itself: hoprig sync <name> does the rest when you ask');
   ui.note(`every ${w.everyHours} hour${w.everyHours === 1 ? '' : 's'}, and right after the dashboard starts${next.paused ? ' (all automations are paused now)' : ''}. The dashboard runs it: hoprig serve / service.`);
   return 0;
 }
@@ -310,6 +320,7 @@ export async function gitMain(sub, args, { ui, write, usage }) {
     ui.out(`\n${bold('Restored')}`);
     for (const e of r.plan.filter((x) => x.action !== 'notHere')) ui.line(String(e.result).startsWith('failed') ? 'fail' : /^(skipped|left alone)/.test(e.result) ? 'warn' : 'ok', `${e.label}: ${e.result}`);
     if (r.notHere) ui.note(`in the map, not on this computer (a project comes when you ask for it):  ${r.notHere.map((n) => `hoprig get ${n}`).join('  ·  ')}`);
+    for (const [name, k] of Object.entries(r.codeMissing || {})) ui.note(`${name} is here, ${k} code repositor${k > 1 ? 'ies' : 'y'} missing:  hoprig get ${name}`);
     ui.note('Claude Code\'s global rules, skills and home memory: hoprig workspace link');
     return r.ok ? 0 : 1;
   }
@@ -383,6 +394,7 @@ function printPlan(ui, p) {
   for (const e of p.plan.filter((x) => x.action !== 'notHere')) ui.line(e.action === 'clone' ? 'info' : e.action === 'here' ? 'ok' : 'warn', `${e.label}  ${dim(e.url || 'no address')}  →  ${e.dest}  ${bold(ACT[e.action])}${e.why ? dim(`  (${e.why})`) : ''}`);
   for (const f of p.folders) ui.line('info', `create ${f.path}`);
   if (p.notHere) ui.note(`in the map, not on this computer, not cloned (hoprig get <name> fetches one; --with-projects gets them all): ${p.notHere.join(', ')}`);
+  for (const [name, k] of Object.entries(p.codeMissing || {})) ui.note(`${name} is here, ${k} code repositor${k > 1 ? 'ies' : 'y'} missing:  hoprig get ${name}`);
   for (const n of p.notes) ui.note(n);
 }
 

@@ -15,7 +15,6 @@ test('words: the old words are gone from what the page shows', () => {
     'settings.js': /your own webhook|server\.backend|in the config and restart/i,
     'updates.js': /tunnel helper/i,
     'workdo.js': /worktree/i,
-    'chat/statusline.js': /Compacting/,
   };
   for (const [f, re] of Object.entries(gone)) for (const s of strings(f)) assert.doesNotMatch(s, re, `${f}: ${s}`);
 });
@@ -26,7 +25,7 @@ test('words: the plain words stand in their place', () => {
   assert.match(read('settings.js'), /'Hoprig picks tmux when it is installed, else its own terminals\.'/);
   assert.match(read('updates.js'), /the helper for the public link \(cloudflared\)/);
   assert.match(read('workdo.js'), /'Done with it: remove its copy of the project'/);
-  assert.match(read('chat/statusline.js'), /'Shortening the conversation to make room'/);
+  assert.match(read('chat/words.js'), /'Compacting the conversation'/);
   const access = read('workaccess.js');
   assert.match(access, /h\('h3\.wk-sub-head', 'Webhooks'\),\n\s+h\('p\.hint', 'A webhook is a web address of another program: Hoprig sends it a message/, 'the heading keeps the word, said once beside it');
   assert.match(access, /A token is the key that program uses to reach Hoprig/);

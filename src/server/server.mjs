@@ -676,6 +676,7 @@ export function createServer(opts = {}) {
       const dir = insideRoots(v.absPath(b.dir), roots());
       if (!dir) throw bad('choose a folder inside the allowed roots');
       await refuseSecretStart(ctx, req, dir); // the credentials folder and the sign-in places: only his own page starts there
+      await (await import('../workspace/instep.mjs')).lookBeforeStart(dir); // 3 seconds at most; never throws
       // `tool`: the coding tool (absent: Claude Code, as before). Codex and OpenCode take their own choices.
       const tool = toolFromRequest(b.tool);
       // "Also open" is Claude Code's only: another coding tool cannot keep an extra folder read-only (refused first).

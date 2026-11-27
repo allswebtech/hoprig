@@ -12,6 +12,8 @@ import { DESK_KEYS, deskKeyOf, keySet } from '../desktop/keymap.js';
 
 const typing = (el) => !!el && (el.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(el.tagName));
 /** A Mac (Cmd), else Ctrl. Asked each time: a test sets the platform. */
+/** Is there a keyboard to give hints about? A touch screen has none: no key is named there (Esc, Ctrl, Shift+Tab). */
+export const hasKeys = () => !(typeof matchMedia !== 'undefined' && (matchMedia('(pointer: coarse)').matches || matchMedia('(any-pointer: coarse)').matches) && !matchMedia('(any-pointer: fine)').matches);
 export const isMac = () => typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent || '');
 const ESC_TWICE_MS = 700;
 
@@ -118,7 +120,7 @@ export function isKey(e, k) {
  * The sheet's rows: [keys, what, why?]. Keys read Cmd on a Mac, Ctrl elsewhere. `desk`: the desktop's chosen keys when
  * the page is in a window of the desktop (a key of the App the desktop takes there says so on its row).
  */
-export function shortcuts(mac = isMac(), desk = null) {
+export function shortcuts(mac = isMac(), desk = null, keys = hasKeys()) {
   const K = Object.fromEntries(desktopKeys(mac).map((k) => [k.id, k]));
   const row = (id) => {
     const taken = deskTakes(K[id], desk, mac);
@@ -128,8 +130,10 @@ export function shortcuts(mac = isMac(), desk = null) {
   return [
     ['Enter', 'Send the message (also while Claude works: it reads it after its current step); on a touch screen a new line (the Send button sends)'],
     ['Shift+Enter', 'A new line'],
-    ['Esc', 'Stop Claude (the turn ends; background tasks go on) or a running ! command; in an open menu: close it'],
-    ['Esc Esc', 'In an empty box: rewind to before one of your messages. With words in the box: clear them (Up brings them back)'],
+    ...(keys ? [
+      ['Esc', 'Stop Claude (the turn ends; background tasks go on) or a running ! command; in an open menu: close it'],
+      ['Esc Esc', 'In an empty box: rewind to before one of your messages. With words in the box: clear them (Up brings them back)'],
+    ] : []),
     row('shortcuts'),
     row('mode'),
     row('model'),
@@ -142,7 +146,7 @@ export function shortcuts(mac = isMac(), desk = null) {
     ...(desk ? [] : [row('side'), row('next'), row('prev')]),
     ['1 … 9', 'In an open menu: pick its item. Else: answer the newest card that waits for you (also from an empty box)'],
     ['↑ ↓', 'In an open menu: move. In an empty box: your earlier messages'],
-    ['Shift+Tab', 'The next permission mode (as in the terminal)'],
+    ...(keys ? [['Shift+Tab', 'The next permission mode (as in the terminal)']] : []),
     ['/', 'Commands at the start of the box: compact, clear, model, skills …'],
     ['@', 'A file of this folder, for the coding tool to read'],
     ['! at the start', 'A shell command in the session\'s folder; its output goes with your next message'],

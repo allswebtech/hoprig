@@ -31,6 +31,8 @@ export function start(chat) {
     // The same conversation must not run twice: a process that is still stopping ends first.
     if (chat.ending) await chat.ending;
     if (gen !== chat.gen || chat.closed) return false;
+    await (await import('../workspace/instep.mjs')).lookBeforeStart(chat.cwd); // 3 seconds at most; never throws
+    if (gen !== chat.gen || chat.closed) return false;
     // The record that this chat runs the conversation (runs.mjs createChatRun), first: a launcher in any terminal reads
     // it before it starts the coding tool there. A launcher whose record came first keeps the conversation.
     const hold = createChatRun({ chat: chat.id, conversation: chat.conversationId, tool: chat.engine.id, cwd: chat.cwd, profile: chat.profile });

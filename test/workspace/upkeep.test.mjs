@@ -128,7 +128,7 @@ test('the automation: right after start, then on its schedule; one line per chan
   assert.deepEqual(d.actions, [{ type: 'map', commit: false, push: false, memory: false }]);
   assert.deepEqual(rule.decide({ data: d.data, now: 101 * H, settings: s }).actions, []);
   assert.deepEqual(rule.decide({ data: d.data, now: 101 * H, boot: true, settings: s }).actions.map((a) => a.type), ['map'], 'a restart looks again');
-  assert.deepEqual(rule.decide({ data: d.data, now: 106 * H, settings: { ...s, sync: true, commitMap: true } }).actions, [{ type: 'sync', push: false }, { type: 'map', commit: true, push: false, memory: false }], 'sync first, then the map');
+  assert.deepEqual(rule.decide({ data: d.data, now: 106 * H, settings: { ...s, sync: true, commitMap: true } }).actions, [{ type: 'sync', push: false, mapRule: true }, { type: 'map', commit: true, push: false, memory: false }], 'sync first, then the map');
   const records = [];
   const told = [];
   let saved = {};
@@ -146,9 +146,9 @@ test('`hoprig workspace auto`: shows and sets the switches (the dashboard\'s set
   let out = '';
   const { ui } = await quietUi();
   assert.equal(await main(['auto', '--map', 'on', '--commit', 'on', '--push', 'on', '--every', '3', '--json'], { ui, write: (x) => (out += x) }), 0);
-  assert.deepEqual(JSON.parse(out), { map: true, commitMap: true, memory: false, sync: false, push: true, pushBranches: {}, everyHours: 3, credentials: false, onlyHere: false, servers: false });
+  assert.deepEqual(JSON.parse(out), { map: true, commitMap: true, memory: false, sync: false, push: true, pushBranches: {}, everyHours: 3, credentials: false, onlyHere: false, servers: false, ffProjects: { projects: true } });
   const cfg = JSON.parse(fs.readFileSync(path.join(A.env.HOPRIG_CONFIG_DIR, 'config.json'), 'utf8'));
-  assert.deepEqual(cfg.automation.workspace, { map: true, commitMap: true, memory: false, sync: false, push: true, pushBranches: {}, everyHours: 3, credentials: false, onlyHere: false, servers: false });
+  assert.deepEqual(cfg.automation.workspace, { map: true, commitMap: true, memory: false, sync: false, push: true, pushBranches: {}, everyHours: 3, credentials: false, onlyHere: false, servers: false, ffProjects: { projects: true } });
   const bad = await quietUi();
   assert.equal(await main(['auto', '--map', 'maybe'], { ui: bad.ui, write: () => {} }), 1);
   assert.equal(await main(['auto', '--every', '0'], { ui: bad.ui, write: () => {} }), 1);

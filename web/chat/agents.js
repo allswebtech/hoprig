@@ -1,9 +1,9 @@
 // The agents a chat runs: subagents (drawn inside the call that started them, tools.js), background agents, shells
 // and workflows (with their phases and agents), each with its model and effort when known and a Stop of its own; and
-// the strip "2 agents running" above the composer, which opens the whole tree. The tasks come with the chat's state
+// the one line above the composer ("4 in the background: ..."), which opens the whole tree. The tasks come with the chat's state
 // (src/chat/tasks.mjs); a task's own stop is POST /tasks/<id>/stop.
 import { icon } from '../icons.js';
-import { closeSheet, errorWords, fill, h, openSheet, prefs } from '../lib.js';
+import { closeSheet, errorWords, fill, h, openSheet } from '../lib.js';
 import { effortName, kilo, modelName, took } from './words.js';
 
 const TYPE = { agent: 'agent', shell: 'shell', workflow: 'workflow', monitor: 'monitor' };
@@ -57,7 +57,6 @@ export function workflowView(t) {
 }
 
 const running = (tasks) => tasks.filter((t) => t.status === 'running');
-const ICON = { shell: 'terminal', workflow: 'grid' };
 
 /** "4 background tasks · 2 agents · 1 shell · 1 workflow" (the part's head), or '' when nothing runs. */
 export function taskCounts(tasks) {
@@ -183,18 +182,34 @@ export function openTaskOutput(o) {
   return { done, again: () => (gone ? null : load()), follow };
 }
 
-const FOLD_ABOVE = 3; // more tasks than this start folded to the head line
+const PLURAL = { agent: 'agents', shell: 'shells', workflow: 'workflows', monitor: 'monitors' };
 
 /**
- * The Background tasks part above the box (as Claude Code lists what runs under its prompt): a head with the count and
- * the types, a row for each task that runs (its type, name, what it does now, for how long, its Stop), and "View all"
- * for the sheet with the whole tree. o: { stop(taskId), canStop(), jump(toolId) }. → { el, open(), paint(tasks, skew) }
- * The open sheet follows the tasks while it is open.
+ * The one line above the box, in words: the task when only one runs ("sleep 240 · 2 min"), else the count and what kinds
+ * ("23 in the background: 15 shells, 8 workflows"). '' when nothing runs.
+ */
+export function bgWords(tasks, skew = 0, now = Date.now()) {
+  const on = running(tasks);
+  if (!on.length) return '';
+  if (on.length === 1) {
+    const t = on[0];
+    const name = t.title || TYPE[t.type] || 'task';
+    return Number.isFinite(t.startedAt) ? `${name} · ${took(Math.max(0, now - skew - t.startedAt))}` : name;
+  }
+  const n = {};
+  for (const t of on) n[TYPE[t.type] || 'agent'] = (n[TYPE[t.type] || 'agent'] || 0) + 1;
+  return `${on.length} in the background: ${Object.entries(n).map(([k, x]) => `${x} ${x === 1 ? k : PLURAL[k] || `${k}s`}`).join(', ')}`;
+}
+
+/**
+ * The Background tasks line above the box (as Claude Code lists what runs under its prompt): ONE line, a dot and the
+ * words (bgWords), and one press on it opens the Background tasks sheet: the whole tree, each task with its Stop and its
+ * output. There is no list or fold of its own. o: { stop(taskId), canStop(), jump(toolId), output(taskId) } →
+ * { el, open(), paint(tasks, skew), stopClock() }. The open sheet follows the tasks while it is open.
  */
 export function agentsStrip(o) {
   let tasks = [];
   let skew = 0; // this computer's clock against the chat's (the page's state says it)
-  let shown = null; // the running tasks as drawn: [{ t, time }]
   let tick = null;
   // One task's Stop where the coding tool can (o.canStop), else none: the turn's Stop is the way there.
   const stop = () => (!o.canStop || o.canStop() ? o.stop : null);
@@ -223,70 +238,28 @@ export function agentsStrip(o) {
     close = () => {};
   }
   const label = h('span.chat-bg-label');
-  const chev = icon('chevronRight', { size: 14 });
-  const toggle = h('button.chat-bg-toggle', { type: 'button', 'aria-controls': 'chat-bg-list', onclick: () => setOpen(!isOpen()) }, h('span.chat-strip-dot', { 'aria-hidden': 'true' }), label, chev);
-  const all = h('button.btn.small.ghost.chat-bg-all', { type: 'button', onclick: open }, 'View all');
-  const list = h('ul.chat-bg-list', { id: 'chat-bg-list', 'aria-label': 'Background tasks' });
-  const el = h('section.chat-bg.hidden', { 'aria-label': 'Background tasks' }, h('div.chat-bg-head', toggle, all), list);
-  // The choice (opened or folded) is kept in this browser; none yet: open for a few tasks, folded for more, and a phone
-  // starts with one line (a tap opens it there).
-  let asked = prefs.get('chat.tasks.open', null);
-  const phone = () => typeof matchMedia !== 'undefined' && matchMedia('(max-width: 599px)').matches;
-  const isOpen = () => (asked === null ? !phone() && shown.length <= FOLD_ABOVE : asked);
-  function setOpen(x) {
-    asked = x;
-    prefs.set('chat.tasks.open', x);
-    paintOpen();
-  }
-  function paintOpen() {
-    const x = !!shown && isOpen();
-    el.classList.toggle('chat-bg-folded', !x);
-    toggle.setAttribute('aria-expanded', String(x));
-    toggle.setAttribute('aria-label', `${x ? 'Fold' : 'Unfold'} the background tasks: ${taskCounts(tasks)}`);
-  }
-  const rowFor = (t) => {
-    const time = h('span.chat-bg-time', { 'aria-hidden': 'true' });
-    const now = h('span.chat-bg-now');
-    const said = t.title || TYPE[t.type] || 'task';
-    // A click opens the task's output (as Claude Code's task list); where it cannot, it shows the call in the chat.
-    const name = show ? h('button.chat-bg-title', { type: 'button', title: 'Open the output', 'aria-label': `Open the output of ${said}`, onclick: () => show(t.taskId) }, said)
-      : t.toolId && o.jump ? h('button.chat-bg-title', { type: 'button', title: 'Show in the chat', onclick: () => jump(t.toolId) }, said) : h('span.chat-bg-title', said);
-    const s = stop();
-    return { t, time, now, li: h('li.chat-bg-row', h('span.chat-bg-type', { 'aria-hidden': 'true', title: TYPE[t.type] || 'agent' }, icon(ICON[t.type] || 'sparkle', { size: 14 })), name, now, time, s ? taskStop(t, s) : null) };
+  const line = h('button.chat-bg-line', { type: 'button', 'aria-haspopup': 'dialog', onclick: open }, h('span.chat-strip-dot', { 'aria-hidden': 'true' }), label, icon('chevronRight', { size: 14 }));
+  const el = h('section.chat-bg.hidden', { 'aria-label': 'Background tasks' }, line);
+  const words = () => {
+    const w = bgWords(tasks, skew);
+    fill(label, w);
+    line.setAttribute('aria-label', `Background tasks: ${w}. Open`);
   };
-  // The seconds of each row count up once a second, only while the rows show.
-  function clock() {
-    for (const r of shown || []) fill(r.time, Number.isFinite(r.t.startedAt) ? runFor(Date.now() - skew - r.t.startedAt) : '');
-  }
   return {
     el,
     open,
-    /** The clock of the rows stops (the page is left). */
+    /** The clock of the line stops (the page is left). */
     stopClock: () => clearInterval(tick),
     paint(tasksNow, skewNow = 0) {
       tasks = Array.isArray(tasksNow) ? tasksNow : [];
       skew = Number.isFinite(skewNow) ? skewNow : 0;
       const now = running(tasks);
       el.classList.toggle('hidden', !now.length);
-      // A row is kept by its task while that runs (a Stop a finger is on is not taken out of the page).
-      const old = new Map((shown || []).map((r) => [r.t.taskId, r]));
-      const canStop = !!stop();
-      shown = now.map((t) => {
-        const r = old.get(t.taskId);
-        const key = JSON.stringify([t.title || '', t.toolId || null, t.type || '', canStop]);
-        if (r && r.key === key) {
-          r.t = t;
-          return r;
-        }
-        return Object.assign(rowFor(t), { key });
-      });
-      for (const r of shown) fill(r.now, r.t.now || r.t.summary || '');
-      place(list, shown.map((r) => r.li));
-      fill(label, taskCounts(tasks));
-      paintOpen();
+      words();
       clearInterval(tick);
-      tick = now.length ? setInterval(clock, 1000) : null;
-      clock();
+      // The seconds of one task count up once a second, only while it shows.
+      tick = now.length === 1 ? setInterval(words, 1000) : null;
+      if (tick && typeof tick.unref === 'function') tick.unref();
       if (body) fill(body, taskTree(tasks, stop(), jump, show));
       if (outSheet) outSheet.follow();
     },

@@ -398,7 +398,7 @@ page on GitHub.
 
 ## What Tia can do, and what she cannot
 
-Every act of Hoprig is one row of `src/assistant/inventory.json`: 358 in all (43 commands, 308 changes in the dashboard, 7 skills). Tia does 101 of them with a tool of hers, 7 more by another route of the same effect, and 250 are not hers. A test holds the file to the code: a new command or route without a row fails it.
+Every act of Hoprig is one row of `src/assistant/inventory.json`: 367 in all (43 commands, 317 changes in the dashboard, 7 skills). Tia does 101 of them with a tool of hers, 7 more by another route of the same effect, and 259 are not hers. A test holds the file to the code: a new command or route without a row fails it.
 
 ### What she does
 
@@ -731,7 +731,7 @@ Every act of Hoprig is one row of `src/assistant/inventory.json`: 358 in all (43
 - `POST /api/work/missions/settings`: The switches and limits of missions say how far she works by herself, which is yours to set.
 - `POST /api/work/missions/off`: Tia OFF is your own press on the switch of her work by herself.
 
-**Your yes to something you read on your own page (a diff, a proposal, a need): the page is the card** (34):
+**Your yes to something you read on your own page (a diff, a proposal, a need): the page is the card** (43):
 
 - `hoprig adopt`: Adopting is your yes to the plan per project you read; its apply copies outside any session's folder and its retire removes the originals.
 - `hoprig sessions`: Moving the coding tool's conversations to a new folder follows the adopt plan you read and writes outside every project.
@@ -739,6 +739,7 @@ Every act of Hoprig is one row of `src/assistant/inventory.json`: 358 in all (43
 - `POST /api/parts/<id>/answer`: Your yes or no to a part a Lead session asks to hand to another provider is your own tap on that card.
 - `POST /api/health/restart`: Restarting the dashboard from Health is your own press, after its sheet says what happens to your sessions; her card restarts it only after an update.
 - `POST /api/pcsetup/project/needs`: A project's needs are got and opened to its sessions only by your press after Get, once you read what each one is.
+- `POST /api/onboarding/first-chat`: The first project is your own press on the first card of Home, a new empty folder that you then talk to.
 - `POST /api/workspace/group/remove`: These are your own presses on the Workspace page after you read what they change.
 - `POST /api/workspace/find/add`: Adding what the git server has to the map is your own press after you read the list it will add.
 - `POST /api/workspace/find/undo`: Taking those projects out of the map again is your own press on the Workspace page.
@@ -752,7 +753,15 @@ Every act of Hoprig is one row of `src/assistant/inventory.json`: 358 in all (43
 - `POST /api/workspace/label`: These are your own presses on the Workspace page after you read what they change.
 - `POST /api/workspace/git/brain/moveout`: Moving a key file out of the AI brain is your own press on the save sheet, after you read which files move and where.
 - `POST /api/workspace/credentials`: Making the credentials folder a private repository pushes every key in it, so it is your own typed yes on the Workspace page after you read the cost.
+- `POST /api/workspace/instep/credentials`: Getting the credentials repository sets your folder aside and clones it: your own press on the page, never hers.
+- `POST /api/workspace/instep/look`: Looking now fetches the projects and moves a clean one: your own press on the page.
 - `POST /api/workspace/mylink`: Naming a link as your own is your own press on the project's page, after the sheet showed where it leads.
+- `POST /api/workspace/credmove/expect`: Receiving credentials from another computer of yours is your own press on the Workspace page: the receiving computer makes its one-time number only for your page.
+- `POST /api/workspace/credmove/pack`: Sending credentials to another computer of yours is your own press on the Workspace page: the files are sealed for that computer only, and never for Tia.
+- `POST /api/workspace/credmove/upload`: Writing the credentials that came from another computer is your own press on the Workspace page, after the list of names and sizes showed what would land.
+- `POST /api/workspace/credmove/trust`: Trusting another computer's key for moving credentials is your own press on the Workspace page.
+- `POST /api/workspace/credmove/own`: Saying that a computer is not your own, so it gets credentials one project at a time, is your own press on that computer's page.
+- `POST /api/workspace/credmove/mark`: Saying that a computer in your list is not your own is your own press on the Workspace page.
 - `POST /api/workspace/leave/mark`: What the look before a format keeps, ignores or leaves out is your own word on its page, after you read what it found.
 - `POST /api/work/settings`: Tidy, the doubles and where Work lives are your presses after you read the difference.
 - `POST /api/work/plans`: A plan is written from a proposal you read and accepted on the Work page.

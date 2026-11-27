@@ -535,9 +535,10 @@ usage: hoprig public [status] [--json]        whether this dashboard can be reac
 
 ```text
 usage:
-  hoprig link [--minutes N] [--url ADDRESS]
+  hoprig link [--minutes N] [--url ADDRESS] [--open]
                                          a one-time sign-in link and its QR code: scan it with a phone and that
                                          phone is signed in, no password to type (works once, 15 minutes)
+                                         --open: no code, the link opens in this computer's own browser
 ```
 
 ## hoprig pair

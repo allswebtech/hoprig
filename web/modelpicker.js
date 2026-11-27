@@ -7,6 +7,15 @@ import { api, fill, h } from './lib.js';
 export const NOT_LISTED = 'not in this provider\'s list';
 const MODEL_RE = /^[A-Za-z0-9][A-Za-z0-9._:/@+\-[\]]{0,119}$/; // as src/server/endpoint.mjs
 
+/**
+ * The model a provider added with a key starts on: a middle one (a sonnet name) when the list has one, else the first.
+ * A default never spends more than needed (the first listed is often the dearest).
+ */
+export const middleModel = (list) => {
+  const l = Array.isArray(list) ? list : [];
+  return (l.find((m) => /sonnet/i.test(m.id)) || l[0] || { id: '' }).id;
+};
+
 /** What an entry says of itself, in a few words: "1M window · pictures". */
 const extras = (m) => [m.window1m ? '1M window' : null, m.images ? 'pictures' : null, m.efforts && m.efforts.length ? `efforts ${m.efforts.join(', ')}` : null].filter(Boolean).join(' · ');
 /** One option's text: its label, its exact id where the label is another, and what it says of itself. */

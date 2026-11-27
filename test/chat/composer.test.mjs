@@ -92,7 +92,7 @@ globalThis.fetch = async (u, o) => {
   return { ok: true, status: 200, json: async () => ({}) };
 };
 
-const { createComposer } = await import('../../web/chat/composer.js');
+const { createComposer, pillParts } = await import('../../web/chat/composer.js');
 const idle = { id: 'c1', tool: 'opencode', queue: [], choices: { models: [], efforts: [], modes: ['default'] }, usage: {} };
 
 test('Send: a message on its way is sent once, even when a state update of the chat comes in meanwhile', async () => {
@@ -141,19 +141,19 @@ test('a queued message is a faded bubble: its words and files, "Not read yet", E
     const c = createComposer({ A: '/api/chats/c1', id: 'c1', stop() {}, compact() {}, own: () => [] });
     const q = { id: 'q1', state: 'waiting', text: 'look at this\n\n@.uploads/20301117-164344-753d-notes.txt', attachments: [{ type: 'image', name: '20301117-164344-a1b2-screen.png', mime: 'image/png' }] };
     c.paint({ ...idle, queue: [q] });
-    const row = byClass(c.el, 'chat-queued')[0];
+    const row = byClass(c.queueEl, 'chat-queued')[0];
     assert.ok(row, 'the queued row');
     const said = (n) => (n instanceof FakeText ? [n.text] : n.children.flatMap(said));
     assert.equal(said(byClass(row, 'chat-queued-text')[0]).join('|'), 'look at this', 'its words');
     assert.equal(byClass(row, 'chat-thumb').length + byClass(row, 'chip').length, 2, 'its two files, as the sent bubble draws them');
-    assert.equal(said(byClass(row, 'chat-queued-state')[0]).join(''), 'Not read yet · Claude reads it after its current step');
+    assert.equal(said(byClass(row, 'chat-queued-state')[0]).join(''), 'Queued · read after this step');
     const label = byClass(row, 'chat-unqueue')[0].attrs['aria-label'];
     assert.equal(label, 'Take back the message: look at this (screen.png, notes.txt)');
     assert.equal(byClass(row, 'chat-edit-queued')[0].attrs['aria-label'], 'Edit the message: look at this (screen.png, notes.txt)');
     assert.doesNotMatch(`${said(row).join(' ')} ${label}`, /\.uploads|@|sent: read|sent next/, 'no upload path, no "sent"');
     // The same queue painted again (every state update) draws nothing again: a focused button stays.
     c.paint({ ...idle, queue: [{ ...q }] });
-    assert.equal(byClass(c.el, 'chat-queued')[0], row);
+    assert.equal(byClass(c.queueEl, 'chat-queued')[0], row);
     // Edit: taken back with /unqueue, its words in the box, its files said (they are attached again).
     byClass(row, 'chat-edit-queued')[0].fire('click');
     await new Promise((r) => setTimeout(r));
@@ -660,5 +660,178 @@ test('"Attach as context" (the chat-attach-path event) puts @path in the box, an
     assert.equal(on.has('chat-attach-path'), false);
   } finally {
     [document.addEventListener, document.removeEventListener] = [add, remove];
+  }
+});
+
+// ---------- the foot: one rounded box, one pill on a phone, the settings sheet ----------
+const saidOf = (n) => (n instanceof FakeText ? [n.text] : n.children.flatMap(saidOf));
+const classes = (n) => n.className.split(' ');
+const claudeChat = { ...idle, tool: 'claude', engine: { id: 'claude', capabilities: { ultracode: true } }, model: 'fable', permissionMode: 'bypassPermissions', ultracode: true, lead: false, choices: { models: ['fable', 'opus'], efforts: ['low', 'high'], modes: ['manual', 'acceptEdits', 'plan', 'auto', 'bypassPermissions'] }, usage: { contextPercent: 61 } };
+
+test('the foot is ONE box: the field, then one row with plus, the pill, the chips, the microphone and one Send and one Stop; the queue is its own element outside it', () => {
+  const c = createComposer({ A: '/api/chats/f1', id: 'f1', stop() {}, compact() {}, own: () => [] });
+  c.paint(claudeChat);
+  const box = byClass(c.el, 'chat-box')[0];
+  assert.ok(box && classes(box).includes('chat-composer'), 'one box that keeps its old name too');
+  assert.equal(byClass(c.el, 'chat-composer').length, 1);
+  assert.equal(box.children[0].tag, 'textarea', 'the field on top');
+  const row = box.children[1];
+  assert.ok(classes(row).includes('chat-box-row'), 'then the row');
+  assert.equal(box.children.length, 2, 'nothing else in the box');
+  const has = (cls) => byClass(row, cls).length;
+  assert.deepEqual([has('chat-plus'), has('chat-setpill'), has('chat-chips'), has('voice-btn'), has('chat-send'), has('chat-stop')], [1, 1, 1, 1, 1, 1]);
+  assert.equal(byClass(c.el, 'chat-status').length, 0, 'no status line under the chips');
+  assert.ok(c.queueEl && classes(c.queueEl).includes('chat-queue'), 'the queue is exported for the conversation to place');
+  assert.equal(byClass(c.el, 'chat-queue').length, 0, 'and not inside the foot');
+  assert.equal(byClass(c.el, 'chat-queued').length, 0);
+});
+
+test('every control in the row is a real button: the buttons that are round have a true circle (no btn danger on Stop)', () => {
+  const c = createComposer({ A: '/api/chats/f2', id: 'f2', stop() {}, compact() {}, own: () => [] });
+  c.paint(idle);
+  const stop = byClass(c.el, 'chat-stop')[0];
+  assert.ok(!classes(stop).includes('danger'), 'Stop is a neutral circle, not the red button');
+  assert.ok(classes(stop).includes('icon') && classes(byClass(c.el, 'chat-send')[0]).includes('icon'));
+});
+
+test('the pill says what matters in words: the mode when it is not Manual, then the model, then Ultracode and Lead only when on', () => {
+  const parts = (v) => pillParts(v).map((p) => p.text).join(' · ');
+  assert.equal(parts(claudeChat), 'Bypass · Fable · Ultracode');
+  assert.equal(parts({ ...claudeChat, permissionMode: 'manual', ultracode: false, model: 'opus' }), 'Opus', 'Manual shows just the model');
+  assert.equal(parts({ ...claudeChat, permissionMode: 'plan', ultracode: false }), 'Plan · Fable');
+  assert.equal(parts({ ...claudeChat, permissionMode: 'acceptEdits', lead: true }), 'Accept edits · Fable · Ultracode · Lead');
+  assert.equal(parts({ ...claudeChat, permissionMode: 'manual', ultracode: false, model: null }), 'Auto');
+  const tone = (v) => pillParts(v)[0].tone;
+  assert.deepEqual(['bypassPermissions', 'acceptEdits', 'auto', 'plan'].map((m) => tone({ ...claudeChat, permissionMode: m })), ['danger', 'warn', 'warn', 'plan']);
+  // A mode this page does not know (a newer server's) is drawn with the word the server gave, never lost.
+  assert.equal(pillParts({ ...claudeChat, permissionMode: 'fortress', ultracode: false })[0].text, 'fortress');
+});
+
+test('the pill says what the session runs on: the model short name, never a bare Auto when the session knows it, the effort muted after it', () => {
+  const man = { ...claudeChat, permissionMode: 'manual', ultracode: false };
+  const parts = (v) => pillParts(v).map((p) => `${p.k}:${p.text}`).join(' | ');
+  assert.equal(parts({ ...man, model: null, liveModel: 'claude-opus-4-8' }), 'model:Opus', 'Auto reads as the model it runs on');
+  assert.equal(parts({ ...man, model: null, liveModel: 'claude-sonnet-5-5' }), 'model:Sonnet');
+  assert.equal(parts({ ...man, model: null, liveModel: null }), 'model:Auto', 'nothing known yet: Auto');
+  assert.equal(parts({ ...man, model: 'opus', liveModel: 'claude-sonnet-5-5' }), 'model:Opus', 'a chosen model wins');
+  assert.equal(parts({ ...man, model: 'opus', effort: 'high' }), 'model:Opus | effort:High');
+  assert.equal(parts({ ...claudeChat, effort: 'low' }), 'mode:Bypass | model:Fable | effort:Low | ultra:Ultracode');
+  const all = pillParts({ ...claudeChat, permissionMode: 'allowEverything', effort: null, choices: { ...claudeChat.choices, modes: [...claudeChat.choices.modes, 'allowEverything'] } });
+  assert.deepEqual([all[0].text, all[0].tone], ['Allow everything', 'danger'], 'Allow everything is in the pill in the danger colour');
+  const c = createComposer({ A: '/api/chats/f3b', id: 'f3b', stop() {}, compact() {}, own: () => [] });
+  c.paint({ ...man, model: 'opus', effort: 'high' });
+  const pill = byClass(c.el, 'chat-setpill')[0];
+  assert.equal(byClass(pill, 'chat-pill-effort').length, 1, 'the effort has its own muted span');
+  assert.match(pill.getAttribute('aria-label'), /^This session: Opus, High\./);
+});
+
+test('the pill is painted from the state: its words, its colour, one label for a screen reader', () => {
+  const c = createComposer({ A: '/api/chats/f3', id: 'f3', stop() {}, compact() {}, own: () => [] });
+  c.paint(claudeChat);
+  const pill = byClass(c.el, 'chat-setpill')[0];
+  assert.equal(saidOf(pill).join('').replace(/\s+/g, ' ').trim(), 'Bypass · Fable · Ultracode');
+  assert.equal(pill.getAttribute('data-tone'), 'danger');
+  assert.match(pill.getAttribute('aria-label'), /^This session: Bypass, Fable, Ultracode/);
+  c.paint({ ...claudeChat, permissionMode: 'manual', ultracode: false });
+  assert.equal(pill.getAttribute('data-tone'), '');
+  assert.equal(saidOf(pill).join('').trim(), 'Fable');
+});
+
+test('the pill opens the sheet This session: rows of Permission mode, Model, Effort, Ultracode, Lead model and Context with Compact now; a change acts at once', async () => {
+  const before = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async (u, o) => {
+    calls.push([String(u), o && o.body ? JSON.parse(o.body) : null]);
+    return { ok: true, status: 200, json: async () => ({}) };
+  };
+  const tick = () => new Promise((r) => setTimeout(r, 0));
+  try {
+    let compacted = 0;
+    const c = createComposer({ A: '/api/chats/f4', id: 'f4', stop() {}, compact: () => compacted++, own: () => [] });
+    c.paint(claudeChat);
+    byClass(c.el, 'chat-setpill')[0].fire('click');
+    await tick();
+    const sheet = byClass(document.body, 'sheet').at(-1);
+    const rows = byClass(sheet, 'chat-set-row');
+    const label = (r) => saidOf(byClass(r, 'choice-label')[0]).join('');
+    assert.match(saidOf(sheet).join(' '), /This session/);
+    assert.deepEqual(rows.map(label), ['Permission mode', 'Model', 'Effort', 'Ultracode', 'Lead model', 'Context', 'Compact now']);
+    const value = (r) => saidOf(byClass(r, 'chat-set-value')[0] || r).join('');
+    assert.equal(value(rows[0]), 'Bypass permissions');
+    assert.equal(value(rows[1]), 'Fable');
+    assert.equal(value(rows[3]), 'On');
+    assert.equal(value(rows[4]), 'Off');
+    assert.equal(value(rows[5]), '61% used');
+    assert.equal(rows[3].getAttribute('role'), 'switch');
+    assert.equal(rows[3].getAttribute('aria-checked'), 'true');
+    // Lead model: on at once, with its toast; the row shows the state the chat then reports.
+    rows[4].fire('click');
+    await tick();
+    assert.deepEqual(calls.filter((x) => x[0].endsWith('/settings')).at(-1), ['/api/chats/f4/settings', { lead: true }]);
+    c.paint({ ...claudeChat, lead: true });
+    assert.equal(value(byClass(sheet, 'chat-set-row')[4]), 'On', 'the open sheet follows the state');
+    // Compact now closes the sheet and compacts.
+    byClass(sheet, 'chat-set-row')[6].fire('click');
+    assert.equal(compacted, 1);
+  } finally {
+    globalThis.fetch = before;
+  }
+});
+
+test('the sheet leaves out what the chat cannot do: another tool has no Lead model and no Compact', async () => {
+  const c = createComposer({ A: '/api/chats/f5', id: 'f5', stop() {}, compact() {}, own: () => [] });
+  c.paint({ ...idle, tool: 'opencode', engine: { id: 'opencode', label: 'OpenCode', capabilities: { compact: false } }, model: 'a/b', usage: { contextPercent: 5 } });
+  byClass(c.el, 'chat-setpill')[0].fire('click');
+  await new Promise((r) => setTimeout(r, 0));
+  const sheet = byClass(document.body, 'sheet').at(-1);
+  const labels = byClass(sheet, 'chat-set-row').map((r) => saidOf(byClass(r, 'choice-label')[0]).join(''));
+  assert.deepEqual(labels, ['Permission mode', 'Model', 'Effort', 'Context']);
+});
+
+test('on a touch screen no word is about a key: Stop and Send say no Esc; with a mouse they do', () => {
+  const keep = globalThis.matchMedia;
+  try {
+    const make = () => {
+      const c = createComposer({ A: '/api/chats/f6', id: 'f6', stop() {}, compact() {}, own: () => [] });
+      c.paint({ ...claudeChat, running: true, turn: { busy: true }, status: 'working' });
+      return [byClass(c.el, 'chat-stop')[0], byClass(c.el, 'chat-send')[0], c.textarea];
+    };
+    globalThis.matchMedia = () => ({ matches: false });
+    let [stop, send, box] = make();
+    assert.match(stop.title, /Esc/);
+    assert.match(send.title + box.placeholder, /Esc/);
+    globalThis.matchMedia = () => ({ matches: true });
+    [stop, send, box] = make();
+    assert.doesNotMatch(`${stop.title}|${send.title}|${box.placeholder}|${stop.getAttribute('aria-label')}`, /Esc/);
+  } finally {
+    globalThis.matchMedia = keep;
+  }
+});
+
+test('a message that went out takes the conversation to its end, a message that failed does not', async () => {
+  const before = globalThis.fetch;
+  let fail = false;
+  globalThis.fetch = async (u) => {
+    if (String(u).endsWith('/send') && fail) return { ok: false, status: 500, json: async () => ({ error: 'no' }) };
+    return { ok: true, status: 200, json: async () => ({}) };
+  };
+  try {
+    let ends = 0;
+    const c = createComposer({ A: '/api/chats/c8', id: 'c8', stop() {}, compact() {}, own: () => [], sent: () => ends++ });
+    c.paint(idle);
+    const tick = () => new Promise((r) => setTimeout(r, 0));
+    c.textarea.value = 'hello there';
+    c.textarea.fire('keydown', { key: 'Enter', shiftKey: false });
+    await tick();
+    await tick();
+    assert.equal(ends, 1, 'sent: the page jumps to the end, where the message and the living line are');
+    fail = true;
+    c.textarea.value = 'again';
+    c.textarea.fire('keydown', { key: 'Enter', shiftKey: false });
+    await tick();
+    await tick();
+    assert.equal(ends, 1, 'a failed send moves nothing');
+  } finally {
+    globalThis.fetch = before;
   }
 });

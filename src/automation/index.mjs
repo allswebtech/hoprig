@@ -235,7 +235,7 @@ export function createAutomation(ctx) {
         store.write('updates', u.data);
         plan.push(['updates', u.actions]);
       }
-      if (s.workspace.sync || s.workspace.map || Object.values(s.workspace.pushBranches || {}).some(Boolean)) {
+      if (s.workspace.sync || s.workspace.map || Object.values(s.workspace.pushBranches || {}).some(Boolean) || Object.values(s.workspace.ffProjects || {}).some(Boolean)) {
         const d = workspaceRule.decide({ data: store.read('workspace', {}), now: t, boot, settings: effectiveSettings(s, brainRemote).workspace });
         store.write('workspace', d.data);
         plan.push(['workspace', d.actions]);
@@ -261,7 +261,7 @@ export function createAutomation(ctx) {
           else if (name === 'items') await itemRuns.apply(actions, { ...common, startItem: ctx.work.startItem });
           else if (name === 'idle') await idleCare.apply(actions, { ...common, addons });
           else if (name === 'workspace') {
-            await workspaceRule.apply(actions, { ...common, workspaceSync: ctx.workspaceSync || workspaceRule.realWorkspaceSync, workspaceMap: ctx.workspaceMap || workspaceRule.realWorkspaceMap, workspaceBranches: ctx.workspaceBranches || workspaceRule.realWorkspaceBranches, workspaceCredentials: ctx.workspaceCredentials || workspaceRule.realWorkspaceCredentials, workspaceOnlyHere: ctx.workspaceOnlyHere || workspaceRule.realWorkspaceOnlyHere, workspaceServers: ctx.workspaceServers || workspaceRule.realWorkspaceServers, data: store.read('workspace', {}), save: (d) => store.write('workspace', d) });
+            await workspaceRule.apply(actions, { ...common, workspaceSync: ctx.workspaceSync || workspaceRule.realWorkspaceSync, workspaceMap: ctx.workspaceMap || workspaceRule.realWorkspaceMap, workspaceBranches: ctx.workspaceBranches || workspaceRule.realWorkspaceBranches, workspaceLook: ctx.workspaceLook || workspaceRule.realWorkspaceLook, workspaceCredentials: ctx.workspaceCredentials || workspaceRule.realWorkspaceCredentials, workspaceOnlyHere: ctx.workspaceOnlyHere || workspaceRule.realWorkspaceOnlyHere, workspaceServers: ctx.workspaceServers || workspaceRule.realWorkspaceServers, data: store.read('workspace', {}), save: (d) => store.write('workspace', d) });
           } else if (name === 'updates') {
             await updates.apply(actions, { ...common, updater, settings: us, now, data: store.read('updates', {}), save: (d) => store.write('updates', d) });
           }

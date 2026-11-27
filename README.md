@@ -19,8 +19,22 @@
   <img alt="Linux and macOS" src="https://img.shields.io/badge/runs%20on-Linux%20%C2%B7%20macOS-10b981">
 </p>
 
+**Windows**: press the Windows key, type PowerShell, press Enter, paste this line and press Enter.
+
+```powershell
+irm https://raw.githubusercontent.com/allswebtech/hoprig/main/install.ps1 | iex
+```
+
+**Mac**: press Command and Space, type Terminal, press Enter, paste this line and press Enter.
+
 ```sh
 curl -fsSL https://raw.githubusercontent.com/allswebtech/hoprig/main/install.sh | sh
+```
+
+**Linux**: press Ctrl+Alt+T, paste this line and press Enter.
+
+```sh
+wget -qO- https://raw.githubusercontent.com/allswebtech/hoprig/main/install.sh | sh
 ```
 
 <p align="center">
@@ -153,19 +167,17 @@ The cases:
 
 ## Install
 
-```sh
-curl -fsSL https://raw.githubusercontent.com/allswebtech/hoprig/main/install.sh | sh
-```
-
-The line fetches Hoprig's installer from GitHub and runs it on your computer.
+The line for your system is at the top of this page. The line fetches Hoprig's installer from GitHub and runs it on your computer.
 It says what is missing and installs it without asking (Node.js 24.13.1 or newer when it is missing or older, and on
 Linux the build tools and a few system parts, with sudo, which asks for its own password; Ctrl-C stops it), then Hoprig
-itself from the main branch of this repository, then runs `hoprig setup`. Setup installs Claude Code and Hoprig's own
-reviewed skills without asking, asks about 7 things on a fresh desktop (who may open the dashboard, the one list of
-installs, the GitHub sign-in, keeping the workspace on GitHub, a name for this computer, keeping the map up to date by
-itself, a first project), and ends with a QR code (on a server: how to reach it from your own computer): scan it and
-your phone is signed in to the dashboard. Until everything is set up, Home shows a Get started checklist of three
-steps: Claude Code, tools for coding and a first project.
+itself from the main branch of this repository, then runs `hoprig setup`. A first run asks nothing: a tick appears for
+each part, Claude Code is installed, the dashboard is made ready for this computer only and starts when you sign in to
+your computer, and your browser opens Hoprig, already signed in, on one card with two steps: **Sign in to Claude**, then
+**Start your first chat**. The phone comes later, in Settings. Run `hoprig setup` yourself later and it is the full run:
+it asks about 7 things on a fresh desktop (who may open the dashboard, the one list of installs, the GitHub sign-in,
+keeping the workspace on GitHub, a name for this computer, keeping the map up to date by itself, a first project), and
+ends with a QR code (on a server: how to reach it from your own computer): scan it and your phone is signed in to the
+dashboard.
 
 On a server with only a root login, the installer does not set Hoprig up under root (Claude Code refuses bypass
 permissions mode for root): it lists its steps and asks once, *Make the user hoprig and set Hoprig up there?*, then
@@ -177,8 +189,8 @@ the network ([docs/INSTALL.md](docs/INSTALL.md#a-server-with-only-a-root-login))
 </p>
 
 Just want to look? `hoprig demo` opens the dashboard with sample data: no coding tool and no account needed.
-On Windows, the PowerShell line and what was tried there are in [docs/INSTALL.md](docs/INSTALL.md) (the line
-above does not run in PowerShell). Everything else: [docs/INSTALL.md](docs/INSTALL.md).
+On Windows, what was tried there is in [docs/INSTALL.md](docs/INSTALL.md). Everything else:
+[docs/INSTALL.md](docs/INSTALL.md).
 Check a computer at any time on its **Health** tab (**Computers** → the computer → **Health**), where a problem that
 one press can fix has a **Fix** button (or, in a terminal, `hoprig doctor`). Where the dashboard runs as a background
 service, **Restart the dashboard** there restarts it; its sheet first says what happens to that computer's sessions
@@ -206,16 +218,15 @@ From a terminal on that computer, `hop chat [folder]` prints the chat's address 
 
 - **What you see**: the reply as it is written, thinking, each tool call on one line with its diff, the to-do
   list, subagents as a tree under the call that started them, background tasks with their progress. In a reply a
-  link opens in a new tab and *italic* is shown; every code block has a **Copy** button and a reply has one when you
-  hover over it; a file name in a tool card or in the text is a button that opens the file in Hoprig's editor at that line
+  link opens in a new tab and *italic* is shown; every code block has a **Copy** button and each turn has one **Copy** under its last reply; a file name in a tool card or in the text is a button that opens the file in Hoprig's editor at that line
   (a right-click, the menu key or a long press offers **Attach as context**, **Open in** and **Copy** the path;
   only a path inside the session's folder is a button).
-- **Background tasks** sit at the end of the chat, above the message box, as Claude Code lists them under its prompt: a
-  line with the count and kinds ("4 background tasks · 2 agents · 1 shell · 1 workflow"), a row for each with its
-  **Stop** (folded when there are more than three), and **View all**. A click on a task's name opens its output: a shell's
-  last 2000 lines, an agent's report; while it is open and the task runs, it is read again every 3 seconds.
+- **Background tasks** sit above the message box, as Claude Code lists them under its prompt: one line, the task in words
+  when one runs ("npm run dev · 2 min") or the count and kinds ("4 in the background: 2 agents, 1 shell, 1 workflow").
+  A press on it opens the Background tasks sheet with each task and its **Stop**; **Output** there shows a shell's
+  last 2000 lines or an agent's report, read again every 3 seconds while it is open and the task runs.
 - **What you control**: the permission mode, the model, the effort and ultracode are chips over the message box
-  and change without a restart. A message typed while it works waits above the box as a faded dashed bubble saying
+  and change without a restart. A message typed while it works waits at the end of the conversation as a faded dashed bubble saying
   "Not read yet" with **Edit** and **Remove** (Up in the empty box edits the last one); Claude reads it after its current step.
   The box has one button place: **Stop** while the box is empty and a turn runs, **Send** as soon as you type (Esc always
   stops). **Stop** ends the turn; background tasks go on until you stop them. `/` lists the commands and skills by name, as Claude
@@ -227,8 +238,9 @@ From a terminal on that computer, `hop chat [folder]` prints the chat's address 
   does, unless its output goes elsewhere: `npm run dev > dev.log 2>&1 &`); nothing goes to the
   coding tool until you send your next message, which carries the command and the end of its output as your own
   text. Through the public link it is behind the same sign-in as the rest of the dashboard (which can open a
-  terminal anyway). The status line says what runs now, the branch, the context used
-  and the plan's limits where the provider reports them. On a wide screen the session rail beside the chat shows the
+  terminal anyway). While a turn runs, a line at the end of the conversation says what Claude does now (Thinking,
+  Running a command, Writing) with the seconds; the branch and the context are in the session rail, and the plan's limits where
+  the provider reports them. On a wide screen the session rail beside the chat shows the
   environment, the folder's changes and the context (**Hide session rail** in the title bar). In the **Changes** card,
   **Create PR** asks the coding tool to commit, push the branch and open a pull request with `gh` (shown when the folder
   has a remote, `gh` is signed in and there is something to send); once there is one, a line `#12 title` with "Checks

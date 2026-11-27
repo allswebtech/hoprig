@@ -213,19 +213,60 @@ test('the session menu\'s Archive is the list\'s archiveSession; a branch of its
   globalThis.setTimeout = st;
 });
 
-test('a row says the name on a line of its own, and under it the state in words and the time', () => {
+test('a row is one line; only a session that needs the owner or failed has a second line, with its words', () => {
   globalThis.localStorage = { getItem: () => null, setItem() {} };
-  const mk = (extra) => ({ all: [{ machine: null, machineLabel: 'W', status: 'online', sessions: [{ name: 'chat:a', kind: 'chat', chatId: 'a', display: 'A very long name of a session that goes on', cwd: '/w/shop', short: '~/w/shop', status: 'working', background: true, statusAt: Date.now() - 60000, ...extra }] }], multi: false, subscribe: (f) => (f(), () => {}) });
-  const side = S.createSidebar({ store: mk({}), current: null, newSession() {} });
-  const row = side.el.querySelector('.chat-side-row');
+  const mk = (extra) => ({ all: [{ machine: null, machineLabel: 'W', status: 'online', sessions: [{ name: 'chat:a', kind: 'chat', chatId: 'a', display: 'A very long name of a session that goes on', cwd: '/w/shop', short: '~/w/shop', status: 'working', statusAt: Date.now(), ...extra }] }], multi: false, subscribe: (f) => (f(), () => {}) });
+  const rowOf = (extra) => S.createSidebar({ store: mk(extra), current: null, newSession() {} }).el.querySelector('.chat-side-row');
+  const row = rowOf({});
   const text = row.querySelector('.chat-side-text');
-  assert.deepEqual(text.children.map((c) => c.className), ['chat-side-name', 'chat-side-meta'], 'the name, then the line under it');
+  assert.deepEqual(text.children.map((c) => c.className), ['chat-side-name'], 'a working row: the name only, the dot says the rest');
   assert.equal(texts(text.children[0]).join(''), 'A very long name of a session that goes on', 'the name whole in the page (the style cuts it with ...)');
-  assert.match(texts(text.children[1]).join(''), /^Working in the background · /);
-  const needs = S.createSidebar({ store: mk({ status: 'attention' }), current: null, newSession() {} }).el.querySelector('.chat-side-row');
-  assert.ok(needs.querySelector('.chat-side-mark'), 'what needs him has its mark at the right');
-  assert.equal(row.querySelector('.chat-side-mark'), null);
-  side.stop();
+  assert.match(row.attrs.title, /^A very long name of a session that goes on: Working · /, 'the state and the time are in the row title');
+  assert.equal(row.querySelector('.chat-side-mark'), null, 'no exclamation mark: the second line says it');
+  for (const [extra, words] of [[{ status: 'attention' }, 'Needs your OK'], [{ status: 'waiting', limit: { text: 'x' } }, 'Limit reached'], [{ status: 'waiting', endedInError: true, lastMessage: 'x' }, 'Stopped with an error']]) {
+    const r = rowOf(extra);
+    const t = r.querySelector('.chat-side-text');
+    assert.deepEqual(t.children.map((c) => c.className.split(' ')[0]), ['chat-side-name', 'chat-side-meta'], words);
+    assert.equal(texts(t.children[1]).join(''), words);
+  }
+  for (const extra of [{ status: 'waiting', lastMessage: 'x' }, { status: 'waiting' }]) assert.equal(rowOf(extra).querySelector('.chat-side-meta'), null, 'Finished and Ready have no second line');
+  const css = fs.readFileSync(new URL('../../web/chat/sidebar.css', import.meta.url), 'utf8');
+  assert.match(css, /\.chat-side-row \{[^}]*min-height: 34px/, 'one line is 34 px high on a mouse screen');
+  assert.match(css, /@media \(pointer: coarse\)[^]*\.chat-side-row \{[^}]*min-height: 44px/, 'and 44 on touch');
+});
+
+test('over the chat the list has a head: Home and a close button, then New; a pick or the close button shuts it', () => {
+  globalThis.localStorage = { getItem: () => null, setItem() {} };
+  const store = { all: [], multi: false, subscribe: (f) => (f(), () => {}) };
+  const events = [];
+  const side = S.createSidebar({ store, current: null, newSession() {}, onOverlay: (on) => events.push(on) });
+  const head = side.el.children[0];
+  assert.equal(head.className, 'chat-side-over-head', 'the first thing in the list');
+  const home = byClass(head, 'chat-side-home')[0];
+  assert.equal(home.attrs.href, '#/');
+  assert.deepEqual(texts(home).join(''), 'Home');
+  const close = byClass(head, 'chat-side-close')[0];
+  assert.equal(close.attrs['aria-label'], 'Close the list');
+  assert.ok(side.el.children.indexOf(head) < side.el.children.findIndex((c) => /chat-side-top/.test(c.className)), 'Home is above New');
+  const wrap = document.createElement('div');
+  wrap.append(side.el);
+  const classes = new Set();
+  wrap.classList = { add: (c) => classes.add(c), remove: (c) => classes.delete(c), contains: (c) => classes.has(c) };
+  const prev = [document.addEventListener, document.removeEventListener];
+  document.addEventListener = () => {};
+  document.removeEventListener = () => {};
+  side.overlay(true);
+  close.listeners.click();
+  assert.ok(!classes.has('chat-side-over'), 'the close button closes it');
+  side.overlay(true);
+  home.listeners.click();
+  assert.ok(!classes.has('chat-side-over'), 'Home closes it as it goes there');
+  [document.addEventListener, document.removeEventListener] = prev;
+  const css = fs.readFileSync(new URL('../../web/chat/sidebar.css', import.meta.url), 'utf8');
+  assert.match(css, /\.chat-side-over-head \{[^}]*display: none/, 'only drawn over the chat');
+  assert.match(css, /chat-side-over \.chat-side-over-head \{[^}]*display: flex/);
+  assert.match(css, /\.chat-side-close \{[^}]*width: 44px/);
+  assert.match(css, /chat-side-over \.chat-side \{[^}]*width: min\(86vw, 360px\)/, 'a phone: 86 percent of its width');
 });
 
 test('narrower than 900: the list opens over the chat, closes by a tap outside or Escape', () => {

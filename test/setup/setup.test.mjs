@@ -104,6 +104,7 @@ test('the --yes and --dry-run question rules', async () => {
 });
 
 test('setup --dry-run changes nothing and says what it would do', async () => {
+  fs.rmSync(process.env.HOPRIG_CONFIG_DIR, { recursive: true, force: true }); // a computer with no settings at all
   const before = stateDirs();
   const { ui: u, rec } = ui({ dryRun: true });
   assert.equal(await SU.setup(['--dry-run'], { ui: u, sys: sys({ serviceSupported: true }), parts: NOPARTS }), 0);

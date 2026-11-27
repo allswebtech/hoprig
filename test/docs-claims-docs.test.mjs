@@ -184,7 +184,7 @@ test('Workspace: the page names the commands that take no --json or no --dry-run
   const git = read('src/workspace/cli-git.mjs');
   assert.match(git, /if \(sub === 'git'\) \{\n\s+if \(args\.length\) return usage\(\);/, 'git takes no flag');
   // auto reads no dry-run flag; mylink add|remove refuses any word after the path.
-  assert.match(git, /flags\(args, \{ map: 'v', commit: 'v', memory: 'v', sync: 'v', push: 'v', 'push-branches': 'v', credentials: 'v', 'only-here': 'v', servers: 'v', every: 'v', json: 'bool' \}\)/);
+  assert.match(git, /flags\(args, \{ map: 'v', commit: 'v', memory: 'v', sync: 'v', push: 'v', 'push-branches': 'v', ff: 'v', credentials: 'v', 'only-here': 'v', servers: 'v', every: 'v', json: 'bool' \}\)/);
   assert.match(cli, /if \(more\.length \|\| \(sub === 'list' \? p !== undefined : !p\)\) return usage\(\);/);
   const page = flat(read('docs/WORKSPACE.md'));
   assert.match(page, /Most of them take `--json`; `setup`, `link` and `git` do not\. Most of those that change something take `--dry-run`, which shows exactly what would happen; `auto` and `mylink add\|remove` do not\./);

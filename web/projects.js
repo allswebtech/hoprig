@@ -17,6 +17,7 @@ import { chatTools, startChat } from './chat/start.js';
 import { icon } from './icons.js';
 import { add, ago, api, btn, fill, h, link, machine, needsYouFirst, openSheet, promptSheet, tildePath, toast, toolBadge } from './lib.js';
 import { groupOf } from './home.js';
+import { instepBlock, instepList } from './instep.js';
 import { sessionRow } from './sessionitem.js';
 import { projectBrain } from './brain.js';
 import { projectsTabs } from './brainlink.js';
@@ -433,6 +434,9 @@ function viewList(frame, query = new URLSearchParams()) {
       // A fresh computer (no projects, no map): bring the workspace from git, or start a new project.
       : map && !map.exists ? freshFork(() => { strip.load(); load(); })
       : emptyState('folder', 'No projects yet. A project is a folder with your code.', btn('primary', { icon: 'plus', label: 'Add project', onclick: addSheet })));
+    // Only when something is not in step: the block on top (nothing is drawn when all is in step).
+    const off = instepBlock(data.instep, { reload: load });
+    if (off) body.prepend(off);
     // The end fold: Sync (the strip), Other folders, Groups, the computers, the projects folder. Shown when it holds something.
     fill(rest,
       others.length ? otherFolders(others, profiles) : null,
@@ -467,6 +471,7 @@ function viewList(frame, query = new URLSearchParams()) {
       // Which other computer has a project of the map (each computer's own file); an older computer has no answer.
       data.computers = await api('/api/workspace/computers').catch(() => null);
       data.who = await api('/api/workspace/whohas').catch(() => null);
+      data.instep = await instepList();
     } catch (e) {
       if (alive) fill(body, errorBox(`Could not read the projects: ${e.message}`, () => { fill(body, skeleton(4)); load(); }));
       return;

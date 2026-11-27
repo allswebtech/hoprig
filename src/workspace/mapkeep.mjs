@@ -371,7 +371,7 @@ export async function commitOwnFiles({ dir = workspaceDir(), run = capture, mess
  * brain's lock held. → { done, pushed?, resolved?: number of times the rule moved the branch, lines: [activity],
  * needs: [what needs the owner], stopped?: why }
  */
-export async function keepMapInStep({ dir = workspaceDir(), projects = projectsIn(), run = capture, tries = TRIES } = {}) {
+export async function keepMapInStep({ dir = workspaceDir(), projects = projectsIn(), run = capture, tries = TRIES, ownOnly = false } = {}) {
   const brain = path.join(dir, 'ai_brain');
   const at = { root: brain, dir };
   const me = thisComputer();
@@ -392,6 +392,14 @@ export async function keepMapInStep({ dir = workspaceDir(), projects = projectsI
     if (!s.ok) return stop(s.error);
     if (!s.upstream) return stop('the brain has no upstream', '');
     if (!s.ahead && !s.behind) return { ...out, done: true };
+    // ownOnly (the "push" switch is off): only Hoprig's own map commits may go up; one commit of the owner's own, or a
+    // memory commit (the "memory" switch decides those), keeps everything here as it is, without a word.
+    if (ownOnly && s.ahead) {
+      const own = await localCommits(brain, run);
+      if (own.error || own.merge) return stop(own.error ? `the brain's history could not be read: ${own.error}` : 'a merge commit', '');
+      const sort = sortCommits(own.list, ours);
+      if (sort.others.length || sort.memory.length) return stop('the brain holds commits that are not the map\'s', '');
+    }
     if (s.behind) {
       // (2) only commits of the map and this computer's file, and nothing of them uncommitted
       const t = await localCommits(brain, run);

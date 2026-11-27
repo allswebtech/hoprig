@@ -506,6 +506,7 @@ function autoPanel(onMap = () => {}) {
         credsToggle(w, save),
         ...looksToggles(w, save),
         branchToggles(w, save),
+        ...ffToggles(w, save),
         h('label.fieldrow', h('span.field-label', 'Every how many hours'), h('div.inlineform', hours, btn('small secondary', { label: 'Save', onclick: async () => {
           const n = Number(hours.value);
           if (!Number.isInteger(n) || n < 1 || n > 168) return toast('A whole number of hours, 1 to 168.', { kind: 'error' });
@@ -513,7 +514,7 @@ function autoPanel(onMap = () => {}) {
         } })))));
   };
   api('/api/automation').then(async (st) => {
-    w = { map: true, commitMap: false, memory: false, sync: false, push: false, pushBranches: {}, everyHours: 6, credentials: false, onlyHere: false, servers: false, ...((st.settings && st.settings.workspace) || {}) };
+    w = { map: true, commitMap: false, memory: false, sync: false, push: false, pushBranches: {}, ffProjects: { projects: true }, everyHours: 6, credentials: false, onlyHere: false, servers: false, ...((st.settings && st.settings.workspace) || {}) };
     w.credsRepo = await credsIsRepo(api);
     w.places = await api('/api/pcsetup/projects').then((d) => (Array.isArray(d.places) && d.places.length ? d.places : [{ id: '' }]).filter((p) => p.members !== 'group'), () => [{ id: '' }]);
     why = st.commitMap && st.commitMap.chosen === false ? st.commitMap : null;
@@ -530,6 +531,16 @@ function branchToggles(w, save) {
   const key = (id) => id || 'projects';
   return (w.places || [{ id: '' }]).map((pl) => toggle(`Push my other branches in ${pl.id || 'Projects'}`, !!(w.pushBranches || {})[key(pl.id)], (v) => save({ pushBranches: { ...(w.pushBranches || {}), [key(pl.id)]: v } }),
     'Committed work on a branch that is not the default branch goes to the git server by itself, so a lost computer costs nothing of it. The default branch is never pushed by itself (a push there can be a release).'));
+}
+
+/**
+ * One switch per place that holds projects: a repository that is only behind, with nothing changed and nothing open in
+ * it, is moved forward by itself (git fast-forward only; never a merge, never a push). On for the projects folder.
+ */
+function ffToggles(w, save) {
+  const key = (id) => id || 'projects';
+  return (w.places || [{ id: '' }]).map((pl) => toggle(`Move projects that are only behind in ${pl.id || 'Projects'}`, !!(w.ffProjects || {})[key(pl.id)], (v) => save({ ffProjects: { ...(w.ffProjects || {}), [key(pl.id)]: v } }),
+    'A repository that only has new commits to download, with nothing changed here and no session open in it, is brought forward by itself. Nothing is merged or uploaded.'));
 }
 
 /** Why "save a change of the map" is on or off when the owner never chose: the brain's git server address. */

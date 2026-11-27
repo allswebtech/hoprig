@@ -18,9 +18,10 @@ import { createToken, listTokens, revokeToken } from './tokens.mjs';
 import { needsYes } from '../yes.mjs';
 
 export const USAGE = `usage:
-  hoprig link [--minutes N] [--url ADDRESS]
+  hoprig link [--minutes N] [--url ADDRESS] [--open]
                                          a one-time sign-in link and its QR code: scan it with a phone and that
                                          phone is signed in, no password to type (works once, 15 minutes)
+                                         --open: no code, the link opens in this computer's own browser
 
   hoprig pair                         show a one-time code (10 min) that lets another computer's dashboard
                                          control this one: there, Computers → Add by address
@@ -394,12 +395,20 @@ export function linkBase(cfg = loadConfig(), interfaces = os.networkInterfaces()
   return { url: `http://${h.includes(':') ? `[${h}]` : h}:${port}`, local };
 }
 
-async function link(args) {
-  const o = parse(args, { minutes: 'value', url: 'value', json: 'bool' });
+async function link(args, hooks = {}) {
+  const o = parse(args, { minutes: 'value', url: 'value', json: 'bool', open: 'bool' });
   noWords(o, 'link'); // the link signs a browser in: only on a command line that asked for exactly that
   const minutes = o.minutes === undefined ? 15 : Number(o.minutes);
   const base = o.url ? { url: o.url, local: false } : linkBase();
   const r = createLoginLink({ baseUrl: base.url, minutes });
+  if (o.open) {
+    // This computer's own browser, signed in by the link: the Start menu and app menu entries run this. No QR code.
+    // Where no browser can open (a server over ssh), the link is printed all the same.
+    const { openBrowser, openedLines } = await import('../openbrowser.mjs');
+    const opened = (hooks.open || openBrowser)(r.url);
+    console.log(opened ? openedLines(r.url, minutes).join('\n') : `Open this link in a browser (it works once, for ${minutes} minutes):\n  ${r.url}`);
+    return 0;
+  }
   if (o.json) {
     console.log(JSON.stringify({ hoprig: 'link', url: r.url, expires: r.expires }));
     return 0;
@@ -423,13 +432,13 @@ async function link(args) {
 }
 
 /** Entry point from the bin script. Returns an exit code. */
-export async function main(command, args = []) {
+export async function main(command, args = [], hooks = {}) {
   try {
     if (args.includes('--help') || args.includes('-h')) {
       process.stdout.write(USAGE);
       return 0;
     }
-    if (command === 'link') return await link(args);
+    if (command === 'link') return await link(args, hooks);
     if (command === 'pair') return await pair(args);
     if (command === 'tokens') return await tokens(args);
     if (command === 'machines') return await machines(args);

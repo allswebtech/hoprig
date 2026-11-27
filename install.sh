@@ -80,6 +80,11 @@ main() {
     [ -z "$WORK_MADE" ] || work_left >&2
     exit 1
   }
+  # A failure of a part the person can simply try again: the reason, then the way (the same line pasted again).
+  die_again() {
+    printf '%s\n' "Paste the same line again to try once more." >&2
+    die "$@"
+  }
   [ "$next" != user ] || die "--user needs a name, for example: --user hoprig"
   if [ -n "$WORK_USER" ]; then
     # The rule of useradd's default NAME_REGEX, the same as USER_NAME_RE in src/setup/rootfacts.mjs.
@@ -130,6 +135,8 @@ main() {
     MINGW* | MSYS* | CYGWIN*) die "this is Windows: use install.ps1 in PowerShell (see docs/INSTALL.md)." ;;
     *) die "$OS is not supported (macOS and Linux are; Windows has install.ps1)." ;;
   esac
+
+  say "Hoprig: setting up this computer. It takes a few minutes."
 
   PM=
   if [ "$OS" = Linux ]; then
@@ -240,6 +247,9 @@ main() {
       apk) PKGS="$PKGS build-base python3 linux-headers" ;;
     esac
   fi
+  # tmux keeps the sessions through a restart of the dashboard or an update: part of the same one step, when that step
+  # can run (an ordinary user without sudo is not asked for more than the build tools need).
+  if [ "$OS" = Linux ] && [ -n "$PM" ] && [ "$SUDO" != none ] && ! have tmux; then PKGS="$PKGS tmux"; fi
   PKGS=${PKGS# }
 
   PKG_CMD=
@@ -269,15 +279,11 @@ main() {
       exit 0
     fi
     work_ask
-  elif [ -n "$PKG_CMD" ] || [ "$NODE_NVM" = 1 ]; then
-    say "To install:"
-    [ -n "$PKG_CMD" ] && say "  $PKGS   ($PKG_CMD)"
-    [ "$NODE_NVM" = 1 ] && say "  Node.js LTS, for you only, with nvm $NVM_VERSION in $NVM_DIR"
   fi
 
   if [ -n "$PKG_CMD" ]; then
-    [ -n "$SUDO" ] && say "sudo may ask for your computer password."
-    say "Installing ${PKGS}…"
+    # One plain line, only where sudo is used: the command and the package names go to the log, not to the screen.
+    [ "$SUDO" = sudo ] && say "Hoprig needs a few parts of the system. If your computer asks for its password, type it and press Enter (nothing shows while you type)."
     # Our own fixed text and package names. The package manager's long output goes to a log, shown only when it
     # fails. It gets no input at all (every command above is told not to ask, and a question in a log could not be
     # answered); sudo asks for its password on the terminal itself, so that still works.
@@ -286,9 +292,10 @@ main() {
     if [ "${pm_rc:-0}" != 0 ]; then
       tail -n 25 "$log" >&2
       rm -f "$log"
-      die "installing $PKGS did not succeed (see above)."
+      die_again "installing $PKGS did not succeed (see above)."
     fi
     rm -f "$log"
+    say "✓ System parts"
   fi
 
   # As root: the user is made, then the rest of the set-up runs as that user. Neither comes back.
@@ -311,12 +318,13 @@ main() {
       download "https://raw.githubusercontent.com/nvm-sh/nvm/$NVM_VERSION/install.sh" "$tmp/nvm-install.sh"
       # nvm adds two lines to your shell's startup file, so new terminals find node.
       if have bash; then nvm_sh="bash"; else nvm_sh="sh"; fi
-      "$nvm_sh" "$tmp/nvm-install.sh" >/dev/null 2>&1 || die "nvm did not install (https://github.com/nvm-sh/nvm#troubleshooting)."
+      # METHOD=script: nvm's own file is downloaded, git is not used (on a Mac without the Command Line Tools git is a
+      # stub that opens Apple's install window).
+      METHOD=script "$nvm_sh" "$tmp/nvm-install.sh" >/dev/null 2>&1 || die_again "nvm did not install (https://github.com/nvm-sh/nvm#troubleshooting)."
       rm -rf "$tmp"
     fi
     set +eu # nvm is a shell function library written without `set -eu` in mind
     . "$NVM_DIR/nvm.sh"
-    say "Installing Node.js…"
     log=$(mktemp)
     nvm install --lts --no-progress >"$log" 2>&1
     rc=$?
@@ -325,7 +333,7 @@ main() {
     if [ "$rc" != 0 ]; then
       tail -n 25 "$log" >&2
       rm -f "$log"
-      die "nvm could not install Node.js (see above)."
+      die_again "nvm could not install Node.js (see above)."
     fi
     rm -f "$log"
   fi
@@ -333,7 +341,7 @@ main() {
   node --version >/dev/null 2>&1 || die "node is installed but does not start (see the error above)."
   node_ok || die "Node.js $(node --version) is too old; hoprig needs $MIN_NODE or newer."
   have npm || die "npm is missing (it comes with Node.js)."
-  say "✓ Node.js $(node --version)"
+  say "✓ Node.js"
 
   # ---- hoprig --------------------------------------------------------------------------------------------------
   if [ -e "$SOURCE" ]; then
@@ -366,13 +374,26 @@ main() {
   fi
   [ -x "$BIN" ] || BIN=$(command -v hoprig || true)
   [ -n "$BIN" ] && [ -x "$BIN" ] || die "hoprig was installed but its command is not found."
-  say "✓ hoprig $("$BIN" version)"
+  say "✓ Hoprig"
 
   # ---- setup ------------------------------------------------------------------------------------------------------
   # Its first step makes the command work in every shell, not only an interactive one: ~/.local/bin/hoprig and hop
   # start Hoprig with this Node.js (nvm's lines in ~/.bashrc are not read by `ssh <computer> hoprig …`), and
   # ~/.local/bin goes on PATH in ~/.profile, the top of ~/.bashrc and ~/.zshenv, once (src/setup/localbin.mjs).
-  exec "$BIN" setup "$@"
+  # Then the app menu entry (Linux), so coming back another day is one click: it signs in and opens the page.
+  rc=0
+  "$BIN" setup "$@" || rc=$?
+  if [ "$rc" = 0 ] && [ "$OS" = Linux ] && [ -z "${HOPRIG_NO_MENU_ENTRY:-}" ]; then app_menu_entry || :; fi
+  exit "$rc"
+}
+
+# An app menu entry named Hoprig for this user (no administrator rights): it runs `hoprig link --open`.
+app_menu_entry() {
+  adir=${XDG_DATA_HOME:-$HOME/.local/share}/applications
+  cmd=$HOME/.local/bin/hoprig
+  [ -x "$cmd" ] || cmd=$BIN
+  mkdir -p "$adir" || return 1
+  printf '[Desktop Entry]\nType=Application\nName=Hoprig\nComment=Open Hoprig in your browser\nExec="%s" link --open\nTerminal=false\nCategories=Development;\n' "$cmd" >"$adir/hoprig.desktop"
 }
 
 # ---- root: the work user ------------------------------------------------------------------------------------------

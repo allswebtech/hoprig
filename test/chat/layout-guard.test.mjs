@@ -82,3 +82,56 @@ test('a phone: a field under 16 px lets the phone zoom in, and a page wider than
   assert.deepEqual(judge([], { ...WIN, fields: [{ part: 'the text field', fs: 14 }] }), []);
   assert.deepEqual(kinds(judge([], { ...PH, bodyScrollW: 420 })), ['the page body: scrolls sideways 27']);
 });
+
+// ---- the phone checks (round 27b) ----
+const PH = { w: 393, h: 852, scrollW: 393, bodyScrollW: 393, touch: true };
+
+test('a touch screen: every press target in the bar, the foot and the tail is at least 44 by 44', () => {
+  const b = (w, h) => box('a button', 10, 10, w, h, { tap: true });
+  assert.deepEqual(judge([b(44, 44)], PH), []);
+  assert.deepEqual(kinds(judge([b(38, 44)], PH)), ['a button: press target under 44 px 6']);
+  assert.deepEqual(kinds(judge([b(44, 40)], PH)), ['a button: press target under 44 px 4']);
+  assert.deepEqual(judge([b(43.8, 44)], PH), [], 'the rounding of the browser');
+  assert.deepEqual(judge([b(30, 30)], { ...WIN }), [], 'a mouse screen: not judged');
+});
+
+test('a round button is a circle: width equal to height', () => {
+  assert.deepEqual(judge([box('send', 10, 10, 44, 44, { round: true })], PH), []);
+  assert.deepEqual(kinds(judge([box('send', 10, 10, 38, 44, { round: true })], PH)), ['send: a round button that is an oval 6']);
+  assert.deepEqual(judge([box('chip', 10, 10, 90, 44)], PH), [], 'a pill that is not drawn as a circle may be wide');
+});
+
+test('text meant for one line is on one line', () => {
+  assert.deepEqual(judge([box('the title text', 10, 10, 200, 22, { oneLine: true, lines: 1 })], PH), []);
+  assert.deepEqual(kinds(judge([box('the title text', 10, 10, 200, 44, { oneLine: true, lines: 2 })], PH)), ['the title text: text on more than one line 1']);
+});
+
+test('the foot is at most 100 px at rest and 150 with a background tasks line; the conversation keeps its room with the keyboard open', () => {
+  assert.deepEqual(judge([], { ...PH, foot: { h: 100, bg: false } }), []);
+  assert.deepEqual(kinds(judge([], { ...PH, foot: { h: 146, bg: false } })), ['the foot: taller than 100 px 46']);
+  assert.deepEqual(judge([], { ...PH, foot: { h: 150, bg: true } }), []);
+  assert.deepEqual(kinds(judge([], { ...PH, foot: { h: 196, bg: true } })), ['the foot: taller than 150 px 46']);
+  assert.deepEqual(judge([], { ...WIN, foot: { h: 300, bg: false } }), [], 'not a phone');
+  const KB = { ...PH, h: 450 };
+  assert.deepEqual(judge([], { ...KB, conv: { h: 294, bg: false } }), []);
+  assert.deepEqual(kinds(judge([], { ...KB, conv: { h: 248, bg: false } })), ['the conversation: under 294 px high with the keyboard open 46']);
+  assert.deepEqual(judge([], { ...KB, conv: { h: 244, bg: true } }), []);
+  assert.deepEqual(judge([], { ...PH, conv: { h: 248, bg: false } }), [], 'only with the keyboard open');
+});
+
+test('the status is the living line in the conversation; no line under the box; no key named on a touch screen; nothing beside a sent message', () => {
+  assert.deepEqual(judge([], { ...PH, live: { present: true, last: true }, oldStatus: false, esc: [], beside: [] }), []);
+  assert.deepEqual(kinds(judge([], { ...PH, live: { present: true, last: false } })), ['the living line: is not the last thing before the queued messages 1']);
+  assert.deepEqual(kinds(judge([], { ...PH, oldStatus: true })), ['the line under the box: still drawn 1']);
+  assert.deepEqual(kinds(judge([], { ...PH, esc: ['the placeholder'] })), ['the placeholder: names the Esc key on a touch screen 1']);
+  assert.deepEqual(judge([], { ...WIN, esc: ['the placeholder'] }), [], 'a mouse screen keeps its hints');
+  assert.deepEqual(kinds(judge([], { ...PH, beside: ['Rewind to here'] })), ['Rewind to here: shares a row with a sent message 1']);
+});
+
+test('the overlay key of the page script is not inside a comment, so menus and the list over the chat are overlays', async () => {
+  const { COLLECT } = await import('../../tools/app-chat-guard.mjs');
+  for (const l of COLLECT.split('\n')) if (/\/\/ .*overlay:/.test(l)) assert.fail(`a comment swallows the overlay key: ${l.slice(0, 120)}`);
+  assert.match(COLLECT, /overlay: !!el\.closest\(OVERLAYS\)/);
+  const { PARTS } = await import('../../tools/app-chat-guard.mjs');
+  assert.ok(PARTS.some(([, sel]) => /chat-side-over/.test(sel)) || /chat-side-over \.chat-side/.test(COLLECT), 'the list over the chat counts as floating');
+});

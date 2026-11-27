@@ -78,6 +78,8 @@ const P = {
   micOff: ['M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3z', 'M5.5 11a6.5 6.5 0 0 0 13 0', 'M12 17.5V21', 'M9 21h6', 'M4 4l16 16'],
   // The App's session list: Group and sort (three lines, each shorter).
   sort: ['M4 7h16', 'M7 12h10', 'M10 17h4'],
+  // The Sessions button of a phone's title bar: three lines of one length (a list).
+  list: ['M4 7h16', 'M4 12h16', 'M4 17h16'],
   // A comment on a line of a diff.
   comment: ['M4 5h16v11H9l-5 4z'],
 };

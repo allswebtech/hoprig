@@ -6,8 +6,8 @@ import test from 'node:test';
 
 const { DEFAULT_QUICK_ACTIONS } = await import('../../src/server/settings.mjs');
 
-test('the default chips are continue and /clear, without /compact and /model', () => {
-  assert.deepEqual(DEFAULT_QUICK_ACTIONS.map((q) => q.label), ['continue', '/clear']);
+test('the default chip is continue, without /clear, /compact and /model', () => {
+  assert.deepEqual(DEFAULT_QUICK_ACTIONS.map((q) => q.label), ['continue']);
 });
 
 test('the key bar starts folded behind Keys on a computer with a mouse, open on a phone', () => {

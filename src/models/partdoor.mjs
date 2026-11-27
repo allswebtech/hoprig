@@ -371,8 +371,9 @@ export function partDoor(o) {
         c.once('closed', () => forget(c.id));
         // The lead's turn that asked for a part ended: its open cards close for good (a yes after that starts nothing).
         c.on('turn', () => closeAsked(c.id));
-        // Opened before this dashboard started: what it handed then is not known here. Said once, in plain words.
-        if (Number.isFinite(c.openedAt) && c.openedAt < startedAt && typeof c.push === 'function') c.push({ kind: 'notice', level: 'info', text: 'The dashboard restarted: parts this session handed before are no longer followed here. Their sessions are still on Home.' });
+        // Opened before this dashboard started: what it handed then is not known here. Said once, in plain words; the page shows
+        // it only in a chat that really handed a part (topic parts-restart).
+        if (Number.isFinite(c.openedAt) && c.openedAt < startedAt && typeof c.push === 'function') c.push({ kind: 'notice', level: 'info', topic: 'parts-restart', text: 'Hoprig restarted. Parts this chat handed to other models before that are no longer shown here; their sessions are on Home.' });
       }
       const token = `hpt_${crypto.randomBytes(24).toString('hex')}`;
       tokens.set(token, c.id);

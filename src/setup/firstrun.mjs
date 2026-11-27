@@ -206,3 +206,64 @@ export function reportParts(ui, results) {
   ui.out();
   for (const r of failed) ui.line('warn', `${{ git: 'Git and GitHub', workspace: 'Workspace', pc: 'This computer for coding', project: 'A project', skills: 'Skills' }[r.part]}: not finished${r.note ? ` (${r.note})` : ''}${r.retry ? dim(`  retry: ${r.retry}`) : ''}`);
 }
+
+// ---- the quiet first run -------------------------------------------------------------------------------------------
+// A first run is `hoprig setup` on a computer with no settings file yet and nothing chosen by hand. It asks nothing,
+// installs only what the first chat needs (Claude Code, the terminal module, a password nobody needs to see, the
+// service), keeps the dashboard to this computer, and ends by opening the browser signed in. A later `hoprig setup`
+// (the settings file is there) is the full run with its questions: the way for an expert and for a second computer.
+
+/** True when this run is a first run. `file`: the settings file's path (tests give their own). */
+export function isFirstRun(opts, file) {
+  if (opts.hub || opts.only || opts.dryRun || opts.stayRoot || opts.noDashboard || opts.access) return false;
+  try {
+    return !fs.existsSync(file);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The first run's way of talking: a tick per part and nothing else that went well. A step that failed, a warning and
+ * a plain fact the person must know (info) still print.
+ */
+export function quietUi(ui) {
+  const line = ui.line;
+  ui.quiet = true;
+  ui.line = (status, text) => (status === 'ok' ? undefined : line(status, text));
+  ui.note = () => {};
+  ui.tick = (text) => line('ok', text);
+  return ui;
+}
+
+/**
+ * The end of a first run: on a desktop the default browser opens at a one-time link, so the person is signed in; the
+ * link is printed too, for a browser that did not open. A server (ssh, no desktop) opens nothing: its own end text.
+ * `h`: { open, link(baseUrl), forward(port), ways(port) } (the callers' own, and tests').
+ */
+export async function openFirstRun(ui, state, sys, h) {
+  const { loadConfig } = await import('../config.mjs');
+  const cfg = loadConfig();
+  const port = cfg.server.port || 7433;
+  const local = `http://127.0.0.1:${port}`;
+  const made = await h.link(local);
+  if (state.server) {
+    // A server: nobody can open a browser here. The ssh forward from the person's own computer, then this link.
+    ui.out('  How to open the dashboard:');
+    for (const w of h.ways(port)) ui.out(`    · ${w}`);
+    ui.out(`        ${h.forward(port)}`);
+    if (made) ui.out(`  Then open this link in your browser (it works once, for 15 minutes):\n  ${made.url}`);
+    return;
+  }
+  ui.out();
+  const { browserAtHand } = await import('../chat/cli.mjs');
+  const { openBrowser, openedLines } = await import('../openbrowser.mjs');
+  if (!made) {
+    ui.out(`  Open ${local} in your browser.`);
+    return;
+  }
+  const opened = browserAtHand(sys.env, sys.platform, true) && (h.open || openBrowser)(made.url);
+  if (opened) for (const l of openedLines(made.url)) ui.out(`  ${l}`);
+  else ui.out(`  Open this link in your browser (it works once, for 15 minutes):\n  ${made.url}`);
+  ui.out('  You can close this window.');
+}

@@ -19,12 +19,15 @@ if (location.protocol === 'http:' && !['localhost', '127.0.0.1', '[::1]'].includ
   document.getElementById('insecure').classList.remove('hidden');
 }
 
-// A one-time sign-in link ("…/login#link=<token>", from a QR code): the token is in the #fragment, which browsers
-// never send to a server, so it stays out of logs and a link preview cannot use it up. Sent once, then forgotten.
-const link = /^#link=([A-Za-z0-9_-]{43})$/.exec(location.hash);
-if (link) {
+// A one-time sign-in link ("…/login#link=<token>", from a QR code or the browser Hoprig opened): the token is in the
+// #fragment, which browsers never send to a server, so it stays out of logs and a link preview cannot use it up. Sent
+// once, then forgotten. Also read when a link is pasted into a tab that is already open on this page (hashchange: a
+// changed fragment does not load the page again).
+const LINK_HASH = /^#link=([A-Za-z0-9_-]{43})$/;
+function signInWithLink(hash) {
+  const link = LINK_HASH.exec(hash);
+  if (!link) return false;
   history.replaceState(null, '', location.pathname + location.search);
-  error.textContent = '';
   const note = document.getElementById('error');
   note.textContent = 'Signing in…';
   fetch('api/login/link', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token: link[1] }) })
@@ -36,7 +39,10 @@ if (link) {
     .catch(() => {
       note.textContent = 'Cannot reach the computer. Check the connection.';
     });
-} else {
+  return true;
+}
+window.addEventListener('hashchange', () => signInWithLink(location.hash));
+if (!signInWithLink(location.hash)) {
   fetch('api/me')
     .then((r) => r.json())
     .then((me) => {

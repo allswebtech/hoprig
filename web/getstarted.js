@@ -9,6 +9,7 @@ import { claudeSignIn } from './claudelogin.js';
 import { signIn } from './computers.js';
 import { errorBox, okBox } from './shell.js';
 import { gitDone, gitRows, openGitSetup } from './gitsetup.js';
+import { firstRunCard, isFirstRun } from './firstrun.js';
 import { store } from './store.js';
 import { SETTINGS_ALIASES } from './settings.js';
 
@@ -277,7 +278,28 @@ export function getStartedArea({ firstRun = () => false, onChange = () => {} } =
   let git = null; // GET /api/workspace/git, for the Git and GitHub step
   let brainOnly = 0; // GET /api/brain skills.brainOnly, for the skills step
   const steps = () => (onb && hub() ? hubOnboarding(onb, { https: location.protocol === 'https:', joined: store.all.length > 1 }) : withGitStep(withBrainSkills(withProviderWords(onb), brainOnly), git));
+  // A new install with no session: the first-run card in place of the checklist (firstrun.js). The page's body gets the
+  // class "first-run", which hides what an empty Home would show beside it (page-home.css).
+  const first = () => isFirstRun({ onb, hub: hub(), dismissed: dismissed(), sessions: (own() && own().sessions ? own().sessions.length : 1) });
   const paint = () => {
+    document.body.classList.toggle('first-run', first());
+    if (first()) {
+      fill(el, firstRunCard(onb, {
+        refresh: load,
+        run: (a) => runAction(a, load),
+        onDismiss: async () => {
+          try {
+            await api('~/api/settings', { server: { getStartedDismissed: true } });
+            await store.refresh();
+          } catch (e) {
+            toast(e, { kind: 'error' });
+          }
+          paint();
+          onChange();
+        },
+      }));
+      return onChange();
+    }
     fill(el, getStartedCard(steps(), {
       dismissed: dismissed(),
       expanded,
@@ -324,5 +346,5 @@ export function getStartedArea({ firstRun = () => false, onChange = () => {} } =
       if (onb) paint();
     }
   });
-  return { el, repaint: paint, plan: () => planGetStarted(steps(), { dismissed: dismissed() }), stop: () => { stopped = true; clearTimeout(timer); unsubscribe(); } };
+  return { el, repaint: paint, first, plan: () => planGetStarted(steps(), { dismissed: dismissed() }), stop: () => { stopped = true; clearTimeout(timer); unsubscribe(); document.body.classList.remove('first-run'); } };
 }

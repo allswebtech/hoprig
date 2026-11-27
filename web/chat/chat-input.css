@@ -142,7 +142,6 @@
 .chat-plan { margin: 0 0 12px; padding-left: 18px; font-size: var(--fs-sm); line-height: 1.7; }
 .chat-modelchip .chat-chip-label { max-width: 26ch; }
 @media (max-width: 599px) {
-  .chat-plus { width: 44px; min-height: 44px; }
   .chat-unsent .btn { min-height: 44px; }
   .chat-modelchip .chat-chip-label { max-width: 18ch; }
 }
@@ -155,17 +154,7 @@
 /* Why a desktop app key is another one here: its own line under what the key does, quieter. */
 .chat-keys-why { display: block; margin-top: 2px; color: var(--muted); font-size: var(--fs-xs); }
 .chat-keys-note { margin: 0 0 8px; color: var(--muted); font-size: var(--fs-xs); }
-/* Lead model's chip, on: marked as ultracode's is. */
-.chat-lead[aria-pressed='true'] { background: var(--accent-soft); color: var(--accent-soft-text); border-color: var(--accent); }
+/* Lead model's chip, on: marked as ultracode's is (a fill, no border). */
+.chat-chips .chat-lead[aria-pressed='true'] { background: var(--accent-soft); color: var(--accent-soft-text); }
 .chat-lead[aria-pressed='true'] .chat-chip-k { color: inherit; }
-/* A phone: the row fits at 390 px with nothing cut (the ring's label on one line). */
 .chat-ring-text { white-space: nowrap; }
-@media (max-width: 599px) {
-  .chat-chips { gap: 4px; }
-  .chat-chip { padding: 0 8px; gap: 4px; }
-  .chat-ring { padding: 0 2px; gap: 4px; }
-  /* A long model name is cut at 18 characters; the row scrolls, nothing shrinks. */
-  .chat-chips > .chat-modelchip { flex: none; min-width: 0; }
-  .chat-ring { flex: none; }
-  /* Lead model's chip keeps its word (a chip that is only a picture says nothing): the row scrolls, so there is room. */
-}

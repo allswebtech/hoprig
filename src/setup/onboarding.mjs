@@ -26,6 +26,10 @@
 //   POST /api/onboarding/install-claude        → { started: true }: Claude Code with its official installer, and the
 //                                              first provider ("sub"), as a background job (owner only)
 //   GET  /api/onboarding/job?from=N            that job: { running, lines, next, result: { ok, version } }
+//   POST /api/onboarding/first-chat            → { dir, name }: the first project, a folder "my-first-project" in the
+//                                              projects folder ("-2", "-3" when the name is taken; no git, nothing
+//                                              else made), and the first run is marked done (server.getStartedDismissed);
+//                                              the page then opens a chat in it (owner only)
 //
 // The slow parts (running `claude`, looking for every coding tool) are cached for a minute; the rest are file reads.
 import fs from 'node:fs';
@@ -36,6 +40,7 @@ import { stateDir } from '../paths.mjs';
 import { uniqueName } from '../server/validate.mjs';
 
 const CACHE_MS = 60_000;
+export const FIRST_PROJECT = 'my-first-project';
 
 // The terminal commands the page may ask for: argv built here, never from the request. Only Claude Code's own
 // sign-in is left here; installing it and the coding tools run in the page.
@@ -170,6 +175,29 @@ export function onboardingFeature(sctx, opts = {}) {
   }
 
   const routes = [
+    ['POST', /^\/api\/onboarding\/first-chat$/, async (req) => {
+      owner(req);
+      await sctx.readJson(req);
+      const { projectsDir } = await import('../pcsetup/projects.mjs');
+      const root = (opts.projectsDir || projectsDir)();
+      fs.mkdirSync(root, { recursive: true });
+      // The next free name, made with mkdir itself (never over a folder that is there).
+      for (let i = 1; i < 1000; i++) {
+        const name = i === 1 ? FIRST_PROJECT : `${FIRST_PROJECT}-${i}`;
+        const dir = path.join(root, name);
+        try {
+          fs.mkdirSync(dir);
+        } catch (e) {
+          if (e.code === 'EEXIST') continue;
+          throw Object.assign(new Error(`the folder ${name} could not be made (${e.code || e.message})`), { status: 500 });
+        }
+        // The first run is done from here: the card never comes back, even when the chat is closed later.
+        (opts.markDone || ((await import('../config.mjs')).saveConfig))({ server: { getStartedDismissed: true } });
+        slow = null;
+        return { dir, name };
+      }
+      throw Object.assign(new Error('too many folders named my-first-project'), { status: 409 });
+    }],
     ['GET', /^\/api\/onboarding$/, async (req) => {
       owner(req);
       const f = await facts();

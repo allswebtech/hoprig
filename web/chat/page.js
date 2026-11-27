@@ -2,7 +2,7 @@
 // terminal, as Claude Code works. The parts are modules of this folder: the session list at the left (sidebar.js), the
 // head (header.js), the conversation
 // (timeline.js with tools.js, diff.js, asks.js), the agents strip (agents.js), the composer (composer.js with its
-// menus, popovers.js, and files, attach.js), the status line (statusline.js), the limit card (limit.js), the sheets of
+// menus, popovers.js, and files, attach.js), the living line (statusline.js), the limit card (limit.js), the sheets of
 // the history and the rewind (sheets.js) and the keys (keys.js); stream.js follows the server (src/chat/feature.mjs,
 // live.mjs). Files dropped anywhere on the page go with the next message.
 // Text from Claude, tools and files is only ever set as text (h(), mdView).
@@ -25,12 +25,12 @@ import { createDiffPane } from './diffpane.js';
 import { openNewSession } from '../newsession-popup.js';
 import { chooseRewind, historySheet, rewindSheet } from './sheets.js';
 import { deleteNow, pickToDelete, trashSheet } from './deletes.js';
-import { createStatusLine } from './statusline.js';
+import { createLiveLine } from './statusline.js';
 import { createTermPane } from './termpane.js';
 import { follow } from './stream.js';
 import { createTimeline } from './timeline.js';
 import { opensAsChat } from './start.js';
-import { backWords, beforeState, billed, canCompact, caps as capsOf, failText, goneWords, planModes, toolWord, turnRuns, viewChoices } from './words.js';
+import { backWords, beforeState, billed, canCompact, caps as capsOf, chatState, failText, goneWords, liveWords, planModes, toolWord, turnRuns, viewChoices } from './words.js';
 
 const ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
@@ -235,6 +235,13 @@ function viewChat({ sub }) {
   const timeline = createTimeline({
     scroll, A, cwd: () => (v ? v.cwd : ''), stopTask: act.stopTask, after: () => store.refresh(), who: () => toolWord(v), provider: () => (v ? { profile: v.profile || null, tool: v.engine && v.engine.id, remote: !!machine.current } : null), canStopTask: () => !v || caps().stopTask !== false,
     modes: () => planModes(v), // a plan's answers: auto mode only once the session showed it has it
+    // The jump-down button says the step while a turn runs (Thinking, Writing, Running) and where an OK waits.
+    down: () => {
+      if (!v) return null;
+      if (v.status === 'attention') return { text: chatState(v).text, attention: true };
+      const w = liveWords(v, { runs: (id) => timeline.runs(id) });
+      return w ? { text: w.word } : null;
+    },
     canRewind: () => !v || canRewind(), // before the first state: drawn, and hidden by the state's class if not
     rewind: (m) => rewindSheet({ A, cwd: v ? v.cwd : '', m, conversation: canFork(), put: (t) => composer.putBack(t) }),
   });
@@ -263,11 +270,17 @@ function viewChat({ sub }) {
   ].filter(Boolean);
   // A first look: fewer than three chats on this computer (Home's list), so the composer keeps its row short.
   const firstLook = () => ((store.data && store.data.sessions) || []).filter((s) => s.kind === 'chat').length < 3;
-  const composer = createComposer({ A, id, stop: act.stop, compact: act.compact, own, firstLook });
-  const status = createStatusLine();
+  const composer = createComposer({ A, id, stop: act.stop, compact: act.compact, own, sent: () => timeline.toBottom(true), firstLook });
+  // The living line is the last thing of the conversation while a turn runs (statusline.js); the messages waiting to be
+  // read come after it (the composer makes their list; it is placed here, in the conversation, where they will be read).
+  const live = createLiveLine({ runs: (id) => timeline.runs(id) });
+  add(timeline.tail, live.el);
+  const queueEl = typeof composer.queueEl === 'function' ? composer.queueEl() : composer.queueEl;
+  if (queueEl) add(timeline.tail, queueEl);
+  let turnAt = null; // when the turn began, as this page saw it (a page opened mid-turn counts from its opening)
   // The limit banner sits right above the box, where the eye is when a message does not go (limit.js).
   const limitSlot = h('div.chat-limitslot');
-  const dock = h('div.chat-dock', h('div.chat-col', todos, strip.el, limitSlot, composer.el, status.el));
+  const dock = h('div.chat-dock', h('div.chat-col', todos, strip.el, limitSlot, composer.el));
   const rail = createRail({
     A, view: () => timeline.view(), computer: () => (store.data && store.data.machineLabel) || 'This computer',
     stop: (taskId) => act.stopTask(taskId), canStop: () => !v || caps().stopTask !== false, jump: (toolId) => timeline.jump(toolId),
@@ -322,8 +335,9 @@ function viewChat({ sub }) {
       todosOpen = !todosOpen;
       prefs.set('chat.todos', todosOpen);
       paintTodos(items);
-    } }, icon(todosOpen ? 'chevronDown' : 'chevronRight', { size: 14 }), h('strong', `To-do ${done}/${items.length}`), now ? h('span.chat-todo-now', now.activeForm || now.content) : null);
-    fill(todos, head, todosOpen ? h('ul.chat-todo-list', items.map((t) => h(`li.t-${t.status}`, h('span.chat-todo-mark', { 'aria-hidden': 'true' }, t.status === 'completed' ? '✓' : t.status === 'in_progress' ? '▸' : '○'), h('span', t.content)))) : null);
+    } }, icon(todosOpen ? 'chevronDown' : 'chevronRight', { size: 14 }), h('strong', 'To-do'), h('span.chat-todo-n', `${done} of ${items.length}`), now ? h('span.chat-todo-now', now.activeForm || now.content) : null,
+    h('span.chat-todo-bar', { 'aria-hidden': 'true' }, h('span.chat-todo-fill', { style: { width: `${Math.round((done / items.length) * 100)}%` } })));
+    fill(todos, head, todosOpen ? h('ul.chat-todo-list', items.map((t) => h(`li.t-${t.status}`, h('span.chat-todo-mark', { 'aria-hidden': 'true' }, t.status === 'completed' ? icon('check', { size: 10 }) : null), h('span', t.content)))) : null);
   }
 
   // ---------- following the server ----------
@@ -357,12 +371,19 @@ function viewChat({ sub }) {
       }, null, { app: true }) : null);
     fill(limitSlot, limitCard(v, { id, moveProvider: header.providerMenu })); // right above the box, where the eye is
     wrap.classList.toggle('chat-no-rewind', !canRewind());
-    composer.paint(v);
-    status.paint(v, { view: timeline.view() });
+    const tailWas = timeline.tail.offsetHeight;
+    composer.paint(v); // the queue is drawn here (it is in the tail)
+    // The living line: the turn's own clock starts when the page first sees the turn run.
+    if (!turnRuns(v)) turnAt = null;
+    else if (turnAt === null) turnAt = Date.now();
+    wrap.classList.toggle('chat-turn-runs', turnRuns(v));
+    live.paint(v, { since: turnAt });
+    if (timeline.tail.offsetHeight !== tailWas) timeline.settle(); // the end grew or shrank: stay at the bottom
     rail.paint(v);
     strip.paint(v.tasks, v.skew);
     timeline.tasks(v.tasks);
     timeline.liveState(v.live);
+    timeline.status();
     timeline.billed(billed(v));
     if (Array.isArray(v.pending)) timeline.pending(v.pending);
     paintTodos(v.todos);
@@ -493,7 +514,7 @@ function viewChat({ sub }) {
 
   return () => {
     composer.destroy(); // its microphone
-    status.stop();
+    live.stop();
     strip.stopClock();
     rail.stop();
     side?.stop();

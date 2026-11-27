@@ -89,7 +89,10 @@ export function chooseDefault({ profiles = [], auto = {}, autoName = 'auto', las
   const order = (auto.order || []).filter((n) => real.some((p) => p.name === n));
   const rank = (p) => (p.name === last ? -1 : order.includes(p.name) ? order.indexOf(p.name) : order.length + (p.kind === 'api' ? 1 : 0));
   const shown = real.map((p, i) => [p, i]).sort((a, b) => rank(a[0]) - rank(b[0]) || a[1] - b[1]).map(([p]) => p);
-  const pick = shown.find((p) => free(p) && (auto.payPerUse || !p.paid)) || shown.find(free) || shown[0];
+  // A provider whose sign-in is gone (signedIn false; null is not known) is passed over while another one works: the
+  // first message must not end in "Sign in again".
+  const works = (p) => free(p) && p.signedIn !== false;
+  const pick = shown.find((p) => works(p) && (auto.payPerUse || !p.paid)) || shown.find(works) || shown.find((p) => free(p) && (auto.payPerUse || !p.paid)) || shown.find(free) || shown[0];
   return pick ? pick.name : null;
 }
 

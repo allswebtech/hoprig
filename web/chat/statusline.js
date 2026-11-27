@@ -1,106 +1,46 @@
-// The status line under the composer: what the coding tool does now (the tool that runs and for how long, or that it
-// thinks), then the branch, the cost so far (Verbose, billed by use), the context used and the plan's limits where the
-// provider says them; beside the session rail only the state and the branch (rail.css).
-// The model, effort and mode are the chips just above it: not said twice. Only the first part is read out by a
-// screen reader when it changes (the list of the conversation is not: it would read every streamed word).
+// The living line: the last thing in the conversation while a turn runs (as Claude Code's spinner line sits right above
+// its prompt). A small turning mark, what Claude does now (Thinking, Running: npm test, Writing), the seconds of the
+// turn, and on a screen with a mouse "Esc to stop". It is where the eye is; there is no status line under the box any
+// more (the branch is in the rail, the context in the ring). While an OK, a question or a plan waits there is no line:
+// that card is the status. Only the words are read out by a screen reader, once per step; the seconds are not.
 import { fill, h } from '../lib.js';
-import { copyBranch } from './rail.js';
-import { billed, contextPercent, hasPlan, limitsLine, money, toolWord, turnRuns } from './words.js';
-
-const ACTIVITY = { requesting: (who) => `${who} is thinking`, compacting: () => 'Shortening the conversation to make room', retrying: () => 'Retrying' };
-const ASKING = { permission: () => 'Needs your OK', question: (who) => `${who} asks you a question`, plan: () => 'A plan waits for your OK', mcp: () => 'An MCP server asks you a question' };
-
-/** The tool of the main conversation that runs now (written whole, not yet answered), or null. */
-const runningTool = (v) => (v.live || []).find((b) => b.kind === 'tool' && b.written && !b.agent) || null;
-
-/** Seconds since `at` (the chat's clock), on this computer's clock. */
-const secondsSince = (at, v) => Math.max(0, Math.round((Date.now() - (v.skew || 0) - at) / 1000));
-
-/** What the chat does, in words. */
-export function stateWords(v) {
-  const who = toolWord(v);
-  if (v.terminal) return 'Runs in a terminal';
-  if (v.toolOff && v.status !== 'working') return `${who} is off`; // the banner says where to turn it on
-  if (v.status === 'attention') return (ASKING[v.asking] || ASKING.permission)(who);
-  if (v.status === 'working') {
-    // A tool that runs is what Claude does now: its command (or title) and for how long.
-    const tool = runningTool(v);
-    if (tool && (tool.command || tool.title)) return `Running: ${tool.command || tool.title}${Number.isFinite(tool.runAt) ? ` · ${secondsSince(tool.runAt, v)} s` : ''}`;
-    if (v.activity && ACTIVITY[v.activity]) return `${ACTIVITY[v.activity](who)}…`;
-    if ((v.live || []).some((b) => b.kind === 'text' && !b.agent)) return `${who} is writing…`;
-    if ((v.live || []).some((b) => b.kind === 'thinking' && !b.agent)) return `${who} is thinking…`;
-    // How many, and what, is the Background tasks part above the box (agents.js): here only the state.
-    if (!turnRuns(v)) return 'Working in the background';
-    return 'Working…';
-  }
-  if (v.status === 'ended') return 'Ended';
-  if (v.lastEnd === 'stopped') return 'Stopped';
-  if (v.lastEnd === 'limit' || (v.limit && !v.lastError)) return 'Stopped at the usage limit';
-  if (v.lastError) return 'Stopped with an error';
-  // Ready: nothing was sent yet (a new chat); Finished: a turn is over and nothing runs. An older computer that does not
-  // say whether a message was sent has Finished.
-  return v.hasMessage === false ? 'Ready' : 'Finished';
-}
+import { icon } from '../icons.js';
+import { liveWords, took, touchScreen } from './words.js';
 
 /**
- * The dot's colour by what the chat does: a terminal runs it, its coding tool is off, an error, Stop, the usage limit (the danger colour the
- * limit has on Home and the providers), else the chat's status.
+ * o: { runs(toolId) (false for a call that waits, was refused or runs in the background) }
+ * → { el, paint(v, { since }) → whether the line is shown, stop() }: while it shows, its seconds count up once a second.
  */
-export function statusKey(v) {
-  if (v.terminal) return 'terminal';
-  if (v.toolOff && v.status !== 'working') return 'stopped'; // the coding tool is off on this computer
-  if (v.status !== 'waiting') return v.status; // working, attention, ended (grey)
-  if (v.lastError) return 'error';
-  if (v.lastEnd === 'stopped') return 'stopped';
-  if (v.lastEnd === 'limit' || v.limit) return 'limit';
-  return v.status;
-}
-
-/**
- * The rest of the line: [label, text] pairs (the label is for a screen reader and the title). The cost so far only
- * in the transcript view Verbose and for a provider billed by use (a subscription's dollars mislead). Where the
- * session rail shows (rail.css), it says the context, the plan's usage and the cost: the line keeps the branch.
- */
-export function statusParts(v, { view = 'normal' } = {}) {
-  const p = contextPercent(v.usage);
-  const lim = hasPlan(v) ? limitsLine(v.limits) : ''; // the plan's limits: a Claude subscription's only
-  return [
-    v.branch ? ['Git branch', v.branch] : null,
-    view === 'verbose' && billed(v) && Number.isFinite(v.costTotal) && v.costTotal > 0 ? ['Cost so far', `${money(v.costTotal)} so far`] : null,
-    p !== null ? ['Context', `context ${p}%`] : null,
-    lim ? ['Plan limits', lim] : null,
-  ].filter(Boolean);
-}
-
-/** → { el, paint(v), stop() }: while a tool runs, its seconds count up once a second. */
-export function createStatusLine() {
-  const state = h('span.chat-st-state', { role: 'status', 'aria-live': 'polite' });
-  const timer = h('span.chat-st-timer', { 'aria-hidden': 'true' }); // the seconds: shown, not read out each second
-  const rest = h('span.chat-st-rest');
-  const el = h('div.chat-status', h('span.chat-st-dot', { 'aria-hidden': 'true' }), state, timer, rest);
-  let v = null;
+export function createLiveLine(o = {}) {
+  const word = h('span.chat-live-word', { role: 'status', 'aria-live': 'polite' });
+  const detail = h('span.chat-live-detail');
+  const time = h('span.chat-live-time', { 'aria-hidden': 'true' });
+  const esc = h('span.chat-live-esc', { 'aria-hidden': 'true' }, 'Esc to stop');
+  const el = h('div.chat-live.hidden', h('span.chat-live-mark', { 'aria-hidden': 'true' }, icon('sparkle', { size: 14 })), h('span.chat-live-text', word, detail), time, esc);
+  let since = null;
   let tick = null;
-  const words = () => {
-    const w = stateWords(v);
-    const m = / · (\d+) s$/.exec(w);
-    // The words change only when the step does (a screen reader hears it once); the seconds beside them.
-    fill(state, m ? w.slice(0, m.index) : w);
-    fill(timer, m ? ` · ${m[1]} s` : '');
-    return !!m;
-  };
+  const seconds = () => fill(time, since === null ? '' : `· ${took(Math.max(0, Date.now() - since))}`);
   return {
     el,
-    /** o: { view } (the transcript view: the cost so far is Verbose's) */
-    paint(s, o = {}) {
-      v = s;
-      el.dataset.status = statusKey(v);
-      const counting = words();
+    paint(v, opts = {}) {
+      const w = liveWords(v, { runs: o.runs });
+      const shown = !!w;
+      el.classList.toggle('hidden', !shown);
       clearInterval(tick);
-      tick = counting ? setInterval(words, 1000) : null;
-      // The branch copies itself on a click, as the desktop app's branch name does.
-      fill(rest, statusParts(v, o).map(([label, text]) => (label === 'Git branch'
-        ? h('button.chat-st-part.chat-branch', { type: 'button', title: 'Copy branch name', 'aria-label': `Copy branch name ${v.branch}`, 'data-k': label, onclick: () => copyBranch(v.branch) }, text)
-        : h('span.chat-st-part', { title: label, 'data-k': label }, text))));
+      tick = null;
+      if (!shown) {
+        delete el.dataset.step;
+        return false;
+      }
+      since = Number.isFinite(opts.since) ? opts.since : Date.now();
+      el.dataset.step = w.step;
+      fill(word, w.word);
+      fill(detail, w.detail ? [': ', h('code.chat-live-cmd', w.detail)] : '');
+      esc.classList.toggle('hidden', touchScreen());
+      seconds();
+      tick = setInterval(seconds, 1000);
+      if (tick && typeof tick.unref === 'function') tick.unref();
+      return true;
     },
     stop: () => clearInterval(tick),
   };

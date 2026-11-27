@@ -59,7 +59,10 @@ test('the providers line only as a Needs you row when something is wrong; no int
   const home = src('home.js');
   assert.match(home, /const needsRows = \[\.\.\.providerRows\]/, 'the providers line is a row of Needs you');
   assert.doesNotMatch(home, /intro: /, 'no sentence under the title');
+  assert.match(home, /setupShown\(gs\.plan\(\), !!\(gs\.first && gs\.first\(\)\)\)/, 'the card is not hidden by the plan while it is the first-run card');
   assert.equal(setupShown({ mode: 'open' }), true);
   assert.equal(setupShown({ mode: 'collapsed' }), false, 'all done: no card');
   assert.equal(setupShown({ mode: 'hidden' }), false);
+  assert.equal(setupShown({ mode: 'collapsed' }, true), true, 'the first-run card shows whatever the checklist plan says');
+  assert.equal(setupShown({ mode: 'hidden' }, false), false);
 });

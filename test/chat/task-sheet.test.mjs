@@ -22,7 +22,9 @@ test('the sheet of a task that was stopped there says so at once and loses its S
   const calls = [];
   const s = Ag.agentsStrip({ stop: async (id) => { calls.push(id); out = 'listening on 3000\n[killed]'; }, jump() {}, output: async () => ({ text: out }) });
   s.paint([shell]);
-  byClass(s.el, 'chat-bg-title')[0].listeners.click();
+  byClass(s.el, 'chat-bg-line')[0].listeners.click();
+  await settle();
+  document.body.querySelectorAll('button[aria-label="Output of npm run dev"]')[0].listeners.click(); // the tasks sheet, then the task's output
   await settle();
   assert.match(sheetText(), /running/);
   assert.equal(stops().length, 1);

@@ -19,6 +19,7 @@ import { COMMAND } from './brand.js';
 import { accountText, loadAccount, signOut, switchAccount, usesStoredLogin } from './claudeaccount.js';
 import { claudeSignIn } from './claudelogin.js';
 import { icon } from './icons.js';
+import { middleModel } from './modelpicker.js';
 import {
   add, ago, api, at, btn, speedWords, confirmSheet, copyText, fill, h, insecure, isPaid, kindLabel, link, machine, openSheet, profileState, promptSheet,
   servesClaude, startOrder, subscriptionsNote, toast, toolsText, until,
@@ -561,7 +562,7 @@ function modelPicker(probe, current = '', currentSmall = '', { withSmall = true 
     ...(withNone ? [h('option', { value: '' }, 'Same as above / Claude Code\'s default')] : []),
     ...list.map((m) => h('option', { value: m.id, selected: m.id === sel }, m.name && m.name !== m.id ? `${m.name} (${m.id})` : m.id)),
   ];
-  const main = has ? h('select.field', options(current || list[0].id, false)) : h('input.field.mono', { value: current, placeholder: 'e.g. claude-sonnet-4-5 or provider/model', autocapitalize: 'off', spellcheck: 'false' });
+  const main = has ? h('select.field', options(current || middleModel(list), false)) : h('input.field.mono', { value: current, placeholder: 'e.g. claude-sonnet-4-5 or provider/model', autocapitalize: 'off', spellcheck: 'false' });
   const small = has ? h('select.field', options(currentSmall, true)) : h('input.field.mono', { value: currentSmall, placeholder: 'optional', autocapitalize: 'off', spellcheck: 'false' });
   return {
     node: h('div.fields',

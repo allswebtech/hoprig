@@ -1,5 +1,12 @@
 /* Home's own styles (home.js, homefold.js, closesheet.js). */
 
+/* A new install shows ONE card (firstrun.js): nothing that an empty Home would add stays beside it. */
+body.first-run .pagehead-primary, body.first-run .page-intro, body.first-run .accountsline, body.first-run .home-groups, body.first-run .home-op, body.first-run .nav-badge { display: none; }
+.firstrun .gs-buttons { display: flex; flex-wrap: wrap; gap: 8px; }
+.firstrun .gs-paid { font-size: var(--fs-xs); color: var(--muted); text-decoration: underline; }
+.firstrun .gs-step { flex-wrap: wrap; }
+@media (max-width: 600px) { .firstrun .gs-buttons { flex-basis: 100%; padding-left: 32px; } }
+
 /* The fold of the sessions that have waited for more than 6 hours: one line, Show and End them… beside it. */
 .home-fold { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; margin-top: 12px; padding: 10px 12px; border-radius: var(--r); background: var(--surface); border: 1px dashed var(--border-strong); }
 /* Scrolled to, the line stays below the sticky page head (style.css .pagehead), as a panel does. */

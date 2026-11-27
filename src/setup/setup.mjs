@@ -35,7 +35,7 @@ import { lingerOutcome, lingerPlan, runLingerAlone } from './linger.mjs';
 import { LOCALE_VARS, installedLocales, localeWords, missingLocale, withWorkingLocale } from './locale.mjs';
 import { dormantReason, dormantWords, forgetServer, forwardLine, liveReason, notOnServer, openHost, rememberServer, serverReason, serverWays } from './server.mjs';
 import { stepHttps, stepHttpsVerify } from './hubsetup.mjs';
-import { PARTS, reportParts, runParts } from './firstrun.mjs';
+import { PARTS, isFirstRun, openFirstRun, quietUi, reportParts, runParts } from './firstrun.mjs';
 import { ensureCommand } from './localbin.mjs';
 import { elevatedEnd, elevatedStart } from './winowner.mjs';
 import { listensOtherwise, runningFacts, whereWords } from './running.mjs';
@@ -121,7 +121,7 @@ export async function stepClaude(ui, sys, state) {
     rememberPath(ui, sys, info.path);
     return true;
   }
-  ui.line('warn', 'Claude Code is not installed.');
+  if (!ui.quiet) ui.line('warn', 'Claude Code is not installed.'); // a first run installs it and ticks it: no warning first
   // Claude Code is a tool this computer uses (Coding tools) and someone is there or said --yes: no question, only what is
   // about to run (a failure keeps its retry line). Otherwise it is asked, and skipped where nobody can answer.
   if (ui.dryRun) {
@@ -690,7 +690,7 @@ function summarize(state, ok, parts) {
   return { server: !!state.server, steps, error };
 }
 
-export async function setup(args = [], { ui: givenUi, sys = sysInfo(), parts: partsOver = {}, summary = null } = {}) {
+export async function setup(args = [], { ui: givenUi, sys = sysInfo(), parts: partsOver = {}, summary = null, open = null, firstRun = undefined } = {}) {
   let opts;
   try {
     opts = parseSetupArgs(args);
@@ -698,12 +698,20 @@ export async function setup(args = [], { ui: givenUi, sys = sysInfo(), parts: pa
     process.stderr.write(`${APP} setup: ${e.message}\n${SETUP_USAGE}\n`);
     return 2;
   }
+  // A first run (no settings file yet, and nothing asked for by hand) is quiet: no question, no list of installs, no
+  // GitHub, no workspace, only this computer may open the dashboard, and the end opens the browser, signed in.
+  const first = firstRun === undefined ? isFirstRun(opts, configFile()) : firstRun === true;
+  if (first) {
+    opts.yes = true;
+    opts.access = 'local';
+  }
   const ui = collectTodo(givenUi || makeUi({ yes: opts.yes, dryRun: opts.dryRun }));
+  if (first) quietUi(ui);
   const state = { changed: false, phoneUrl: null, passwordFile: null, access: null };
   // As root, the work user Hoprig made (rootfacts.mjs): the closing ssh line names it, never root@. `sys.workUser` from tests.
   if (sys.workUser !== undefined) state.workUser = sys.workUser;
   else if (sys.root === true && sys.platform !== 'win32') state.workUser = await findWorkUser().catch(() => null);
-  ui.out(`${bold(`${APP} setup`)} ${dim(`${appVersion() || ''} · ${osName(sys.platform, sys.release)}${opts.dryRun ? ' · dry run' : ''}`)}`);
+  if (!first) ui.out(`${bold(`${APP} setup`)} ${dim(`${appVersion() || ''} · ${osName(sys.platform, sys.release)}${opts.dryRun ? ' · dry run' : ''}`)}`);
   // A locale the terminal sent that this computer lacks: said once, and every program of set-up (and the service it
   // writes) runs with one that is there.
   {
@@ -772,7 +780,8 @@ export async function setup(args = [], { ui: givenUi, sys = sysInfo(), parts: pa
     ui.line('info', 'Main computer only: this computer shows your other computers. Claude Code is not needed here.');
   } else {
     claudeOk = await stepClaude(ui, sys, state);
-    if (claudeOk) await stepLogin(ui, sys);
+    if (claudeOk && first) ui.tick('Claude Code'); // its sign-in is step 1 of the page, not a line here
+    else if (claudeOk) await stepLogin(ui, sys);
     termOk = await stepTerminal(ui, sys);
     await stepProfile(ui);
   }
@@ -787,11 +796,12 @@ export async function setup(args = [], { ui: givenUi, sys = sysInfo(), parts: pa
     if (https === null) accessOk = await stepAccess(ui, sys, opts, state);
     else httpsOk = https;
     state.hubFailed = https === false;
-    await stepService(ui, sys, opts, state);
+    const serviceOk = await stepService(ui, sys, opts, state);
+    if (first && serviceOk && !state.serviceLeft && opts.service && (await serviceSupported(sys)) && !state.server) ui.tick(`${APP} starts by itself when you ${sys.platform === 'win32' ? 'sign in to Windows' : 'log in'}`);
     if (https) await stepHttpsVerify(ui, state);
     // Lingering (Linux, a systemd user service): one of the sudo steps the computer step lists and runs.
     // Not for root when no service was made for root (stepService said why).
-    if (opts.service && !state.rootRefused && sys.platform === 'linux' && (await serviceSupported(sys))) state.linger = await lingerPlan(sys);
+    if (!first && opts.service && !state.rootRefused && sys.platform === 'linux' && (await serviceSupported(sys))) state.linger = await lingerPlan(sys);
   }
   // Then, in the same run: this computer for coding, a project, skills. A hub stops here: it codes nothing itself.
   let parts = [];
@@ -800,23 +810,27 @@ export async function setup(args = [], { ui: givenUi, sys = sysInfo(), parts: pa
   // Right after the computer step that ran it: what came of it.
   if (pcOpts.extraSteps.length && !opts.dryRun) pcOpts.afterPc = async () => { state.lingerOn = await lingerOutcome(ui, sys); state.lingerSaid = true; };
   if (hub && opts.only && opts.only !== 'base') ui.line('info', 'This main computer only shows your other computers, so it has no computer, project or skills step.');
-  else if (!hub && opts.only !== 'base') parts = await runParts(ui, pcOpts, { only: opts.only, parts: partsOver });
+  else if (!hub && opts.only !== 'base' && !first) parts = await runParts(ui, pcOpts, { only: opts.only, parts: partsOver });
   if (state.linger && (state.linger.step || state.linger.manual)) {
     // The computer step did not run (--only base, a hub): the step is listed and asked on its own.
     if (state.linger.step && !pcOpts.extraRan && !opts.dryRun) await runLingerAlone(ui, sys, state.linger.step);
     if (state.linger.step && !pcOpts.extraRan && opts.dryRun) ui.line('info', `Would run: ${showCommand(state.linger.step.argv)} (keeps the dashboard running after you log out)`);
     if (!opts.dryRun && !state.lingerSaid) state.lingerOn = await lingerOutcome(ui, sys, { manual: state.linger.manual });
   }
-  reportParts(ui, parts);
+  if (!first) reportParts(ui, parts);
   state.hub = hub;
-  if (doBase) await stepSummary(ui, state, sys);
+  if (first && doBase && !state.serviceLeft) await openFirstRun(ui, state, sys, { open, link: loginLink, forward: (port) => forwardLine(port, { sshPort: state.server && state.server.sshPort, ...sys, workUser: state.workUser || null }), ways: serverWays });
+  else if (first && doBase) await stepSummary(ui, state, sys);
+  else if (doBase) await stepSummary(ui, state, sys);
   if (state.elevated) {
     const back = await elevatedEnd(sys);
     if (back) ui.line('warn', back);
   }
-  closingList(ui);
+  if (!first) closingList(ui);
   if (opts.dryRun) return 0;
   if (summary) Object.assign(summary, summarize(state, { claude: claudeOk, term: termOk, pw: pwOk, https: httpsOk, access: accessOk, base: doBase }, parts));
-  return claudeOk && termOk && pwOk && httpsOk && accessOk && !state.serviceLeft && parts.every((r) => r.ok) ? 0 : 1;
+  const good = claudeOk && termOk && pwOk && httpsOk && accessOk && !state.serviceLeft && parts.every((r) => r.ok);
+  if (first && !good) ui.out(`\n  Paste the same line again to try once more.`);
+  return good ? 0 : 1;
 }
 

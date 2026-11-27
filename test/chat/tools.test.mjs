@@ -396,9 +396,9 @@ test('the chat page in another tool\'s words: its name, its modes, its OK cards 
   assert.equal(W.askTitle('Bash', { command: 'ls' }, 'OpenCode'), 'OpenCode wants to run a command');
   assert.equal(W.askTitle('Write', { file_path: '/a/b.txt' }), 'Claude wants to write b.txt');
   assert.equal(W.alwaysWords({ tool: 'Bash', input: { command: 'sleep 1 && echo x' }, alwaysText: 'sleep *, echo *' }, 'OpenCode'), '“Allow in this session” also lets OpenCode do what matches this again in this session without asking: sleep *, echo *.');
-  const St = await import('../../web/chat/statusline.js');
-  assert.equal(St.stateWords({ ...v, status: 'attention', asking: 'question' }), 'OpenCode asks you a question');
-  assert.equal(St.stateWords({ ...v, status: 'working', turn: true, activity: 'requesting', live: [] }), 'OpenCode is thinking…');
+  assert.equal(W.chatState({ ...v, status: 'attention', asking: 'question' }).text, 'Needs your answer');
+  assert.equal(W.liveWords({ ...v, status: 'working', turn: true, activity: 'requesting', live: [] }).text, 'Thinking');
+  assert.equal(W.liveWords({ ...v, status: 'attention', asking: 'question' }), null, 'a question waits: its card is the status');
   const { askNote } = await import('../../src/chat/events.mjs');
   assert.equal(askNote({ type: 'permission', tool: 'Bash', subject: 'ls -la .' }, '/w', 'OpenCode'), 'OpenCode wants to run: ls -la .');
 });

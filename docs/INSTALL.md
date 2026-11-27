@@ -4,16 +4,22 @@
 
 **1. Install.** Open a terminal and paste one line.
 
-macOS or Linux:
+Windows: press the Windows key, type PowerShell, press Enter, paste this line and press Enter.
+
+```powershell
+irm https://raw.githubusercontent.com/allswebtech/hoprig/main/install.ps1 | iex
+```
+
+Mac: press Command and Space, type Terminal, press Enter, paste this line and press Enter.
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/allswebtech/hoprig/main/install.sh | sh
 ```
 
-Windows (PowerShell):
+Linux: press Ctrl+Alt+T, paste this line and press Enter.
 
-```powershell
-irm https://raw.githubusercontent.com/allswebtech/hoprig/main/install.ps1 | iex
+```sh
+wget -qO- https://raw.githubusercontent.com/allswebtech/hoprig/main/install.sh | sh
 ```
 
 On Windows (natively, without WSL) the main paths were used by hand on one Windows 11 computer: setup, doctor, the
@@ -30,7 +36,7 @@ running), and a scheduled run whose coding tool could not be ended switches its 
 again in Work → Schedules (a schedule that names another computer is not switched off). Hands-off and the box are not
 offered on Windows, and `install.ps1` itself was not tried.
 
-**2. Scan.** At the end you see a QR code. Scan it with your phone's camera: the dashboard opens.
+**2. Your browser opens.** At the end Hoprig opens in your browser, already signed in: press **Sign in** to sign in to Claude, then **New project**, and tell Claude what to make. (To use it from your phone, turn that on later in Settings.)
 
 That's it.
 

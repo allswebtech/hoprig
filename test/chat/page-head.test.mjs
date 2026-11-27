@@ -1,5 +1,6 @@
 // The chat page's head (web/chat/header.js), without a browser: the title bar, the session menu, Open in, the more menu.
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 import test from 'node:test';
 import { byClass, texts } from './fakedom.mjs';
 
@@ -294,4 +295,95 @@ test('clicking the title edits it in place: Enter saves, Esc cancels, no sheet, 
   await new Promise((r) => setTimeout(r, 0));
   assert.deepEqual(sent, [['/api/chats/x/title', { title: 'Cart total' }]]);
   assert.equal(byClass(hd.el, 'chat-title-input').length, 0);
+});
+
+// ---- the title bar on a phone, the state word, one merged menu, pictures (round 27b) ----
+const withMedia = (matches, fn) => {
+  const prev = globalThis.matchMedia;
+  globalThis.matchMedia = (q) => ({ matches: matches(q), addEventListener() {}, removeEventListener() {} });
+  try {
+    return fn();
+  } finally {
+    if (prev) globalThis.matchMedia = prev;
+    else delete globalThis.matchMedia;
+  }
+};
+const phoneMedia = (q) => /max-width: 599px|pointer: coarse/.test(q);
+
+test('the sub line starts with the state word, coloured by its key, when the session is not Ready or Finished', async () => {
+  const { createHeader, stateMark } = await import('../../web/chat/header.js');
+  assert.equal(stateMark({ ...V, status: 'waiting', lastMessage: 'x' }), null, 'Finished: no word');
+  assert.equal(stateMark({ ...V, status: 'waiting' }), null, 'Ready: no word');
+  assert.deepEqual(stateMark({ ...V, status: 'working', turn: true }), { key: 'working', text: 'Working' });
+  assert.deepEqual(stateMark({ ...V, status: 'attention' }).text, 'Needs your OK');
+  assert.deepEqual(stateMark({ ...V, status: 'waiting', limit: { text: 'x' } }), { key: 'limit', text: 'Limit reached' });
+  assert.equal(stateMark({ ...V, status: 'waiting', endedInError: true, lastMessage: 'x' }).key, 'error', 'the two Stopped words are red');
+  const hd = createHeader({ A: '/api/chats/x', way: null, act: {}, view: null });
+  hd.paint({ ...V, status: 'working', turn: true });
+  const sub = byClass(hd.el, 'chat-title-sub')[0];
+  const word = byClass(sub, 'chat-state')[0];
+  assert.equal(word.dataset.key, 'working');
+  assert.equal(texts(word).join(''), 'Working');
+  assert.equal(texts(sub).join(''), 'Working · shop · Max', 'the word, the folder, the provider');
+  assert.equal(byClass(byClass(hd.el, 'chat-sub')[0], 'chat-state').length, 1, 'wide: the same word as a small chip before the folder');
+  hd.paint({ ...V, status: 'waiting', lastMessage: 'x' });
+  assert.equal(byClass(hd.el, 'chat-state').length, 0, 'idle: no word, no dot without a word');
+  assert.equal(texts(byClass(hd.el, 'chat-title-sub')[0]).join(''), 'shop · Max');
+});
+
+test('on a phone the list button says Sessions, and the title and the dots open one merged sheet', async () => {
+  const { createHeader, phoneGroups, moreItems, sessionItems } = await import('../../web/chat/header.js');
+  await withMedia(phoneMedia, () => {
+    let opened = 0;
+    const hd = createHeader({ A: '/api/chats/x', way: { hash: '#/', label: 'Home' }, act: {}, view: { now: () => 'normal', set() {}, thought: () => false }, side: { hidden: () => true, toggle() {} } });
+    hd.paint(V);
+    const side = byClass(hd.el, 'chat-sidebtn')[0];
+    assert.equal(side.attrs['aria-label'], 'Sessions');
+    assert.equal(side.title, 'Sessions');
+    assert.ok(byClass(side, 'icon').length === 2 || paths(side).length > 0, 'a picture');
+    assert.equal(byClass(hd.el, 'chat-morebtn')[0].attrs['aria-label'], 'Session menu', 'the dots open the same sheet as the title');
+    assert.match(byClass(hd.el, 'chat-title')[0].attrs['aria-label'], /session menu/);
+    void opened;
+  });
+  const v = { ...V, engine: { id: 'claude', capabilities: { fork: true, rewind: true, stopTask: true } }, tasks: [{ taskId: 't', status: 'running' }], handsOff: { on: false }, working: true, turn: true, lead: true };
+  const groups = phoneGroups(v, { view: 'normal' });
+  assert.deepEqual(groups.map((g) => g.title), ['Now', 'Open', 'This session', 'More']);
+  const labels = (t) => groups.find((g) => g.title === t).items.map((x) => x.label);
+  assert.ok(labels('Now').some((l) => /^Stop/.test(l)) && labels('Now').includes('Background tasks') && labels('Now').includes('Compact'));
+  assert.deepEqual(labels('Open'), ['Continue in Terminal', 'Files', 'Changes']);
+  for (const l of ['Rename', 'Provider', 'Fork', 'Earlier conversations', 'Archive', 'Delete']) assert.ok(labels('This session').includes(l), l);
+  for (const l of ['Transcript view', 'Copy branch name', 'Turn on Hands-off', 'Select to delete', 'Trash']) assert.ok(labels('More').includes(l), l);
+  // Nothing of the two old menus is lost (the rail, the list and the shortcuts are not on a phone).
+  const merged = new Set(groups.flatMap((g) => g.items.map((x) => x.value)));
+  for (const x of [...sessionItems(v, { view: 'normal', phone: true }), ...moreItems(v, { touch: true })]) assert.ok(merged.has(x.value), `${x.value} is in the sheet`);
+  assert.equal(groups.flatMap((g) => g.items).length, merged.size, 'each entry once');
+});
+
+test('on a phone the bar is three things: Sessions, the title with its sub line, the dots; the back arrow goes, the pictures are circles of 44', () => {
+  const css = fs.readFileSync(new URL('../../web/chat/chat.css', import.meta.url), 'utf8');
+  const side = fs.readFileSync(new URL('../../web/chat/sidebar.css', import.meta.url), 'utf8');
+  const phone = css.slice(css.indexOf('@media (max-width: 599px)'));
+  assert.match(phone, /\.chat-wrap\.chat-has-side \.chatback \{ display: none/, 'the back arrow goes where the list button is');
+  assert.match(phone, /\.chat-bar \.btn\.chat-sidebtn, \.chat-bar \.btn\.chat-morebtn \{[^}]*width: 44px[^}]*height: 44px[^}]*border-radius: 50%/, 'true circles of 44 by 44');
+  assert.match(css, /\.chat-bar \{[^}]*min-height: 56px/);
+  assert.match(phone, /\.chat-title-text \{[^}]*font-size: 17px[^}]*font-weight: 600/, 'the title: one line, 17 px, semibold');
+  assert.match(css, /\.chat-state\[data-key='working'\][^{]*\{[^}]*color: var\(--accent\)/);
+  assert.match(css, /\.chat-state\[data-key='attention'\] \{[^}]*var\(--warn\)/);
+  assert.match(css, /\.chat-state\[data-key='error'\][^{]*\{[^}]*var\(--danger\)/);
+  assert.match(side, /\.chat-sidebtn \.ic-list/, 'the list picture on a phone, the panel picture where the list is beside the chat');
+});
+
+test('key hints only where there is a keyboard: a touch screen has no (Ctrl+`) on Terminal and no Esc rows in the table', async () => {
+  const { createHeader } = await import('../../web/chat/header.js');
+  const K = await import('../../web/chat/keys.js');
+  const title = (hd) => byClass(hd.el, 'chat-tbtn').map((b) => b.attrs.title);
+  assert.ok(title(createHeader({ A: '/a', way: null, act: {}, view: null })).includes('Terminal (Ctrl+`)'), 'a mouse screen: the key is said');
+  withMedia(phoneMedia, () => {
+    const t = title(createHeader({ A: '/a', way: null, act: {}, view: null }));
+    assert.ok(t.includes('Terminal') && !t.some((x) => /Ctrl/.test(x)), 'touch: the word only');
+  });
+  assert.ok(K.shortcuts(false).some(([k]) => k === 'Esc'));
+  assert.ok(!K.shortcuts(false, null, false).some(([k]) => /^Esc|Shift\+Tab/.test(k)), 'touch: no Esc and no Shift+Tab rows');
+  assert.equal(K.hasKeys(), true);
+  withMedia(phoneMedia, () => assert.equal(K.hasKeys(), false));
 });

@@ -103,8 +103,8 @@ test('a first chat: Ultracode and Lead are not in the chip row while both are of
 
 test('the + menu holds Ultracode and Lead on a first look, and the page counts the chats of this computer', () => {
   const s = web('composer.js');
-  assert.match(s, /tucked\(\) && caps\(v\)\.ultracode \? \[\{ value: 'ultra', label: 'Turn on Ultracode', sub: `Off now\. /);
-  assert.match(s, /tucked\(\) && canLead\(\) \? \[\{ value: 'lead', label: 'Turn on Lead model', sub: 'Off now: /);
+  assert.match(s, /tucked\(\) && !phone\(\) && caps\(v\).ultracode \? \[\{ value: 'ultra', label: 'Turn on Ultracode', sub: `Off now\. /);
+  assert.match(s, /tucked\(\) && !phone\(\) && canLead\(\) \? \[\{ value: 'lead', label: 'Turn on Lead model', sub: 'Off now: /);
   assert.match(s, /else if \(pick === 'ultra'\) toggleUltra\(\);\n\s*else if \(pick === 'lead'\) toggleLead\(\);/);
   assert.match(web('page.js'), /filter\(\(s\) => s\.kind === 'chat'\)\.length < 3;\n.*createComposer\(\{[^}]*firstLook \}\)/);
 });

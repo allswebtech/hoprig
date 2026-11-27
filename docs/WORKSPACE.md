@@ -84,10 +84,13 @@ there. So:
 - **"In the map, not on this computer" is the normal state.** `workspace status` shows such projects in a group of
   their own with `hoprig get <name>`, sync does not list them, and no notification is made for them. The Workspace
   page shows each as a quiet card with **Get it** and which other computer has it.
-- **Nothing that is a project comes or moves by itself.** Restore clones none (`--with-projects` is the one option for
-  an owner who wants every project everywhere), and the upkeep never clones, fetches, fast-forwards or pushes in the
-  places that hold projects. A project is synced when you ask: `hoprig sync [<name>]`, `hoprig workspace sync`, or
-  Sync on the Workspace page. One switch per place (`pushBranches`, below) lets committed work on a branch that is
+- **No project comes by itself, and one that is here is moved only when that is safe.** Restore clones none
+  (`--with-projects` is the one option for an owner who wants every project everywhere). A project that is here is
+  looked at every 30 minutes and before a session starts: a clean branch that is only behind is fast-forwarded (switch
+  `ffProjects`, on for the projects folder, off for a group's own place); a branch with changes in the same files,
+  commits on both sides, work under way or a session open is left alone and listed as Not in step on the Projects
+  page. Nothing is ever merged, rebased, stashed or pushed by itself. The rest is yours: `hoprig sync [<name>]`,
+  `hoprig workspace sync`, or Sync on the Workspace page. One switch per place (`pushBranches`, below) lets committed work on a branch that is
   not the default branch go up by itself; a default branch is never pushed by itself (a push there can be a release).
 - **`hoprig get <name>`: every step can be run again.** A get that was cut off (the network, a closed lid) leaves
   what is complete and fetches the rest on the next run. A folder that holds a clone cut off half way (a repository
@@ -904,17 +907,18 @@ project's), and only them. `--dry-run` changes nothing, not even a remote-tracki
 
 While the dashboard runs (`hoprig serve`, or the background service), right after it starts and then every few
 hours. The automation setting `workspace` (the same in the dashboard and in `hoprig workspace auto`). It never asks a
-question, and in the places that hold projects it neither clones, fetches, fast-forwards nor pushes by itself:
+question, never clones a project, and moves a project only by the `ffProjects` look below:
 
 | Switch | Default | What it does |
 |---|---|---|
 | `map` | on | **The map keeps building itself.** It looks at the workspace as `map` does (the union rule) and writes `workspace.json` only when something would change: a new project or code repository, a new address. Nothing changed: no write and no message. It never makes the first map (that is your `hoprig workspace map`), and it leaves `project.json` files alone. A computer with a label also writes its own file in the brain when something in it changed. |
 | `commitMap` | off (on when the brain has a git server address and you never chose) | The map and this computer's own file are saved in the brain's history in one commit of those two files ("Update the workspace map"), with the brain's own git name and e-mail. Never while the brain has other staged changes: then the map is written, not committed, and you are told why. |
 | `memory` | off | The memory folders of the brain (`claude-memory/`) and of each group's own repository are committed, and only them. Any other uncommitted change is never committed silently. With `commitMap` and `push` on, the brain's memory commit is carried over by the map's rule too (below). |
-| `sync` | off | The brain, the credentials repository, each group's own repository and the other repositories are fetched and fast-forwarded, as `workspace sync` does (tools left alone). Never a project: a project here with commits to push, or to pull as of its last fetch, is only told. |
-| `push` | off | Uploads what is purely ahead: sync's pushes, and the brain. With `commitMap` on, the brain is fetched every round and brought in step by the map's own rule (below). |
+| `sync` | off | The brain, the credentials repository, each group's own repository and the other repositories are fetched and fast-forwarded, as `workspace sync` does (tools left alone). A project is moved by `ffProjects`, not by this switch. |
+| `push` | off | Uploads what is purely ahead: sync's pushes, and the brain. With `commitMap` on, the brain is fetched every round and brought in step by the map's own rule (below); the map's own commits go up even with this switch off, and nothing else of yours does. |
 | `pushBranches` | none | One switch per place that holds projects (`projects` for the projects folder, else the group's or held folder's name): committed work on a branch that is not the repository's default branch is pushed (to its upstream, or under its own name); a default branch never is, nor a branch whose upstream is another branch on this computer. Nothing is ever forced: every push is a plain push, which git refuses when it is not a fast-forward, and a branch behind or rewritten here is only said. A push of a branch without an upstream sets it (its first push, or one already on the server from a push without `-u`), so once its branch on the server is removed and a fetch here prunes it, it shows as gone and is never pushed back. When the last fetch did not prune, the server is asked once per repository which branches it has and which one it calls its default (`git ls-remote --symref`): a branch removed there, or moved there from elsewhere, is said and not pushed; when the server cannot be asked, or calls another branch its default than this computer knows, nothing of that repository is pushed in that round (the second with `git remote set-head origin --auto`). A branch that follows another git server than `origin` is said, never pushed. |
 | `credentials` | off | A change in the credentials repository the map names is committed ("Update credentials", with that folder's own git name and e-mail) and pushed to that address only; a GitHub address only when `gh` says it is private in that round. Public, or a visibility `gh` cannot give: nothing is pushed, and you are told once. Without this switch a change there is never committed. |
+| `ffProjects` | `projects` on | One switch per place that holds projects (`projects` for the projects folder; a group's own place is off unless you set it). Every 30 minutes, right after start and before a session or chat starts there (3 seconds at most), each project is fetched and a clean branch that is only behind is fast-forwarded, only where nothing is under way and no session is open in that folder. What is left is listed as Not in step on the Projects page. Never a merge, reset, rebase, stash or push. All places off: no look at all. `hoprig workspace auto --ff projects=off`. |
 | `everyHours` | 6 | How often (1 to 168). |
 
 ```sh
@@ -1036,6 +1040,16 @@ repository's name (the last part of the address). No option skips this, and with
   uploaded to its repository, by itself, only while that repository is private. Whoever can read that repository
   reads every key in it." It sets the same setting as `hoprig workspace auto --credentials on|off`, through the route
   the other switches use, with the same checks. Tia cannot turn it on.
+- **Move to another computer** (the same line, shown only when there is another computer of yours): by your press only,
+  sealed so that only the receiving computer can read it, with a list of names and sizes first (never a value or a
+  hash). Each computer makes an X25519 and an Ed25519 key once, in its state folder, and writes only the public keys
+  into its own file in the AI brain; a key that changes blocks sending until you press **Trust**. The sender seals the
+  files (ephemeral X25519, HKDF-SHA256, AES-256-GCM, an Ed25519 signature) with a one-time number the receiver made
+  (good for a few minutes, once); the main computer only passes sealed bytes on. The receiver writes through a
+  temporary folder, files 600 in folders 700, never over a different file unless you press Replace, and then makes the
+  project's credential links. A computer marked as not yours (Advanced) gets one project at a time, with its name
+  typed, never everything. The log (`credmove.log`) holds counts and computer names, never a value. Only your own
+  page can do any of it, never Tia.
 - **Every computer that keeps this brain in step needs a Hoprig as new as this computer's before you run
   `workspace credentials`.** Some older builds that also call themselves 0.3.3 already sync the credentials repository the map names, and
   with `sync --push` (or the upkeep's push) it pushes a commit made there without asking whether it is private or
@@ -1185,6 +1199,7 @@ Routes (behind the login; another computer's through the main computer): `GET /a
 `GET /api/workspace/git`, `POST /api/workspace/git/identity`, `GET|POST /api/workspace/git/signin`,
 `POST /api/workspace/git/signin/cancel`, `GET /api/workspace/git/brains`, `GET|POST /api/workspace/git/brain`,
 `GET /api/workspace/computers`, `POST /api/workspace/label`, `GET /api/workspace/whohas`,
+`GET /api/workspace/instep`, `POST /api/workspace/instep/look`, `POST /api/workspace/instep/credentials`,
 `GET /api/workspace/find?in=<place>`, `POST /api/workspace/find/add`, `POST /api/workspace/find/undo`, `POST /api/workspace/find/get`, `POST /api/workspace/drop/check`, `POST /api/workspace/drop`,
 `POST /api/workspace/group`, `POST /api/workspace/group/remove`,
 `GET /api/workspace/tools`, `POST /api/workspace/tools/allow`, `POST /api/workspace/tools/remove`,

@@ -8,7 +8,6 @@ import { byClass, texts } from './fakedom.mjs';
 const W = await import('../../web/chat/words.js');
 const D = await import('../../web/chat/diff.js');
 const Ag = await import('../../web/chat/agents.js');
-const St = await import('../../web/chat/statusline.js');
 const L = await import('../../web/chat/limit.js');
 
 test('chat page words: the mode chip, Shift+Tab order, model and effort, paths, limits, context, exit codes', () => {
@@ -124,44 +123,6 @@ test('agents: the strip counts what runs, a task line names its model and effort
   const t = texts(wf);
   assert.ok(t.includes('Ask') && t.includes('one') && t.includes('Other') && t.includes('stray'));
   assert.ok(t.some((x) => /done · sonnet-5-5 · 6\.5k tokens/.test(x)));
-});
-
-test('status line: what Claude does now (the tool that runs, for how long), then branch, cost (Verbose, billed), context and the plan limits', () => {
-  const base = { status: 'working', turn: true, model: null, liveModel: 'claude-opus-5-5', effort: 'high', permissionMode: 'bypassPermissions', liveMode: null, costTotal: 0.5, usage: { contextUsed: 20_000, contextWindow: 200_000 }, limits: { five_hour: { percent: 63 } }, tasks: [], live: [], branch: 'main' };
-  assert.equal(St.stateWords(base), 'Working…');
-  assert.equal(St.stateWords({ ...base, activity: 'compacting' }), 'Shortening the conversation to make room…');
-  assert.equal(St.stateWords({ ...base, activity: 'requesting' }), 'Claude is thinking…');
-  // A tool that runs comes first, even where "requesting" was left set: its command and its seconds.
-  const runAt = Date.now() - 4200;
-  assert.equal(St.stateWords({ ...base, activity: 'requesting', live: [{ kind: 'tool', written: true, title: 'mock bash', command: 'sleep 6', runAt }] }), 'Running: sleep 6 · 4 s');
-  assert.equal(St.stateWords({ ...base, live: [{ kind: 'tool', written: true, title: 'npm test', runAt, agent: 'x' }] }), 'Working…', 'a subagent\'s tool is in its card');
-  assert.equal(St.stateWords({ ...base, live: [{ kind: 'text', text: 'Hel' }] }), 'Claude is writing…');
-  assert.equal(St.stateWords({ ...base, turn: false, tasks: [{ status: 'running', background: true }] }), 'Working in the background', 'the state in words; how many is the Background tasks part\'s head');
-  assert.equal(St.stateWords({ ...base, turn: false, tasks: [{ status: 'running', background: true }, { status: 'running', background: true }] }), 'Working in the background', 'no count');
-  assert.equal(St.stateWords({ ...base, status: 'attention' }), 'Needs your OK');
-  assert.equal(St.stateWords({ ...base, status: 'attention', asking: 'question' }), 'Claude asks you a question');
-  assert.equal(St.stateWords({ ...base, status: 'waiting', terminal: { name: 'x' } }), 'Runs in a terminal');
-  // The dot: the limit's colour at the limit, never Ready's green.
-  assert.equal(St.statusKey({ status: 'waiting', lastEnd: 'limit' }), 'limit');
-  assert.equal(St.statusKey({ status: 'waiting', limit: { at: 1 } }), 'limit');
-  assert.equal(St.statusKey({ status: 'waiting', lastEnd: 'ok' }), 'waiting');
-  assert.equal(St.statusKey({ status: 'waiting', lastEnd: 'stopped' }), 'stopped');
-  assert.equal(St.statusKey({ status: 'waiting', lastError: 'boom', lastEnd: 'error' }), 'error');
-  assert.equal(St.statusKey({ status: 'working', lastEnd: 'limit' }), 'working');
-  assert.equal(St.statusKey({ status: 'waiting', terminal: { name: 'x' } }), 'terminal');
-  assert.equal(St.statusKey({ status: 'waiting', toolOff: 'OpenCode is off on this computer.' }), 'stopped');
-  assert.equal(St.stateWords({ ...base, status: 'waiting', lastEnd: 'stopped' }), 'Stopped', 'the owner\'s Stop is no error');
-  assert.equal(St.stateWords({ ...base, status: 'waiting', lastEnd: 'limit', limit: { text: 'x' } }), 'Stopped at the usage limit');
-  assert.equal(St.stateWords({ ...base, status: 'waiting', lastEnd: 'error', lastError: 'boom' }), 'Stopped with an error');
-  // The model, effort and mode are the chips right above: not said twice.
-  // The cost so far: only in the Verbose view and only for a provider billed by use (a subscription's dollars mislead).
-  const gw = { ...base, profile: { name: 'gw', kind: 'api' } };
-  assert.deepEqual(St.statusParts(gw, { view: 'verbose' }).map((x) => x[1]), ['main', '$0.50 so far', 'context 10%']);
-  assert.deepEqual(St.statusParts(gw).map((x) => x[1]), ['main', 'context 10%'], 'Normal: no dollars');
-  assert.deepEqual(St.statusParts(base, { view: 'verbose' }).map((x) => x[1]), ['main', 'context 10%', '5 h 63%'], 'a provider not known: no dollars');
-  // The plan's limits are a Claude subscription's: a chat on a gateway, an API key or Auto mode shows none.
-  assert.deepEqual(St.statusParts({ ...base, profile: { name: 'sub', kind: 'subscription' } }, { view: 'verbose' }).map((x) => x[0]), ['Git branch', 'Context', 'Plan limits']);
-  for (const kind of ['api', 'auto']) assert.ok(!St.statusParts({ ...base, profile: { name: 'x', kind } }).some((x) => x[0] === 'Plan limits'), kind);
 });
 
 test('the limit card: its actions are a list, so another part adds one line; none while a terminal runs it', () => {
@@ -371,9 +332,9 @@ test('on a touch screen the placeholder is one short line with no Esc, the wide 
   const W = await import('../../web/chat/words.js');
   const v = { engine: { id: 'claude' } };
   assert.equal(W.boxWords(v, { touch: true }), 'Message Claude');
-  assert.equal(W.boxWords({ ...v, turn: true }, { touch: true }), 'Message Claude: after its step');
+  assert.equal(W.boxWords({ ...v, turn: true }, { touch: true }), 'Message Claude', 'one short line, also while a turn runs');
   assert.doesNotMatch(W.boxWords({ ...v, turn: true }, { touch: true }), /Esc/);
-  assert.equal(W.boxWords({ ...v, turn: true }), 'Send Claude a message: read after its current step · Esc stops');
+  assert.equal(W.boxWords({ ...v, turn: true }), 'Message Claude: read after this step');
   assert.equal(W.boxWords({ engine: { id: 'opencode', label: 'OpenCode' } }, { touch: true }), 'Message OpenCode');
   assert.equal(W.boxWords(v, { touch: true, readOnly: true }), 'Read only while the terminal runs this conversation');
 });
@@ -383,7 +344,8 @@ test('the message box\'s placeholder names no key a browser user lacks, and says
   const v = { engine: { id: 'claude' } };
   assert.equal(W.boxWords(v), 'Message Claude · / for commands · @ for files');
   assert.doesNotMatch(W.boxWords(v), /Shift\+Tab|\/help|Ctrl|Cmd|Esc/, 'no terminal key: the keys are in the shortcut sheet');
-  assert.equal(W.boxWords({ ...v, turn: true }), 'Send Claude a message: read after its current step · Esc stops', 'steering, as the desktop app: the message is sent; Esc (a browser key) stops');
+  assert.equal(W.boxWords({ ...v, turn: true }), 'Message Claude: read after this step', 'steering, as the desktop app: the message is sent, read after the step');
+  assert.doesNotMatch(W.boxWords({ ...v, turn: true }), /Esc/, 'the living line says Esc to stop on a mouse screen');
   assert.doesNotMatch(W.boxWords({ ...v, turn: true }), /[Qq]ueue/);
   assert.equal(W.boxWords({ engine: { id: 'opencode', label: 'OpenCode' } }), 'Message OpenCode · / for commands · @ for files');
   assert.equal(W.boxWords(v, { readOnly: true }), 'Read only while the terminal runs this conversation');

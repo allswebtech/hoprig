@@ -80,7 +80,7 @@ test('the work-while-you-sleep use case shows Work → Schedules, and the screen
 
 test('with tmux, Reopen sessions after a restart is off at first, and the pages say so; tmux is explained where it first stands', async () => {
   const { DEFAULTS, restoreOn } = await import('../src/automation/settings.mjs');
-  assert.equal(restoreOn(DEFAULTS, { capabilities: { persistent: true } }), false, 'tmux: off at first');
+  assert.equal(restoreOn(DEFAULTS, { capabilities: { persistent: true } }), true, 'tmux: on at first too: a restart of the computer ends tmux');
   assert.equal(restoreOn(DEFAULTS, { capabilities: { persistent: false } }), true, 'the built-in terminals: on at first');
   for (const text of [flat(section('It keeps going without you')), flat(read(SLEEP))]) {
     assert.doesNotMatch(text, /survive a restart by themselves/);
@@ -152,13 +152,12 @@ test('the install paragraph names what install.sh installs, with sudo, and the l
   const older = await installerAsks(`${major}.${minor - 1}.9`);
   assert.equal(older.code, 1, older.out);
   assert.doesNotMatch(older.out, /no terminal to ask in|Install now/, 'it asks nothing: it says what it installs and does it');
-  assert.match(older.out, /hoprig installer: installing build-essential python3 did not succeed/, 'it ran the install, which the stand-in refused');
-  assert.match(older.out, /To install:\n {2}build-essential python3 {3}\(/, 'the build tools on Linux');
-  if (process.getuid() !== 0) assert.match(older.out, /\(sudo env DEBIAN_FRONTEND=noninteractive apt-get update -q && sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y -q build-essential python3\)/, 'with sudo');
-  assert.match(older.out, /\n {2}Node\.js LTS, for you only, with nvm /, 'an older Node.js is installed again');
+  assert.match(older.out, /hoprig installer: installing build-essential python3 tmux did not succeed/, 'it ran the install, which the stand-in refused');
+  assert.match(older.out, /^Hoprig needs a few parts of the system\. If your computer asks for its password, type it and press Enter/m, 'the system parts, with sudo, said in one plain line');
+  assert.match(older.out, /Found Node\.js \S+, older than \S+, the lowest Hoprig runs on: the newest long-term release of Node\.js goes in its place, for you only, with nvm\./, 'an older Node.js is installed again');
   const floor = await installerAsks(MIN_NODE_TEXT.split('.').length === 3 ? MIN_NODE_TEXT : `${MIN_NODE_TEXT}.0`);
-  assert.doesNotMatch(floor.out, /Node\.js LTS/, 'the lowest supported Node.js is kept');
-  assert.match(floor.out, /To install:\n {2}build-essential python3 /);
+  assert.doesNotMatch(floor.out, /Found Node\.js/, 'the lowest supported Node.js is kept');
+  assert.match(floor.out, /^Hoprig needs a few parts of the system\./m);
   const v = MIN_NODE_TEXT.replaceAll('.', '\\.');
   const p = flat(section('Install'));
   assert.match(p, new RegExp(`It says what is missing and installs it without asking \\(Node\\.js ${v} or newer when it is missing or older, and on Linux the build tools and a few system parts, with sudo, which asks for its own password; Ctrl-C stops it\\)`));

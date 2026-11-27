@@ -63,8 +63,8 @@ export function setOwnNeeds(n) {
   navChanged();
 }
 
-/** The Set up card stays only while set-up is unfinished (getstarted.js planGetStarted: mode "open"). */
-export const setupShown = (plan) => !!plan && plan.mode === 'open';
+/** The Set up card stays only while set-up is unfinished (getstarted.js planGetStarted: mode "open"); the first-run card (firstrun.js) always shows while it is the one thing on Home. */
+export const setupShown = (plan, first = false) => first || (!!plan && plan.mode === 'open');
 
 /** A card names its computer only while several are shown at once: with one chosen in the filter it says nothing. */
 export const showsComputer = (multi, only) => !!multi && only === 'all';
@@ -158,7 +158,7 @@ export function viewHome() {
     ? { el: null, plan: () => ({ mode: 'hidden', claudeReady: true }), repaint() {}, stop() {} }
     : getStartedArea({ firstRun: () => noSessions, onChange: () => {
       // Done (or closed): no card at all, not a line that says it is done.
-      if (gs && gs.el) gs.el.hidden = !setupShown(gs.plan());
+      if (gs && gs.el) gs.el.hidden = !setupShown(gs.plan(), !!(gs.first && gs.first()));
       paintEmpty();
     } });
   frame({

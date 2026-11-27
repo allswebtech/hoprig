@@ -42,10 +42,11 @@ export function placeMenu(ctl, size, view) {
  * Open a menu at control `from`. sections: [{ label?, items: [{ value, label, sub?, current?, danger?, disabled?, icon? }] }]
  * (an item with `current` set in its section is a choice: the one chosen is marked). label: the menu's name for a screen
  * reader; at: the section the keyboard starts in; key: a key opened it (then a key for another section of the same
- * menu, open already, moves the keyboard there instead of closing it); title, subtitle: the sheet's on a narrow touch screen.
+ * menu, open already, moves the keyboard there instead of closing it); title, subtitle: the sheet's on a narrow touch screen;
+ * sheet: as a sheet whatever the screen (the settings sheet's own pickers).
  * → a Promise of the picked item's value, or null (closed without a pick)
  */
-export function openMenu({ from, label, sections, at = 0, title = label, subtitle = '', key = false }) {
+export function openMenu({ from, label, sections, at = 0, title = label, subtitle = '', key = false, sheet = false }) {
   if (open && open.from === from) {
     // A key for another section of the menu that is open (Ctrl+Shift+E in the model menu): the keyboard goes there.
     // A second press of its control, or of the same key, closes it, as a drop-down does.
@@ -54,7 +55,7 @@ export function openMenu({ from, label, sections, at = 0, title = label, subtitl
     return Promise.resolve(null);
   }
   closeMenu();
-  if (asSheet()) return sheetOf({ title, subtitle, sections });
+  if (sheet || asSheet()) return sheetOf({ title, subtitle, sections }); // `sheet`: opened from a sheet (the settings of a phone)
   const opener = document.activeElement && document.activeElement !== document.body ? document.activeElement : from;
   const sec = sections.filter((s) => s && s.items.length);
   const groups = []; // per section: its buttons (the ones that can be picked)

@@ -11,6 +11,8 @@ import { pathButton, repathButton } from './pathmenu.js';
 import { exitCode, inFolder, lineCount, toolLine } from './words.js';
 
 const SHOW_LINES = 12;
+// The small picture at the start of a call's line: what kind of call it is (the state is the colour and the words).
+const KIND_ICON = { shell: 'terminal', read: 'book', edit: 'pencil', search: 'search', web: 'external', agent: 'user', workflow: 'grid', plan: 'clipboard', question: 'comment', todo: 'tasks' };
 const OPEN_KINDS = new Set(['edit', 'agent', 'workflow', 'plan', 'question']); // open by default: what they did is the point
 
 /** Text shown by its first lines, with a "Show all" that opens the rest in place (no scroll box inside the list). */
@@ -110,7 +112,7 @@ export function toolCard(ev, o = {}) {
   const taskBox = h('div.chat-tool-task');
   const steps = h('div.chat-steps');
   const el = h('details.chat-item.chat-tool.chat-is-running',
-    h('summary', state, verb, detail, said, okd, end),
+    h('summary', state, verb, detail, said, okd, end, h('span.chat-tool-chev', { 'aria-hidden': 'true' }, icon('chevronRight', { size: 14 }))),
     h('div.chat-tool-body', input, taskBox, steps, out));
   el.dataset.kind = ev.toolKind || 'other';
   el.steps = steps;
@@ -121,6 +123,7 @@ export function toolCard(ev, o = {}) {
 
   const counts = (c) => fill(end, h('span.chat-plus', `+${c.added}`), ' ', h('span.chat-minus', `−${c.removed}`));
   const head = (e) => {
+    fill(state, icon(KIND_ICON[e.toolKind] || 'zap', { size: 16 }));
     const line = e.input ? toolLine(e.name, e.input, now) : { verb: toolLine(e.name, {}, now).verb, detail: e.title || '', mono: e.toolKind !== 'agent' };
     fill(verb, line.verb);
     detail.className = `chat-tool-detail${line.mono ? ' mono' : ''}`;
@@ -146,9 +149,9 @@ export function toolCard(ev, o = {}) {
     if (!quiet) fill(input, inputView(e, o.cwd));
     if (!el.dataset.touched) el.open = wantsOpen(e);
   };
-  /** The transcript view changed: every call opens (Verbose) or folds to its line; one that failed stays open. */
+  /** The transcript view changed: every call opens (Verbose) or folds to its line; one that failed folds too (its line says failed). */
   el.applyView = (v) => {
-    el.open = v === 'verbose' || el.classList.contains('chat-is-err');
+    el.open = v === 'verbose';
   };
   el.addEventListener('toggle', () => (el.dataset.touched = '1'));
   if (ev.input) el.finish(ev);
@@ -169,7 +172,6 @@ export function toolCard(ev, o = {}) {
       now = r.denied ? 'refused' : never ? 'stopped' : 'done';
       head(last);
       el.classList.add('chat-is-stopped');
-      fill(state, icon(r.denied ? 'x' : 'stop', { size: 14 }));
       fill(said, r.denied ? 'you said no' : 'stopped by you');
       if (r.denied && r.text) el.open = true; // his reason shows under the head (the head itself stays short)
       if (now !== 'done' && last.toolKind === 'edit') fill(input); // nothing was written: no diff (the head names the file)
@@ -181,11 +183,9 @@ export function toolCard(ev, o = {}) {
     now = unwritten ? 'failed' : 'done';
     head(last);
     el.classList.add(r.ok ? 'chat-is-ok' : 'chat-is-err');
-    fill(state, icon(r.ok ? 'check' : 'x', { size: 14 }));
     const code = last.toolKind === 'shell' ? exitCode(r.text) : null;
     fill(said, r.ok || unwritten ? null : code !== null ? `failed · exit ${code}` : 'failed');
     if (unwritten) fill(input);
-    if (!r.ok) el.open = true;
     const kind = last.toolKind;
     if (kind === 'edit' && r.ok) {
       if (r.diff && r.diff.length) {
@@ -233,7 +233,6 @@ export function toolCard(ev, o = {}) {
     // The call itself went well (it started the task); how the task ended is told by the icon and in words too.
     if (t.status === 'failed' || t.status === 'stopped') {
       fill(said, t.status);
-      fill(state, icon(t.status === 'failed' ? 'x' : 'stop', { size: 14 }));
       el.classList.add(t.status === 'failed' ? 'chat-is-taskfail' : 'chat-is-taskstop');
     }
   };
@@ -267,6 +266,8 @@ export function toolCard(ev, o = {}) {
   };
   /** Its result came: the card says how the call ended (ran, failed, "stopped by you"). */
   el.ended = () => ended;
+  /** Whether the call runs now: not while its OK waits, not after a no, and a start in the background is no run. */
+  el.runs = () => !ended && now !== 'asking' && now !== 'refused' && !((last.input || {}).run_in_background);
   el.kindOf = () => last.toolKind;
   el.added = () => added;
   return el;
