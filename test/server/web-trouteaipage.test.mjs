@@ -123,3 +123,10 @@ test('the provider list of the Add sheet says how each signs in, never the gatew
   assert.doesNotMatch(src, /row-sub', p\.category/, 'a raw word such as no-auth is not for a person');
   assert.match(src, /'api-key': 'Sign in with a key'/);
 });
+
+test('a gateway that runs but does not answer is not asked for its accounts: one line and Manage instead', () => {
+  const at = page.indexOf('gw && gw.running === false');
+  assert.ok(at > 0, 'the guard is there');
+  assert.ok(at < page.indexOf("api(T('/accounts'))"), 'before the accounts are asked');
+  assert.match(page.slice(at, at + 400), /does not answer yet[^]*manageFold\(ctx, gw\)\);\s*return fill/);
+});

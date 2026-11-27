@@ -221,12 +221,14 @@ test('the coding chat in the dashboard', { timeout: 120_000, skip: process.platf
   await until('its title', async () => (await view()).title === 'Cart total rounding');
   await until('the turn to end', async () => (await view()).status === 'waiting');
 
-  // ---- open in a terminal: the chat closes, a terminal session resumes the conversation ----
+  // ---- open in a terminal: the chat's process ends and its record stays, a terminal session resumes the conversation ----
   const opened = await owner('POST', `/api/chats/${id}/terminal`, {});
   assert.equal(opened.status, 200);
   const handed = await owner('GET', `/api/chats/${id}`);
-  assert.equal(handed.status, 404, 'the chat is closed');
-  assert.equal(handed.json.closed.terminal, opened.json.name, 'its page can open the terminal it went to');
+  assert.equal(handed.status, 200, 'the chat record stays: its process ended, the chat is not closed');
+  assert.equal(handed.json.running, false);
+  assert.equal(handed.json.title, 'Cart total rounding', 'with its title');
+  assert.equal((await until('the chat reads along', async () => (await view()).terminal)).name, opened.json.name, 'its page can open the terminal it went to');
   const resumed = await until('the terminal session', async () => (await owner('GET', '/api/state')).json.sessions.find((s) => s.name === opened.json.name && s.kind === 'claude' && s.sessionId));
   // (the session is Claude Code's as soon as its launcher's record is there; the coding tool names its conversation a moment later)
   assert.equal(resumed.sessionId, id, 'the same conversation');

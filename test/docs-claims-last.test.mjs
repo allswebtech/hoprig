@@ -46,7 +46,7 @@ test('WORK: a project\'s test command is set on Work → Team, in Tia\'s switche
   assert.ok(!page.includes('(set per project on Team;'), 'the old half-sentence is gone');
   const ui = read('web/mission.js');
   assert.ok(ui.includes("field('Its test command', test,"), 'the field is named so');
-  assert.ok(ui.includes("h('h3.ms-h3', 'Projects')"), 'under Projects');
+  assert.ok(ui.includes("block('Projects'"), 'under Projects');
   assert.ok(ui.includes("h('span', 'Tia\\'s switches and limits')"), 'in the fold Tia\'s switches and limits');
   assert.ok(ui.includes("label: 'Save', dataset: { key: `save:${p}` }"), 'its own Save');
   assert.ok(ui.includes("export function paintTeam("), 'on the Team tab');
@@ -124,7 +124,7 @@ test('HUB: the Docker image is for a main computer only (no "hub" in prose for i
 
 test('WORK: with fewer than two like it, Today says once under the count that there is no estimate, and the digest says it beside the run', () => {
   const page = flat(read('docs/WORK.md'));
-  assert.ok(page.includes('With fewer than two, a run gets no number: Work\'s Today tab says it once, under the count of what runs ("No estimate yet: nothing like it has finished here."), and the digest says "no estimate yet" beside the run.'));
+  assert.ok(page.includes('With fewer than two, a run gets no number: Work\'s Activity tab says it once, under **Running now** ("No estimate yet: nothing like it has finished here."), and the digest says "no estimate yet" beside the run.'));
   assert.ok(!page.includes('With fewer than two: "no estimate yet:'), 'the old words are gone');
   const pulse = read('web/workpulse.js');
   assert.ok(pulse.includes("const noBasis = (u) => !u.basis || u.basis.count < 2;"), 'fewer than two');
@@ -140,7 +140,7 @@ test('WORK: a mission\'s money limit is its own field "Spend cap per day ($)" un
   assert.ok(page.includes('and the **Spend cap per day ($)**, the missions\' own cap, set under **Limits** in **Tia\'s switches and limits** on Work → Team and counted from each run\'s own cost line (with no cap set, nothing starts). Tia\'s daily limit for paid use (Settings → Tia) does not count these sessions; of a mission, it counts only what the Operator does on a provider billed by use: her move of a task there (below), and a call of **Tia decides** about a mission\'s choice that runs there.'));
   assert.ok(!page.includes('it counts only her own move of a task'), 'the old words are gone');
   assert.ok(read('web/mission.js').includes("h('summary.fold-summary', h('span', 'Tia\\'s switches and limits')"), 'the fold that holds Limits');
-  assert.ok(read('web/mission.js').indexOf("h('h3.ms-h3', 'Limits')") < read('web/mission.js').indexOf("return h('details.fold.ms-settings'"), 'Limits is drawn inside the fold');
+  assert.ok(read('web/mission.js').indexOf("block('Limits'") < read('web/mission.js').indexOf("return h('details.fold.ms-settings'"), 'Limits is drawn inside the fold');
   assert.ok(read('web/operator-decide.js').includes("toggle('Tia decides', d.on,"), 'the switch\'s label');
   const mis = read('src/operator/decider.mjs');
   const body = mis.slice(mis.indexOf('async function mission(item0)'), mis.indexOf('function view()'));
@@ -150,7 +150,7 @@ test('WORK: a mission\'s money limit is its own field "Spend cap per day ($)" un
   assert.ok(!/spend cap per day\*\*|today's spend cap/.test(page), 'the old lower-case names are gone');
   const ui = read('web/mission.js');
   assert.ok(ui.includes("num('Spend cap per day ($)', 'capUsd', s.capUsd,"), 'the field as the page draws it');
-  assert.ok(ui.indexOf("h('h3.ms-h3', 'Limits')") >= 0 && ui.indexOf("h('h3.ms-h3', 'Limits')") < ui.indexOf("num('Spend cap per day ($)'"), 'under Limits');
+  assert.ok(ui.indexOf("block('Limits'") >= 0 && ui.indexOf("block('Limits'") < ui.indexOf("num('Spend cap per day ($)'"), 'under Limits');
   assert.ok(ui.includes("'Counted from each run\\'s own cost line. At the cap nothing new starts. 0: nothing starts.'"), 'from each run\'s cost line; 0 starts nothing');
   assert.ok(read('src/mission/engine.mjs').includes('const { left, budget } = budgetFor({ capUsd: s.capUsd, spentUsd: spentOn(all, dayOf(p)).usd, held,'), 'a session\'s budget comes from the missions\' own cap');
   assert.ok(read('src/mission/limits.mjs').includes("if (!(s.capUsd > 0)) return 'no spend cap is set yet: set one under Work → Team';"), 'none set: nothing starts');
@@ -164,9 +164,9 @@ test('WORK: a mission\'s money limit is its own field "Spend cap per day ($)" un
   assert.ok(dec.includes("hold(ps.what, tia.dailyCapUsd, `mission-"), 'the move is held against her limit');
 });
 
-test('COMPUTERS: a computer that no longer lets this dashboard in: its sentence, Setup and Health unread, Rename and Remove left under Advanced', () => {
+test('COMPUTERS: a computer that no longer lets this dashboard in: its sentence, Setup unread, Rename and Remove left under Advanced', () => {
   const page = flat(read('docs/COMPUTERS.md'));
-  assert.ok(page.includes('| "Not allowed any more" | Its right was revoked on that computer. The New session sheet says: "It no longer lets this dashboard in. Add it again here: Computers → Add a computer"; the computer\'s own page says: "*name* no longer lets this dashboard in. Add it again here: Computers → Add a computer." Until you do, its **Setup** and **Health** tabs cannot read it; under **Advanced**, **Rename** and **Remove from this list** still work. |'), 'the row');
+  assert.ok(page.includes('| "Not allowed any more" | Its right was revoked on that computer. The New session sheet says: "It no longer lets this dashboard in. Add it again here: Computers → Add a computer"; the computer\'s own page says: "*name* no longer lets this dashboard in. Add it again here: Computers → Add a computer." Until you do, its **Setup** tab cannot read it; under **Advanced**, **Rename** and **Remove from this list** still work. |'), 'the row');
   assert.ok(!page.includes('Its right was revoked on that computer. Add it again'), 'the old row is gone');
   assert.ok(!page.includes('and the page says: "It no longer lets'), 'the sheet\'s sentence is not called the page\'s');
   const lib = read('web/lib.js');
@@ -182,7 +182,6 @@ test('COMPUTERS: a computer that no longer lets this dashboard in: its sentence,
   assert.ok(read('web/pc.js').includes("if (m.status === 'unauthorised') return notAllowedCard(ctx.label(), m.error);"), 'the computer\'s page shows it');
   const pc = read('web/pc.js');
   assert.ok(pc.includes("setup: 'What it has for coding cannot be checked while it does not let this dashboard in.',"), 'Setup unread');
-  assert.ok(pc.includes("health: 'Its checks cannot be read while it does not let this dashboard in.',"), 'Health unread');
   assert.ok(pc.includes("advanced: 'Its name, and taking it off this list. Its programs, ports and power can be used again once it lets this dashboard in.',"), 'Advanced keeps the name and the list');
   assert.ok(pc.includes("act('pencil', 'Rename',") && pc.includes("act('trash', 'Remove from this list',"), 'the two buttons');
   assert.ok(pc.includes('if (notAllowed(ctx.entry())) return [];'), 'move and power are not offered');

@@ -77,7 +77,7 @@ test('terminal to chat: a terminal in Allow everything opens in it only under th
 
 test('chat to terminal: a chat in Allow everything starts its terminal in it only under the rules of the mode', { skip: process.platform === 'win32' }, async () => {
   for (const [what, extra, config, want] of [['kept', {}, ON, true], ['switch off', {}, { allowBypass: false, allowEverythingAt: 5 }, false], ['hers', { hers: true }, ON, false]]) {
-    const chat = { id: CONV, conversationId: CONV, engine: { id: 'claude', exists: async () => true }, cwd: tmp, profile: 'work', permissionMode: 'allowEverything', busy: () => false, o: {}, record: () => ({}), emit() {}, close() {}, ...extra };
+    const chat = { id: CONV, conversationId: CONV, engine: { id: 'claude', exists: async () => true }, cwd: tmp, profile: 'work', permissionMode: 'allowEverything', busy: () => false, o: {}, record: () => ({}), emit() {}, close() {}, stopAndWait: async () => {}, ...extra };
     const { routes, started } = harness({ chat, config });
     try {
       await route(routes, 'POST', `/api/chats/${CONV}/terminal`)({});

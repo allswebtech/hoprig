@@ -402,6 +402,7 @@ function viewList(frame, query = new URLSearchParams()) {
     title: 'Projects',
     page: 'workspace',
     primary: { label: 'Add project', icon: 'plus', onclick: addSheet },
+    primaryInHead: true, // on a phone in the page head: a floating button lay over the third project row
     body: [projectsTabs('projects'), body, more],
   });
   let alive = true;
@@ -650,6 +651,7 @@ function viewProject(frame, id) {
     back: link('#/workspace'),
     backLabel: 'Projects',
     primary: { label: 'New session', icon: 'plus', onclick: () => p && newIn(p.dir, p.name) },
+    primaryInHead: true,
     actions: p ? [editorButton(p.dir, { name: p.name })] : [],
     body: [sessionsBox, pastBox, reposFold, needsBox, skillsBox, brainFold, fold('project', 'Advanced', advanced)],
   });
@@ -901,7 +903,7 @@ function viewNewProject({ frame, sub }) {
     named = decodeURIComponent(sub || '');
   } catch {}
   if (!NAME_RE.test(named)) named = '';
-  frame({ title: 'New project', page: 'new-project', back: link('#/workspace'), backLabel: 'Projects', intro: 'A new project folder, ready for coding, and if you give a brief an AI session that sets it up from it. You see everything it creates before anything is made.',
+  frame({ title: 'New project', page: 'new-project', back: link('#/workspace'), backLabel: 'Projects', intro: 'Makes a ready folder. You see it first.',
     body: [named ? h('p.banner.info.pj-from', icon('folder', { size: 18 }), h('span', `Named after the folder you picked. The project is made new in your projects folder; that folder stays where it is: move its files into the project, or ask in a session there.`)) : null, box] });
   let alive = true;
   // brief, kind: as typed (newproject.js); start: "Start with AI"; choices and v: the session's choices and his picks.
@@ -1054,7 +1056,7 @@ const folderName = (s) => specName(s).replace(/(.)-workspace$/, '$1');
 function viewGetProject({ frame, sub }) {
   store.viewing = null;
   const box = h('div.pj-wizard');
-  frame({ title: 'Get an existing project', page: 'get-project', back: link('#/workspace'), backLabel: 'Projects', intro: 'Download a project you already have on GitHub (or another git server) to this computer.', body: [box] });
+  frame({ title: 'Get an existing project', page: 'get-project', back: link('#/workspace'), backLabel: 'Projects', intro: 'Downloads a project from GitHub.', body: [box] });
   let alive = true;
   // "#/get-project/<address>": a project of the workspace map that is not on this computer yet ("Get it").
   let spec = '';

@@ -115,7 +115,7 @@ export function brainGroups(b, { memoryOrder = [] } = {}) {
   const row = (item, title, sub = '', chip = null) => (item ? { item, title: title || item.title, sub, chip } : null);
   const groups = [];
   const rules = [row(b.global.rules, 'The rules every coding tool gets', b.global.linked ? 'linked into Claude Code' : 'not linked into Claude Code yet'), ...(b.global.more || []).map((x) => row(x))].filter(Boolean);
-  groups.push({ id: 'rules', title: 'What your coding tools are told everywhere', rows: rules, none: 'No global rules file yet.' });
+  groups.push({ id: 'rules', title: 'Rules for every tool', rows: rules, none: 'No global rules file yet.' });
   const base = (m) => String(m.file || '').split('/').pop();
   const place = (m) => (m.type === 'index' ? -1 : memoryOrder.includes(base(m)) ? memoryOrder.indexOf(base(m)) : memoryOrder.length);
   const mem = [...(b.memory.home.items || [])].sort((x, y) => place(x) - place(y))

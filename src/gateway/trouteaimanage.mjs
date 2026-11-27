@@ -185,7 +185,7 @@ const sentenceFor = (entry, status, body, port) => {
   if (status === 401 || status === 403) {
     return entry.bearer
       ? 'TRouteAI refused the temporary sign-in key Hoprig made for this step. Try again; if it keeps refusing, use TRouteAI\'s own page.'
-      : 'TRouteAI did not accept Hoprig\'s command token. It accepts it only from the user who runs TRouteAI, with the same data folder: start TRouteAI from Hoprig (Health, Gateways) and try again.';
+      : 'TRouteAI did not accept Hoprig\'s command token. It accepts it only from the user who runs TRouteAI, with the same data folder: start TRouteAI from Hoprig (Providers → TRouteAI) and try again.';
   }
   if (status === 404) return said && !/^not found$/i.test(said) ? said : 'This TRouteAI has no such thing (an older version?).';
   if (status === 400 || status === 409 || status === 422) return said || 'TRouteAI did not accept that.';
@@ -205,7 +205,7 @@ export async function callGateway(method, path, opts = {}) {
   const port = Number(opts.port);
   if (!Number.isInteger(port) || port < 1024 || port > 65535) throw new ManageError('TRouteAI\'s port is not a usable number.', 500, 'port');
   const who = await (deps.sameUser || sameUserListener)(port);
-  if (who === 'none') throw new ManageError(`TRouteAI is not running on this computer (nothing answers on port ${port}). Start it first: Health, Gateways, Start.`, 409, 'down');
+  if (who === 'none') throw new ManageError(`TRouteAI is not running on this computer (nothing answers on port ${port}). Start it first: Providers → TRouteAI, Start.`, 409, 'down');
   if (who !== 'own') throw new ManageError(`A program that is not yours listens on port ${port}, so Hoprig sends it nothing. Stop it, or start TRouteAI on another port.`, 409, 'foreign');
   const headers = { accept: 'application/json' };
   if (entry.bearer) {
@@ -217,7 +217,7 @@ export async function callGateway(method, path, opts = {}) {
       const folder = opts.folder || dataFolder();
       if (!fs.existsSync(nodePath.join(folder, 'cli-token'))) {
         const { GATEWAY_PIN } = await import('../addons/gateways.mjs');
-        throw new ManageError(`TRouteAI runs, but it has no command token file: the program that runs is older than ${GATEWAY_PIN} (the first that writes it), or it was started before it was updated. Next step: if the copy on this computer is older than ${GATEWAY_PIN}, press Update (Health, Gateways), then press Restart there, so the copy on this computer runs.`, 409, 'token');
+        throw new ManageError(`TRouteAI runs, but it has no command token file: the program that runs is older than ${GATEWAY_PIN} (the first that writes it), or it was started before it was updated. Next step: if the copy on this computer is older than ${GATEWAY_PIN}, press Update (Providers → TRouteAI), then press Restart there, so the copy on this computer runs.`, 409, 'token');
       }
       throw new ManageError('Hoprig cannot read TRouteAI\'s command token (others can read its file, or it is not yours, or it is not a token). Start TRouteAI once from Hoprig as this user, then try again.', 409, 'token');
     }
@@ -235,7 +235,7 @@ export async function callGateway(method, path, opts = {}) {
     text = (await res.text()).slice(0, BODY_MAX);
   } catch (e) {
     if (e?.name === 'TimeoutError' || e?.name === 'AbortError') throw new ManageError(`TRouteAI did not answer in time (${Math.round((deps.timeoutMs || entry.ms || TIME_MS) / 1000)} seconds). Try again in a moment.`, 504, 'slow');
-    throw new ManageError(`TRouteAI does not answer on port ${port}. Start it first: Health, Gateways, Start.`, 409, 'down');
+    throw new ManageError(`TRouteAI does not answer on port ${port}. Start it first: Providers → TRouteAI, Start.`, 409, 'down');
   }
   let json = null;
   try {

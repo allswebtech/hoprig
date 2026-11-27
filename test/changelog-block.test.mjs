@@ -423,7 +423,7 @@ test('the lead-in about her rules counts them as the code has them, and its list
 
 test("the Operator's parts are named in the blocks as the page heads them", () => {
   // The Operator has no page of its own any more: its parts are headed in web/operator-tia.js (Settings, Tia) and web/operator-rooms.js.
-  const now = ['operator-tia.js', 'operator-rooms.js'].flatMap((f) => [...fs.readFileSync(path.join(ROOT, 'web', f), 'utf8').matchAll(/h\('h[23]\.op-h', '([^']+)'\)/g)].map((m) => m[1]));
+  const now = ['operator-tia.js', 'operator-rooms.js'].flatMap((f) => [...fs.readFileSync(path.join(ROOT, 'web', f), 'utf8').matchAll(/(?:h\('h[23]\.op-h'|fold\('tia-part-done'), '([^']+)'\)?/g)].map((m) => m[1]));
   assert.ok(now.includes('Done by Tia'), now.join(', '));
   // The released blocks (fixed by their hashes above) name the parts the page had then.
   const then = [...now, 'Needs you', 'Done by you', 'Watched'];

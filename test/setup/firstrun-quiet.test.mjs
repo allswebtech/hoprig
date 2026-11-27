@@ -20,10 +20,10 @@ const { configFile } = await import('../../src/paths.mjs');
 const { which } = await import('../../src/setup/system.mjs');
 
 const bin = fakeBin(path.join(s.tmp, 'bin'), { claude: fakeClaude({ loggedIn: false }) });
-function sys(env = {}) {
+function sys(env = {}, platform = process.platform) {
   const e = { ...process.env, PATH: pathWith(s.tmp, bin), ...env };
   for (const k of ['SSH_CONNECTION', 'SSH_TTY', 'SSH_CLIENT', ...(env.DISPLAY ? [] : ['DISPLAY']), 'WAYLAND_DISPLAY']) if (!(k in env)) delete e[k];
-  const made = K.sysInfo({ env: e, has: (c) => c !== 'systemctl' && !!which(c, e, process.platform), pm: null, root: false, serviceSupported: false, publicIps: [], dmi: {}, localDisplay: false, savedServer: null, run: windowsFacts(e) });
+  const made = K.sysInfo({ env: e, platform, has: (c) => c !== 'systemctl' && !!which(c, e, process.platform), pm: null, root: false, serviceSupported: false, publicIps: [], dmi: {}, localDisplay: false, savedServer: null, run: windowsFacts(e) });
   made.probe = async () => 0;
   made.ownGateways = false;
   return made;
@@ -62,7 +62,8 @@ test('without a browser at hand the link is printed to open', async () => {
   const rec = recorder();
   const ui = makeUi({ interactive: false, write: rec.write, askLine: noQuestions });
   const opened = [];
-  await SU.setup(['--no-service'], { ui, sys: sys(), parts: PARTS, open: (u) => { opened.push(u); return true; } });
+  // Linux with no display: a Mac or a Windows computer always has a browser to open, so this case is Linux only
+  await SU.setup(['--no-service'], { ui, sys: sys({}, 'linux'), parts: PARTS, open: (u) => { opened.push(u); return true; } });
   const text = rec.text;
   assert.deepEqual(opened, [], 'no desktop: nothing opened');
   assert.match(text, /Open this link in your browser/);

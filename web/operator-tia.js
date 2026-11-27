@@ -108,6 +108,9 @@ function ruleRow(r, after, corrected = null) {
     limitsForm(r, after));
 }
 
+/** A part of the panel as a closed fold of its own (kept open or closed per device): an opened fold then fits a phone. */
+const part = (key, title, node) => (node ? fold(`tia-part-${key}`, title, node) : null);
+
 /** The panel: the master switch, Tia OFF, the sentence that says what is off, the rules. */
 export function tiaPanel(v, after, { confirm = confirmActs } = {}) {
   if (remote()) {
@@ -147,12 +150,12 @@ export function tiaPanel(v, after, { confirm = confirmActs } = {}) {
     h(`p.op-tia-said${v.active ? '.on' : ''}`, { id: 'op-tia-said', role: 'status' }, v.said),
     placeLinks(v.ways),
     master,
-    decidePart(v, after),
-    // His corrections of her decisions, shown where he decides about them; nothing changes by itself from them.
-    tookBack(decisionCount(v.corrections)) ? h('p.op-his.op-corrected', `Tia decides: ${tookBack(decisionCount(v.corrections))}`) : null,
-    lookPart(v, after),
-    correctionsPart(v, after),
-    h('ul.op-rules', v.rules.map((r) => ruleRow(r, after, v.corrections?.week?.rule?.[r.id] || 0))),
+    part('decide', 'Decisions', h('div', decidePart(v, after),
+      // His corrections of her decisions, shown where he decides about them; nothing changes by itself from them.
+      tookBack(decisionCount(v.corrections)) ? h('p.op-his.op-corrected', `Tia decides: ${tookBack(decisionCount(v.corrections))}`) : null)),
+    part('look', 'Looks', lookPart(v, after)),
+    part('corrections', 'Corrections', correctionsPart(v, after)),
+    part('rules', 'Rules she follows', h('ul.op-rules', v.rules.map((r) => ruleRow(r, after, v.corrections?.week?.rule?.[r.id] || 0)))),
     v.projectsOut.length ? h('p.hint', `She never acts in: ${v.projectsOut.join(', ')} (set on each project's page, under Advanced).`) : null);
 }
 
@@ -266,7 +269,7 @@ export function tiaAloneFold() {
   const panelBox = h('div.op-tia-box');
   const lookBox = h('div.op-look-others');
   const byTia = h('div.op-side-body');
-  const done = h('section', { 'aria-label': 'Done by Tia' }, h('h3.op-h', 'Done by Tia'), byTia);
+  const done = fold('tia-part-done', 'Done by Tia', byTia);
   let key = null;
   async function load(focus = null) {
     let r;
@@ -280,7 +283,7 @@ export function tiaAloneFold() {
     key = drawTia(panelBox, r.reflexes, load, { drawn: key, force: !!focus, focus: undo ? null : focus });
     fill(byTia, byTiaList(r.byTia || [], r.reflexes, load));
     if (undo && !focusKey(byTia, undo)) {
-      const head = done.querySelector('h3');
+      const head = done.querySelector('summary');
       head.tabIndex = -1;
       head.focus();
     }

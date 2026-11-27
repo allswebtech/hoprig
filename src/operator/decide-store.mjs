@@ -271,7 +271,7 @@ export function liftHold(who = null, now = Date.now()) {
 /** The one line a start refused by a hold says, naming whose hold it is. */
 export const holdWords = (until, now = Date.now(), by = heldBy(now)) => {
   const min = `for about ${Math.max(1, Math.ceil((until - now) / 60_000))} min more`;
-  const lift = 'Lift the hold on the Operator page to start now.';
+  const lift = 'Lift the hold in Settings → Tia to start now.';
   if (by === 'owner') return `You hold new starts ${min}. ${lift}`;
   if (by === 'both') return `You and Tia hold new starts ${min} (hers because the computer is overloaded). ${lift}`;
   return `Tia holds new starts ${min}, because the computer is overloaded. ${lift}`;

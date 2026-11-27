@@ -138,7 +138,10 @@ test('every switch of Settings: the help it shows at first is one sentence on on
   // Drawn by hand (a checkbox and its line): through helpParts too, or one sentence as it is.
   assert.equal(read('web/sessiondefaults.js').match(/\.\.\.helpParts\(\{ line:/g).length, 1, 'bypass');
   assert.match(read('web/publiclink.js'), /h\('p\.hint', 'Off until you turn it on: nothing is reachable from outside while it is off\.'\)/);
-  assert.match(read('web/tia.js'), /\}, splitHelp\(v\.help\.enabled\)\);/, 'Tia is on: the server\'s first sentence, the rest under More');
+  assert.match(read('web/tia.js'), /\}, onOffWords\(s\.enabled\)\.line\);/, 'Tia: one true line for the state, no fold named More');
+  const tia = read('web/tia.js');
+  assert.match(tia, /\$\{NAME\} is on`, line: 'Turn her off/, 'on: the label and the line say on');
+  assert.match(tia, /\$\{NAME\} is off`, line: 'Turn her on/, 'off: the label and the line say off');
   for (const f of ELSEWHERE) assert.ok(!FILES.includes(f));
 });
 

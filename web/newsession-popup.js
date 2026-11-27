@@ -12,7 +12,7 @@ import { chooseTool, computerChips, lackLine, openAsDefault, providerState, tool
 import { roomHint, roomsById, useHint } from './newsession-room.js';
 import { alsoChoices, alsoOpen } from './newsession-also.js';
 import { moreButton, optionsFor, summaryOf } from './newsession-options.js';
-import { folderSub, outsideProjects, repoWords, runningIn } from './newsession-words.js';
+import { folderSub, outsideProjects, repoWords, runningIn, tellApart } from './newsession-words.js';
 import { atNewAddress, startSession } from './newsession-start.js';
 import { sessionHref } from './sessionitem.js';
 import { groupHead } from './shell.js';
@@ -400,8 +400,8 @@ export function openNewSession({ m, project = null, address = false } = {}) {
       ? [...proj.workspaces.flatMap((w) => w.repos.map((r) => ({ path: r.dir, ...repoWords(r.rel, w.place ? w.id : w.name) }))), ...proj.repos.map((r) => ({ path: r.dir, ...repoWords(r.rel, null), ...(r.place ? { name: r.id } : {}), sub: null }))]
       : [];
     const listed = new Set(known.map((f) => f.path));
-    const more = [...known, ...recent.folders.slice(RECENT_MAX).filter((f) => !listed.has(f.path)).map((f) => ({ path: f.path, name: f.name, short: f.short, sub: folderSub(f, projectsShort) }))]
-      .filter((f) => !seen.has(f.path)).sort((a, b) => String(a.name).localeCompare(String(b.name)));
+    const more = tellApart([...known, ...recent.folders.slice(RECENT_MAX).filter((f) => !listed.has(f.path)).map((f) => ({ path: f.path, name: f.name, short: f.short, sub: folderSub(f, projectsShort) }))]
+      .filter((f) => !seen.has(f.path)).sort((a, b) => String(a.name).localeCompare(String(b.name))));
     const lists = h('div', { tabindex: '-1' });
     const draw = () => {
       const q = st.query.trim().toLowerCase();

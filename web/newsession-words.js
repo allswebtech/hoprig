@@ -33,6 +33,20 @@ export function repoWords(rel, project) {
 }
 
 /**
+ * Rows of one name told apart: a project and a code folder of that name (shop, and code/shop in it) read the same, so
+ * the project says what it is and the code folder says whose it is. Rows with a name of their own are left as they are.
+ */
+export function tellApart(rows) {
+  const n = new Map();
+  for (const r of rows) n.set(String(r.name).toLowerCase(), (n.get(String(r.name).toLowerCase()) || 0) + 1);
+  return rows.map((r) => {
+    if (n.get(String(r.name).toLowerCase()) < 2) return r;
+    if (!r.sub) return { ...r, sub: 'The whole project' };
+    return /^in /.test(r.sub) ? { ...r, sub: `Code ${r.sub}` } : r;
+  });
+}
+
+/**
  * Where a tap on a recent folder goes when something already works there: the terminal session that runs in it, or
  * the chat at work in it (a second one there is what nobody tapping a "running" project means). Null: open a chat.
  */

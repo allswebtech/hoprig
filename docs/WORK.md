@@ -1,30 +1,27 @@
-# Work: tasks, plans and Today
+# Work: tasks, plans and what is due
 
-Work is the dashboard's list of what your workspace has to do, one screen (Today) for what is due and what waits for
-your yes, a way to have a coding session do a task ("Do it") and look at what it did, and plans: goals with milestones and dated tasks, made by
+Work is the dashboard's list of what your workspace has to do, Tasks first for what waits for
+your yes and what is due, a way to have a coding session do a task ("Do it") and look at what it did, and plans: goals with milestones and dated tasks, made by
 hand or proposed by a session that researched the goal ("Plan with AI"). It also holds schedules and tasks that repeat.
 
 ## The page
 
 **Work** is in the sidebar right under Home, and in the phone's bar.
 
-![Work, Today tab: the sessions that run or wait, three tasks with their due days, and a column for each day of the week](screenshots/work-today-desktop-light.webp)
+![Work, Tasks: three tasks with their due days](screenshots/work-today-desktop-light.webp)
 
-- **Today**: **Needs you** (tasks overdue or due this week, tasks waiting for you, and the sessions on any of your
-  computers that need an OK or reached a usage limit), **To review** (what a session has done: its answer, with
-  Accept and Send back), **This week** (today and the six days after, day by day) and **Done lately** (the last seven
-  days), and **Plans to look at** (proposals of Plan with AI you have not answered). "This week" is one rule everywhere: today and
-  the six days after, for Needs you, This week, the Tasks part's "Next seven days" and the command.
-- **Tasks**: every task, in groups: waiting for you, ready for your review, a session works on it, overdue, today,
-  the next seven days, later, no date; done and dropped folded away. A task of a plan that waits for another task not
+- **Tasks**: every task, in groups: **Waits for your yes** (waiting for you, and ready for your review: a session has
+  done it and you Accept or Send back), a session works on it, **Due this week** (overdue, today and the next seven
+  days, by date), later, no date; done and dropped folded away. "This week" is one rule everywhere: today and the six
+  days after, here and in the command. A task of a plan that waits for another task not
   done yet says so ("Waits for …") and is not offered Do it; a task it waits for that was dropped no longer holds it
-  back, and its ⋯ offers **Stop waiting**. Filter by project and by who does it (you or
+  back, and its ⋯ offers **Stop waiting**. A **Filter** fold at the end filters by project and by who does it (you or
   the AI). **Add task** opens a sheet: the task, the day it is due (or none), a project of your workspace, the
   priority, who does it and a note. The round button marks a task done (and open again); **⋯** has Change,
-  Waiting for you, Drop and Remove. Every action names the task by its place in the list and its id together, so
-  of two tasks with one id the one you pressed is changed.
-- **Plans**: the plans with their progress (done of all that are not dropped) and next date, the proposals that wait
-  for you, **New plan** and **Plan with AI** (see "Plans" below). One plan's screen has its goal, its milestones with
+  Waiting for you, Drop and Remove (and Go live, for a finished task). Every action names the task by its place in the list and its id together, so
+  of two tasks with one id the one you pressed is changed. The sessions that need an OK are on Home.
+- **Plans**: the plans with their progress (done of all that are not dropped) and next date, Tia's missions in the same list, the proposals that wait
+  for you, and one button, **Plan with AI**, whose sheet also offers **Write the plan yourself** and **Give Tia a goal** (see "Plans" below). One plan's screen has its goal, its milestones with
   their tasks in order, a **timeline** (tasks and milestones by date, week by week, the weeks with nothing counted,
   what waits for what said in words), **Who did what** once a run of one of its tasks had helpers (its tasks' runs of
   the last 30 days summed per tier, and one line per task with the models that worked on it and its count of runs; a
@@ -58,7 +55,7 @@ hand or proposed by a session that researched the goal ("Plan with AI"). It also
   model ("at the lead's list price they would have cost $X, they cost $Y"). Activity starts with the same sums for
   today and for the last 7 days. Every figure is read from the run's own records; one they do not hold says
   "not measured" and why (a subscription has no price per token, so its saving is said in tokens only).
-- **Go live**: finished task branches put together, checked, and made live on your tap ([GO-LIVE.md](GO-LIVE.md)).
+- **Go live**: a closed fold at the end of Tasks (the old address `#/work/golive` opens it): finished task branches put together, checked, and made live on your tap ([GO-LIVE.md](GO-LIVE.md)).
 - **Team**: Tia's missions and the roles of her sessions (see "Missions" below).
 - **Save**: when the list has changes that are not committed, a bar says so ("2 changes not saved in git yet").
   Save shows first what it will do (the file, and per task: added, done, dropped, changed, removed, new id), then
@@ -218,7 +215,7 @@ refused), the note as above. What does not read is shown as **"The proposal coul
 the session's answer stays readable as text; when the reason is characters nobody can see, **Take them out** reads it
 again without them.
 
-A proposal waits in Hoprig's state folder (`work-proposals/`), on Today ("Plans to look at") and on Plans, also after
+A proposal waits in Hoprig's state folder (`work-proposals/`), on Plans ("Plans to look at"), also after
 a restart of the dashboard (a session that ended meanwhile is settled when the dashboard is back). The **proposal
 screen** shows all of it on one screen, the session's words marked as the session's: you change a title, a date or
 who does it, take out a task or a milestone (what waited for a task taken out waits for nothing in its place), and
@@ -323,7 +320,7 @@ pieces.
   a schedule, a workflow's name), the last ten that ended well give the range, shortest to longest, rounded to five
   minutes, always with its basis: "about 5 h 30 to 8 h 30, from 4 like it", and for one that runs "done by about
   09:30 to 12:30" (in the time zone of Work settings, else this computer's). With fewer than two, a run gets no number: Work's
-  Today tab says it once, under the count of what runs ("No estimate yet: nothing like it has finished here."), and
+  Activity tab says it once, under **Running now** ("No estimate yet: nothing like it has finished here."), and
   the digest says "no estimate yet" beside the run. A duration below zero or over seven days (a clock set back, a lost end) does
   not count. One that runs longer than any like it says so ("longer than any like it (the longest took 2 h)"), and
   gets no new number.
@@ -342,7 +339,7 @@ off until you turn it on; what was there before you turned it on is not told:
   will be done, what waits for you, what it used. A digest with nothing new is not sent.
 
 Each message fits a phone's lock screen: a title of at most 50 characters that says what happened, and a first line
-of at most 90 that says what you can do ("Open Work → Today to look at it and accept it"). No path, and no text of a
+of at most 90 that says what you can do ("Open Work → Tasks to look at it and accept it"). No path, and no text of a
 session but a failure's reason. They are not noise:
 
 - **One message per event**, also across a restart and with two dashboards: a run is told only by the dashboard that
@@ -701,7 +698,7 @@ named in the Save plan and left alone.
 and fixes), its cost, and whether its check and review passed the first time. A mission's screen
 (`#/work/mission/<id>`) shows them with its tasks and what happened; **Team** shows each role (on or off) with its
 tasks, how many passed the first time, its tokens, cost and minutes (a reviewer's runs count for the reviewer).
-**Tia's brief** on Today, shown when something happened since yesterday or waits for you: what was finished since
+**Tia's brief** on Plans, shown when something happened since yesterday or waits for you: what was finished since
 yesterday, what failed and why (a goal whose planning failed since yesterday among them), what waits for you, and what the runs of
 yesterday and today cost. All of it is counted by code from the missions' files: no model is
 asked.
@@ -910,7 +907,7 @@ written). A command refuses an option it does not understand (`add --status done
 an id that two tasks share (it names both and points to `fix-ids`). With `--json` a refusal is one JSON object on
 standard output, `{ "ok": false, "code": "...", "message": "..." }`, with the same exit code (2: not understood,
 1: refused or failed). `tidy` writes only with `--yes` or a yes typed on the terminal. The command does not list the
-sessions that need an OK: they are on Work → Today, on Home and on the Operator page.
+sessions that need an OK: they are on Home and on the Operator page.
 
 ## Not built yet
 

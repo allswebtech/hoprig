@@ -57,7 +57,7 @@ test('sharing a gateway: no provider here sends gateway-no-provider; a key while
   let r = await call('/api/gateways/trouteai/share', { on: true });
   assert.equal(r.status, 409);
   assert.equal(r.json.code, 'gateway-no-provider');
-  assert.match(r.json.error, /Providers → Gateways on your computers/);
+  assert.match(r.json.error, /Providers → TRouteAI/);
   r = await call('/api/gateways/trouteai/keys', { name: 'laptop' });
   assert.equal(r.status, 409);
   assert.equal(r.json.code, 'gateway-not-shared');

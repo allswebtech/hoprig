@@ -141,8 +141,9 @@ function lookPanel() {
   const group = (label, control, hint) => h('div.fieldrow', ids[label] ? { id: ids[label] } : {}, h('span.field-label', label, (marks[keyOf[label]] = savedMark())), control, hint ? h('span.hint', hint) : null);
   return panel({ icon: 'sun', title: 'Colours and text size', desc: 'Saved on this device only.' },
     group('Page colours', seg('page.theme', 'system', [['system', 'System', 'refresh'], ['light', 'Light', 'sun'], ['dark', 'Dark', 'moon']], applyPageTheme), 'System follows your phone or computer setting.'),
+    fold('settings-appearance-terminal', 'Terminal colours and text size',
     group('Terminal colours', seg('term.theme', 'dark', [['dark', 'Dark', 'moon'], ['light', 'Light', 'sun'], ['system', 'System', 'refresh']]), 'Coding tools are drawn for a dark terminal, so dark reads best.'),
-    group('Terminal text size', h('div.stepper-inline', btn('icon secondary', { icon: 'minus', title: 'Smaller', onclick: () => step(-1) }), size, btn('icon secondary', { icon: 'plus', title: 'Larger', onclick: () => step(1) })), 'Smaller text fits more on a phone screen.'));
+    group('Terminal text size', h('div.stepper-inline', btn('icon secondary', { icon: 'minus', title: 'Smaller', onclick: () => step(-1) }), size, btn('icon secondary', { icon: 'plus', title: 'Larger', onclick: () => step(1) })), 'Smaller text fits more on a phone screen.')));
 }
 
 function quickPanel(actions) {
@@ -286,7 +287,7 @@ export const securitySummary = ({ settings: s, here }) => (here ? 'Password · s
 registerSettingsPage({ id: 'notifications', title: 'Notifications', icon: 'bell', order: 20, desc: 'Get told when a session needs you, so you do not have to keep looking.', summary: notifySummary, render: notifyPage });
 registerSettingsPage({
   id: 'appearance', title: 'Appearance', icon: 'sun', order: 30, desc: 'How Hoprig looks and types on this device.', summary: lookSummary,
-  render: ({ settings: s }) => [lookPanel(), editorPanel(), desktopSettings(), voicePanel(), quickPanel(s.server.quickActions), fold('settings-appearance', 'Advanced', terminalsPanel(s.backend))],
+  render: ({ settings: s }) => [lookPanel(), fold('settings-appearance-more', 'Code editor, desktop, voice and quick messages', editorPanel(), desktopSettings(), voicePanel(), quickPanel(s.server.quickActions)), fold('settings-appearance', 'Advanced', terminalsPanel(s.backend))],
 });
 registerSettingsPage({ id: 'security', title: 'Security and sign-in', icon: 'lock', order: 40, desc: 'The password, signing in a phone, the folders Hoprig may open, and where this page can be reached from.', summary: securitySummary, render: securityPage });
 
@@ -376,12 +377,15 @@ export function pageBody(chosen, pages, ctx, { open = null, part = null } = {}) 
 /** The part to open for an address: the one it names, else the card a moved page became. */
 export const partFor = (sub, part, pages) => part || (Object.hasOwn(MERGED_INTO, sub) && pages.some((p) => p.id === sub) ? sub : !pages.some((p) => p.id === sub) && Object.hasOwn(MOVED_PART, sub) ? MOVED_PART[sub] : null);
 
+/** Close or bring back Home's Get started: the one place that writes the setting (Home's card and the foot of this list ask). */
+export const setGetStartedDismissed = (value) => api('~/api/settings', { server: { getStartedDismissed: value } });
+
 /** The foot of the list: the version, and "Show Get started again" while Home's Get started is closed. */
 function settingsFoot({ settings, state, here }) {
   const closed = here && !!((state && state.getStartedDismissed) || (store.data && store.data.getStartedDismissed));
   const again = h('span', ' · ', btn('ghost small', { label: 'Show Get started again', onclick: async () => {
     try {
-      await api('~/api/settings', { server: { getStartedDismissed: false } });
+      await setGetStartedDismissed(false);
     } catch (e) {
       return toast(e, { kind: 'error' });
     }

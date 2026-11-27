@@ -267,7 +267,7 @@ test('AI brain: a file is shown as safe formatting, never as HTML; the list is g
     dailyLogs: { count: 1, items: [item('d1', { date: '2026-11-14' })] },
     projects: [{ name: 'shop', agents: item('agents'), decisions: null, learnings: null, activeContext: null, memory: { count: 0, items: [] } }],
   });
-  assert.deepEqual(g.map((x) => x.title), ['What your coding tools are told everywhere', 'What they remembered', 'Learnings and current context', 'Daily logs', 'Pending', 'shop']);
+  assert.deepEqual(g.map((x) => x.title), ['Rules for every tool', 'What they remembered', 'Learnings and current context', 'Daily logs', 'Pending', 'shop']);
   assert.deepEqual(g[1].rows[1], { item: g[1].rows[1].item, title: 'How I work', sub: 'Short answers', chip: 'about you' });
   assert.equal(g[4].rows.length, 0, 'nothing pending: the group says so instead of an empty box');
   // A coding tool's links to make: the count and the names agree (two to make, two named; the linked one is not).

@@ -12,6 +12,7 @@ import * as registry from './registry.js';
 import { navChanged, registerPage } from './registry.js';
 import { findingPart } from './operator-look.js';
 import { placeLinks } from './operator-ways.js';
+import { plainRow } from './operator-plain.js';
 
 const A = '/api/operator';
 const CLASS_WORDS = { harm: 'Can lose work', stopped: 'Stopped', waits: 'Waits for you', machine: 'This computer', info: 'For your information' };
@@ -131,17 +132,23 @@ export function sameAsCard(it, machines = store.all || []) {
  * other steps behind "More steps" (closed). The risk of a step is asked by the sheet when it is pressed.
  */
 export function itemRow(it, catalog, tap, { changed = false, finding = null, done = () => {}, opened = new Set() } = {}) {
+  const plain = plainRow(it);
   const main = it.acts.find((a) => a.id === it.recommended) || it.acts[0];
-  const others = [...it.acts.filter((a) => a !== main), { id: 'dismiss' }];
-  const more = h('details.op-more', h('summary', { 'aria-label': `More steps for ${it.subject}` }, 'More'), h('div.op-more-acts', others.map((a) => actButton(it, a, catalog, { primary: false, tap }))));
+  // A step that stops something is never the first, red button of a row: it waits inside More, asked as it is today.
+  const quiet = catalog[main.id]?.risk === 'stops';
+  const shown = { ...it, subject: plain.title };
+  const named = (a) => (plain.labels[a.id] ? { ...a, label: plain.labels[a.id] } : a);
+  const rest = [...it.acts.filter((a) => a !== main), { id: 'dismiss' }];
+  const others = (quiet ? [main, ...rest] : rest).map(named);
+  const more = h('details.op-more', h('summary', { 'aria-label': `More steps for ${plain.title}` }, 'More'), h('div.op-more-acts', others.map((a) => actButton(shown, a, catalog, { primary: false, tap }))));
   more.open = opened.has(it.id);
   more.addEventListener('toggle', () => opened[more.open ? 'add' : 'delete'](it.id)); // kept while the rows are drawn again
   return h(`article.op-row.op-${it.class}`, { 'data-item': it.id },
     h('div.op-row-text',
-      h('h3.op-subject', it.subject),
-      h('p.op-row-fact', changed ? 'Changed: look again' : it.facts[0] || classWords(it))),
+      h('h3.op-subject', plain.title),
+      h('p.op-row-fact', changed ? 'Changed: look again' : plain.line || classWords(it))),
     findingPart(it, finding, done),
-    h('div.op-acts', actButton(it, main, catalog, { primary: true, tap }), more));
+    h('div.op-acts', quiet ? null : actButton(shown, named(main), catalog, { primary: true, tap }), more));
 }
 
 /**

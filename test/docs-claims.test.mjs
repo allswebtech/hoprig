@@ -54,19 +54,6 @@ const held = async (line) => {
   return h ? h.kind : null;
 };
 
-/**
- * The states of a session that the page's "needs you" filter keeps (web/lib.js needsYou, used by Home and Today),
- * found by asking it about a session in each state the page knows (stateOf). web/lib.js is a page module: it is
- * loaded with the few stand-ins of a browser it touches when it loads, as test/server/web-bgnote.test.mjs does.
- */
-async function pageFilter() {
-  globalThis.Node ??= class {};
-  globalThis.document ??= { createElement: () => ({ classList: {}, dataset: {}, style: {} }), createTextNode: (t) => ({ text: t }), getElementById: () => null, addEventListener: () => {}, visibilityState: 'visible' };
-  const { needsYou, stateOf } = await import('../web/lib.js');
-  const sessions = [{ limit: true }, { runLimit: true }, { kind: 'shell' }, ...['attention', 'waiting', 'starting', 'working', 'ended', 'other'].map((status) => ({ status }))];
-  return [...new Set(sessions.filter(needsYou).map((s) => stateOf(s).key))];
-}
-
 test('the work-while-you-sleep use case shows Work → Schedules, and the screenshot tool takes that page', () => {
   assert.match(read('tools/screenshots.mjs'), /'work-schedules-desktop-light': async \(\) => view\('#\/work\/schedules'/);
   assert.match(read(SLEEP), /!\[Work → Schedules[^\]]*\]\(\/screenshots\/work-schedules-desktop-light\.webp\)/);
@@ -243,12 +230,9 @@ test('the Operator line: one recommended step, nothing without a tap unless a ru
     { id: 'c', title: 'in a month', status: 'open', date: '2030-04-04', days: 31 },
   ], day);
   assert.deepEqual(v.needsYou.map((it) => it.id).sort(), ['a', 'b']);
-  assert.match(read('web/work.js'), /const list = store\.all\.flatMap\(\(m\) => m\.sessions \|\| \[\]\)\.filter\(needsYou\)/, 'Today adds the sessions that need you');
-  // Which sessions those are is the page's own filter (web/lib.js needsYou), asked of a session in every state.
-  const kept = (await pageFilter()).sort();
-  const words = { attention: 'need an OK', limit: 'reached a usage limit' };
-  assert.deepEqual(kept, Object.keys(words).sort(), 'the README names every state Today keeps, and only those');
-  assert.match(what, new RegExp(`\\*\\*Work\\*\\*: your tasks, and its \\*\\*Today\\*\\* tab that lists what is due this week, what waits for your yes, and the sessions that ${kept.map((k) => words[k]).join(' or ')}\\.`));
+  // The sessions that need an OK are Home's, not Work's any more (Work keeps the tasks).
+  assert.doesNotMatch(read('web/work.js'), /filter\(needsYou\)/);
+  assert.match(what, /\*\*Work\*\*: your tasks, and its \*\*Tasks\*\* tab that lists what waits for your yes first and what is due this week\./);
   assert.doesNotMatch(what, /your own part/);
 });
 
@@ -265,20 +249,20 @@ test('Work, what is not there yet: Do it has a branch of its own now; the OKs ar
   const { todayView } = await import('../src/work/today.mjs');
   assert.deepEqual(Object.keys(todayView([], '2030-03-04')).sort(), ['counts', 'doneLately', 'needsYou', 'toReview', 'today', 'week']);
   assert.match(read('src/work/cli.mjs'), /const t = todayView\(items, store\.today\(\)\);/);
-  assert.match(read('web/work.js'), /const list = store\.all\.flatMap\(\(m\) => m\.sessions \|\| \[\]\)\.filter\(needsYou\)/);
+  assert.match(read('web/home.js'), /cardOrder\(oneCardPerKey/, 'Home lists the sessions that need an OK first');
   const item = flat(/- \*\*Work, what is not there yet\*\*[\s\S]*?(?=\n- \*\*)/.exec(section('Not built, or not proven yet'))[0]);
   assert.doesNotMatch(item, /\(only a run/);
   assert.doesNotMatch(item, /not on a branch of its own/);
-  assert.match(item, /The sessions that need an OK are shown on the dashboard \(Today, Home, the Operator\), not in `hoprig tasks`\./);
+  assert.match(item, /The sessions that need an OK are shown on the dashboard \(Home, the Operator\), not in `hoprig tasks`\./);
 });
 
 test('the automations have the dashboard\'s own names: the queue switch, and no "Restore" for reopening sessions', () => {
   const page = read('web/automation.js');
   for (const name of ['Reopen sessions after a restart', 'Try again after a server error']) assert.ok(page.includes(`'${name}'`), name);
-  assert.match(read('web/workschedules.js'), /'Queued messages'/);
+  assert.ok(!read('web/workschedules.js').includes('Queued messages'), 'the queue is on the session, not on Schedules');
   const pages = [section('It keeps going without you'), read(SLEEP)].map(flat);
   // The queue has no switch any more; the README's section may still say it did until its own words are changed.
-  for (const text of pages) assert.match(text, /\*\*Queue\*\* \((the switch \*\*Send the next queued message\*\*, on at first|always on: it acts only on messages you queued); its list is \*\*Queued messages\*\* in Work → Schedules\)/);
+  for (const text of pages) assert.match(text, /\*\*Queue\*\* \((the switch \*\*Send the next queued message\*\*, on at first|always on: it acts only on messages you queued); you queue a message on the session itself\)/);
   // "Restore code", "Restore conversation" (Rewind) and `workspace restore` are other things of the same word.
   const oldName = /\bRestore\b(?! code| conversation)/;
   for (const f of ['site/content/use-cases/always-on-coding-machine.md', SLEEP]) assert.doesNotMatch(read(f), oldName, f);

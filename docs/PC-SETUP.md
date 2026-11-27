@@ -23,8 +23,8 @@ alone, never reinstalled or downgraded.
 | `--recipe <file or https address>` | set up like another computer (see Recipes) |
 | `--rules` / `--remove-rules` | add (or take out again) a good set of working rules for Claude Code: one file, `~/.claude/rules/hoprig-working-rules.md`, which Claude Code loads for every project; your own `CLAUDE.md` is never touched (an import line an earlier version added there is taken out). Nothing of your workspace map is ever written into it; the short text about your workspace is `hoprig workspace rules`, offered once at a terminal and written into a file of its own only on your yes |
 
-The same is on the dashboard: **Computers**, open the computer, **Setup** (one of its four parts: **Overview**,
-**Setup**, **Health** and **Advanced**). Setup also has a link to the workspace folders, which live in
+The same is on the dashboard: **Computers**, open the computer, **Setup** (one of its three parts: **Overview**,
+**Setup** and **Advanced**). Setup also has a link to the workspace folders, which live in
 **Settings → Workspace**. It shows the status with a **Fix**
 button where a fix exists, and **Set up this computer** lets you tick kits. The installs run as a job on the
 Setup part itself: each step with ✓ or ✗, the output as it comes, the result and **Check again**. The job goes on
@@ -56,9 +56,9 @@ git's name and e-mail, and restoring or starting your workspace) and then the wo
 |---|---|---|
 | **Basics** | git, curl, unzip, C/C++ build tools (what node modules need to compile) | the system's package manager; macOS: the Xcode command line tools; Windows: the Visual Studio C++ build tools |
 | **Node.js** | Node.js LTS, npm | nvm, for you only (no administrator rights); Alpine: `apk add nodejs npm`; Windows: winget |
-| **Python** | python3, pip, venv | the package manager; Windows: the Python install manager |
+| **Python** | python3, pip, venv | the package manager; Windows: the Python install manager (on Windows this kit is optional: off until you choose it) |
 | **GitHub** | `gh`, your commit name and e-mail, signing in | GitHub's own package repository; `gh auth login` (it can also set up git and an SSH key) |
-| **Terminal extras** | tmux, ripgrep, jq | the package manager (no tmux on Windows) |
+| **Terminal extras** | tmux, ripgrep, jq | the package manager (no tmux on Windows; on Windows this kit is optional: off until you choose it) |
 | **Docker** (optional, off by default) | Docker | Docker's own install script; you must log out and in again before it works without `sudo` |
 | **PHP + database** (optional, off by default) | PHP's command line, Composer, MariaDB (server) | the package manager (apt `php-cli composer mariadb-server`, dnf/yum the same, pacman `php composer mariadb`, zypper `php8 php-composer2 mariadb`, apk `php85 composer mariadb mariadb-client`, brew `php composer mariadb`); not on Windows |
 | **Flutter versions (fvm)** (optional, off by default) | fvm | `dart pub global activate fvm`, for you only; only for work on several Flutter versions at once; Flutter (its `dart`) comes first; not on Windows |

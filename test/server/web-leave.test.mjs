@@ -42,7 +42,7 @@ test('the page: groups, the command to copy, Keep and Ignore, Check it again, th
   let shown = null;
   page.render({ frame: (o) => (shown = o), sub: '' });
   await settle();
-  assert.match(shown.intro, /only reads: it never uploads, moves or deletes anything/);
+  assert.match(shown.intro, /Only reads\. Nothing is sent or deleted\./);
   const root = { children: shown.body, className: '' };
   shown.primary.onclick();
   await settle();

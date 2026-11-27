@@ -79,8 +79,7 @@ wget -qO- https://raw.githubusercontent.com/allswebtech/hoprig/main/install.sh |
   the tool marked as recommended, or your note for the project — so a session does not wait for you, while still
   holding, as your card, anything that is yours alone: a push to the main branch, a release, a pull request, admin
   rights, a delete outside the folder, and the rest. Off until you turn it on, per project or per session.
-- **Work**: your tasks, and its **Today** tab that lists what is due this week, what waits for your yes, and the
-  sessions that need an OK or reached a usage limit. The list is one file in a git repository of your workspace (the AI
+- **Work**: your tasks, and its **Tasks** tab that lists what waits for your yes first and what is due this week. The list is one file in a git repository of your workspace (the AI
   brain by default); Save commits only that file, brings another computer's changes in task by task, and either
   reaches the server or leaves your change in the file; a save that was interrupted is finished the next time.
   **Do it** on a task starts a coding session with the task as its brief; on a git project it works on a branch of
@@ -191,9 +190,9 @@ the network ([docs/INSTALL.md](docs/INSTALL.md#a-server-with-only-a-root-login))
 Just want to look? `hoprig demo` opens the dashboard with sample data: no coding tool and no account needed.
 On Windows, what was tried there is in [docs/INSTALL.md](docs/INSTALL.md). Everything else:
 [docs/INSTALL.md](docs/INSTALL.md).
-Check a computer at any time on its **Health** tab (**Computers** → the computer → **Health**), where a problem that
+Check a computer at any time on its **Setup** tab (**Computers** → the computer → **Setup**), where a problem that
 one press can fix has a **Fix** button (or, in a terminal, `hoprig doctor`). Where the dashboard runs as a background
-service, **Restart the dashboard** there restarts it; its sheet first says what happens to that computer's sessions
+service, **Restart the dashboard** under its **Advanced** tab restarts it; its sheet first says what happens to that computer's sessions
 (kept by tmux (a program that keeps terminals running when the dashboard stops), they go on; in the built-in
 terminals they end, and come back only if "Reopen sessions after a restart" is on). Only your own page restarts it, never Tia or a token. The command is `hoprig`, or `hop` for short.
 
@@ -435,7 +434,7 @@ model…) through Claude's API, so Claude Code can use them. Hoprig ships one as
 - **Accounts, combos and limits on Providers.** A TRouteAI panel shows its accounts with their state and limit
   windows; you can test, turn off, remove and add accounts (by a key, a sign-in code or a link), make combos and
   remove the keys Hoprig made. A provider's check that finds a model name without a combo has a **Make the combo** press.
-- **The lifecycle on Health → Gateways.** Restart, Log, Update, Remove (its copy in Hoprig's folder only; your data and
+- **The lifecycle on Advanced → Service → Gateways.** Restart, Log, Update, Remove (its copy in Hoprig's folder only; your data and
   the provider stay: `hop addons remove trouteai`) and the gateway's own dashboard password. `hop doctor` says which copy runs.
 - **Still in TRouteAI's own page**, until its next version: adding a provider that its list does not offer yet, and its
   other settings.
@@ -476,7 +475,7 @@ dashboard started), and **Settings → Add-ons → Add a gateway** shows them an
 assistant's tools cannot add one. Nothing of it goes through a shell. This guards against a mistake and against a
 coding tool trying it in passing, not against a program of your user that sets out to: such a program can edit
 `config.json` itself, as it can any of your files.
-On another computer, its page's **Health → Gateways** starts, stops and runs a gateway as a service there (see
+On another computer, its page's **Advanced → Service → Gateways** starts, stops and runs a gateway as a service there (see
 [docs/COMPUTERS.md](docs/COMPUTERS.md#each-computers-health-and-a-gateway-on-it)).
 Once added it is an add-on like the shipped one (`hop addons start | stop relay`); with more than one gateway,
 **Other providers** first asks which one.
@@ -615,7 +614,7 @@ computer**, a check's **Fix**, a recipe, the commit name, the GitHub sign-in (wi
 Code's own sign-in. When a step needs the administrator password, the page asks for it once; it goes to `sudo`
 only, is never saved, and is masked in the output.
 
-On **Health**, each problem has its press under it: **Fix** where Hoprig can do it, a link to the page that does it,
+On **Setup**, each problem has its press under it: **Fix** where Hoprig can do it, a link to the page that does it,
 or **Sign in** for Claude Code. A step that needs administrator rights and that no Fix does says why ("It needs
 administrator rights, so the computer asks for your password, which only you type."), shows the one line, and
 **Open a terminal with this line** opens a new terminal session with the line typed: you press Enter yourself, and
@@ -634,7 +633,7 @@ nothing else (not Tia, not an automation, not another computer) types into that 
   Agent) that fit your projects are offered with the reason; nothing is added without you.
 - **Working rules**: a starting set, such as the right model and effort for the task and "done means proven".
 - **Kits**: Basics, Node.js, Python, GitHub and Terminal extras are set up by default; Docker, PHP + database,
-  Flutter versions (fvm), Flutter and Android are optional, off until you choose them. Flutter and the Android SDK's
+  Flutter versions (fvm), Flutter and Android are optional, off until you choose them. On Windows, Python and Terminal extras are optional too. Flutter and the Android SDK's
   command-line tools go into the workspace's `development/` folder, downloaded only from Google's own hosts and checked
   against the vendor's own list; one you already have (and an Android Studio) is used where it is. Android Studio is
   not downloaded, and Google's licence stays yours to accept. The sheet says what it downloads, how big it is and
@@ -686,15 +685,14 @@ leads out of it is not followed, unless you name it as yours on that computer wi
 ## It keeps going without you
 
 <p align="center">
-  <img src="docs/screenshots/work-today-desktop-light.webp" alt="Work, Today tab: the sessions that run or wait, three tasks with their due days, and a column for each day of the week" width="760">
+  <img src="docs/screenshots/work-today-desktop-light.webp" alt="Work, Tasks: three tasks with their due days" width="760">
 </p>
 
 The rules that start things are fixed, with no AI deciding: a schedule starts at its time, the queue sends at the end
-of a reply. What they start can be an AI session. The schedules and the queue are in **Work → Schedules**, what they
-did is in **Work → Activity**, and the switches are at the top of **Work → Schedules** and in **Settings → Automations**:
+of a reply. What they start can be an AI session. The schedules are in **Work → Schedules**, what they
+did is in **Work → Activity**, and the switches are under **Advanced** in **Work → Schedules** and in **Settings → Automations**:
 
-- **Queue** (always on: it acts only on messages you queued; its list is **Queued messages** in Work →
-  Schedules): give a session its next messages; each goes in when a reply ends, and only while the
+- **Queue** (always on: it acts only on messages you queued; you queue a message on the session itself): give a session its next messages; each goes in when a reply ends, and only while the
   coding tool is the program in front in that terminal. When it is not (it has ended, or another program runs
   there), the message waits and its row says why.
 - **Schedules**: at a set time (once, daily or on chosen weekdays), let the AI work by itself in a project, start a
@@ -921,7 +919,7 @@ Said plainly, so nothing here is a surprise:
 - **Work, what is not there yet**: Tia does not carry a Work run of hers on to another provider after a usage limit
   by herself, and she does not answer the OKs of a session of hers that no job follows. Hoprig does not write a note
   into a session to take the option it recommends.
-  The sessions that need an OK are shown on the dashboard (Today, Home, the Operator), not in `hoprig tasks`.
+  The sessions that need an OK are shown on the dashboard (Home, the Operator), not in `hoprig tasks`.
 - **What Hoprig's folder check cannot see** (Hoprig stays inside each entry's own folder of the workspace): a folder
   that a program already running on this computer swaps for a link in the instant between the check and the act, and
   a bind mount, which looks like a folder.

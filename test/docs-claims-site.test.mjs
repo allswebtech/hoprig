@@ -110,7 +110,7 @@ test('the plan use case: Tia starts a plan\'s tasks and accepts results only onc
   assert.equal(mission.worksOn(s, 'shop'), false);
   assert.equal(mission.worksOn(mission.missionSettings({ missions: { on: true, projects: { shop: { on: true } } } }), 'shop'), true);
   assert.match(read('web/mission.js'), /toggle\('Tia works by herself', s\.on/);
-  assert.match(read('web/mission.js'), /h\('h3\.ms-h3', 'Accept by itself'\)/);
+  assert.match(read('web/mission.js'), /block\('Accept by itself'/);
   assert.match(read('web/workitems.js'), /h\('span\.field-label', 'Run by AI'\)/);
   const page = flat(read('site/content/use-cases/plan-with-ai.md'));
   assert.doesNotMatch(page, /Nothing starts by itself\. Every task starts on your \*\*Do it\*\*/);

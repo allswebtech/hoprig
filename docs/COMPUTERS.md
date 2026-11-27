@@ -108,25 +108,25 @@ a message, because the port would otherwise be open to the whole network.
 
 ## Each computer's health, and a gateway on it
 
-A computer's page has a **Health** part: its checks (the same as `hoprig doctor` there) with a **Fix** on each line
-Hoprig can fix, Hoprig's and the coding tools' versions, whether its dashboard runs as a service, where it listens,
-its load, memory and disks. It is read when you open it or press **Refresh**, through this dashboard's own link to that
+A computer's **Setup** part lists its checks (the same as `hoprig doctor` there), the red ones first, with a **Fix** on each
+line Hoprig can fix. Its **Advanced → Service** part has Hoprig's and the coding tools' versions, whether its dashboard
+runs as a service and where it listens; its load, memory and main disk are on **Overview**. It is read when you open it or press **Refresh**, through this dashboard's own link to that
 computer, never on a timer. A computer that does not answer says "was not reached since …" (or "never"), and nothing
 of it is shown as fine. Every **Fix** asks first, naming the computer and the commands it runs, and the computer
 checks that name itself; a fix that needs administrator rights says so. Where `sudo` there would ask for a password,
 the page gives you the command to type there instead. Tia proposes a fix as a card you confirm; she never runs one
 herself.
 
-Under **Gateways** on the same part, each gateway of that computer (the shipped one and yours) can be installed,
+Under **Gateways** in **Advanced → Service**, each gateway of that computer (the shipped one and yours) can be installed,
 started, stopped and **run as a service**. Installing and updating ask first, naming the computer, wherever they are
-pressed (Health, Settings → Add-ons, Providers), and the computer checks that name; Tia proposes them as a card. Each
+pressed (Advanced → Service, Settings → Add-ons, Providers), and the computer checks that name; Tia proposes them as a card. Each
 press acts on what really runs and says what it did: **Stop** stops its service and also a copy started outside it
 (from Settings, Tia or a session), **Start** leaves such a copy running and says so, and removing a gateway of your
 own removes its service first. A service is a user service (systemd on Linux, a launchd agent on macOS) that comes
 back after a restart. The page shows the file in full and the commands before anything is written; **Remove the
 service** takes them away again. On Linux a user service starts after a restart only when that computer lets its user's services start without a
 login (systemd calls this lingering): the page says when it does not and offers **Let them start after a restart**
-(an administrator step). Where a gateway listens follows one rule for every start (Health, Settings → Add-ons, Tia,
+(an administrator step). Where a gateway listens follows one rule for every start (Advanced → Service, Settings → Add-ons, Tia,
 a session, the start again after an update) and for its service: on a server, and where that computer's dashboard
 listens on that computer only, it gets `HOST=127.0.0.1` and its definition's words for it (`--host 127.0.0.1` for the
 shipped gateway); where you opened the dashboard to your network, it listens as it always did. A gateway of your own
@@ -147,7 +147,7 @@ its dashboard**) follows the same rule. Opened on a loopback name, the page link
 signed in under; signed in under both, it says to sign out under one first. Opened by the computer's name or the
 public link, it shows no link but one sentence: the gateway's own page opens only in a browser on the computer the
 dashboard runs on, at its `127.0.0.1` address. On another computer's page it says that page opens only on that
-computer itself, and that for a computer added by SSH **Open its page** under that computer's Health opens it in a
+computer itself, and that for a computer added by SSH **Open its page** under that computer's Advanced → Service opens it in a
 browser on the computer this dashboard runs on. The dashboard passes no request on to a gateway's own page: only
 Claude's API (`/gateway/<id>/v1/…`) goes through it, with a gateway key made here and while sharing is on.
 
@@ -264,7 +264,7 @@ slot is recorded as missed with the reason and you are told: it does not run on 
 | "certificate was made by the main computer itself" | Copy the whole line from the main computer, with `--fingerprint sha256:…`: `hoprig machines invite` there, or its page's **Show the line to paste**. Never `--insecure`. |
 | "does not match the fingerprint" | Nothing was sent. Check the line was copied whole; if the main computer was set up again, show the line there again. |
 | "no longer signed by the authority this computer pinned" | The main computer's certificate authority is new (Caddy reinstalled, a new server). Show the line on the main computer again and run it on this computer. |
-| "Not allowed any more" | Its right was revoked on that computer. The New session sheet says: "It no longer lets this dashboard in. Add it again here: Computers → Add a computer"; the computer's own page says: "*name* no longer lets this dashboard in. Add it again here: Computers → Add a computer." Until you do, its **Setup** and **Health** tabs cannot read it; under **Advanced**, **Rename** and **Remove from this list** still work. |
+| "Not allowed any more" | Its right was revoked on that computer. The New session sheet says: "It no longer lets this dashboard in. Add it again here: Computers → Add a computer"; the computer's own page says: "*name* no longer lets this dashboard in. Add it again here: Computers → Add a computer." Until you do, its **Setup** tab cannot read it; under **Advanced**, **Rename** and **Remove from this list** still work. |
 | "Offline" | That computer is off, asleep or without network, or its dashboard is not running. A computer that connects by itself comes back on its own. |
 | "Needs a Hoprig update" | Run `hoprig update` on that computer. |
 

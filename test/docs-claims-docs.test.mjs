@@ -85,9 +85,9 @@ test('Work: the page names every tab of Work, and repeating work and saving miss
   // Save commits mission files beside the list (src/work/save.mjs isExtra, saveplan.mjs isMissionFile).
   assert.match(read('src/work/save.mjs'), /isMissionFile\(file\)/);
   assert.doesNotMatch(flat(part(WORK, 'Not built yet')), /missions' files/);
-  // The command's Today does not list sessions; Work → Today (a tab), Home and the Operator page do.
+  // The command's Today does not list sessions; Home and the Operator page do.
   assert.match(read('src/work/cli.mjs'), /Sessions that need an OK are on the dashboard\\?'s Today\./);
-  assert.match(flat(part(WORK, 'Commands')), /The command does not list the sessions that need an OK: they are on Work → Today, on Home and on the Operator page\./);
+  assert.match(flat(part(WORK, 'Commands')), /The command does not list the sessions that need an OK: they are on Home and on the Operator page\./);
 });
 
 test('Work: Activity is one history of 30 days, filtered by who as the page lists it; its session file keeps 30 days and 256 KB', () => {

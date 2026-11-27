@@ -264,7 +264,7 @@ function appsGrid(frame) {
   frame({
     title: 'Desktop',
     page: 'desktop',
-    intro: 'The apps of this computer. On a screen at least 1024 × 600 they open as windows.',
+    intro: 'Apps of this computer.',
     back: '#/',
     backLabel: 'Dashboard',
     body: [h('div.desk-grid', APPS.map(tile))],

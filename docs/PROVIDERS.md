@@ -93,7 +93,7 @@ folder) goes only from this computer, only to a program that runs as your own us
 for that step and removed right after. If another user's program answers on its port, Set up and Start refuse and send it nothing.
 
 On Providers its panel lists the accounts it holds (state, last test, limit windows), and you can test, turn off and on,
-remove and add accounts, make and remove combos and remove the keys Hoprig made. Health → Gateways has Restart, Log,
+remove and add accounts, make and remove combos and remove the keys Hoprig made. Advanced → Service → Gateways has Restart, Log,
 Update, Remove (only its copy in Hoprig's folder; the data and the provider stay) and its own dashboard password. Until
 its next version lists its providers for Hoprig, adding a provider that its catalog should offer opens its own page.
 

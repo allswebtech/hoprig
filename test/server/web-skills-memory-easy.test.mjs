@@ -171,7 +171,7 @@ test('Memory: tabs first, the rules open, the other groups closed with counts, e
   assert.equal(body[0].className, 'tabs');
   assert.deepEqual(all(body[0], (n) => n.tag === 'a' && n.attrs['aria-current'] === 'page').map(say), ['Memory']);
   const list = say(body[1]);
-  assert.ok(heads(body[1]).some((x) => x.startsWith('What your coding tools are told everywhere')), 'the rules group is open');
+  assert.ok(heads(body[1]).some((x) => x.startsWith('Rules for every tool')), 'the rules group is open');
   const folds = all(body[1], (n) => n.tag === 'details');
   const names = folds.map((f) => say(f.children[0]));
   assert.ok(names.includes('What they remembered (2)'), 'Memory is a fold with its count');

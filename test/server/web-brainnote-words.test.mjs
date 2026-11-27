@@ -54,3 +54,13 @@ test('Skills: the note about the stored skills says Switch on and opens Switch o
   document.body.querySelector('dialog').close();
   box.remove();
 });
+
+test('Memory: the banner says in one plain line what switching on does', async () => {
+  const box = linkBrainNote({ switchOn: true });
+  document.body.append(box);
+  await tick();
+  const said = texts(box.querySelector('.bl-note-text')).join('');
+  assert.equal(said, 'Switch on so your coding tools use these rules, skills and memory. Nothing is deleted.');
+  assert.doesNotMatch(said, /AI brain|does not read/);
+  box.remove();
+});

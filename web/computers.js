@@ -2,7 +2,7 @@
 // page (pc.js), where it is renamed, tested and removed. "Add a computer" (#/computers/add) asks where the other
 // computer is and shows the steps for that case: by SSH, a computer that connects by itself (at home, behind a
 // router), or by its address and a pairing code. Its Advanced part holds the rarer things about this computer:
-// connecting it to another dashboard, a pairing code for another one, and who may control it. "Sign in another
+// whether it is linked to your main Hoprig (and the button that links it), connecting it to another dashboard, a pairing code for another one, and who may control it. "Sign in another
 // device" is part of Settings → Security and sign-in (signIn below). Everything here talks to this dashboard
 // ("~/api/...") except what asks one computer (at(m, ...)). Linking a computer that cannot be reached (the line to
 // paste, "Link to my main", what it is linked to) is in joinlink.js.
@@ -54,7 +54,6 @@ export function computerLine(s, m, update) {
 
 function computerRow(s, m, update) {
   const l = computerLine(s, m, update);
-  // The row opens the computer; "Health" beside it goes straight to its checks (two presses from the list, not three).
   return h(`div.row.cp-row.cp-rowwrap${l.online ? '' : '.cp-off'}`,
     h('a.cp-rowlink', { href: link('#/computer', s.machine) },
       h('span.row-icon', icon('cpu')),
@@ -62,8 +61,7 @@ function computerRow(s, m, update) {
         h('span.row-title', s.machineLabel, s.machine === null ? h('span.badge.soft', 'This computer') : null),
         h('span.row-sub', h(`span.cp-dot${l.online ? '.on' : ''}`, { 'aria-hidden': 'true' }), l.first),
         h('span.row-sub.cp-claude', l.claude)),
-      h('span.row-end', icon('chevronRight', { size: 18 }))),
-    h('a.btn.small.ghost.cp-health', { href: link('#/computer/health', s.machine), 'aria-label': `Health of ${s.machineLabel}` }, 'Health'));
+      h('span.row-end', icon('chevronRight', { size: 18 }))));
 }
 
 // ======================= the list =======================
@@ -80,9 +78,9 @@ function viewList(frame) {
   frame({
     title: 'Computers',
     page: 'computers',
-    intro: 'Every computer whose sessions you see here. Open one to see how it is doing, set it up or change it.',
     primary: { label: 'Add a computer', icon: 'plus', href: '#/computers/add' },
-    body: [list, after, h('div.rows', h('a.row', { href: link('#/leave') }, h('span.row-icon', icon('archive')), h('span.row-main', h('span.row-title', 'Before you format this computer'), h('span.row-sub', 'What exists only on this computer, and what to do about each before it is erased.')), h('span.row-end', icon('chevronRight', { size: 18 }))))],
+    primaryInHead: true, // on a phone in the page head: a floating button lay over a computer's row
+    body: [list, after],
   });
   const paint = () => {
     if (!alive) return;
@@ -92,26 +90,9 @@ function viewList(frame) {
     }
     if (!store.all.length) return;
     fill(list, store.all.map((s) => computerRow(s, known.get(k(s.machine)) || null, updates.get(k(s.machine)))));
-    // Only this one: it may be the main one (add others) or not: then it is linked to the main one (which shows it,
-    // not this list), or it can be linked from here.
-    fill(after, store.all.length === 1
-      ? [joined && joined.length ? null : emptyState('cpu', 'Only this computer so far. Add another one to see its sessions here too, and to look after it from here.'),
-        joined ? mainLinkCard(joined, loadJoins) : null]
-      : null);
+    // Only this one: one line; linking it to a main Hoprig is under Add a computer → Advanced.
+    fill(after, store.all.length === 1 ? emptyState('cpu', 'Only this computer so far. Add another one to see its sessions here too.') : null);
   };
-  let joined = null; // the main computers this one is linked to (GET ~/api/joins), null until known
-  let joinTimer = null;
-  async function loadJoins() {
-    clearTimeout(joinTimer);
-    try {
-      joined = (await api('~/api/joins')).joined;
-    } catch {
-      joined = joined || [];
-    }
-    paint();
-    // While linked, keep its state fresh (a dropped connection comes back by itself).
-    if (alive && joined.length) joinTimer = setTimeout(loadJoins, 5000);
-  }
   async function load() {
     try {
       const d = await api('~/api/machines');
@@ -135,10 +116,8 @@ function viewList(frame) {
   }
   const unsubscribe = store.subscribe(paint);
   load();
-  loadJoins();
   return () => {
     alive = false;
-    clearTimeout(joinTimer);
     unsubscribe();
   };
 }
@@ -155,6 +134,22 @@ const WAYS = [
 
 function viewAdd(frame) {
   let alive = true;
+  // Is this computer linked to a main Hoprig (GET ~/api/joins), or can it be: part of Advanced, so drawn when it answers.
+  const mainBox = h('div');
+  let joinTimer = null;
+  async function loadJoins() {
+    clearTimeout(joinTimer);
+    let joined = [];
+    try {
+      joined = (await api('~/api/joins')).joined;
+    } catch {
+      /* the card then offers the link */
+    }
+    if (!alive) return;
+    fill(mainBox, mainLinkCard(joined, loadJoins));
+    // While linked, keep its state fresh (a dropped connection comes back by itself).
+    if (joined.length) joinTimer = setTimeout(loadJoins, 5000);
+  }
   const isAlive = () => alive;
   let way = null;
   const choice = h('div');
@@ -171,18 +166,20 @@ function viewAdd(frame) {
     page: 'computers',
     back: '#/computers',
     backLabel: 'Computers',
-    intro: 'Show another computer\'s sessions here and look after it from this page. It needs ' + APP_NAME + ' installed there.',
     body: [
       groupHead('What is the other computer?'),
       choice, how,
       fold('computers-add', 'Advanced',
+        mainBox,
         panel({ icon: 'swap', title: 'Show this computer on another dashboard', desc: 'The other way round: this computer connects out to a dashboard on another computer, such as a server.' }, ...joinOther({ isAlive })),
         panel({ icon: 'key', title: 'Let another computer add this one', desc: 'Shows a pairing code to type on the other computer\'s page. Adding by SSH there needs no code.' }, ...pairCode({ isAlive })),
         panel({ icon: 'lock', title: 'Who may control this computer', desc: 'Other computers\' dashboards that can see and drive the sessions here. They cannot change the password or this list.' }, ...tokens({ isAlive }))),
     ],
   });
+  loadJoins();
   return () => {
     alive = false;
+    clearTimeout(joinTimer);
   };
 }
 

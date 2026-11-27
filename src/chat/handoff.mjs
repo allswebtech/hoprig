@@ -275,10 +275,10 @@ export function handoffRoutes(ctx, o) {
         ] : toolFlags(tool, { permissionMode: c.permissionMode === 'bypassPermissions' ? 'bypassPermissions' : 'ask', effort: c.effort, model: c.model });
         // Read before the chat closes: a chat of hers (her own start, a terminal of hers shown as a chat) stays hers.
         const wasHers = c.byTia === true || c.hers === true || !!c.restoredMark;
-        chats.delete(c.id);
-        handed.set(c.id, { conversation, tool, title: c.title || null, named: c.named === true });
-        await c.close();
-        // Its page learns the outcome only now (live.mjs): gone once the terminal runs, kept when it did not start.
+        // Only the chat's process ends; its record (title, settings) stays among the open chats. The terminal then runs
+        // the conversation and the chat reads along; when the terminal does not (an untrusted folder, a start that
+        // failed, a terminal that ends), the same chat is the conversation's place again, so it is never open nowhere.
+        await c.stopAndWait();
         let name;
         try {
           // The conversation starts again in a terminal, outside the dashboard's own move: its Hands-off state is not
@@ -286,12 +286,10 @@ export function handoffRoutes(ctx, o) {
           // A chat of Tia's goes on in the terminal as hers (the mark, her sign-in), whoever pressed.
           name = await ctx.deck.start({ ...(tool === 'claude' ? {} : { tool }), dir: c.cwd, profile, mode: 'resume', sessionId: conversation, flags, resetHandsOff: true, hers: wasHers, all: !wasHers && tool === 'claude' && c.permissionMode === ALL && allAllowed(cfg(), asRoot) });
         } catch (e) {
-          make(c.record()); // the terminal did not start: the chat stays open
-          c.emit('kept');
+          c.emit('kept'); // its page looks again: the chat is as it was
           throw e;
         }
         handedTo(c.id, name); // its page can open that terminal
-        c.emit('gone');
         return { name };
       }, { tool, self: c.id });
       if (r.terminal) { const t = there(r.terminal); settle.res(t.name); return t; }

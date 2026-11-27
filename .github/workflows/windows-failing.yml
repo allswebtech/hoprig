@@ -1,0 +1,31 @@
+name: windows-failing
+
+# On the work branch only: the test files that failed in the last whole run, one job per system, so a mend is
+# seen in minutes instead of after the whole run. It tells, it does not block. Never part of a release.
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  failing:
+    name: windows-failing · ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: npm ci
+      - shell: bash
+        run: |
+          FILES=$(tr -d '\r' < .github/windows-failing.txt | tr '\n' ' ')
+          echo "files: $FILES"
+          node tools/test.mjs $FILES

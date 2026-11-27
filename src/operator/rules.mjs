@@ -61,7 +61,7 @@ export const RULES = Object.freeze([
     act: 'elsewhere',
     sentence: 'When this computer is overloaded, start new work where there is room.',
     detail: 'Only Tia\'s new starts, only on a computer you let her use (Settings → Tia) that has room, until this computer has been calm for 10 minutes (2 hours at most). Nothing that runs moves.',
-    undo: 'end it with Undo under Computers on the Operator page, at once.',
+    undo: 'end it with Undo under Computers, at once.',
     noUndo: null,
     ways: ['tia-settings'],
   },

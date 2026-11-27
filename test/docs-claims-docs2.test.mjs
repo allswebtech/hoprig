@@ -21,7 +21,7 @@ function titles(file, name) {
 
 test('PC-SETUP: a computer\'s page has the parts the guide names, and Setup links to Settings → Workspace', () => {
   const parts = titles('web/pc.js', 'PARTS');
-  assert.deepEqual(parts, ['Overview', 'Setup', 'Health', 'Advanced']);
+  assert.deepEqual(parts, ['Overview', 'Setup', 'Advanced']);
   const doc = flat(read('docs/PC-SETUP.md'));
   assert.ok(doc.includes(`one of its ${['', '', 'two', 'three', 'four', 'five'][parts.length]} parts: ${parts.slice(0, -1).map((p) => `**${p}**`).join(', ')} and **${parts.at(-1)}**`), 'the guide names every part');
   assert.match(read('web/pcsetup.js'), /h\('a\.row', \{ href: link\('#\/settings\/workspace'\) \}/, 'Setup links to Settings → Workspace');

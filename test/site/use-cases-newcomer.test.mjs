@@ -52,11 +52,11 @@ test('the phone signs in through the QR code; the password is in the file set-up
 });
 
 test('the checks: the guide names the Health page and its Fix, the command only as the other way', () => {
-  // The page's own names: Computers in the menu, a computer's Health tab, a check's Fix button.
+  // The page's own names: Computers in the menu, a computer's Setup tab, a check's Fix button.
   assert.match(read('web/computers.js'), /registerPage\(\{ id: 'computers', title: 'Computers',/);
-  assert.match(read('web/pc.js'), /\{ id: 'health', title: 'Health',/);
+  assert.match(read('web/pc.js'), /\{ id: 'setup', title: 'Setup',/);
   assert.match(read('web/health.js'), /btn\('small primary', \{ label: 'Fix',/);
-  assert.match(flat(read(PAGE)), /At any time, open \*\*Computers\*\*, then this computer, then its \*\*Health\*\* tab: it checks everything, and under a problem that one press can fix there is a \*\*Fix\*\* button, which asks before it changes anything\. \(Or, in a terminal, `hoprig doctor` shows the same checks\.\)/);
+  assert.match(flat(read(PAGE)), /At any time, open \*\*Computers\*\*, then this computer, then its \*\*Setup\*\* tab: it checks everything, and under a problem that one press can fix there is a \*\*Fix\*\* button, which asks before it changes anything\. \(Or, in a terminal, `hoprig doctor` shows the same checks\.\)/);
 });
 
 test('after the install line the guide sends no one to a terminal: no sign-in or check is a command to type', () => {

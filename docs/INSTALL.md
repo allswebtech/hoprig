@@ -202,7 +202,7 @@ to remove it too, see [its docs](https://code.claude.com/docs/en/setup).
 
 ### Troubleshooting
 
-Open **Computers → this computer → Health** on the dashboard: the same checks as `hoprig doctor`, with a **Fix**
+Open **Computers → this computer → Setup** on the dashboard: the same checks as `hoprig doctor`, with a **Fix**
 button where one press can fix a problem (it shows what it runs and asks first). In a terminal:
 
 ```sh
@@ -228,7 +228,7 @@ the computer alone. Common ones:
 | `! ... can be read by other users` | the `chmod 700` command shown |
 | `✗ Settings file` | fix the JSON in the file shown, or move it away and run `hoprig setup` |
 
-On Linux, to keep the dashboard running while you are logged out: open **Computers → this computer → Health** and
+On Linux, to keep the dashboard running while you are logged out: open **Computers → this computer → Advanced → Service** and
 press **Let them start after a restart** (it asks first; where sudo would ask for a password, the page shows the line
 to type). In a terminal: `sudo loginctl enable-linger $USER`.
 

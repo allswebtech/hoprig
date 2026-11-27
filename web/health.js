@@ -1,11 +1,11 @@
-// One computer's Health part (#/computer/health, #/m/<computer>/computer/health): its checks (the doctor's) with a Fix
-// on each line that has one, Hoprig's and the coding tools' versions, its service, where it listens, load, memory and
-// disks, and its gateways: install, start, stop, run as a service, open its page. Read when the part opens or Refresh
-// is pressed, never on a timer. Another computer's health comes through this dashboard's own link to it
+// What the doctor says about one computer, in the two places of its page that use it: the checks Setup does not list
+// itself, with a Fix on each line that has one (healthFixes, in Setup), and the service, the versions, where it
+// listens and the gateways there (healthAdvanced, in Advanced: install, start, stop, run as a service, open its page).
+// The old Health address (#/computer/health) lands on Setup. Read when the part opens or Refresh is pressed, never on a timer. Another computer's health comes through this dashboard's own link to it
 // (~/api/machines/<name>/health); one that does not answer says since when, never that it is fine.
 import { APP_NAME } from './brand.js';
 import { icon } from './icons.js';
-import { MACHINE_STATE, add, ago, api, btn, bytes, confirmSheet, fill, h, link, machine, openSheet, promptSheet, toast, wayLink } from './lib.js';
+import { MACHINE_STATE, add, ago, api, btn, confirmSheet, fill, h, link, machine, openSheet, promptSheet, toast, wayLink } from './lib.js';
 import { errorBox, groupHead, okBox } from './shell.js';
 import { startSetup } from './setupjob.js';
 import { busy, cmdLine } from './joinlink.js';
@@ -37,15 +37,6 @@ export function plainHost(pageHost, signedIn = []) {
 
 /** The one sentence for a computer linked without SSH: why its page cannot be opened from here, and where. */
 export const noForwardWords = (title, label, port) => `${title}'s page cannot be opened from here, because ${label} is linked to this dashboard without SSH and so this dashboard has no way to reach that page: open it in a browser on ${label} itself, at http://127.0.0.1:${port}/.`;
-
-/** "Load 0.4 of 4 processors · Memory 2.1 GB of 8 GB used · / 20 GB of 100 GB used": the figures as one line each. */
-export function figures(hl) {
-  const out = [];
-  if (hl.load && Number.isFinite(hl.load[0]) && hl.cpus) out.push(['Load', `${hl.load[0].toFixed(2)} on ${hl.cpus} processor${hl.cpus === 1 ? '' : 's'} (the last minute)`]);
-  if (hl.memory && hl.memory.total) out.push(['Memory', `${bytes(hl.memory.total - hl.memory.available)} of ${bytes(hl.memory.total)} used`]);
-  for (const d of hl.disks || []) out.push([d.mount === '/' ? 'Main disk' : `Disk ${d.mount}`, `${bytes(d.used)} of ${bytes(d.size)} used, ${bytes(d.avail)} free`]);
-  return out;
-}
 
 /** What a Fix's confirmation says: whether it needs administrator rights there, and the commands it runs. */
 export function fixText(c, computer) {
@@ -97,8 +88,20 @@ export function restartWords(st, where) {
   return `${sessions} A reply an App session is writing at that moment is cut off. This page loses ${where} for a few seconds.`;
 }
 
-export function healthSection(ctx) {
+/** The checks of the doctor that Setup does not list, the red ones, each with its Fix: `{ el, show(ids), reload() }` (ids: what Setup lists). */
+export function healthFixes(ctx) {
+  return health(ctx, 'fixes');
+}
+
+/** The service, the versions, where it listens and the gateways of a computer, for its Advanced part. */
+export function healthAdvanced(ctx) {
+  return health(ctx, 'advanced').el;
+}
+
+function health(ctx, mode) {
   const name = machine.current;
+  let last = null; // the last answer's health, for 'fixes'
+  let skip = null; // the check ids Setup lists itself; nothing is drawn before it is known
   const top = h('div', { role: 'status' }, busy('Asking for its health…'));
   const gwBox = h('div');
   // The answer to the last press stays while the list under it is drawn again.
@@ -171,18 +174,12 @@ export function healthSection(ctx) {
     load();
   }
 
-  function checks(all, line = false) {
-    // The service is shown once, at the top ("Runs as a service"), not again as a check.
-    const list = all.filter((c) => c.id !== 'service');
-    const bad = list.filter((c) => c.status === 'fail' || c.status === 'warn');
-    const fine = list.length - bad.length;
-    return [
-      groupHead('Checks', list.length),
-      bad.length ? null : okBox(`All ${list.length} checks are fine.`),
-      // A check's reason wraps: cut to one line it hid what to do (the root line at desktop width).
-      h('div.rows.check-rows', bad.map((c) => row(MARK[c.status], c.label, c.detail, fixOf(c, line)))),
-      bad.length && fine ? h('p.hint', `${fine} other check${fine === 1 ? ' is' : 's are'} fine.`) : null,
-    ];
+  // The red checks Setup does not list itself (the service is on Advanced, not a check).
+  function drawFixes() {
+    if (!last || !skip) return;
+    const bad = last.checks.filter((c) => c.id !== 'service' && !skip.has(c.id) && (c.status === 'fail' || c.status === 'warn'));
+    // A check's reason wraps: cut to one line it hid what to do (the root line at desktop width).
+    fill(top, bad.length ? h('div.rows.check-rows', bad.map((c) => row(MARK[c.status], c.label, c.detail, fixOf(c, last.line === true)))) : null);
   }
 
   async function load() {
@@ -196,6 +193,7 @@ export function healthSection(ctx) {
     }
     refresh.disabled = false;
     if (!r.reached) {
+      if (mode === 'fixes') return fill(top); // Setup says it could not check
       // The hub's label for it, also while it is off; then the hub's reason, which says what to do for a computer that is
       // too old, no longer allows this one or has another host key. "On and online" is the advice only when it is off.
       const w = unreachedWords(r, r.label || ctx.label());
@@ -205,16 +203,20 @@ export function healthSection(ctx) {
     }
     const hl = r.health;
     computerName = hl.computer || null;
+    if (mode === 'fixes') {
+      last = hl;
+      return drawFixes();
+    }
     restart.classList.toggle('hidden', !(hl.service && hl.service.status === 'ok'));
     const v = hl.versions;
+    // Load, memory and the disks are on Overview: not said a second time here.
     fill(top,
       h('p.hint', `As it said ${ago(r.seenAt)}.`),
       h('div.rows',
-        row('cpu', 'Versions', [`${APP_NAME} ${v.hoprig || '?'}`, v.claude ? `Claude Code ${v.claude}` : 'Claude Code not installed', v.opencode ? `OpenCode ${v.opencode}` : null].filter(Boolean).join(' · ')),
         row(hl.service && hl.service.status === 'ok' ? 'check' : 'alert', 'Runs as a service', hl.service ? hl.service.detail : 'unknown'),
         hl.listens ? row('lock', 'Listens on', `${hl.listens.host}:${hl.listens.port}${hl.listens.host === '127.0.0.1' ? ' (this computer only)' : ''}`) : null,
-        ...figures(hl).map(([k, val]) => row('monitor', k, val))),
-      ...checks(hl.checks, hl.line === true));
+        row('cpu', 'Versions', [`${APP_NAME} ${v.hoprig || '?'}`, v.claude ? `Claude Code ${v.claude}` : 'Claude Code not installed', v.opencode ? `OpenCode ${v.opencode}` : null].filter(Boolean).join(' · ')),
+        h('a.row', { href: link('#/providers') }, h('span.row-icon', icon('swap')), h('span.row-main', h('span.row-title', 'Gateways'), h('span.row-sub', 'Add, start and stop them on Providers; the ones on this computer are below.')), h('span.row-end', icon('chevronRight', { size: 18 })))));
     gateways();
   }
 
@@ -401,5 +403,6 @@ export function healthSection(ctx) {
   }
 
   load();
-  return h('div.cp-health', h('div.savebar.start', refresh, restart), top, gwBox);
+  if (mode === 'fixes') return { el: h('div.cp-health', top, msg), show: (ids) => { skip = new Set(ids); drawFixes(); }, reload: () => load() };
+  return { el: h('div.cp-health', { id: 'service' }, h('div.savebar.start', refresh, restart), top, gwBox) };
 }

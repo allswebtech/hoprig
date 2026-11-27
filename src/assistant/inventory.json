@@ -115,7 +115,7 @@
   {"act": "POST /api/gatewayhost/<id>/(start|stop)", "kind": "route", "not": "admin", "why": "A gateway of your own is a program this computer runs; its start and stop on Health are your own presses."},
   {"act": "POST /api/gatewayhost/<id>/restart", "kind": "route", "not": "admin", "why": "Restarting a gateway stops and starts a program of this computer: your own press on Health."},
   {"act": "POST /api/gatewayhost/<id>/setup", "kind": "route", "not": "admin", "why": "Setting up a gateway installs and starts a program and makes a key for it: your own press, naming this computer."},
-  {"act": "POST /api/gatewayhost/<id>/password", "kind": "route", "not": "sign-in", "why": "A gateway's own password is set by you, on its Health row."},
+  {"act": "POST /api/gatewayhost/<id>/password", "kind": "route", "not": "sign-in", "why": "A gateway's own password is set by you, on its page under Providers."},
   {"act": "POST /api/gatewayhost/<id>/public", "kind": "route", "not": "sent-out", "why": "Turning on a gateway's public address opens it to the internet: only your own press, in your browser, on its own page."},
   {"act": "POST /api/gatewayhost/<id>/first", "kind": "route", "not": "sign-in", "why": "A gateway's first password is shown once, to you, on its page."},
   {"act": "POST /api/gatewayhost/<id>/service", "kind": "route", "not": "admin", "why": "Making or removing a gateway's service changes what this computer starts by itself."},

@@ -253,11 +253,12 @@ test('after his own change the panel is drawn again while the focus is on the sw
   assert.ok(texts(box).includes('Tia OFF'), 'Tia OFF is there');
   assert.equal(document.activeElement, switchOf(box, 'master'), 'the focus is on the new master switch');
   // While he types in an open "Change the limits" form, the 15-second reload does not draw over it (his own Save does).
-  const form = all(box, (n) => n.tag === 'details')[0];
+  const limitsForms = () => all(box, (n) => n.tag === 'details' && String(n.className).includes('op-limits'));
+  const form = limitsForms()[0];
   form.open = true;
   all(form, (n) => n.tag === 'input')[0].focus();
   const kept = tia.drawTia(box, tiaView({ acts: true, said: 'other words' }), () => {}, { drawn: key });
-  assert.equal(all(box, (n) => n.tag === 'details')[0], form, 'the open form he types in stays');
+  assert.equal(limitsForms()[0], form, 'the open form he types in stays');
   assert.equal(kept, key);
   tia.drawTia(box, tiaView({ acts: true, said: 'other words' }), () => {}, { drawn: key, force: true, focus: 'limits-limit' });
   assert.ok(texts(box).includes('other words'), 'after his Save it is drawn again');

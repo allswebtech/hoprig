@@ -185,6 +185,12 @@ export function trouteaiPage({ frame }) {
       parts.push(manageFold(ctx, gw));
       return fill(body, ...parts);
     }
+    // Its program runs but nothing answers (the other list knocks on its port): its accounts would be refused, so they
+    // are not asked for. One line says so, and Manage has Restart.
+    if (gw && gw.running === false) {
+      parts.push(h('div.banner.warn', icon('alert', { size: 18 }), h('span', 'It runs, but it does not answer yet. Restart it under Manage.')), manageFold(ctx, gw));
+      return fill(body, ...parts);
+    }
     const hint = h('p.hint.tr-open-hint', { role: 'status' });
     let pub = { state: 'unavailable', need: 'not-running' };
     let accounts = { accounts: [] };

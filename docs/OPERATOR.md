@@ -554,7 +554,7 @@ Every act of Hoprig is one row of `src/assistant/inventory.json`: 367 in all (43
 - `POST /api/gateways/<id>/keys`: Sharing a gateway makes and removes the keys other computers sign in with.
 - `POST /api/gateways/keys/<id>/remove`: Sharing a gateway makes and removes the keys other computers sign in with.
 - `POST /api/gateways/add`: Sharing a gateway makes and removes the keys other computers sign in with.
-- `POST /api/gatewayhost/<id>/password`: A gateway's own password is set by you, on its Health row.
+- `POST /api/gatewayhost/<id>/password`: A gateway's own password is set by you, on its page under Providers.
 - `POST /api/gatewayhost/<id>/first`: A gateway's first password is shown once, to you, on its page.
 - `POST /api/gatewayhost/<id>/accounts/<id>/test`: An account of the gateway holds a provider key or sign-in: testing, turning it off and removing it are your own presses on Providers.
 - `POST /api/gatewayhost/<id>/accounts/<id>/on`: An account of the gateway holds a provider key or sign-in: testing, turning it off and removing it are your own presses on Providers.

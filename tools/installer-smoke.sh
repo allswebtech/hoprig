@@ -70,8 +70,16 @@ export HOPRIG_SOURCE=$TGZ
 ARGS="--yes --only base --access local"
 [ "$MODE" = serve ] && ARGS="$ARGS --no-service"
 if [ "$WIN" = 1 ]; then
+  # The runner's own account is an administrator, which the installer refuses unless it is allowed on purpose.
+  export HOPRIG_ALLOW_ADMIN=1
   step install powershell -NoProfile -ExecutionPolicy Bypass -File "$(cygpath -w "$REPO/install.ps1")" $ARGS
-  PATH="$(cygpath "$APPDATA")/npm:$PATH"
+  # A NEW PowerShell window of that person reads the PATH saved in the registry (all users, then their own): the
+  # installer put Node.js and the hoprig command into the person's own folder and saved it there. This window did not
+  # start from it, so it is read the same way here.
+  SAVED=$(powershell -NoProfile -Command "[Environment]::GetEnvironmentVariable('Path','Machine') + ';' + [Environment]::GetEnvironmentVariable('Path','User')" | tr -d '\r')
+  NEWPATH=$(printf '%s' "$SAVED" | tr ';' '\n' | while IFS= read -r d; do [ -n "$d" ] && cygpath -u "$d"; done | tr '\n' ':')
+  PATH="$NEWPATH$PATH"
+  say "saved PATH starts with: $(printf '%s' "$NEWPATH" | tr ':' '\n' | head -3 | tr '\n' ' ')"
 else
   step install sh "$REPO/install.sh" $ARGS
   PATH="$HOME/.local/bin:$PATH"
