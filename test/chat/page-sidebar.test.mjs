@@ -51,7 +51,7 @@ test('a chat on a branch of its own is listed under its project, with its branch
 
 test('Group by State and Computer, Sort by Name', () => {
   assert.deepEqual(S.sideGroups(machines, { group: 'state' }).map((x) => [x.label, x.sessions.map((s) => s.name)]), [
-    ['Needs you', ['chat:b', 'shop']], ['Working', ['api']], ['Ready', ['chat:a']],
+    ['Needs you', ['chat:b', 'shop']], ['Working', ['api']], ['Finished', ['chat:a']],
   ], 'Home\'s order: what needs the owner first');
   assert.deepEqual(S.sideGroups(machines, { group: 'computer' }).map((x) => x.label), ['Workstation', 'Laptop']);
   const byName = S.sideGroups(machines, { sort: 'name', multi: true });

@@ -1,6 +1,6 @@
 // Settings → Runs as root: shown only where Hoprig runs as root (GET /api/settings `root`). It says in plain words why
 // root is a problem for the daily work, and offers the two ways: move Hoprig to an ordinary user (a command on that
-// computer), or keep it on root on purpose by typing the sentence (kept as `stayRoot`; the doctor and Setup then show the
+// computer), or keep it on root on purpose by typing the sentence (kept as `stayRoot`; doctor and Health then show the
 // root line as information only). Inside a container root is on purpose already, and no sentence is asked. On purpose,
 // the page says once what does not work as root (`limits`) and asks nothing.
 import { COMMAND } from './brand.js';
@@ -20,7 +20,7 @@ function parts(r, redraw) {
     return [panel({ icon: 'info', title: 'Root on purpose', desc: `Inside a container (${r.container.join(', ')}), so Hoprig stays on root and nothing asks you about it.` }, limits)];
   }
   if (r.stay) {
-    return [panel({ icon: 'info', title: 'Kept on root by your choice', desc: 'The doctor and Setup show this as information only, and nothing asks you about it again.' },
+    return [panel({ icon: 'info', title: 'Kept on root by your choice', desc: 'Doctor and Health show this as information only, and nothing asks you about it again.' },
       limits,
       saveBar('Take the choice back', async () => redraw((await api('/api/settings', { stayRoot: false })).root), 'Taken back'))];
   }
@@ -30,7 +30,7 @@ function parts(r, redraw) {
     panel({ icon: 'user', title: 'Move Hoprig to an ordinary user', desc: 'The way we recommend. It shows what runs, what is copied and each step, and asks once before it changes anything. Here, or in a terminal on this computer:' },
       cmdLine(`${COMMAND} move-to-user`),
       moveBox()),
-    panel({ icon: 'lock', title: 'Keep Hoprig on root on purpose', desc: 'Only when you know why this computer must work as root. Bypass permissions mode stays unavailable, and the doctor and Setup then show root as information only.' },
+    panel({ icon: 'lock', title: 'Keep Hoprig on root on purpose', desc: 'Only when you know why this computer must work as root. Bypass permissions mode stays unavailable, and doctor and Health then show root as information only.' },
       field(`Type "${r.sentence}"`, typed, 'It is kept in this computer\'s settings, and you can take it back here.'),
       saveBar('Keep it on root', async () => redraw((await api('/api/settings', { stayRoot: { sentence: typed.value } })).root), 'Kept on root')),
   ];

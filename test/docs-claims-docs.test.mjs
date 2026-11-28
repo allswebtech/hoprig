@@ -37,7 +37,7 @@ test('Operator: Tia acts by herself by a rule you switched on or by Tia decides,
   assert.equal(readOperator({ operator: { acts: true }, assistant: { enabled: true } }).active, true);
   assert.match(read('src/operator/decider.mjs'), /return readOperator\(cfg\)\.active && readDecide\(cfg\)\.on;/, 'Tia decides runs only while active');
   const rules = flat(part(OPERATOR, 'What Tia does by herself (her rules)')).trim();
-  assert.match(rules, /^Hoprig mends by itself what costs nothing, with no model: the rules marked "costs nothing" below are on from the first run under \*\*Settings → Automations → Mend problems by itself\*\*/);
+  assert.match(rules, /^Hoprig mends by itself what costs nothing, with no model: the rules marked "costs nothing" below are on from the first run under \*\*Settings → While you are away → Mend problems by itself\*\*/);
   assert.match(rules, /Tia may do any other step by herself only by a rule you switched on or by \*\*Tia decides\*\* \(below\), and only while \*\*Tia acts by herself\*\* is on and Tia herself is on \(Settings → Tia\): those are off after an install and after an update\./);
   assert.doesNotMatch(rules, /only by a rule you switched on, and only while/);
 });
@@ -52,11 +52,11 @@ test('Operator: the rules table and its count are the code\'s list of rules, the
   const rules = part(OPERATOR, 'What Tia does by herself (her rules)');
   assert.deepEqual(firstCells(rules), [...RULE_IDS], 'one row per rule, in the code\'s order');
   assert.match(flat(rules), new RegExp(`There are ${NUMBERS[RULE_IDS.length]} rules, and only these:`));
-  assert.match(flat(part(OPERATOR, 'Where it is')), new RegExp(`her ${NUMBERS[RULE_IDS.length]} rules \\(below\\)`));
+  assert.match(flat(part(OPERATOR, 'The page')), new RegExp(`her ${NUMBERS[RULE_IDS.length]} rules \\(below\\)`));
   assert.deepEqual(firstCells(part(OPERATOR, 'What it watches')).sort(), [...KINDS].sort(), 'one row per kind of item');
 });
 
-test('Operator: the Operator doc names its Computers part, its room words and its switch, off at first', async () => {
+test('Operator: the page names its Computers part, its room words and its switch, off at first', async () => {
   // The page's modules look at the document when they load: the least of one, as test/operator/rooms-page.test.mjs gives it.
   globalThis.Node ??= class {};
   const el = () => ({ style: {}, dataset: {}, children: [], classList: { add() {}, remove() {}, toggle() {} }, setAttribute() {}, removeAttribute() {}, addEventListener() {}, append() {}, appendChild() {}, replaceChildren() {}, querySelector: () => null, querySelectorAll: () => [] });
@@ -64,7 +64,7 @@ test('Operator: the Operator doc names its Computers part, its room words and it
   const { ROOM_WORDS, LOOK_SENTENCE } = await import('../web/operator-rooms.js');
   const { lookOthersOn } = await import('../src/operator/rooms.mjs');
   assert.equal(lookOthersOn({}), false, 'Look at my other computers too is off at first');
-  const page = flat(part(OPERATOR, 'Where it is'));
+  const page = flat(part(OPERATOR, 'The page'));
   assert.match(page, /\*\*Computers\*\*: /);
   for (const w of Object.values(ROOM_WORDS)) assert.ok(page.includes(`**${w}**`), `the room word "${w}"`);
   assert.ok(page.includes(`The switch **${LOOK_SENTENCE}** is off at first`));
@@ -87,9 +87,9 @@ test('Work: the page names every tab of Work, and repeating work and saving miss
   // Save commits mission files beside the list (src/work/save.mjs isExtra, saveplan.mjs isMissionFile).
   assert.match(read('src/work/save.mjs'), /isMissionFile\(file\)/);
   assert.doesNotMatch(flat(part(WORK, 'Not built yet')), /missions' files/);
-  // The command does not list sessions; Home does, in Needs you.
-  assert.match(read('src/work/cli.mjs'), /Sessions that need an OK are on the dashboard\\?'s Home, in Needs you\./);
-  assert.match(flat(part(WORK, 'Commands')), /The command does not list the sessions that need an OK: they are on Home, in Needs you\./);
+  // The command's Today does not list sessions; Work → Today (a tab), Home and the Operator page do.
+  assert.match(read('src/work/cli.mjs'), /Sessions that need an OK are on the dashboard\\?'s Today\./);
+  assert.match(flat(part(WORK, 'Commands')), /The command does not list the sessions that need an OK: they are on Work → Today, on Home and on the Operator page\./);
 });
 
 test('Work: Activity is one history of 30 days, filtered by who as the page lists it; its session file keeps 30 days and 256 KB', () => {
@@ -154,9 +154,9 @@ test('Work: Tia changes a plan at once only on his own named words and never at 
   assert.ok(tia.includes('Making a plan and changing its title, goal, projects or milestones is her act `change-plan`'));
   assert.ok(tia.includes('A plan\'s status (done or dropped) stays yours on the Plans part.'));
   const door = read('src/assistant/door.mjs');
-  assert.match(door, /r\('POST', `\/api\/work\/items\/\$\{SEG\}\/plan`, 'manage_work add, edit, undo', \(b\) => onlyKeys\(\['at', 'plan', 'milestone', 'after'\]\)\(b\) \|\| atOk\(b\)\),/);
+  assert.match(door, /r\('POST \/api\/work\/items\/<id>\/plan', `\/api\/work\/items\/\$\{SEG\}\/plan`, 'manage_work add, edit, undo', \(b\) => onlyKeys\(\['at', 'plan', 'milestone', 'after'\]\)\(b\) \|\| atOk\(b\)\),/);
   // Her act change-plan (hoprig_act) makes and changes a plan: title, goal, projects and milestones, never its status.
-  assert.match(door, /r\('POST', '\/api\/work\/plans', 'hoprig_act change-plan', onlyKeys\(\['title', 'goal', 'projects', 'milestones'\]\)\),/);
+  assert.match(door, /r\('POST \/api\/work\/plans', '\/api\/work\/plans', 'hoprig_act change-plan', onlyKeys\(\['title', 'goal', 'projects', 'milestones'\]\)\),/);
   const nb = flat(part(WORK, 'Not built yet'));
   assert.doesNotMatch(nb, /Tia's tools to read or change a plan/);
   assert.match(nb, /Tia carrying a Work run of hers on to another provider by herself after a usage limit/);
@@ -212,7 +212,7 @@ test('Workspace: the shell files that get the PATH line are the ones the code pi
   assert.match(page, /at the \*\*top\*\* of `~\/\.bashrc`, before the line that stops a non-interactive shell \(when bash is your shell or that file is there\); in `~\/\.zshenv` \(when zsh is your shell, on macOS, or that file is there\); and in `~\/\.config\/fish\/conf\.d\/hoprig\.fish` when fish is your shell\./);
 });
 
-test('Workspace: the route list names every route of the workspace feature, and the folders are in Settings → Automations → Workspace', () => {
+test('Workspace: the route list names every route of the workspace feature, and the folders are in Settings → Workspace', () => {
   const src = read('src/workspace/feature.mjs');
   const routes = [...src.matchAll(/\['(GET|POST)', \/\^((?:\\\/|[a-z])+)\$\//g)].map((m) => [m[1], m[2].replace(/\\\//g, '/')]);
   assert.ok(routes.length >= 20, 'the feature has its routes table');
@@ -221,10 +221,10 @@ test('Workspace: the route list names every route of the workspace feature, and 
     const named = new RegExp(`\`(?:${method}|GET\\|POST) ${p.replace(/\//g, '\\/')}(?:\\?[^\`]*)?\``);
     assert.match(page, named, `${method} ${p} is named`);
   }
-  // The workspace folders panel is drawn by Settings → Automations → Workspace; the Setup part of a computer's page only links there.
+  // The workspace folders panel is drawn by Settings → Workspace; the Setup part of a computer's page only links there.
   assert.match(read('web/workspace.js'), /fill\(box, placesPanel\(st, draw\), workspaceFolders\(\)/);
   assert.match(read('web/pcsetup.js'), /h\('a\.row', \{ href: link\('#\/settings\/workspace'\) \}/);
-  assert.match(page, /The workspace folders themselves are in \*\*Settings → Automations → Workspace\*\* \(the \*\*Setup\*\* part of a computer's page links there\)\./);
+  assert.match(page, /The workspace folders themselves are in \*\*Settings → Workspace\*\* \(the \*\*Setup\*\* part of a computer's page links there\)\./);
 });
 
 test('Workspace: the once-only note after the update comes only when keeping the workspace in step is on', async () => {

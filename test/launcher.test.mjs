@@ -220,6 +220,25 @@ test('runs: created, updated, listed while the launcher lives, dropped when it i
   assert.deepEqual(R.listRuns(), []);
 });
 
+test('runs: records made in one millisecond by one process each get a file of their own', () => {
+  const real = Date.now;
+  const made = [];
+  try {
+    Date.now = () => 1_800_000_000_000; // a clock that never moves: the worst case of a fast computer
+    for (let i = 0; i < 5; i++) made.push(R.createRun({ profile: 'api', cwd: '/w' }));
+  } finally {
+    Date.now = real;
+  }
+  try {
+    assert.equal(new Set(made.map((m) => m.file)).size, 5, 'five records, five files');
+    assert.equal(new Set(made.map((m) => m.run.runId)).size, 5);
+    for (const m of made) assert.match(m.run.runId, /^[0-9a-z]{1,12}-\d{1,10}(?:-[0-9a-f]{8})?$/, 'the shape every reader of a run id accepts');
+    for (const m of made) assert.equal(R.readRun(m.file).runId, m.run.runId, 'each file holds its own record');
+  } finally {
+    for (const m of made) R.removeRun(m.file);
+  }
+});
+
 test('`hoprig hook` writes the session id and state into the run file, silently', () => {
   const { file } = R.createRun({ profile: 'sub', cwd: '/w' });
   const id = '33333333-3333-4333-8333-333333333333';

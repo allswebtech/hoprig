@@ -37,7 +37,7 @@ import { claudeDir } from './paths.mjs';
 import { clearLimited, limitedProfiles } from './autoswitch.mjs';
 import { listProfiles, ownFolder } from './profiles.mjs';
 import { forInstalls, withoutSecrets } from './secretenv.mjs';
-import { forgetUsage, rememberLogin } from './routerstate.mjs';
+import { clearRefused, forgetUsage, rememberLogin } from './routerstate.mjs';
 import { capture, compareVersions, npmArgv, stream, which } from './setup/system.mjs';
 import { execFile } from 'node:child_process';
 import { resolveWindowsBin, windowsSpawnPlan } from './winspawn.mjs';
@@ -467,6 +467,7 @@ function accountChanged() {
     try {
       clearLimited(p.name);
       forgetUsage(p.name);
+      clearRefused(p.name); // the refusal was the earlier account's
     } catch {
       /* a state folder that cannot be written must not break a check */
     }

@@ -41,10 +41,52 @@
 .wk-item .badge.soft { margin: 3px 0 0; }
 .wk-item > .btn { margin: -3px -8px 0 0; }
 .wk-st-done .wk-title, .wk-st-dropped .wk-title { color: var(--muted); text-decoration: line-through; text-decoration-color: color-mix(in srgb, var(--muted) 60%, transparent); }
+.wk-calm .row-icon { background: var(--ok-soft); color: var(--ok); }
+.wk-session .row-icon { background: var(--warn-soft); color: var(--warn); }
 
-/* ---------- the timeline's marks ---------- */
+/* ---------- Today: this week, day by day (a list; seven columns on a wide screen) ---------- */
+.wk-week { display: grid; border-radius: var(--r-lg); background: var(--surface); box-shadow: var(--shadow-1); overflow: hidden; }
+.wk-day { display: grid; grid-template-columns: 132px minmax(0, 1fr); gap: 12px; align-items: start; padding: 10px 16px; border-top: 1px solid var(--border); }
+.wk-day:first-child { border-top: 0; }
+.wk-day-empty { padding-top: 7px; padding-bottom: 7px; }
+.wk-day-name { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; font-size: var(--fs-sm); padding-top: 4px; }
+.wk-day-empty .wk-day-name { padding-top: 0; }
+.wk-day-name strong { font-weight: 650; color: var(--text); }
+.wk-day-name span { font-size: var(--fs-xs); color: var(--muted); }
+.wk-day-empty .wk-day-name strong { color: var(--muted); font-weight: 600; }
+.wk-day-items { display: flex; flex-wrap: wrap; gap: 6px; min-width: 0; }
+.wk-day-item {
+  display: inline-flex; align-items: center; gap: 6px; max-width: 100%; min-height: 30px; padding: 4px 10px;
+  border: 1px solid var(--border-strong); border-radius: 999px; background: var(--surface); color: var(--text);
+  font: 600 12.5px/1.3 var(--font); text-align: left; cursor: pointer;
+}
+.wk-day-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.wk-day-item:hover { background: var(--surface-2); border-color: var(--ring); }
+.wk-day-item:focus-visible { outline: none; box-shadow: var(--focus); }
+.wk-day-item.wk-st-done { color: var(--muted); border-style: dashed; }
+.wk-day-item.wk-st-done .icon { color: var(--ok-solid); flex: none; }
 .wk-dot { flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); }
 .wk-who { flex: none; padding: 1px 6px; border-radius: 6px; background: var(--surface-3); color: var(--text-2); font-size: 11px; }
+.wk-none { font-size: var(--fs-sm); color: var(--muted); }
+@media (max-width: 520px) {
+  .wk-day { grid-template-columns: minmax(0, 1fr); gap: 6px; }
+  .wk-day-empty { grid-template-columns: auto minmax(0, 1fr); gap: 12px; align-items: baseline; }
+  .wk-day-name { padding-top: 0; }
+}
+@media (min-width: 1100px) {
+  .wk-week { grid-template-columns: repeat(7, minmax(0, 1fr)); }
+  .wk-day, .wk-day-empty { grid-template-columns: minmax(0, 1fr); align-content: start; gap: 10px; min-height: 132px; padding: 12px 10px; border-top: 0; border-left: 1px solid var(--border); }
+  .wk-day:first-child { border-left: 0; }
+  .wk-day-name { display: grid; gap: 1px; padding-top: 0; }
+  .wk-day-now { background: color-mix(in srgb, var(--accent-soft) 55%, transparent); }
+  .wk-day-now .wk-day-name strong { color: var(--accent-soft-text); }
+  .wk-day-items { display: grid; gap: 6px; }
+  .wk-day-item { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: start; gap: 4px 6px; border-radius: var(--r-sm); padding: 6px 8px; }
+  .wk-day-item .wk-dot { margin-top: 5px; }
+  .wk-day-item.wk-st-done .icon { margin-top: 1px; }
+  .wk-day-title { white-space: normal; overflow-wrap: anywhere; }
+  .wk-who { grid-column: 2; justify-self: start; }
+}
 
 /* ---------- Tasks: the filter ---------- */
 .wk-filters { display: flex; flex-wrap: wrap; gap: 10px 16px; margin: 16px 0 0; }
@@ -166,7 +208,9 @@
 }
 
 /* ---------- Plans: the list, one plan, its timeline ---------- */
-.wk-plan-ways { display: flex; flex-wrap: wrap; gap: 4px 8px; margin: 4px 0 0; }
+.wk-plans-head { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; margin: 16px 0 0; }
+.wk-plans-intro { flex: 1 1 260px; margin: 0; }
+.wk-plans-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .wk-plan-sub { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; }
 .wk-progress { flex: none; display: inline-block; width: 72px; height: 6px; border-radius: 999px; background: var(--surface-3); overflow: hidden; }
 .wk-progress-fill { display: block; height: 100%; border-radius: inherit; background: var(--ok-solid); }
@@ -292,7 +336,7 @@ button.row.wk-repeat { width: 100%; text-align: left; font: inherit; color: inhe
 
 /* ---------- Progress (workpulse.js): what runs, its estimate, what waits for you ---------- */
 .wk-pulse-line { margin: 0 2px 8px; font-weight: 650; color: var(--text); }
-.wk-pulse-none { margin: 8px 2px 8px; font-size: var(--fs-sm); color: var(--muted); }
+.wk-pulse-none { margin: -4px 2px 8px; font-size: var(--fs-sm); color: var(--muted); }
 .wk-pulse-part + .wk-pulse-part { margin-top: 10px; }
 .wk-pulse-label { margin: 0 2px 6px; font-size: var(--fs-sm); font-weight: 650; color: var(--muted); }
 .wk-pulse-project { font-weight: 400; color: var(--muted); }
@@ -347,26 +391,7 @@ button.row.wk-repeat { width: 100%; text-align: left; font: inherit; color: inhe
 .wk-hist-foot { margin-top: 12px; }
 .wk-filters .wk-filter:last-child select.field { min-width: 130px; }
 @media (max-width: 520px) {
-  /* a phone: the kind is its mark alone (the word stays for a screen reader), so a line is two lines, not four */
-  .wk-hist { flex-wrap: nowrap; gap: 10px; }
-  .wk-hist-kind { min-width: 0; padding: 6px; margin-top: 2px; }
-  .wk-hist-kind span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
-  .wk-hist .row-main { flex: 1 1 auto; }
-}
-
-/* ---------- Tasks, Activity and Schedules: the folds at the end, one empty line ---------- */
-.wk-empty { margin: 16px 2px; }
-.wk-golive-fold, .wk-top + .wk-content + .wk-foot .fold { margin-top: 12px; }
-.wk-running-slot:empty { display: none; }
-
-/* A touch screen: the round check and a task's title are pressed with a finger, so each has a 44 by 44 area. The
-   circle stays 26 wide (drawn inside); the title's area grows up and down over its neighbours instead of the row. */
-@media (pointer: coarse) {
-  .wk-check { position: relative; width: 44px; height: 44px; margin: -9px; border: 0; background: transparent; }
-  .wk-check::before { content: ''; position: absolute; inset: 9px; border-radius: 50%; border: 2px solid var(--border-strong); background: var(--surface); transition: background var(--tick), border-color var(--tick); }
-  .wk-check .icon { position: relative; }
-  .wk-check:hover:not(:disabled)::before { border-color: var(--ok-solid); }
-  .wk-check.wk-checked::before { background: var(--ok-solid); border-color: var(--ok-solid); }
-  .wk-title { padding: 13px 0; margin: -13px 0; min-height: 44px; box-sizing: border-box; }
-  .wk-plan-link { padding: 13px 0; margin: -13px 0; }
+  .wk-hist { flex-wrap: wrap; gap: 4px 8px; }
+  .wk-hist-kind { min-width: 0; }
+  .wk-hist .row-main { flex: 1 1 100%; }
 }

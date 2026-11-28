@@ -1,4 +1,4 @@
-# Hoprig 0.4.0: every command
+# Hoprig 0.4.1: every command
 
 Each command's own help, as the program prints it (`hoprig` and `hop` are the same command). Made by
 tools/build-skill.mjs at every build of the skill, so it matches this version.
@@ -565,6 +565,8 @@ usage:
   hoprig tokens [--json]              who may control this computer
   hoprig tokens revoke <id | name> [--yes]
                                          take that right away (asks first; --yes: without asking)
+  hoprig tokens mark-main             mark the token on standard input as your main computer's (the main
+                                         computer does this over SSH for a link made by an early build; not typed by hand)
 ```
 
 ## hoprig machines

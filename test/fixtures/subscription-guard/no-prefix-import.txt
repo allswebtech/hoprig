@@ -1,0 +1,6 @@
+// The same direct call, with the module named without its node: prefix, and the key and the header on two lines.
+import { request } from 'https';
+export function readOne(p) {
+  const key = p.env.CLAUDE_CODE_OAUTH_TOKEN;
+  return request('https://api.example.com/v1/messages', { method: 'POST', headers: { authorization: `Bearer ${key}` } });
+}

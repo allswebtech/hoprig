@@ -129,7 +129,8 @@ export function switchAccount({ session = null, done = () => {} } = {}) {
 }
 
 /** "Sign out": what it means for what runs, then `claude auth logout` on the computer. Resolves true when signed out. */
-export function signOut({ done = () => {} } = {}) {
+export function signOut({ done = () => {}, provider = null } = {}) {
+  if (provider && provider.kind === 'subscription') return signOutKey(provider, done);
   return openSheet({ title: 'Sign out of Claude Code?' }, (close) => {
     const who = h('p.sheet-text', 'Asking Claude Code who is signed in…');
     loadAccount().then((a) => fill(who, a.loggedIn ? ['Signed in now: ', h('strong', accountText(a) || 'a Claude account')] : 'Nobody is signed in now.')).catch(() => fill(who));
@@ -156,6 +157,31 @@ export function signOut({ done = () => {} } = {}) {
           ? `${count(running.length, 'session', 'sessions')} run on this sign-in. Their next request ends in "Not logged in" until someone signs in again; then they go on. Their conversations are kept.`
           : 'A session on this sign-in cannot answer until someone signs in again. Conversations are kept.'),
         h('li', 'To change the account, use "Sign in with another account" instead: it needs no sign-out.')),
+      out,
+      h('div.sheet-actions', h('button.btn.secondary', { type: 'button', onclick: () => close(false) }, 'Cancel'), go),
+    ];
+  }).then((v) => v === true);
+}
+
+/** Sign out of a provider that has its own key: this computer forgets the key (the key itself stays valid at Claude). */
+function signOutKey(p, done) {
+  return openSheet({ title: `Sign out of ${p.label}?` }, (close) => {
+    const out = h('div');
+    const go = h('button.btn.danger', { type: 'button', onclick: async () => {
+      go.disabled = true;
+      try {
+        await api(`~/api/accounts/${encodeURIComponent(p.name)}/signout`, {});
+        toast(`Signed out of ${p.label}`);
+        store.refresh();
+        done();
+        close(true);
+      } catch (e) {
+        go.disabled = false;
+        fill(out, errorBox(e));
+      }
+    } }, 'Sign out');
+    return [
+      h('p.sheet-text', `This computer forgets the key of ${p.label}. Sessions on it now keep their key until they end; new sessions cannot start on it until you sign in again. The key itself is not cancelled at Claude.`),
       out,
       h('div.sheet-actions', h('button.btn.secondary', { type: 'button', onclick: () => close(false) }, 'Cancel'), go),
     ];

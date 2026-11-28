@@ -141,8 +141,7 @@ body.chat-mode .toasts { top: calc(var(--chat-toast-top, calc(58px + env(safe-ar
 }
 .chat-note { justify-self: center; margin: 0; color: var(--muted); font-size: var(--fs-xs); text-align: center; }
 .chat-note.chat-is-err { color: var(--danger); }
-.chat-note.chat-allowed { justify-self: start; display: block; max-width: 100%; box-sizing: border-box; min-height: 28px; line-height: 28px; font-size: var(--fs-sm); text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } /* a quiet line in the family of the tool lines */
-.chat-note.chat-allowed strong { font-weight: 500; color: var(--text-2); }
+.chat-note.chat-allowed { overflow-wrap: anywhere; }
 .chat-turnend { justify-self: start; display: inline-flex; align-items: center; gap: 5px; margin: -2px 0 0; color: var(--muted); font-size: var(--fs-xs); }
 .chat-auto { display: flex; align-items: center; gap: 6px; margin: 0; color: var(--muted); font-size: var(--fs-xs); }
 .chat-divider { display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: var(--fs-xs); }
@@ -273,7 +272,6 @@ textarea.chat-input:disabled { opacity: 0.6; }
 .chat-setpill svg { flex: none; color: var(--muted); }
 .chat-pill-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .chat-pill-dot { color: var(--muted); }
-.chat-pill-effort { color: var(--muted); font-weight: 400; }
 .chat-setpill[data-tone='danger'] .chat-pill-mode { color: var(--danger); font-weight: 650; }
 .chat-setpill[data-tone='warn'] .chat-pill-mode { color: var(--warn); font-weight: 650; }
 .chat-setpill[data-tone='plan'] .chat-pill-mode { color: var(--info); font-weight: 650; }

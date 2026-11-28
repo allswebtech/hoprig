@@ -1,0 +1,10 @@
+// A direct call with the subscription key and no beta header: the shape rule 2 must refuse.
+export async function readOne(p) {
+  const key = p.env && p.env.CLAUDE_CODE_OAUTH_TOKEN;
+  const res = await fetch('https://api.example.com/v1/messages/count_tokens', {
+    method: 'POST',
+    headers: { authorization: `Bearer ${key}`, 'content-type': 'application/json' },
+    body: '{}',
+  });
+  return res.status;
+}

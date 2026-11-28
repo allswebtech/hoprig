@@ -13,6 +13,7 @@ A release is one tag on a commit of main. Everything else follows from it in `.g
    version. The tests fail until this is done. Commit all of it, push main, and wait until the `test` workflow
    has passed on that commit: on Linux and macOS with Node.js 24 (the lowest Hoprig runs on, `src/nodefloor.mjs`)
    and 26. Its Windows jobs, on the same two versions, may fail: Windows is experimental, and its jobs do not hold a release back.
+   Before a tag, the release job's own order and limits (the tests run as the `test` workflow runs them, within 40 minutes) are what counts.
 3. `node tools/test.mjs test/workspace/lostcomputer.test.mjs`: the proof that a lost computer costs nothing. It
    builds a workspace with work in progress on a temporary home, runs the upkeep and a drop, deletes that home,
    restores on a second one from a stand-in git server on disk, and compares every repository. Read its last line:

@@ -277,7 +277,7 @@ test('a schedule that runs by itself offers editing files in its own copy betwee
 
 test('Work → Activity shows the history (what the automations did among it) also before Work has its folder', () => {
   const src = fs.readFileSync(new URL('../../web/work.js', import.meta.url), 'utf8');
-  const problem = src.slice(src.indexOf('if (data.problem) {'), src.indexOf("} else if (tab === 'activity')"));
+  const problem = src.slice(src.indexOf('if (data.problem) {'), src.indexOf("} else if (tab === 'today')"));
   assert.match(problem, /tab === 'activity' \? h\('section\.wk-section', historySlot\)/);
   assert.match(problem, /if \(tab === 'activity'\) activity = paintHistory\(historySlot, \{ prefs, isAlive: \(\) => alive \}\)/);
 });

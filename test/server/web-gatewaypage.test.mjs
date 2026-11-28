@@ -24,7 +24,7 @@ class FakeElement extends FakeNode {
 }
 globalThis.Node = FakeNode;
 globalThis.document ??= { createElement: (t) => new FakeElement(t), createElementNS: (ns, t) => new FakeElement(t), createTextNode: (t) => t, getElementById: () => null, addEventListener: () => {}, visibilityState: 'visible' };
-const { addressWarning, gatewayLine, gatewayPageLink } = await import('../../web/gateways.js');
+const { addressWarning, gatewayPageLink } = await import('../../web/gateways.js');
 
 const PAGE = 'http://localhost:4123/dashboard';
 const read = (f) => fs.readFileSync(new URL(`../../web/${f}`, import.meta.url), 'utf8');
@@ -57,7 +57,7 @@ test('another computer\'s gateway: no link, the sentence names Health\'s Open it
   for (const pageHost of ['localhost', 'box2.local']) {
     const r = gatewayPageLink(PAGE, { title: 'Alpha', pageHost, other: true });
     assert.equal(r.href, undefined);
-    assert.equal(r.text, 'Alpha\'s own page opens only in a browser on that computer itself. For a computer added by SSH, Open its page under that computer\'s Advanced → Service opens it in a browser on the computer this dashboard runs on.');
+    assert.equal(r.text, 'Alpha\'s own page opens only in a browser on that computer itself. For a computer added by SSH, Open its page under that computer\'s Health opens it in a browser on the computer this dashboard runs on.');
   }
   assert.equal(gatewayPageLink(null, { pageHost: 'localhost' }), null);
 });
@@ -85,9 +85,3 @@ test('the warning under a key\'s address says exactly where another address come
   assert.doesNotMatch(src, /Open this page by the computer\\'s name on your network or by its public link/, 'the old sentence promised the name always works');
 });
 
-test('the line under a gateway says its copy was updated after it started, beside the version', () => {
-  const note = 'The copy on this computer was updated after TRouteAI was started: restart it to run 1.0.11';
-  const c = { machine: null, label: 'here' };
-  assert.equal(gatewayLine(c, { installed: true, running: true, version: '1.0.11', restart: note }), `Running · version 1.0.11 · ${note}`);
-  assert.equal(gatewayLine(c, { installed: true, running: true, version: '1.0.11' }), 'Running · version 1.0.11');
-});

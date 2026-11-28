@@ -12,6 +12,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import ACTS_BASE from './acts.json' with { type: 'json' };
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 export const INVENTORY_FILE = path.join(ROOT, 'src', 'assistant', 'inventory.json');
@@ -75,7 +76,7 @@ export function factProblems(f) {
  */
 export function levelFor(f, { spoken = false } = {}) {
   if (f.never && f.never !== 'none') return 'N';
-  if (f.reads === true && f.own !== true && !f.spends && !f.seen && !f.other) return 'L0';
+  if (f.reads === true && !f.spends && !f.seen && !f.other) return 'L0';
   if (f.own === true && f.undo !== false && f.spends !== true && f.seen !== true && f.other !== true) return spoken && f.undo !== true ? 'L2' : 'L1';
   return 'L2';
 }
@@ -98,7 +99,8 @@ export function commandsIn(text) {
 
 /** "POST ^\/api\/x\/([^/]+)$" → "POST /api/x/<id>"; a group of fixed words stays as (a|b). */
 export function routeKey(method, re) {
-  const src = wordGroups((re instanceof RegExp ? re.source : String(re)).replace(/^\^/, '').replace(/\$$/, '').replace(/\\\//g, '/'));
+  // A trailing query is not a part of the route: "(?:\\?.*)?".
+  const src = wordGroups((re instanceof RegExp ? re.source : String(re)).replace(/^\^/, '').replace(/\$$/, '').replace(/\\\//g, '/').replace(/\(\?:\\\?\.\*\)\?/g, ''));
   return `${method} ${src.replace(/\(([^()]*)\)/g, (m, g) => (/^[a-z-]+(\|[a-z-]+)+$/.test(g) ? m : '<id>'))}`;
 }
 
@@ -136,7 +138,7 @@ export function samplesOf(re) {
  * Routes a feature answers in its own `handle` (before the route tables): found in the source by the comparisons
  * that pick them (`p === '/api/…' && req.method === 'POST'`, a constant of the file, a pattern constant's test).
  */
-export function handledRoutes(dir = path.join(ROOT, 'src')) {
+export function handledRoutes(dir = path.join(ROOT, 'src'), method = 'POST') {
   const out = [];
   for (const e of fs.readdirSync(dir, { recursive: true, withFileTypes: true })) {
     if (!e.isFile() || !e.name.endsWith('.mjs')) continue;
@@ -145,7 +147,7 @@ export function handledRoutes(dir = path.join(ROOT, 'src')) {
     const consts = new Map([...text.matchAll(/^(?:export )?const ([A-Z_]{3,}) = '([^']+)';/gm)].map((m) => [m[1], m[2]]));
     const patterns = new Map([...text.matchAll(/^const ([A-Z_]{3,}) = \/(.+)\/;/gm)].map((m) => [m[1], m[2]]));
     for (const line of text.split('\n')) {
-      if (!/'POST'/.test(line) || !/[!=]==/.test(line)) continue;
+      if (!line.includes(`'${method}'`) || !/[!=]==/.test(line)) continue;
       for (const m of line.matchAll(/[!=]== '(\/api\/[^'…]+)'/g)) out.push(new RegExp(`^${m[1].replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`));
       for (const m of line.matchAll(/(?:[!=]== |\b)([A-Z_]{3,})\b(\.test\(p\))?/g)) {
         if (m[2] && patterns.has(m[1])) out.push(new RegExp(patterns.get(m[1])));
@@ -161,6 +163,19 @@ export function changingRoutes(app) {
   const machines = app.features.find((f) => f.name === 'machines');
   const tables = [...app.routes, ...((machines && machines.machines && machines.machines.table) || [])];
   const list = [...tables.filter(([m]) => m !== 'GET' && m !== 'HEAD').map(([method, re]) => ({ method, re })), ...handledRoutes().map((re) => ({ method: 'POST', re }))];
+  const seen = new Map();
+  for (const r of list) {
+    const key = routeKey(r.method, r.re);
+    if (!seen.has(key)) seen.set(key, { ...r, key });
+  }
+  return [...seen.values()];
+}
+
+/** Every route of a built server that only reads (GET): its tables, the machines' table, the handled ones. */
+export function readRoutes(app) {
+  const machines = app.features.find((f) => f.name === 'machines');
+  const tables = [...app.routes, ...((machines && machines.machines && machines.machines.table) || [])];
+  const list = [...tables.filter(([m]) => m === 'GET').map(([method, re]) => ({ method, re })), ...handledRoutes(undefined, 'GET').map((re) => ({ method: 'GET', re }))];
   const seen = new Map();
   for (const r of list) {
     const key = routeKey(r.method, r.re);
@@ -283,4 +298,127 @@ export function toolActionsWithoutRow(rows, tools) {
     } else if (t.level !== 'L0' && !named.has(t.name)) out.push(t.name);
   }
   return out;
+}
+
+// ---- The acts file: src/assistant/acts.json (and every acts-<name>.json beside it) -------------------------------------
+// One row for every act (the contract is acts/CONTRACT.md, taken from the shared core; its shape is acts/act.schema.json):
+// a route that changes something, a route that only reads, a command, a built-in skill, a step of a tool. A row carries its
+// seven facts and NO answer: the answer (read, alone, card, open) is derived from the facts by answerOf below, the same
+// function as levelFor, held equal to the core's table (acts/level-table.json) by test/assistant/acts-levels.test.mjs.
+// Her door (door.mjs) is derived from the rows: what it lets through, and the owner's own routes it refuses by name.
+// inventory.json stays the list of her TOOLS (which tool reaches an act, at which level, with which card); a test holds the
+// two files to each other (test/assistant/acts-inventory.test.mjs).
+export const ACTS_DIR = path.join(ROOT, 'src', 'assistant');
+export const ACTS_FILE = path.join(ACTS_DIR, 'acts.json');
+/** The other acts files of this program, imported the same way as acts.json (none yet). */
+const EXTRA_ACTS = [];
+export const ANSWERS = Object.freeze(['read', 'alone', 'card', 'open']);
+const ANSWER_OF_LEVEL = Object.freeze({ L0: 'read', L1: 'alone', L2: 'card', N: 'open' });
+
+/** The answer of an act from its facts: read, alone (a card unless she may act alone), card or open. */
+export const answerOf = (f, opts) => ANSWER_OF_LEVEL[levelFor(f, opts)];
+/** The answer of a row; "none" for a row that is not an act. */
+export const rowAnswer = (row, opts) => (row.kind === 'not-an-act' ? 'none' : answerOf(row.facts, opts));
+
+const unite = (docs) => ({ ...docs[0], rows: docs.flatMap((d) => d.rows), screens: [...new Set(docs.flatMap((d) => d.screens || []))], areas: [...new Set(docs.flatMap((d) => d.areas || []))], files: docs.length });
+
+/**
+ * acts.json and every acts-<name>.json beside it, as one file: the rows added, the screens and areas united. Without a
+ * folder it is the files this program names itself (a static import each: the server starts without reading a file here;
+ * a later piece of work that adds acts-<name>.json adds its import line to EXTRA_ACTS). With a folder it reads that folder.
+ */
+export function loadActs(dir) {
+  if (dir === undefined) return unite([ACTS_BASE, ...EXTRA_ACTS]);
+  const files = fs.readdirSync(dir).filter((n) => /^acts(-[a-z0-9-]+)?\.json$/.test(n)).sort((a, b) => (a === 'acts.json' ? -1 : b === 'acts.json' ? 1 : a < b ? -1 : 1));
+  if (files[0] !== 'acts.json') throw new Error(`there is no acts.json in ${path.basename(dir)}`);
+  return unite(files.map((n) => JSON.parse(fs.readFileSync(path.join(dir, n), 'utf8'))));
+}
+
+const SECRET_WORD = /^(key|keys|token|tokens|secret|secrets|password|passwords|cookie|cookies|authorization|verifier|device_code|private_key)$/i;
+const ID_RE = /^[a-z][a-z0-9]*(\.[a-z0-9-]+){1,4}$/;
+const KINDS = ['route', 'command', 'skill', 'step', 'not-an-act'];
+
+/**
+ * What is wrong with an acts file, by the mechanical rules of the contract (the core's bin/check-acts.mjs checks the same
+ * and more; this is the part a test of the product can hold without the core). `census`: the sources the code has
+ * (routes, reads, commands, skills) or null, or { sources, routes } with the code's routes ({ method, re }): a row for an
+ * address the door names by itself (the public link's add-on routes) is alive when a route of the code takes that address.
+ * [] when it is clean.
+ */
+export function actsProblems(doc, census = null) {
+  const out = [];
+  if (doc.contract !== 'tia-acts-0.2') out.push(`contract is "tia-acts-0.2", not ${JSON.stringify(doc.contract)}`);
+  const screens = new Set(doc.screens || []);
+  const areas = new Set(doc.areas || []);
+  const ids = new Map();
+  const sources = new Map();
+  for (const r of doc.rows) {
+    const w = r.id || `(row of ${r.source})`;
+    if (!ID_RE.test(r.id || '') || r.id.length > 64) out.push(`${w}: the id is area.object.verb, lower case, at most 64`);
+    if (ids.has(r.id)) out.push(`${w}: the id is used twice`);
+    ids.set(r.id, r);
+    if (!KINDS.includes(r.kind)) out.push(`${w}: kind is one of ${KINDS.join(', ')}`);
+    if (r.kind !== 'not-an-act') {
+      const k = `${r.kind}|${r.source}`;
+      if (sources.has(k)) out.push(`${w}: the source "${r.source}" has a row already (${sources.get(k)})`);
+      sources.set(k, r.id);
+    }
+    if (!areas.has(r.area)) out.push(`${w}: "${r.area}" is not in the areas`);
+    if (typeof r.what !== 'string' || r.what.length < 20 || r.what.length > 140) out.push(`${w}: what is one plain line of 20 to 140 characters`);
+    for (const k of ['answer', 'level']) if (k in r) out.push(`${w}: "${k}" is not a field: the answer comes from the facts`);
+    if (r.kind === 'not-an-act') {
+      if (typeof r.why !== 'string' || r.why.length < 20 || r.why.length > 200) out.push(`${w}: a row that is not an act says why in one sentence of 20 to 200 characters`);
+      for (const k of ['facts', 'input', 'pick', 'cap', 'tool', 'undo']) if (k in r) out.push(`${w}: a row that is not an act has no ${k}`);
+      continue;
+    }
+    const fp = factProblems(r.facts);
+    for (const x of fp) out.push(`${w}: ${x}`);
+    if (fp.length) continue;
+    const answer = answerOf(r.facts);
+    if (answer === 'open') {
+      if (typeof r.why !== 'string' || r.why.length < 20 || r.why.length > 200) out.push(`${w}: an open row says in one sentence why she only opens the page: 20 to 200 characters`);
+      if (r.tool) out.push(`${w}: an open row has no tool: no tool does it, she opens the page`);
+      if (r.undo) out.push(`${w}: an open row is never run, so it has no undo`);
+    }
+    if (!screens.has(r.screen)) out.push(`${w}: "${r.screen}" is not a screen of the file`);
+    if (typeof r.press !== 'string' || !r.press.trim() || r.press.length > 60) out.push(`${w}: the one press is a label of at most 60 characters`);
+    if (r.facts.reads && (!Array.isArray(r.pick) || !r.pick.length || r.pick.length > 40 || !Number.isInteger(r.cap) || r.cap < 1 || r.cap > 4000)) out.push(`${w}: a row that reads names what it keeps (pick, 1 to 40 paths) and its cap (1 to 4000 characters)`);
+    for (const p of r.pick || []) if (String(p).split('.').some((s) => SECRET_WORD.test(s))) out.push(`${w}: "${p}" is a secret field and is never kept`);
+    if (r.holds_secret === true && answer !== 'open') out.push(`${w}: a read that holds a secret is open, not ${answer}`);
+    if (r.input !== undefined && !(r.input && typeof r.input === 'object' && (r.input.from || r.input.additionalProperties === false))) out.push(`${w}: input is one strict schema (additionalProperties false)`);
+  }
+  for (const r of doc.rows) {
+    if (r.kind === 'not-an-act' || factProblems(r.facts).length || r.facts.never !== 'none') continue;
+    if (r.facts.undo === true) {
+      if (!r.undo) out.push(`${r.id}: undo is true, so name the act that takes it back`);
+      else if (!ids.has(r.undo)) out.push(`${r.id}: the undo act ${r.undo} is not a row`);
+      else if (r.undo === r.id) out.push(`${r.id}: an act is not its own undo`);
+    } else if (r.undo) out.push(`${r.id}: only a row whose undo is true names an undo act`);
+  }
+  if (census) {
+    const have = new Set(doc.rows.map((r) => r.source));
+    const want = new Set(Array.isArray(census) ? census : census.sources);
+    for (const s of want) if (!have.has(s)) out.push(`the code has an act with no row: ${s}`);
+    for (const r of doc.rows) if (['route', 'command', 'skill'].includes(r.kind) && !want.has(r.source) && !subRoute(r, census)) out.push(`${r.id}: a row that outlived its act: the code has no "${r.source}"`);
+  }
+  return out;
+}
+
+/** A row for an address of a route the code has under another name: "/api/addons/public-link/start" is a case of the add-on route. */
+export function subRoute(row, census) {
+  if (row.kind !== 'route' || Array.isArray(census) || !census.routes) return false;
+  const [method, p] = row.source.split(' ');
+  const address = p.replace(/<id>/g, 'alpha').replace(/\(([a-z-]+)\|[a-z|-]*\)/g, '$1');
+  return census.routes.some((r) => r.method === method && r.re.test(address));
+}
+
+/** The sources of every act the code has: its commands, built-in skills, changing routes and read routes. */
+export function codeSources({ commands, skills, routes, reads }) {
+  return [...commands.map(actOf.command), ...skills.map(actOf.skill), ...routes.map(actOf.route), ...reads.map(actOf.route)];
+}
+
+/** The pattern of a row's route for the owner's refusals: "<id>" is any one segment, "(a|b)" stays as it is. */
+export function sourcePattern(source) {
+  const p = source.replace(/^[A-Z]+ /, '');
+  return new RegExp(`^${p.split(/(<id>|\([a-z|-]+\))/).map((part) => (part === '<id>' ? '[^/]+' : part.startsWith('(') ? part : part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))).join('')}$`);
 }

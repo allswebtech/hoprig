@@ -244,7 +244,7 @@ export function computersPanel(who) {
   const warn = (title, sub) => h('div.row.static', h('span.row-icon', icon('alert')), h('span.row-main', h('span.row-title', title, h('span.badge.soft.warn', 'not read')), h('span.row-sub.pj-wrap', sub)));
   return h('section.ws-computers', { 'aria-label': 'Your computers' },
     h('h2.group-head', h('span', 'Your computers'), h('span.group-count', String(who.computers.length + who.unknown.length + refused.length))),
-    h('p.ws-place-sub', 'What each computer has, from the file it writes about itself.'),
+    h('p.ws-place-sub', 'From the file each computer writes about itself in the AI brain. This page writes none of them.'),
     h('div.rows', who.computers.map((c) => h('div.row.static',
       h('span.row-icon', icon('cpu')),
       h('span.row-main',

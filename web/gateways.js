@@ -1,16 +1,17 @@
-// The gateway's pieces that the gateway's page (under Providers) and Add provider use (src/gateway): the gateways of
-// the other computers with "Use here", sharing this computer's gateway (off until turned on), the keys made for other
-// computers, "Add a shared gateway" for one a computer shares, and the one-press set-up. Shown on this dashboard's own page only: a key never travels
+// The gateway's pieces that the gateway's page (under Providers) and Add provider use (src/gateway): sharing this
+// computer's gateway (off until turned on), the keys made for other computers that are not linked, "Add a shared gateway"
+// for one a computer shares, and the one-press set-up. (The providers of the hub for the linked computers: web/accounts.js.) Shown on this dashboard's own page only: a key never travels
 // through another computer's page.
 import { APP_NAME } from './brand.js';
 import { icon } from './icons.js';
 import { ago, api, at, btn, confirmSheet, copyText, fill, h, insecure, link, machine, machinePill, openSheet, promptSheet, toast } from './lib.js';
-import { errorBox, field, fold, okBox, steps, toggle } from './shell.js';
+import { errorBox, field, fold, okBox, panel, skeletonRows, steps, toggle } from './shell.js';
 import { plainHost } from './health.js';
 
 const G = (p) => `~/api/gateways${p}`;
 const busy = (text) => h('div.empty.compact', h('div.spinner', { 'aria-hidden': 'true' }), h('p', text));
 const NAME_OK = (v) => (v.trim() && v.trim().length <= 60 && /^[A-Za-z0-9 ._@()-]+$/.test(v.trim()) ? '' : 'Letters, digits, spaces and . _ @ ( ) -, up to 60');
+
 
 // A computer whose gateways cannot be seen right now, in plain words.
 const AWAY = {
@@ -50,7 +51,7 @@ const LOOPBACK = ['localhost', '127.0.0.1', '[::1]', '::1'];
  */
 export function gatewayPageLink(page, { title = 'The gateway', pageHost = '', signedIn = [], other = false } = {}) {
   if (!page) return null;
-  if (other) return { text: `${title}'s own page opens only in a browser on that computer itself. For a computer added by SSH, Open its page under that computer's Advanced → Service opens it in a browser on the computer this dashboard runs on.` };
+  if (other) return { text: `${title}'s own page opens only in a browser on that computer itself. For a computer added by SSH, Open its page under that computer's Health opens it in a browser on the computer this dashboard runs on.` };
   const u = new URL(page);
   const own = String(pageHost).toLowerCase();
   if (!LOOPBACK.includes(own)) {
@@ -112,7 +113,7 @@ async function useRemote(c, g, done) {
   }
 }
 
-function row(c, g, { useLocal = () => {}, done }) {
+function row(c, g, { useLocal, done }) {
   const what = gatewayAction(c, g);
   const end = what === 'open'
     ? h('a.btn.small.secondary.gw-act', { href: link(`#/providers/${encodeURIComponent(g.usedAs.name)}`) }, 'Open')
@@ -125,24 +126,6 @@ function row(c, g, { useLocal = () => {}, done }) {
       h('span.row-sub', gatewayLine(c, g)),
       !c.machine && g.running ? h('span.row-sub.mono', g.address) : null),
     end);
-}
-
-/**
- * The gateways of the OTHER linked computers, as one closed fold of the gateway's page: what runs there and "Use here",
- * which makes a provider on this computer for one. `all` is GET /api/gateways/all (null when it did not answer); null
- * (nothing drawn) while no other computer is linked. `done()` draws the page again.
- */
-export function otherComputers(all, done) {
-  const rows = [];
-  for (const c of (all && all.computers) || []) {
-    if (!c.machine) continue;
-    if (c.state !== 'online' && !c.gateways.length) {
-      rows.push(h('div.row.static.gw-row', h('span.row-icon', icon('cpu')),
-        h('span.row-main', h('span.row-title', machinePill(c.label, { state: 'offline' })), h('span.row-sub', c.state === 'unauthorised' ? ['It does not let this dashboard in any more. ', h('a', { href: link('#/computers') }, 'Link it again on the Computers page'), '.'] : AWAY[c.state] || AWAY.offline))));
-    }
-    for (const g of c.gateways) rows.push(row(c, g, { done }));
-  }
-  return rows.length ? fold('gw-others', 'Gateways on your computers', h('div.rows', { id: 'gateways' }, rows)) : null;
 }
 
 /** A key shown once, with the address, for a computer that is not linked. */
@@ -209,6 +192,9 @@ export function sharing(g, reload, label = `Share ${g.title} with your other com
     h('div.savebar.start', btn('secondary', { icon: 'plus', label: 'Add a shared gateway', onclick: () => addSheet(reload) })));
 }
 
+/** "Add a shared gateway" as a button of its own, for a page that has no Share fold (the gateway not set up here yet). */
+export const addSharedRow = (done) => h('div.savebar.start', btn('secondary', { icon: 'plus', label: 'Add a shared gateway', onclick: () => addSheet(done) }));
+
 function addSheet(done) {
   return openSheet({ title: 'Add a shared gateway', subtitle: 'A gateway that another computer shares through its dashboard' }, (close) => {
     const url = h('input.field.mono', { type: 'url', placeholder: 'https://…/gateway/…', autocapitalize: 'off', spellcheck: 'false' });
@@ -239,6 +225,39 @@ function addSheet(done) {
       out,
       h('div.sheet-actions', h('button.btn.secondary', { type: 'button', onclick: () => close() }, 'Cancel'), go));
   });
+}
+
+/**
+ * The panel on the Providers list, open. `useLocal(g)` adds this computer's own gateway `g` as a provider (its steps in Add provider);
+ * `changed()` draws the provider list again after a provider was added here.
+ */
+export function gatewaysPanel({ useLocal, changed }) {
+  const box = h('div', skeletonRows(2));
+  const done = () => {
+    load();
+    changed();
+  };
+  async function load() {
+    let d;
+    try {
+      d = await api(G('/all'));
+    } catch (e) {
+      return fill(box, errorBox(e, load));
+    }
+    const rows = [];
+    for (const c of d.computers) {
+      if (c.state !== 'online' && !c.gateways.length) {
+        rows.push(h('div.row.static.gw-row', h('span.row-icon', icon('cpu')),
+          h('span.row-main', h('span.row-title', machinePill(c.label, { state: 'offline' })), h('span.row-sub', c.state === 'unauthorised' ? ['It does not let this dashboard in any more. ', h('a', { href: link('#/computers') }, 'Link it again on the Computers page'), '.'] : AWAY[c.state] || AWAY.offline))));
+      }
+      for (const g of c.gateways) rows.push(row(c, g, { useLocal, done }));
+    }
+    fill(box,
+      rows.length ? h('div.rows', rows) : h('p.hint', 'No gateway is known on your computers.'),
+      addSharedRow(done));
+  }
+  load();
+  return panel({ id: 'gateways', icon: 'swap', title: 'Gateways on your computers', desc: 'A gateway lets Claude Code use AI accounts of other companies. Use one on this computer or on another of yours. Sharing this computer\'s gateway is on the gateway\'s own page.' }, box);
 }
 
 /**

@@ -163,11 +163,3 @@ test('the jump-down button says the step while a turn runs, Needs your OK where 
   tl.status();
   assert.ok(!tl.downBtn.classList.contains('chat-down-ask'));
 });
-
-test('while a tool runs the living line says only the step and the seconds: the command stands in the tool line above', async () => {
-  const fs = await import('node:fs');
-  const css = fs.readFileSync(new URL('../../web/chat/chat.css', import.meta.url), 'utf8');
-  assert.match(css, /\.chat-live-detail \{ display: none; \}/, 'the detail is not shown');
-  assert.doesNotMatch(css, /<<<<<<<|>>>>>>>/);
-  assert.match(css, /\.chat-live-time \{ flex: none;/, 'the seconds stay');
-});

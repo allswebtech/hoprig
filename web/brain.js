@@ -1,19 +1,16 @@
-// Memory (#/brain, #/brain/<item>), the third tab of Projects: what the AI knows on the open computer, read-only
-// (GET /api/brain, src/workspace/brain.mjs): the rules Claude gets everywhere (open), then the memory, notes, daily logs
-// and what is pending, each a closed fold with its count and none drawn when empty. A file opens on a tap, never by
-// itself (the right pane of a wide screen, a page of its own on a phone). Each project's part is on its own page
-// (projectBrain). The skills are on the Skills tab. Texts are shown as safe formatting (mdtext.js), never as HTML from
-// the file.
+// The AI brain (#/brain, #/brain/<item>): what the AI knows on the open computer, read-only (GET /api/brain,
+// src/workspace/brain.mjs): the rules Claude gets everywhere, the memory, learnings and the current context, the
+// daily logs, the skills, what is pending, and each project's part. The list of what there is on the left, the chosen
+// text on the right (the two-pane part of Settings; a phone shows one at a time). Texts are shown as safe formatting
+// (mdtext.js), never as HTML from the file.
 // Also here: "Workspace folders" (the tree the product sets up, GET /api/workspace) for a computer's Setup tab, and
 // the one way to create what is missing (POST /api/workspace/setup: the dry run first, then the real run).
-import { linkBrainNote, projectsTabs, toolsPart } from './brainlink.js';
+import { linkBrainSheet, toolsPart } from './brainlink.js';
 import { icon } from './icons.js';
 import { ago, api, btn, bytes, fill, h, link, openSheet, toast } from './lib.js';
 import { mdView } from './mdtext.js';
 import { registerPage } from './registry.js';
 import { emptyState, errorBox, fold, groupHead, okBox, panel, skeletonRows } from './shell.js';
-
-export { projectsTabs };
 import { store } from './store.js';
 import { credentialsPart } from './workspacecreds.js';
 
@@ -97,6 +94,28 @@ export function workspaceFolders() {
 
 // ======================= the AI brain page =======================
 
+/**
+ * The Skills part: the same count as Skills and Get started (the skills Claude Code loads), and the brain's own skills
+ * that it does not load yet on a line of their own, with the button that links them. An older server sends only
+ * `count`. `after()` runs once linked.
+ */
+export function skillsPart(sk, after = () => {}, { linkHere = true } = {}) {
+  const used = sk.used ?? sk.count;
+  const only = sk.brainOnly || 0;
+  const n = (k) => `${k} skill${k === 1 ? '' : 's'}`;
+  return [
+    groupHead('Skills', used),
+    h('div.rows', h('a.row', { href: link('#/skills') },
+      h('span.row-main', h('span.row-title', `${n(used)} Claude Code uses`), h('span.row-sub', 'See them, and find more, under Skills')),
+      h('span.row-end', icon('chevronRight', { size: 18 })))),
+    only && !linkHere ? h('p.hint.brain-none', `${n(only)} in the AI brain ${only === 1 ? 'is' : 'are'} not used by Claude Code yet: Link under Coding tools connects the brain's skills folder.`) : null,
+    only && linkHere ? h('div.bl-inline', h('p.hint.brain-none', `${n(only)} in the AI brain ${only === 1 ? 'is' : 'are'} not used by Claude Code yet. Link the brain's skills folder so Claude Code reads it.`),
+      btn('small secondary', { icon: 'check', label: 'Switch on', onclick: async () => {
+        if (await linkBrainSheet(() => {}, { switchOn: true })) after();
+      } })) : null,
+  ];
+}
+
 const TYPE = { index: 'index', user: 'about you', feedback: 'feedback', project: 'project', reference: 'reference' };
 // A file's time arrives as milliseconds or as an ISO date.
 export const when = (t) => {
@@ -115,12 +134,12 @@ export function brainGroups(b, { memoryOrder = [] } = {}) {
   const row = (item, title, sub = '', chip = null) => (item ? { item, title: title || item.title, sub, chip } : null);
   const groups = [];
   const rules = [row(b.global.rules, 'The rules every coding tool gets', b.global.linked ? 'linked into Claude Code' : 'not linked into Claude Code yet'), ...(b.global.more || []).map((x) => row(x))].filter(Boolean);
-  groups.push({ id: 'rules', title: 'Rules for every tool', rows: rules, none: 'No global rules file yet.' });
+  groups.push({ id: 'rules', title: 'What your coding tools are told everywhere', rows: rules, none: 'No global rules file yet.' });
   const base = (m) => String(m.file || '').split('/').pop();
   const place = (m) => (m.type === 'index' ? -1 : memoryOrder.includes(base(m)) ? memoryOrder.indexOf(base(m)) : memoryOrder.length);
   const mem = [...(b.memory.home.items || [])].sort((x, y) => place(x) - place(y))
     .map((m) => row(m, m.type === 'index' ? 'Index of the memory' : m.name || m.title, m.description || '', TYPE[m.type] || m.type || null));
-  groups.push({ id: 'memory', title: 'What they remembered', count: b.memory.home.count, rows: mem, none: 'Nothing remembered yet.' });
+  groups.push({ id: 'memory', title: 'Memory', count: b.memory.home.count, rows: mem, none: 'Nothing remembered yet.' });
   groups.push({
     id: 'notes', title: 'Learnings and current context',
     rows: [row(b.brain.about, 'About this brain'), row(b.brain.learnings, 'Learnings', 'What was learned, to keep'), row(b.brain.activeContext, 'Current context', 'What is being worked on now')].filter(Boolean),
@@ -161,15 +180,6 @@ async function showItem(pane, id) {
     h('div.card.brain-text', mdView(t.text)));
 }
 
-/**
- * What the Memory list draws, from brainGroups: the groups of the computer (not a project's: those are on the project's
- * page) that have rows. The first one is open; each other is one closed fold named with its count.
- */
-export function memoryParts(groups) {
-  const own = groups.filter((g) => !g.project && g.rows.length);
-  return own.map((g, i) => ({ ...g, open: i === 0 && g.id === 'rules', label: `${g.title} (${g.count ?? g.rows.length})` }));
-}
-
 function viewBrain({ frame, sub }) {
   store.viewing = null;
   const id = sub ? decodeURIComponent(sub) : '';
@@ -177,13 +187,15 @@ function viewBrain({ frame, sub }) {
   const pane = h('div.split-pane');
   const split = h(`div.split${id ? '.has-page' : '.no-page'}`, list, pane);
   frame({
-    title: 'Memory',
+    title: 'AI brain',
     page: 'brain',
+    intro: 'What your coding tools know on this computer: the rules they always get, what they remembered, notes and logs.',
     back: id ? link('#/brain') : null,
-    backLabel: 'Memory',
+    backLabel: 'AI brain',
     backOnPhoneOnly: true,
+    introOnPhone: !id,
     wide: true,
-    body: [projectsTabs('memory'), split],
+    body: [split],
   });
   let alive = true;
   async function load() {
@@ -203,25 +215,20 @@ function viewBrain({ frame, sub }) {
     const index = (b.memory.home.items || []).find((m) => m.type === 'index');
     const memoryOrder = index ? indexOrder((await api(`/api/brain/item?id=${enc(index.id)}`).catch(() => ({}))).text) : [];
     if (!alive) return;
-    const parts = memoryParts(brainGroups(b, { memoryOrder }));
-    const holding = (el, g) => { // the fold of the open file stays open, so the file in view has its place in the list
-      if (id && g.rows.some((r) => r.item.id === id)) el.open = true;
-      return el;
-    };
-    const rows = (g) => [
-      h('div.rows', g.rows.map((r) => itemRow(r, r.item.id === id))),
-      g.count > g.rows.length ? h('p.hint.brain-none', `The newest ${g.rows.length} of ${g.count}.`) : null,
-    ];
+    const groups = brainGroups(b, { memoryOrder });
+    const first = groups.flatMap((g) => g.rows)[0];
     fill(list,
-      linkBrainNote({ switchOn: true, after: load }), // only while the brain is not linked: empty otherwise
-      parts.length ? parts.map((g) => (g.open ? [groupHead(g.title, g.count ?? g.rows.length), rows(g)] : holding(fold(`brain-${g.id}`, g.label, rows(g)), g)))
-        : h('p.hint.brain-none', 'Nothing remembered yet.'),
-      fold('brain-tools', 'Coding tools',
-        toolsPart({ after: load }),
-        h('p.hint.brain-none', 'You and your coding tools change these files in a session. This page shows them, and Link connects them to each coding tool; it never edits them.')));
-    // A file is opened by a tap (its address #/brain/<item>), never by itself.
-    if (id) showItem(pane, id);
-    else fill(pane, h('p.hint.brain-none', 'Pick a file to read it here.'));
+      groups.map((g) => [
+        groupHead(g.title, g.count ?? (g.rows.length || undefined)),
+        g.rows.length ? h('div.rows', g.rows.map((r) => itemRow(r, r.item.id === (id || (first && first.item.id))))) : h('p.hint.brain-none', g.none),
+        g.count > g.rows.length ? h('p.hint.brain-none', `The newest ${g.rows.length} of ${g.count}.`) : null,
+      ]),
+      skillsPart(b.skills, load, { linkHere: false }),
+      toolsPart({ after: load }),
+      h('p.hint.brain-none', 'You and your coding tools change these files in a session. This page shows them, and Link connects them to each coding tool; it never edits them.'));
+    const show = id || (first && first.item.id);
+    if (show) showItem(pane, show);
+    else fill(pane, emptyState('book', 'Nothing to show yet.'));
   }
   load();
   return () => {
@@ -243,4 +250,4 @@ export async function projectBrain(box, name) {
     : h('p.hint', 'Nothing for this project in the AI brain yet.'));
 }
 
-registerPage({ id: 'brain', title: 'Memory', icon: 'brain', navAs: 'workspace', order: 25, perComputer: true, render: viewBrain });
+registerPage({ id: 'brain', title: 'AI brain', icon: 'brain', group: 'more', order: 25, perComputer: true, render: viewBrain });

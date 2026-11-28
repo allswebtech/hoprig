@@ -37,6 +37,7 @@ import { loadConfig } from '../config.mjs';
 import { binFile, stateDir } from '../paths.mjs';
 import { profileEnv, readProfile } from '../profiles.mjs';
 import { resolveWindowsBin, windowsSpawnPlan } from '../winspawn.mjs';
+import { endWith } from '../hubprov/localkeys.mjs';
 
 /** What Tia's engine adds to the profile's environment, so no instructions or memory of the owner reach her. */
 export const ISOLATION_ENV = Object.freeze({ CLAUDE_CODE_DISABLE_CLAUDE_MDS: '1', CLAUDE_CODE_DISABLE_AUTO_MEMORY: '1' });
@@ -201,6 +202,7 @@ export class Engine extends EventEmitter {
     fs.mkdirSync(cwd, { recursive: true, mode: 0o700 });
     const plan = this.o.command ? { command: this.o.command.command, args: [...this.o.command.args, ...args], options: {} } : claudeCommand(args, env);
     const child = (this.o.spawnImpl || spawn)(plan.command, plan.args, { cwd, env, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true, ...plan.options });
+    endWith(child, env); // a hub provider's session key ends with her process
     this.started = true;
     let buf = '';
     child.stdout.setEncoding('utf8');

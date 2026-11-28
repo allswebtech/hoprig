@@ -412,7 +412,7 @@ export function progressLines(p) {
   // The time it was read, so a reader says "now" with the tool's own clock, never one of its own.
   const out = [`${p.line} (as of ${p.atText})`];
   if (p.running.length) out.push('', 'Running', ...p.running.map((u) => `  ${runningText(u)}`));
-  if (p.waiting.length) out.push('', 'Waits for you', ...p.waiting.map((u) => `  ${titleOf(u)}: ${u.why === 'review' ? 'finished, look at it in Work → Tasks' : 'waits for your answer'}`));
+  if (p.waiting.length) out.push('', 'Waits for you', ...p.waiting.map((u) => `  ${titleOf(u)}: ${u.why === 'review' ? 'finished, look at it in Work → Today' : 'waits for your answer'}`));
   if (p.done.length) out.push('', 'Done', ...p.done.map((u) => `  ${titleOf(u)}: used ${u.tokensText}`));
   if (p.failed.length) out.push('', 'Failed or stopped', ...p.failed.map((u) => `  ${titleOf(u)}: ${u.state}${u.reason ? `: ${u.reason}` : ''}`));
   return out;

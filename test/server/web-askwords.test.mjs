@@ -49,5 +49,5 @@ test('the second answer says "this kind of command"; the exact words stay in its
 
 test('Home\'s card and the Workspace row show the note through it', () => {
   const si = fs.readFileSync(new URL('../../web/sessionitem.js', import.meta.url), 'utf8');
-  assert.equal((si.match(/askNote\(s\.note\)/g) || []).length, 2, 'the card and the row');
+  assert.equal((si.match(/askNote(?:Nodes)?\(s\.note\)/g) || []).length, 2, 'the card and the row');
 });

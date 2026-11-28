@@ -162,5 +162,8 @@ export function providerHealth(name) {
       panel({ icon: 'clock', title: 'What is left', desc: 'Only what was measured.' }, leftBlock(d)));
   };
   load();
+  // The page asks again after a press: the panels stay where they are until the new answer is there (no waiting line in
+  // between, which shortened the page and threw it back to the top).
+  box.reload = load;
   return box;
 }

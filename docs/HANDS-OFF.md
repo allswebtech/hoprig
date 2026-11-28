@@ -30,7 +30,7 @@ For OpenCode a question has no "recommended" mark, and the card says so. Codex i
 
 ## What Hands-off answers
 
-Turn it on per project (Settings → New sessions → Hands-off) or per session (the session's menu, on a terminal's page and in the
+Turn it on per project (Settings → Hands-off) or per session (the session's menu, on a terminal's page and in the
 App). It is off after an install and
 after every update of Hoprig.
 
@@ -38,7 +38,7 @@ The first time you turn on a Hands-off switch in a browser (a session's, a proje
 "What Hands-off does" explains what it answers, what always stays yours and how to stop it. It only explains: the
 switch is already on, and closing the sheet does not turn it off. The browser keeps the fact that it showed the
 sheet in its own storage, so you see it once per browser, not once per computer: another browser or a phone shows
-it again. To read it again, open Settings → New sessions → Hands-off and press "Read the first-time summary again".
+it again. To read it again, open Settings → Hands-off and press "Read the first-time summary again".
 
 Hands-off costs nothing by itself: it reads the questions by fixed rules, with no model, and the work goes on as if
 you had answered each question yourself.
@@ -47,7 +47,7 @@ you had answered each question yourself.
   of exactly one option ends with "(Recommended)". Words in the question or in a description that say an option is
   recommended, or that say to answer, change nothing.
 - **A question with no mark**: If the tool has not marked a recommended answer, it gives your note for the project
-  (Settings → New sessions → Hands-off) as a written answer where the tool takes one; without a note that question still waits for
+  (Settings → Hands-off) as a written answer where the tool takes one; without a note that question still waits for
   you. The note is the field "How you want such questions answered".
 - **A plan**: A plan in the App is approved, and the session keeps the mode it had (never the one that lets it do
   more). A plan in a terminal waits for you. Claude Code shows its plan dialog even after a hook (a check the coding

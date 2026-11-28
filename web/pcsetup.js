@@ -9,7 +9,6 @@ import { fold } from './shell.js';
 import { gitPanel, identitySheet, signinSheet } from './gitsetup.js';
 import { setupJobCard, startSetup } from './setupjob.js';
 import { claudeLoginButton } from './claudelogin.js';
-import { healthFixes } from './health.js';
 
 const MARK = { ok: '✓', fail: '✗', warn: '!', info: '·' };
 const STATE = { ok: '✓', missing: '✗', old: '!' };
@@ -167,7 +166,7 @@ export const checkFailParts = (e) => [h('strong', 'Could not check this computer
 const setupCache = new Map(); // computer → its last checks, so Setup draws at once when it is opened again
 
 /** The Setup part of a computer's page (#/computer/setup): the result, what to fix, what is fine, the recipe. */
-export function setupSection(ctx) {
+export function setupSection() {
   const key = machine.current || '~';
   const head = h('div.cp-result');
   const fixBox = h('div');
@@ -175,12 +174,10 @@ export function setupSection(ctx) {
   const fineBox = h('div');
   const checked = h('span.hint', { role: 'status' });
   const root = h('section.pcsetup.cp-part', { id: 'setup' });
-  const job = setupJobCard({ onEnd: () => again() });
+  const job = setupJobCard({ onEnd: () => load() });
   let computerName = setupCache.has(key) ? setupCache.get(key).computer || null : null; // its name: a Fix's confirmation sends it
   const git = gitPanel();
-  git.id = 'git'; // #/computer/setup?show=git (projects.js signInLink) lands here: its fold opens (showpart.js)
-  // The doctor's red checks that this list does not hold, with their Fix: one list of what to fix.
-  const doctor = healthFixes(ctx);
+  git.id = 'git'; // #/computer/setup?show=git (projects.js signInLink) lands here
   const started = () => job.start();
 
   // The commit name and the GitHub sign-in are not installs: their button opens the same sheet as Git and GitHub.
@@ -225,10 +222,9 @@ export function setupSection(ctx) {
 
   function paint(d) {
     const s = setupSummary(d.checks);
-    doctor.show(d.checks.map((c) => c.id));
     fill(head,
       h(`span.cp-result-icon.${s.fix.length ? 'warn' : 'ok'}`, icon(s.fix.length ? 'alert' : 'check')),
-      h('div.cp-result-text', h('strong', s.text), s.fix.length ? null : h('span.hint', `This computer has what is needed for coding.${s.offers.length ? ` ${s.offers.length} optional extra${s.offers.length === 1 ? ' is' : 's are'} below, if you want ${s.offers.length === 1 ? 'it' : 'them'}.` : ''}`)),
+      h('div.cp-result-text', h('strong', s.text), h('span.hint', s.fix.length ? 'Fix installs one thing; Set up this computer installs everything that is missing.' : `This computer has what is needed for coding.${s.offers.length ? ` ${s.offers.length} optional extra${s.offers.length === 1 ? ' is' : 's are'} below, if you want ${s.offers.length === 1 ? 'it' : 'them'}.` : ''}`)),
       // The main action only while something is missing; afterwards a quiet one (installing again is rare).
       btn(s.fix.length ? 'primary' : 'secondary', { icon: 'download', label: 'Set up this computer', onclick: () => setupSheet(started) }));
     fill(fixBox, s.fix.length ? h('div.rows', s.fix.map(fixRow)) : null);
@@ -242,11 +238,6 @@ export function setupSection(ctx) {
         h('span.row-main.cp-wrap', h('span.row-title', GROUP_TITLES[g] || g),
           h('span.row-sub', s.fine.filter((c) => c.group === g).map((c) => (String(c.detail).startsWith(c.label) ? c.detail : `${c.label} ${c.detail}`).trim()).join(' · '))))))) : null);
   }
-
-  const again = () => {
-    doctor.reload();
-    return load();
-  };
 
   async function load() {
     fill(checked, 'Checking…');
@@ -273,18 +264,18 @@ export function setupSection(ctx) {
   if (setupCache.has(key)) paint(setupCache.get(key));
   else fill(head, h('span.cp-result-icon', h('div.spinner.small', { 'aria-hidden': 'true' })), h('div.cp-result-text', h('strong', 'Checking this computer…'), h('span.hint', 'What it has for coding, and what is missing.')));
   fill(root,
-    h('section.card.panel.cp-resultcard', head, h('div.cp-recheck', checked, btn('small ghost', { icon: 'refresh', label: 'Check again', onclick: again }))),
+    h('section.card.panel.cp-resultcard', head, h('div.cp-recheck', checked, btn('small ghost', { icon: 'refresh', label: 'Check again', onclick: load }))),
     job.el,
-    fixBox, doctor.el, optionalBox, fineBox,
-    // Git and GitHub is one row; its parts show when it is opened.
-    fold('computer-git', 'Git and GitHub', git),
-    // Used once per new computer: closed until opened. The workspace's folders, its map and syncing live in
-    // Settings → Workspace; linking the brain to the coding tools on the Memory page.
-    fold('computer-recipe', 'Advanced',
-      h('div.rows.ws-link', h('a.row', { href: link('#/settings/workspace') }, h('span.row-icon', icon('folder')),
-        h('span.row-main', h('span.row-title', 'Workspace folders and the map'), h('span.row-sub', 'Settings → Workspace: the folder tree, every repository by its address, keeping it in step')),
-        h('span.row-end', icon('chevronRight', { size: 18 })))),
-      h('p.hint', 'Recipe: make your next computer like this one. Save what is installed here, then use it there.'),
+    fixBox, optionalBox, fineBox,
+    git,
+    // The workspace's folders, its map and syncing live in Settings → Workspace; linking the brain to the coding tools
+    // on the AI brain page (and in Get started and Skills while something is not linked).
+    h('div.rows.ws-link', h('a.row', { href: link('#/settings/workspace') }, h('span.row-icon', icon('folder')),
+      h('span.row-main', h('span.row-title', 'Workspace folders and the map'), h('span.row-sub', 'Settings → Workspace: the folder tree, every repository by its address, keeping it in step')),
+      h('span.row-end', icon('chevronRight', { size: 18 })))),
+    // Used once per new computer: closed until opened.
+    fold('computer-recipe', 'Advanced: recipe for another computer',
+      h('p.hint', 'Make your next computer like this one: save what is installed here, then use it there.'),
       recipeActions));
   load();
   return root;

@@ -1,13 +1,12 @@
 // Work → Activity: the one history of the workspace (GET /api/work/history, src/work/history.mjs). What happened,
 // newest first, grouped by day: the sessions you, Tia and a schedule started (with their provider and how each
-// ended), the runs of "Do it", the commits and saves of the projects, what the automations did, and errors. The 20
-// newest first, "Show more" for 20 more (and for older ones from the server). The filter by project, day and who
-// (kept per device) and the note about costs are closed folds. A run's line opens the
+// ended), the runs of "Do it", the commits and saves of the projects, what the automations did, and errors. Filtered
+// by project, day and who (kept per device); 200 lines a page, "Show more" for older ones. A run's line opens the
 // run's card as Activity showed it before (workdo.js runCard: its session, its task's runs, and for a schedule's run
 // "Done with it"), an open App session's line opens the session.
 import { icon } from './icons.js';
 import { api, btn, fill, h, link, openSheet, toast } from './lib.js';
-import { emptyState, errorBox, fold, groupHead, skeletonRows } from './shell.js';
+import { emptyState, errorBox, groupHead, skeletonRows } from './shell.js';
 import { runCard } from './workdo.js';
 import { useSummaryCard } from './workuse.js';
 
@@ -22,7 +21,6 @@ export const KINDS = {
 export const WHO_WORDS = { owner: 'You', tia: 'Tia', schedule: 'A schedule' };
 const WHO_CHOICES = [['', 'Everyone'], ['owner', 'You'], ['tia', 'Tia'], ['schedule', 'A schedule']];
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-export const PAGE = 20; // lines shown at first, and added by each Show more
 export const FIRST_USE = 'Nothing has happened here yet. The sessions you and Tia start, what a schedule runs, "Do it" runs, the commits and saves of your projects and errors show here, newest first. Sessions show from this version of Hoprig on: earlier ones are not in this list.';
 
 /** "Today", "Yesterday" or "16 Nov" for a day (`today`: Work's today, the server's word for it). */
@@ -97,7 +95,6 @@ export function paintHistory(slot, { prefs, onTask = null, today = null, isAlive
   const f = { project: prefs.get('work.history.project', ''), day: prefs.get('work.history.day', ''), who: prefs.get('work.history.who', '') };
   let page = null; // the last answer: { lines (all shown so far), more, before, projects, days }
   let asking = 0;
-  let count = PAGE; // lines shown
   if (!slot.querySelector || !slot.querySelector('.wk-history')) fill(slot, skeletonRows(4));
 
   const draw = () => {
@@ -106,38 +103,31 @@ export function paintHistory(slot, { prefs, onTask = null, today = null, isAlive
     const sel = (label, k, options) => h('label.wk-filter', h('span', label), h('select.field', { dataset: { key: `history-${k}` }, onchange: (e) => {
       f[k] = e.target.value;
       prefs.set(`work.history.${k}`, f[k]);
-      count = PAGE;
       load();
     } }, options.map(([val, text]) => h('option', { value: val, selected: val === f[k] }, text))));
     // A filter's value the answer no longer lists (a day past 30 days) stays a choice, so the select shows it.
     const projects = [...new Set([...page.projects, ...(f.project ? [f.project] : [])])].sort();
     const days = [...new Set([...page.days, ...(f.day ? [f.day] : [])])].sort().reverse();
-    const lines = page.lines.slice(0, count);
     const byDay = new Map();
-    for (const l of lines) byDay.set(l.day, [...(byDay.get(l.day) || []), l]);
-    const more = page.lines.length > count || page.more ? btn('secondary.wk-show-more', { label: 'Show more', dataset: { key: 'history-more' }, onclick: () => showMore(more) }) : null;
-    // One press for the three filters (open while one is set, so a hidden line is never a surprise); the notes under it.
-    const bar = fold('work-history-filter', filtered ? 'Filter: on' : 'Filter',
+    for (const l of page.lines) byDay.set(l.day, [...(byDay.get(l.day) || []), l]);
+    const more = page.more ? btn('secondary.wk-show-more', { label: 'Show more', dataset: { key: 'history-more' }, onclick: () => showMore(more) }) : null;
+    fill(slot, h('div.wk-history',
+      page.use ? useSummaryCard(page.use) : null, // today's and the last 7 days' use of Work's runs (workuse.js)
       h('div.wk-filters',
         sel('Project', 'project', [['', 'All projects'], ...projects.map((p) => [p, p])]),
         sel('Day', 'day', [['', 'Every day'], ...days.map((d) => [d, dayWords(d, today)])]),
         sel('Who', 'who', WHO_CHOICES)),
-      h('p.hint.wk-hist-foot', 'The last 30 days, read from this computer. A commit shows who made it only when a run of Work made it.'));
-    if (filtered) bar.open = true;
-    fill(slot, h('div.wk-history',
-      bar,
-      lines.length
+      page.lines.length
         ? [...byDay].map(([day, list]) => h('section.wk-section', groupHead(dayWords(day, today), list.length), h('div.rows.wk-hist-list', list.map((l) => historyLine(l, { onRun })))))
         : h('div.wk-hist-none', emptyState('search', 'Nothing matches this filter.', btn('secondary', { label: 'Show everything', dataset: { key: 'history-clear' }, onclick: () => {
           for (const k of ['project', 'day', 'who']) {
             f[k] = '';
             prefs.set(`work.history.${k}`, '');
           }
-          count = PAGE;
           load();
         } }))),
       more,
-      page.use ? fold('work-use', 'About costs', useSummaryCard(page.use)) : null)); // today's and the last 7 days' use of Work's runs (workuse.js)
+      h('p.hint.wk-hist-foot', 'The last 30 days, read from this computer. A commit shows who made it only when a run of Work made it.')));
   };
 
   async function load() {
@@ -153,18 +143,12 @@ export function paintHistory(slot, { prefs, onTask = null, today = null, isAlive
   }
 
   async function showMore(button) {
-    if (!page) return;
-    if (page.lines.length > count) {
-      count += PAGE;
-      return draw();
-    }
-    if (!page.before) return;
+    if (!page || !page.before) return;
     button.disabled = true;
     try {
       const r = await api(historyUrl(f, page.before));
       if (!isAlive()) return;
       page = { ...r, lines: [...page.lines, ...r.lines] };
-      count += PAGE;
       draw();
     } catch (e) {
       button.disabled = false;
@@ -175,7 +159,7 @@ export function paintHistory(slot, { prefs, onTask = null, today = null, isAlive
   load();
   return {
     // Looked at again only while nothing older was asked for: a "Show more" the owner pressed is not taken back.
-    refresh: () => (page && count > PAGE ? null : load()),
+    refresh: () => (page && page.lines.length > 200 ? null : load()),
     working: () => !!(page && page.lines.some((l) => l.kind === 'run' && l.state === 'running')),
   };
 }

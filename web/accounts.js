@@ -17,20 +17,21 @@
 // page this is (this dashboard's own): a key or a sign-in never travels to another computer through this page.
 import { COMMAND } from './brand.js';
 import { accountText, loadAccount, signOut, switchAccount, usesStoredLogin } from './claudeaccount.js';
+import { askedByRefresh, barsOf, figuresAt, groupRows, readLine, resultOf, rowButton, summaryLine } from './providerwords.js';
 import { claudeSignIn } from './claudelogin.js';
 import { icon } from './icons.js';
 import { middleModel } from './modelpicker.js';
 import {
   add, ago, api, at, btn, speedWords, confirmSheet, copyText, fill, h, insecure, isPaid, kindLabel, link, machine, openSheet, profileState, promptSheet,
-  servesClaude, startOrder, subscriptionsNote, toast, toolsText, until,
+  servesClaude, clockAt, startOrder, subscriptionsNote, toast, toolsText, until,
 } from './lib.js';
-import { gatewayPageLink, programFacts, setupBlock } from './gateways.js';
+import { gatewayPageLink, gatewaysPanel, programFacts, setupBlock } from './gateways.js';
 import { viewTrouteai } from './trouteai.js';
-import { ownBackupRow, ownEndpointRow, ownShort } from './ownendpoint.js';
+import { ownBackupPanel, ownEndpointPanel, ownNote } from './ownendpoint.js';
 import { providerHealth } from './providerhealth.js';
 import { registerPage } from './registry.js';
 import { partOf, showPart } from './showpart.js';
-import { emptyState, errorBox, fold, listRow, openLabel, panel, radioCards, saveBar, savedMark, steps, toggle } from './shell.js';
+import { emptyState, errorBox, fold, groupHead, listRow, openLabel, panel, radioCards, saveBar, savedMark, steps, toggle } from './shell.js';
 import { store } from './store.js';
 
 const A = (p) => at(machine.current, `/api/accounts${p}`); // the accounts of the computer whose page is open
@@ -141,12 +142,9 @@ export const autoToast = (a, on, r = {}) =>
     : r && r.payPerUseTurnedOn ? `${a.label} is used in Auto mode. "Also use pay-per-use providers" is now on, so Auto mode can spend money here.`
     : `${a.label} is used in Auto mode`;
 
-/** What the At a limit row says now. */
-export const limitChoiceText = (auto) => (auto && auto.enabled ? 'Carry on with the next provider' : 'Stop and ask me');
-
 /**
- * "At a limit": stop and ask (the default) or carry on with the next one (Auto mode). It lives in a sheet behind one
- * row of the Providers page: the two choices, how it works, the order, and Advanced. `onSaved(auto)` tells the row.
+ * "At a limit": stop and ask (the default) or carry on with the next one (Auto mode), on the Providers page itself: the
+ * two choices, how it works, the order, and Advanced. `onSaved(auto)` tells the page.
  */
 function limitBody(start, accounts, onSaved) {
   let auto = start;
@@ -186,16 +184,10 @@ function limitBody(start, accounts, onSaved) {
     const choice = auto.enabled ? 'carry' : 'stop';
     fill(box,
       radioCards('at-limit', [
-        { value: 'stop', title: 'Stop and ask me', sub: 'The session waits at its limit. You pick another provider with one tap, or wait until the limit resets.' },
-        { value: 'carry', title: 'Carry on with the next provider', sub: 'Work continues on the next provider in the order below, without you doing anything. This is called Auto mode.' },
+        { value: 'stop', title: 'Stop and ask me', sub: 'The session waits. You pick another account, or wait.' },
+        { value: 'carry', title: 'Carry on with the next provider', sub: 'The work moves to the next provider in the order. This is called Auto mode.' },
       ], choice, (v) => save({ enabled: v === 'carry', ...(v === 'carry' && !rows.length ? { order: startOrder(accounts, auto.payPerUse === true) } : {}) })),
       flash ? mark : null,
-      choice === 'carry' ? [
-        h('div.field-label', 'Order of providers'),
-        rows.length ? list : h('p.muted', accounts.length ? 'No provider takes part yet: open a provider and turn on "Use in Auto mode".' : 'Add a provider first.'),
-        toggle('Also use pay-per-use providers', auto.payPerUse === true, (v) => save({ payPerUse: v }),
-          PAY_PER_USE_HELP),
-      ] : null,
       fold('auto-how', 'How it works',
         h('ul.howlist',
           h('li', 'On an API provider the session goes on without stopping.'),
@@ -205,7 +197,14 @@ function limitBody(start, accounts, onSaved) {
           h('li', 'An API key straight to Anthropic costs money for every use; Auto mode uses one only when you allow it.'),
           h('li', 'Auto mode and plan usage work with Claude Code only: an OpenCode session is never moved by itself. Tia starts an OpenCode session in the App when you name it, and every OK of one comes to you.')),
         subscriptionsNote(rows.map((n) => accounts.find((p) => p.name === n)))),
-      fold('accounts', 'Advanced', fixedPanel(auto)));
+      choice === 'carry' ? [
+        h('div.field-label', 'Order of providers'),
+        rows.length ? list : h('p.muted', accounts.length ? 'No provider takes part yet: open a provider and turn on "Use in Auto mode".' : 'Add a provider first.'),
+        toggle('Also use pay-per-use providers', auto.payPerUse === true, (v) => save({ payPerUse: v }),
+          PAY_PER_USE_HELP),
+      ] : null,
+      // Sessions on one provider: one fold from the list, as it was before.
+      fold('limit-advanced', 'Advanced', fixedPanel(auto)));
     if (flash) setTimeout(() => mark.show(), 0);
   }
   draw();
@@ -223,15 +222,36 @@ function fixedPanel(auto) {
     saveBar('Save', () => api('/api/settings', { autoSwitch: { returnToPreferred: st.returnToPreferred, prompt: st.prompt } })));
 }
 
+// What a provider is in one word for its row: the plan of a Claude sign-in (a key has none: Subscription), API, OpenAI API, Codex.
+const planWord = (a) => (CLAUDE_SIGNIN.includes(a.kind) ? (isPaid(a) ? 'Billed by use' : a.plan ? PLAN(a.plan) : 'Subscription')
+  : a.kind === 'api' ? (a.viaGateway ? '' : 'API') : a.kind === 'openai' ? 'OpenAI API' : a.kind === 'chatgpt' ? 'Codex' : kindLabel(a));
+
+/** The two limit bars of a row, side by side; each 5-hour or Week with its figure, and `back …` from 80%. */
+function acctBars(a) {
+  const bars = barsOf(a);
+  if (!bars.length) return null;
+  return h('span.acct-bars', bars.map((x) => h('span.acct-bar',
+    h('span.acct-bar-top', h('span.acct-bar-label', x.label), h('span.acct-bar-pct', `${x.pct}%`)),
+    h(`span.meter${x.pct >= 90 ? '.hot' : x.pct >= 80 ? '.warm' : ''}`, h('i', { style: { width: `${Math.min(100, Math.max(0, x.pct))}%` } })),
+    x.back ? h('span.acct-bar-back', x.back) : null)));
+}
+
 /**
- * One provider in the list. `signIn(a)`: starts its sign-in again (a sign-in provider that is not signed in).
- * `another(a)`: signs in with another Claude account (a provider on the stored sign-in that is at its limit).
+ * One provider in the list: its name and plan, its state in words with a dot, its two limits, and the ONE button its
+ * state asks for. `signIn(a)`: sign in (again); `another(a)`: sign in with another Claude account; `reading`: the
+ * limits of a subscription are being read (a small spinner in place of its bars).
  */
-function accountRow(a, place, autoOn, signIn, another, own = null, payPerUse = false) {
+function accountRow(a, place, autoOn, signIn, another, own = null, payPerUse = false, reading = false) {
   const ps = profileState(a);
   // Pay-per-use is Auto mode's switch: only a provider in Auto mode's order is left out by it, never one he picks himself.
   const off = autoOn && place && leftOut(a, payPerUse);
   const page = link(`#/providers/${encodeURIComponent(a.name)}`);
+  const button = rowButton(a, Boolean(signIn), usesStoredLogin(a));
+  const plan = planWord(a);
+  const sub = off ? stateWords(a, false) : ps.text;
+  const extra = [remoteText(a), a.kind === 'api' && a.viaGateway && ps.key === 'free' ? 'billed by your gateway' : null].filter(Boolean).join(' · ');
+  const slow = a.speed && ['slow', 'refusing'].includes(a.speed.verdict) ? speedWords(a.speed) : null;
+  const press = (fn) => (e) => { e.stopPropagation(); fn(a); };
   // A row with its own button is not a link element (a button inside a link is not allowed): it opens on a tap.
   return h(`div.row.acct.ps-${ps.key}${a.remote && a.remote.state !== 'online' ? '.gw-off' : ''}`, {
     tabindex: 0, role: 'link', 'aria-label': `${a.label}: ${ps.text}`,
@@ -240,16 +260,17 @@ function accountRow(a, place, autoOn, signIn, another, own = null, payPerUse = f
   },
   h('span.row-icon', icon(kindIcon(a.kind))),
   h('span.row-main',
-    // A provider Auto mode leaves out while pay-per-use is off has no place in the order it uses: no place badge.
-    h('span.row-title', a.label, autoOn && place && !off ? h('span.badge.soft', `${ORDINAL(place)} in the order`) : null),
-    h('span.row-sub.state', listRowSub(a, !off, remoteText(a))),
-    own && servesClaude(a) ? h('span.row-sub.own-note', icon('alert', { size: 14 }), h('span', ownShort)) : null,
-    ps.key === 'signin' ? null : usageBars(a.usage, a.usageReported, a.inUse > 0),
-    // Under the figures, not beside them: its words would squeeze the row on a phone.
-    ps.key === 'limit' && another && usesStoredLogin(a)
-      ? h('span.acct-more', h('button.btn.small.secondary', { type: 'button', onclick: (e) => { e.stopPropagation(); another(a); } }, icon('user', { size: 15 }), h('span', 'Sign in with another Claude account')))
-      : null),
-  ps.key === 'signin' && signIn ? h('button.btn.small.primary.acct-signin', { type: 'button', onclick: (e) => { e.stopPropagation(); signIn(a); } }, icon('user', { size: 15 }), h('span', 'Sign in')) : null,
+    h('span.row-title',
+      // The round number is the place in the order Auto mode takes; it shows only while Auto mode carries on.
+      autoOn && place && !off ? h('span.order-n', { title: `${ORDINAL(place)} in Auto mode's order` }, String(place)) : null,
+      h('span.row-name', a.label), plan ? h('span.row-plan', ` · ${plan}`) : null, a.hub ? h('span.hub-word.muted', ' hub') : null),
+    h('span.row-sub.state', h('span.dot'), h('span', extra ? `${sub} · ${extra}` : sub)),
+    worksWith(a) && !servesClaude(a) ? h('span.row-sub.acct-tools', worksWith(a)) : null,
+    slow ? h('span.row-sub.acct-speed', slow) : null,
+    own && servesClaude(a) ? h('span.row-sub.own-note', icon('alert', { size: 14 }), h('span', ownNote(own))) : null,
+    reading && askedByRefresh(a) ? h('span.acct-reading', h('span.spinner.small', { 'aria-hidden': 'true' }), h('span', 'Reading…'))
+      : ps.key === 'signin' || ps.key === 'unusable' ? null : acctBars(a),
+    button ? h(`button.btn.small.${button.kind === 'signin' ? 'primary' : 'secondary'}.acct-btn`, { type: 'button', onclick: press(button.kind === 'signin' ? signIn : another) }, icon('user', { size: 15 }), h('span', button.label)) : null),
   h('span.row-end', icon('chevronRight', { size: 18 })));
 }
 
@@ -258,12 +279,25 @@ function accountRow(a, place, autoOn, signIn, another, own = null, payPerUse = f
 export const GATEWAY_PARTS = ['gateways', 'trouteai'];
 export const LIMIT_PARTS = ['accounts', 'auto-how', 'at-limit'];
 
-/** The gateway as one row among the providers: its name, one word of status, and a page of its own. */
-export const gatewayWords = (host) => {
+/**
+ * The gateway as one row among the providers: its name, one word of status, and which provider uses it. A stopped gateway
+ * beside a provider that goes through it says that provider cannot answer, so the two lines never seem to disagree; with
+ * no provider through it, the line names the gateway the sessions use instead.
+ */
+export const gatewayWords = (host, accounts = []) => {
   if (!host) return '';
   const g = (host.gateways || []).find((x) => x.id === 'trouteai' && !x.defined);
-  return !g || !g.installed ? 'Not installed' : g.problem ? 'Needs attention' : g.running ? 'Running' : 'Stopped';
+  const word = !g || !g.installed ? 'Not installed' : g.problem ? 'Needs attention' : g.running ? 'Running' : 'Stopped';
+  if (!g || !g.installed) return word;
+  const via = accounts.filter((a) => a.viaGateway && a.viaGateway.id === 'trouteai');
+  if (via.length) return g.running && !g.problem ? `${word} · used by ${via[0].label}${via.length > 1 ? ` and ${via.length - 1} more` : ''}` : `${word} · ${via[0].label} cannot answer until it runs`;
+  const other = accounts.find((a) => a.viaGateway || a.remote);
+  if (other) return `${word} · your sessions use ${other.viaGateway ? other.viaGateway.title : other.remote.title || 'another gateway'}`;
+  return word;
 };
+
+/** The state lines (and the order of the groups) count down once a minute while the page is open. */
+const REDRAW_MS = 60_000;
 
 function viewAccounts({ frame, sub, query }) {
   store.viewing = null;
@@ -277,6 +311,10 @@ function viewAccounts({ frame, sub, query }) {
   }
   const body = h('div', h('div.empty', h('div.spinner', { 'aria-hidden': 'true' }), h('p', 'Loading providers…')));
   let data = null;
+  let host = null;
+  let auto = null;
+  let reading = false;
+  let readAt = null; // the last Refresh of this page (the server's own time is data.limitsReadAt)
   const refresh = (flash = false) => {
     store.refresh();
     load(flash);
@@ -290,41 +328,89 @@ function viewAccounts({ frame, sub, query }) {
     body: [body],
   });
   let alive = true;
+  const answer = h('div.prov-answer'); // the summary and the groups: drawn again in place, never the whole page
+  const signIn = (x) => (x.kind === 'chatgpt' ? (location.hash = link(`#/providers/${encodeURIComponent(x.name)}`)) : signInAgain(x, data, refresh));
+
+  /** Reads every account now (Refresh): busy at once, the rows are drawn again in place when the answer is there. */
+  async function readNow() {
+    if (reading) return;
+    reading = true;
+    paint();
+    try {
+      const r = await api(A('/limits/read'), {});
+      readAt = figuresAt(r) || readAt;
+      data = { ...(await loadAccounts()), full: true };
+      const bad = (r.results || []).filter((x) => x.ok === false && x.error && x.read !== 'signin');
+      if (bad.length) toast(`${bad.length === 1 ? bad[0].name : `${bad.length} accounts`} could not be read: ${bad[0].error}`, { kind: 'error', ms: 6000 });
+    } catch (e) {
+      toast(e, { kind: 'error' });
+    }
+    reading = false;
+    store.refresh();
+    if (alive) paint();
+  }
+
+  /** The summary line, the Refresh button, and the groups of providers; drawn from `data` (again each minute). */
+  function paint() {
+    if (!data || !alive) return;
+    const order = (auto.order || []).filter((n) => data.accounts.some((a) => a.name === n));
+    const groups = groupRows(data.accounts);
+    const place = (a) => order.indexOf(a.name) + 1;
+    const line = summaryLine(groups);
+    const subs = data.accounts.filter(askedByRefresh).length;
+    const when = reading ? `Asking ${subs} account${subs === 1 ? '' : 's'} one small question…` : readLine(here, readAt || data.limitsReadAt, data.accounts);
+    const rowOf = (a) => accountRow(a, place(a), auto.enabled, here ? signIn : null, here ? () => switchAccount({ done: refresh }) : null, data.ownEndpoint || null, auto.payPerUse === true, reading);
+    fill(answer,
+      data.accounts.length ? h('div.prov-summary',
+        line ? h('p.prov-count', line) : null,
+        when || here ? h('div.prov-read', h('span.prov-read-when', when),
+          here ? h('button.btn.small.secondary.prov-refresh', { type: 'button', title: 'Asks each subscription one small question; it uses a very small part of its limit', disabled: reading, 'aria-busy': reading ? 'true' : null, onclick: readNow },
+            reading ? h('span.spinner.small', { 'aria-hidden': 'true' }) : icon('refresh', { size: 15 }), h('span', reading ? 'Reading…' : 'Refresh')) : null) : null) : null,
+      groups.map((g) => [groupHead(g.title, g.rows.length), h('div.rows', g.rows.map(rowOf))]),
+      here ? [groupHead('Gateway'), h('div.rows', listRow({ href: link('#/providers/trouteai'), icon: 'swap', title: 'TRouteAI', sub: gatewayWords(host, data.accounts) }))] : null);
+  }
+
+  let shownOnce = false;
+  let timer = null;
   async function load(flash = false) {
     let settings;
-    let host = null;
     try {
       [data, settings, host] = await Promise.all([loadAccounts(), api('/api/settings'), here ? api('~/api/gatewayhost').catch(() => null) : null]);
     } catch (e) {
       return fill(body, errorBox(e, load));
     }
     if (!alive) return;
-    const auto = settings.autoSwitch;
-    const order = (auto.order || []).filter((n) => data.accounts.some((a) => a.name === n));
-    const accounts = inOrder(data.accounts, order);
-    const limitRow = listRow({ onclick: () => openLimit(), icon: 'zap', title: 'At a limit', sub: limitChoiceText(auto) });
-    const openLimit = () => openSheet({ title: 'At a limit', subtitle: 'What happens when a provider has used up its limit' }, () => limitBody(auto, data.accounts.filter(servesClaude), (x) => {
-      store.refresh();
-      fill(limitRow.querySelector('.row-sub'), limitChoiceText(x));
-    }));
+    auto = settings.autoSwitch;
+    // The limit rule is on the list itself, open, no press away: after the answer to who can work, because it decides
+    // what the numbers on the rows mean. Wide, it is the first card of the right-hand column.
+    const limit = data.accounts.length ? panel({ id: 'at-limit', icon: 'zap', title: 'When an account reaches its limit' }, limitBody(auto, data.accounts.filter(servesClaude), () => store.refresh())) : null;
+    paint();
     fill(body,
-      here ? ownEndpointRow(data.ownEndpoint, () => refresh()) : null,
-      here ? ownBackupRow(data.ownBackup, () => refresh()) : null,
-      h('div.rows',
-        accounts.map((a) => accountRow(a, order.indexOf(a.name) + 1, auto.enabled, here ? (x) => signInAgain(x, data, refresh) : null, here ? () => switchAccount({ done: refresh }) : null, data.ownEndpoint || null, auto.payPerUse === true)),
-        here ? listRow({ href: link('#/providers/trouteai'), icon: 'swap', title: 'TRouteAI', sub: gatewayWords(host) }) : null,
-        accounts.length ? limitRow : null),
-      accounts.length ? null : emptyState('user', here ? 'No providers yet. Add the subscription, sign-in or API key your coding tools should use.' : `No providers on ${openLabel()} yet. Add one on that computer's own page.`),
-      here ? null : h('p.hint', `Providers of ${openLabel()} are added on that computer's own page: a key or a sign-in never travels through this one.`));
-    // The old "?show=<part>" of the limit rule's fold: its sheet, once, on the first draw.
+      h('div.prov-grid',
+        h('div.prov-main',
+          here ? ownEndpointPanel(data.ownEndpoint, () => refresh()) : null,
+          here ? ownBackupPanel(data.ownBackup, () => refresh()) : null,
+          answer,
+          data.accounts.length ? null : emptyState('user', here ? 'No providers yet. Add the subscription, sign-in or API key your coding tools should use.' : `No providers on ${openLabel()} yet. Add one on that computer's own page.`,
+            here ? btn('primary', { icon: 'plus', label: 'Add provider', onclick: () => addWizard(data, refresh) }) : null)),
+        h('div.prov-side',
+          limit,
+          here ? gatewaysPanel({ useLocal: (g) => addWizard(data, refresh, { start: g.id }), changed: () => refresh() }) : null,
+          here ? null : h('p.hint', `Providers of ${openLabel()} are added on that computer's own page: a key or a sign-in never travels through this one.`),
+          // The one switch of the hub's providers: only where another computer of his own is linked, inside a closed fold.
+          here && data.hubShare ? fold('hubshare', 'More', toggle('My other computers may use this computer\'s providers', data.hubShare.on === true, async (v) => {
+            await api('/api/hubprov/switch', { on: v });
+          }, 'They start sessions on these providers without adding any. The keys stay on this computer. Keep a provider to this computer from its own page.')) : null)));
+    // The old "?show=<part>" of the limit rule: brought into view once, on the first draw.
     const part = shownOnce ? null : partOf(query);
     shownOnce = true;
-    if (LIMIT_PARTS.includes(part)) openLimit();
+    if (LIMIT_PARTS.includes(part)) showPart('at-limit', { alive: () => alive });
+    if (!timer) timer = setInterval(() => { if (alive && document.visibilityState !== 'hidden') paint(); }, REDRAW_MS);
   }
-  let shownOnce = false;
   load();
   return () => {
     alive = false;
+    clearInterval(timer);
   };
 }
 
@@ -416,22 +502,68 @@ function unusableBox(a, d) {
     d.full ? btn('small danger', { icon: 'trash', label: 'Remove', onclick: () => removeProvider(a) }) : null);
 }
 
+/**
+ * The head of a provider's page, drawn once. Later the title and the one line under it are changed in place: drawing the
+ * whole frame again rebuilt the menu and the head and threw the page back to the top at every press that refreshed.
+ */
+export function pageHead(frame, first, second) {
+  let drawn = false;
+  return (title, intro = null) => {
+    if (!drawn || !document.querySelector('main.page .page-title')) {
+      drawn = true;
+      return frame({ title, intro, ...first, ...second });
+    }
+    document.querySelector('main.page .page-title').textContent = title;
+    const row = document.querySelector('main.page .pagehead-text');
+    let line = row.querySelector('.page-intro');
+    if (!intro) return line && line.remove();
+    if (!line) add(row, (line = h('p.page-intro')));
+    line.classList.add('acct-intro');
+    line.textContent = intro;
+  };
+}
+
+/** A load that has not answered after this long says so, with Try again. */
+export const SLOW_MS = 8000;
+
 function viewAccount(frame, name) {
   const body = h('div', h('div.empty', h('div.spinner', { 'aria-hidden': 'true' }), h('p', 'Loading…')));
-  // The title is the account's name: drawn again once it is known (and after a rename).
-  const draw = (title, intro = null) => frame({ title, intro, page: 'providers', back: link('#/providers'), backLabel: 'Providers', body: [body] });
+  // The title is the account's name: known at once from the list the page already holds, changed in place when the
+  // answer comes (and after a rename), never drawn as a second frame.
+  const draw = pageHead(frame, { page: 'providers', back: link('#/providers'), backLabel: 'Providers', body: [body] }, {});
   draw(((store.data && store.data.profiles) || []).find((p) => p.name === name)?.label || 'Provider');
   let alive = true;
+  let run = 0;
+  let health = null; // the check, the model map and what is left: made once per visit, asked again in place
   const refresh = () => {
     store.refresh();
     load();
   };
   async function load() {
+    const mine = ++run;
+    // The page keeps what it shows while it asks again; only a first load with nothing yet shows the waiting.
+    const slow = setTimeout(() => {
+      if (alive && mine === run && !body.querySelector('.card')) {
+        fill(body, h('div.empty.compact', h('p', 'This is taking longer than usual. The computer may be busy or not answering.'),
+          btn('secondary', { icon: 'refresh', label: 'Try again', onclick: () => { fill(body, h('div.empty', h('div.spinner', { 'aria-hidden': 'true' }), h('p', 'Loading…'))); load(); } })));
+      }
+    }, SLOW_MS);
     let d;
     try {
       d = await loadAccounts();
     } catch (e) {
-      return fill(body, errorBox(e));
+      clearTimeout(slow);
+      if (mine !== run) return;
+      return fill(body, errorBox(e, load));
+    }
+    clearTimeout(slow);
+    if (mine !== run) return;
+    // Asking again keeps the page where it was: the parts that draw themselves a moment later (the check, what is left)
+    // would shorten it for that moment and throw a scrolled page to the top, so it keeps its height for a second.
+    const keepH = body.querySelector('.card') ? body.offsetHeight : 0;
+    if (keepH) {
+      body.style.minHeight = `${keepH}px`;
+      setTimeout(() => { body.style.minHeight = ''; }, 1500);
     }
     if (!alive) return;
     const a = d.accounts.find((x) => x.name === name);
@@ -440,71 +572,131 @@ function viewAccount(frame, name) {
     const what = [kindText(a), a.remote ? remoteText(a) : a.viaGateway ? `via ${a.viaGateway.title}` : a.host || '', a.model ? `model ${a.model}` : ''].filter(Boolean).join(' · ');
     draw(a.label, what);
     const claude = servesClaude(a);
-    const act = (ic, label, sub, fn) => h('button.row', { type: 'button', onclick: async () => {
+    const healthOf = (n) => {
+      if (health) health.reload();
+      else health = providerHealth(n);
+      return health;
+    };
+    // `quick`: the press asks the computer and does not open a sheet, so the row shows it is busy until the answer is there.
+    const act = (ic, label, sub, fn, quick = false) => h('button.row.acct-act', { type: 'button', onclick: async (e) => {
+      const row = e.currentTarget;
+      if (quick) {
+        row.disabled = true;
+        row.setAttribute('aria-busy', 'true');
+        row.classList.add('row-busy');
+      }
       try {
         await fn();
-      } catch (e) {
-        toast(e, { kind: 'error', ms: 8000 });
+      } catch (err) {
+        toast(err, { kind: 'error', ms: 8000 });
+      }
+      if (quick) {
+        row.disabled = false;
+        row.removeAttribute('aria-busy');
+        row.classList.remove('row-busy');
       }
     } }, h('span.row-icon', icon(ic)), h('span.row-main', h('span.row-title', label), sub ? h('span.row-sub', sub) : null), h('span.row-end', icon('chevronRight', { size: 18 })));
     // Claude Code's stored sign-in, on this dashboard's own computer: who is signed in, and the two things to do
-    // with it. (A provider with its own account token is signed in again through its wizard, as before.)
+    // with it. (A provider with its own account token is signed in again through its wizard.)
     const stored = usesStoredLogin(a) && d.full && !machine.current;
+    const ownPage = d.full && !machine.current; // this dashboard's own computer: the only one that reads limits or signs in
+    const needsSignin = ps.key === 'signin' && a.kind !== 'chatgpt' && !a.unusable && !a.gatewayGone;
     const who = stored && ps.key !== 'signin' ? h('p.acct-who.hint', 'Asking Claude Code who is signed in…') : null;
     if (who) {
       loadAccount().then((x) => alive && fill(who, x.loggedIn ? ['Signed in as ', h('strong', accountText(x) || 'a Claude account')] : 'Claude Code reports no sign-in.'))
         .catch(() => alive && fill(who));
     }
-    fill(body,
-      panel({},
-        h(`p.acct-state.ps-${ps.key}`, h('span.dot'), ps.text),
-        who,
-        a.unusable || a.gatewayGone ? unusableBox(a, d)
-          : a.kind === 'chatgpt' ? codexSigninBox(a, d) : ps.key === 'signin'
-          ? h('div.banner.warn.mbanner', icon('alert', { size: 18 }), h('span', 'Claude Code cannot use this provider until you sign in again.'),
-            d.full ? btn('small primary', { icon: 'user', label: 'Sign in', onclick: () => signInAgain(a, d, refresh) }) : null)
-          : CLAUDE_SIGNIN.includes(a.kind) || a.kind === 'api' ? usageBars(a.usage, a.usageReported, a.inUse > 0) || h('p.hint', 'No usage figures yet: they appear after the first answer on this provider.') : null,
-        stored && ps.key === 'limit'
-          ? h('div.banner.warn.mbanner.acct-limit', icon('alert', { size: 18 }), h('span', 'This account is at its limit. With another Claude account the work goes on under this provider.'),
-            btn('small primary', { icon: 'user', label: 'Sign in with another Claude account', onclick: () => switchAccount({ done: refresh }) }))
+    const st = store.all.find((m) => m.machine === machine.current);
+    const order = (st && st.autoSwitch && st.autoSwitch.order) || [];
+    const reasonLine = a.signinRefused ? `Claude answered at ${clockAt(a.signinRefused.at)} that this sign-in is no longer valid.`
+      : a.signedOut ? 'Signed out on this computer.' : a.hub ? 'This provider has no sign-in on this computer yet.' : 'No sign-in yet.';
+    const readNowBtn = (ownPage && CLAUDE_SIGNIN.includes(a.kind) && !a.hub && !a.unusable) ? h('div.acct-read',
+      h('span.hint', a.usage && a.usage.at ? `Read ${ago(a.usage.at)}` : 'Limits not read yet'),
+      btn('small secondary', { icon: 'refresh', label: 'Read now', onclick: async (e) => {
+        const b = e.currentTarget;
+        b.disabled = true;
+        b.setAttribute('aria-busy', 'true');
+        try {
+          const r = await api(A('/limits/read'), { name: a.name });
+          const res = resultOf(r, a.name);
+          if (res && res.ok === false && res.read !== 'signin') toast(`${a.label} could not be read: ${res.error}`, { kind: 'error', ms: 6000 });
+        } catch (err) {
+          toast(err, { kind: 'error' });
+        }
+        refresh();
+      } })) : null;
+    const statePanel = panel({},
+      h(`p.acct-state.ps-${ps.key}`, h('span.dot'), ps.text),
+      who,
+      a.unusable || a.gatewayGone ? unusableBox(a, d)
+        : a.kind === 'chatgpt' ? codexSigninBox(a, d) : needsSignin
+        ? h('div.banner.warn.mbanner', icon('alert', { size: 18 }), h('span', reasonLine),
+          d.full ? btn('small primary', { icon: 'user', label: a.hub ? 'Sign in here' : a.signinRefused ? 'Sign in again' : 'Sign in', onclick: () => signInAgain(a, d, refresh) }) : null)
+          : CLAUDE_SIGNIN.includes(a.kind) || a.kind === 'api'
+          ? usageBars(a.usage, a.usageReported, a.inUse > 0) || (a.kind === 'api' && isPaid(a) ? h('p.hint', 'Billed by use: no limits to show.') : h('p.hint', 'No usage figures yet: they appear after the first answer on this provider.'))
           : null,
-        worksWith(a) ? h('p.acct-works', icon('check', { size: 15 }), h('span', worksWith(a))) : null,
-        speedWords(a.speed) ? h('p.hint.acct-speed', speedWords(a.speed)) : null,
-        testResult(a),
-        a.kind === 'chatgpt' && !a.unusable ? h('p.hint', 'Codex uses the ChatGPT account it is signed in to on this computer. In a terminal, the same is ', h('code', `${COMMAND} codex login --device-auth`), '.') : null,
-        signinHint(a) ? h('p.hint', signinHint(a)) : null,
-        a.kind === 'login' && a.ownFolder ? h('p.hint.acct-own-folder', 'This provider keeps its Claude Code sign-in in a folder of its own, so this page cannot see or change it. To sign it in, start a terminal session on this provider and type /login there.') : null,
-        d.full && claude ? toggle('Use in Auto mode', a.inAuto, async (on) => {
-          try {
-            const r = await api(A(`/${encodeURIComponent(a.name)}/auto`), { on });
-            toast(autoToast(a, on, r), r && r.payPerUseTurnedOn ? { ms: 8000 } : undefined);
-            refresh();
-          } catch (e) {
-            toast(e, { kind: 'error' });
-            refresh();
-          }
-        }, autoHelp(a, d.payPerUse === true)) : null),
-      d.full && claude && !a.unusable ? providerHealth(a.name) : null, // its check, its model map, what is left (providerhealth.js)
-      d.full ? h('div.rows',
-        stored && ps.key !== 'signin' ? act('user', 'Sign in with another account', 'Sessions keep running, on the new account', () => switchAccount({ done: refresh })) : null,
-        stored && ps.key !== 'signin' ? act('logout', 'Sign out', 'Claude Code forgets this sign-in', () => signOut({ done: refresh })) : null,
-        act('pencil', 'Rename', 'The name shown everywhere', async () => {
-          const label = await promptSheet({ title: 'Rename provider', value: a.label, ok: 'Rename', check: (v) => (v.trim() && v.length <= 60 ? '' : 'One line, up to 60 characters') });
-          if (!label) return;
-          await api(A(`/${encodeURIComponent(a.name)}/label`), { label });
-          toast('Renamed');
+      stored && ps.key === 'limit'
+        ? h('div.banner.warn.mbanner.acct-limit', icon('alert', { size: 18 }), h('span', 'The work goes on under this provider with the other account.'),
+          btn('small primary', { icon: 'user', label: 'Sign in with another account', onclick: () => switchAccount({ done: refresh }) }))
+        : null,
+      readNowBtn);
+    // Where each press stands, in the order he uses them (a press that is card 1's own button is not repeated below).
+    const rowsA = d.full && !a.hub ? [
+      a.viaGateway && a.viaGateway.id === 'trouteai' ? act('swap', 'TRouteAI', 'Its accounts and their limits', () => { location.hash = link('#/providers/trouteai'); }) : null,
+      a.kind === 'subscription' && ownPage && !needsSignin && !a.signedOut ? act('user', 'Sign in again', 'This account or another: the old sign-in stays until the new one works', () => signInAgain(a, d, refresh)) : null,
+      (stored && ps.key !== 'signin') || (a.kind === 'subscription' && ownPage && !needsSignin)
+        ? act('user', 'Sign in with another account', a.kind === 'subscription' ? 'The old sign-in stays until the new one works' : 'Sessions keep running, on the new account',
+          () => (a.kind === 'subscription' ? addWizard(d, refresh, { signIn: a, another: true }) : switchAccount({ done: refresh }))) : null,
+      stored && ps.key !== 'signin' ? act('logout', 'Sign out', 'Claude Code forgets this sign-in', () => signOut({ done: refresh }))
+        : a.kind === 'subscription' && ownPage && !a.signedOut ? act('logout', 'Sign out', 'This computer forgets the key', () => signOut({ provider: a, done: refresh })) : null,
+    ] : [];
+    const rowsB = d.full && !a.hub ? [
+      act('pencil', 'Rename', 'The name shown everywhere', async () => {
+        const label = await promptSheet({ title: 'Rename provider', value: a.label, ok: 'Rename', check: (v) => (v.trim() && v.length <= 60 ? '' : 'One line, up to 60 characters') });
+        if (!label) return;
+        await api(A(`/${encodeURIComponent(a.name)}/label`), { label });
+        toast('Renamed');
+        refresh();
+      }),
+      // Only on the computer that holds the key, and only where another computer of his own is linked.
+      typeof a.kept === 'boolean' ? act('lock', a.kept ? 'Share with your other computers' : 'Keep to this computer', a.kept ? 'Now only this computer uses it' : 'Your other computers may use it', async () => {
+        await api(`/api/hubprov/${encodeURIComponent(a.name)}/keep`, { on: !a.kept });
+        refresh();
+      }, true) : null,
+      KEYED.includes(a.kind) ? act('sparkle', 'Change model', a.model ? `Now: ${a.model}` : 'Pick the model this provider uses', () => modelSheet(a, refresh)) : null,
+      KEYED.includes(a.kind) ? testRow(a, refresh) : null,
+      a.limited && a.limited.reason !== 'auth' ? act('refresh', 'It is free again', 'Mark it as no longer at its limit', async () => {
+        await api(at(machine.current, `/api/profiles/${encodeURIComponent(a.name)}/available`), {});
+        toast(`${a.label} is available again`);
+        refresh();
+      }, true) : null,
+    ] : [];
+    const place = order.indexOf(a.name) + 1;
+    fill(body,
+      statePanel,
+      rowsA.some(Boolean) ? h('div.rows', rowsA) : null,
+      d.full && claude ? panel({}, toggle('Use in Auto mode', a.inAuto, async (on) => {
+        try {
+          const r = await api(A(`/${encodeURIComponent(a.name)}/auto`), { on });
+          toast(autoToast(a, on, r), r && r.payPerUseTurnedOn ? { ms: 8000 } : undefined);
           refresh();
-        }),
-        KEYED.includes(a.kind) ? act('sparkle', 'Change model', a.model ? `Now: ${a.model}` : 'Pick the model this provider uses', () => modelSheet(a, refresh)) : null,
-        KEYED.includes(a.kind) ? testRow(a, refresh) : null,
-        a.limited ? act('refresh', 'It is free again', 'Mark it as no longer at its limit', async () => {
-          await api(at(machine.current, `/api/profiles/${encodeURIComponent(a.name)}/available`), {});
-          toast(`${a.label} is available again`);
+        } catch (e) {
+          toast(e, { kind: 'error' });
           refresh();
-        }) : null) : null,
-      d.full ? fold('account', 'Advanced',
+        }
+      }, autoHelp(a, d.payPerUse === true)), a.inAuto && place ? h('p.hint.acct-place', `${ORDINAL(place)} of ${order.length} in the order`) : null) : null,
+      rowsB.some(Boolean) ? h('div.rows', rowsB) : null,
+      d.full && claude && !a.unusable && !a.hub ? healthOf(a.name) : null, // its check, its model map, what is left (providerhealth.js)
+      a.hub ? h('p.hint', `This provider is ${a.hubLabel ? `${a.hubLabel}'s` : 'your hub\'s'}. It is changed on that computer.`) : null,
+      worksWith(a) ? h('p.hint.acct-works', worksWith(a)) : null,
+      speedWords(a.speed) ? h('p.hint.acct-speed', speedWords(a.speed)) : null,
+      testResult(a),
+      a.kind === 'chatgpt' && !a.unusable ? h('p.hint', 'Codex uses the ChatGPT account it is signed in to on this computer. In a terminal, the same is ', h('code', `${COMMAND} codex login --device-auth`), '.') : null,
+      signinHint(a) ? h('p.hint', signinHint(a)) : null,
+      a.kind === 'login' && a.ownFolder ? h('p.hint.acct-own-folder', 'This provider keeps its Claude Code sign-in in a folder of its own, so this page cannot see or change it. To sign it in, start a terminal session on this provider and type /login there.') : null,
+      d.full && !a.hub ? fold('account', 'Advanced',
         h('p.hint', `Short name: ${a.name} (for the command line).`),
-        h('div.savebar', btn('danger', { icon: 'trash', label: 'Remove this provider', onclick: () => removeProvider(a) }))) : h('p.hint', 'This computer runs an older version: its providers are changed on its own page.'));
+        h('div.savebar', btn('danger', { icon: 'trash', label: 'Remove this provider', onclick: () => removeProvider(a) }))) : a.hub ? null : h('p.hint', 'This computer runs an older version: its providers are changed on its own page.'));
   }
   load();
   return () => {
@@ -595,9 +787,9 @@ export function otherProvidersChoice(gws) {
 export const notRunningText = (g) => `${g.title} is ${g.installable ? 'installed' : 'on this computer'} but not running. Start it, then add your provider ${g.page ? 'in its page' : 'in it'} and come back with a key.`;
 
 /** Add a provider; with `signIn` (a provider), sign that one in again: straight to the sign-in link. */
-function addWizard(data, done, { signIn = null, start = null } = {}) {
+function addWizard(data, done, { signIn = null, start = null, another = false } = {}) {
   let cleanup = null;
-  openSheet(signIn ? { title: `Sign in again to ${signIn.label}`, subtitle: 'With the Claude account this provider uses. Until the code is accepted, nothing changes.' } : { title: 'Add provider', subtitle: 'Choose what you want to add' }, (close) => {
+  openSheet(signIn ? { title: another ? `Sign in to ${signIn.label} with another account` : `Sign in again to ${signIn.label}`, subtitle: 'With the Claude account this provider uses. Until the code is accepted, nothing changes.' } : { title: 'Add provider', subtitle: 'Choose what you want to add' }, (close) => {
     const panel = h('div.wizard');
     const finish = (text) => {
       toast(text);
@@ -637,7 +829,7 @@ function addWizard(data, done, { signIn = null, start = null } = {}) {
       const out = h('div');
       go.addEventListener('click', async () => {
         go.disabled = true;
-        fill(out, busy('Starting Claude Code on the computer…'));
+        fill(out, busy('Getting a sign-in link from Claude (up to a minute)…'));
         try {
           const r = await api(A('/subscription/start'), { name: name.value, label: label.value });
           cleanup = () => api(A('/subscription/cancel'), {}).catch(() => {});
@@ -665,23 +857,33 @@ function addWizard(data, done, { signIn = null, start = null } = {}) {
         fill(out, busy('Checking the code…'));
         try {
           const res = await api(A('/subscription/code'), { code: code.value });
+          // Read that one account at once, so its row moves to Can work now with its figures and not to "not known".
+          if (signIn) {
+            fill(out, busy('Reading its limits…'));
+            await api(A('/limits/read'), { name: signIn.name }).catch(() => {});
+          }
           finish(signIn ? `${res.label || signIn.label} is signed in again` : `${res.label} added`);
         } catch (e) {
           cleanup = null;
           fill(out, errorBox(e), h('div.savebar', btn('secondary', { icon: 'refresh', label: 'Start again', onclick: subscription })), terminalLink());
         }
       });
+      // Where the browser can read the clipboard, a phone needs no long press to paste the code.
+      const paste = navigator.clipboard && navigator.clipboard.readText
+        ? btn('secondary small', { icon: 'copy', label: 'Paste', onclick: async () => { try { code.value = (await navigator.clipboard.readText()).trim(); } catch { code.focus(); } } }) : null;
+      const first = another ? 'Open this link. If claude.ai shows the account of now, sign out there first (or open the link in a private window), then sign in with the other account.'
+        : signIn ? 'Open this link and sign in with the Claude account this provider uses.' : 'Open this link and sign in with the account you want to add.';
       fill(panel, back(),
         steps(
-          [h('p', signIn ? 'Open this link and sign in with the Claude account this provider uses.' : 'Open this link and sign in with the account you want to add.'),
+          [h('p', first),
             h('div.btnrow',
               h('a.btn.primary', { href: r.url, target: '_blank', rel: 'noopener noreferrer' }, icon('external', { size: 18 }), h('span', 'Open the sign-in page')),
               btn('secondary', { icon: 'copy', label: 'Copy link', onclick: async () => toast((await copyText(r.url)) ? 'Link copied' : 'Copy did not work') }))],
-          [h('p', 'After you allow access, the page shows a code. Paste it here.'), code],
+          [h('p', 'After you allow access, the page shows a code. Paste it here.'), h('div.pasterow', code, paste)],
         ),
-        h('div.sheet-actions', h('button.btn.secondary', { type: 'button', onclick: async () => { await cleanup?.(); cleanup = null; close(); } }, 'Cancel'), add),
         out,
-        h('p.hint', 'The sign-in stays open for 10 minutes.'));
+        h('p.hint', 'The sign-in stays open for 10 minutes.'),
+        h('div.sheet-actions', h('button.btn.secondary', { type: 'button', onclick: async () => { await cleanup?.(); cleanup = null; close(); } }, 'Cancel'), add));
       code.focus();
     }
 
@@ -883,7 +1085,7 @@ function addWizard(data, done, { signIn = null, start = null } = {}) {
 
     // Signing an existing provider in again: the same sign-in link and code, under its own name.
     async function again() {
-      fill(panel, busy('Starting Claude Code on the computer…'));
+      fill(panel, busy('Getting a sign-in link from Claude (up to a minute)…'));
       try {
         const r = await api(A('/subscription/start'), { mode: 'signin', name: signIn.name });
         cleanup = () => api(A('/subscription/cancel'), {}).catch(() => {});
@@ -898,7 +1100,7 @@ function addWizard(data, done, { signIn = null, start = null } = {}) {
     }
 
     if (signIn) again();
-    else if (start) viaGateway(start); // "Use here" on one of this computer's gateways: straight to its steps
+    else if (start) viaGateway(start); // one of this computer's gateways: straight to its steps
     else choose();
     return panel;
   }).then(() => cleanup?.());

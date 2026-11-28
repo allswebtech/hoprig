@@ -12,12 +12,12 @@ import { navChanged, registerHeadTool, registerPage, registerSessionAction, regi
 import { fold, saveBar, tabBar, toggle } from './shell.js';
 import { modelPicker } from './modelpicker.js';
 import { leadSwitch } from './leadswitch.js';
+import { splitHelp } from './helpline.js';
 import { store } from './store.js';
 import { knownChatTools } from './chat/start.js';
 import { keepTabIn } from './tabwrap.js';
 import { composerControls, micButton, speech, touchScreen } from './voice.js';
-import { byTiaList, tiaAloneFold } from './operator-tia.js';
-import { missionLimits } from './mission.js';
+import { tiaActsSetting } from './operator-tia.js';
 import { activityRows, activityWords, continuesOf, sessionWords, stamp, workCardWords } from './tiaactivity.js';
 import { DID, TOOL_WORDS, doingLine, jobChip, wordFor } from './tiawords.js';
 import { cardElement, closeChoice, formFields } from './tiacards.js';
@@ -38,8 +38,6 @@ export const EXAMPLES = [
 ];
 // The line under her page's title, for a person who is not a programmer. Paid use asks him first except at Hands off
 // within the daily limit he set (levelShort.handsoff, src/assistant/spend.mjs): the line says so, never "always asks".
-// The one line under her page's title: short, and it still keeps the promise (the whole sentence is SUBTITLE).
-export const HEAD_LINE = 'Say what to do. She asks before anything risky.';
 export const SUBTITLE = `Tell ${NAME} what you want done, in your own words. She asks you before anything risky, and before paid use unless you chose Hands off with a daily limit for it (Settings → ${NAME}).`;
 /** Her **bold** words as bold, everything else as plain text (never as HTML). */
 export const boldText = (text) => String(text).split(/\*\*([^*\n]+)\*\*/).map((part, i) => (i % 2 ? h('strong', part) : part));
@@ -692,7 +690,7 @@ function chatPanel(host, { scrollEl = null, fresh = false } = {}) {
 const box = { open: prefs.get('tia.box', false), forced: false, chat: null, root: null, body: null, count: null, head: null };
 // The page head's button: made with each page head (only the newest is on the page), shown on a phone only.
 registerHeadTool(() => {
-  const n = h('span.tia-launch-dot.hidden');
+  const n = h('span.tia-launch-n.hidden');
   box.head = h('button.icon-btn.tia-headbtn.hidden', { type: 'button', title: `Ask ${NAME}`, 'aria-label': `Ask ${NAME}`, onclick: () => setBox(!box.open) },
     icon('sparkle', { size: 16 }), n);
   box.head.count = n;
@@ -702,14 +700,14 @@ registerHeadTool(() => {
 function chatBox() {
   if (box.root) return box;
   box.body = h('div.tia-boxbody');
-  box.count = h('span.tia-launch-dot.hidden');
+  box.count = h('span.tia-launch-n.hidden');
   const restart = (fresh) => {
     box.chat?.stop();
     box.chat = chatPanel(box.body, { scrollEl: box.body, fresh });
   };
   box.panel = h('section.tia-box.hidden', { role: 'dialog', 'aria-label': NAME },
     h('header.tia-boxhead',
-      h('span.tia-boxname', NAME),
+      h('span.tia-boxname', NAME, h('span.badge.soft.tag', 'experimental')),
       btn('icon ghost small', { icon: 'plus', title: 'New chat', onclick: () => { convSet(''); restart(true); } }),
       h('a.btn.icon.ghost.small', { href: '#/tia', title: 'Open the full page', 'aria-label': 'Open the full page', onclick: () => setBox(false) }, icon('external', { size: 16 })),
       btn('icon ghost small', { icon: 'x', title: 'Close', onclick: closeBox })),
@@ -759,7 +757,7 @@ function paintBox() {
   const n = (lastOverview.cards || []).length;
   if (box.head) {
     box.head.classList.toggle('hidden', !on || here);
-    box.head.count.textContent = '';
+    box.head.count.textContent = String(n);
     box.head.count.classList.toggle('hidden', !n);
     box.head.setAttribute('aria-expanded', String(box.open));
   }
@@ -777,7 +775,7 @@ function paintBox() {
   chatBox();
   box.root.classList.remove('hidden');
   box.root.classList.toggle('over-terminal', terminal);
-  box.count.textContent = '';
+  box.count.textContent = String(n);
   box.count.classList.toggle('hidden', !n);
   box.panel.classList.toggle('hidden', !box.open);
   box.launch.setAttribute('aria-expanded', String(box.open));
@@ -833,10 +831,10 @@ function viewTia({ frame, sub }) {
     else chatView({ fresh: true });
   } });
   frame({
-    title: NAME,
+    title: [NAME, h('span.badge.soft.tag', 'experimental')],
     page: 'tia',
     actions: [newChat],
-    intro: HEAD_LINE,
+    intro: SUBTITLE,
     body: [top, tabs, body],
     fillWindow: !sub, // the chat: messages above, the message box kept at the bottom
   });
@@ -859,7 +857,7 @@ function viewTia({ frame, sub }) {
       fill(body, h('div.tia-off',
         h('span.tia-off-icon', icon('sparkle', { size: 28 })),
         h('h2.tia-off-title', `${NAME} is off`),
-        h('p', `${NAME} starts and watches coding sessions for you.`),
+        h('p', `${NAME} is a built-in assistant (experimental) that starts coding sessions for you, watches them and asks you before anything risky.`),
         h('a.btn.primary', { href: '#/settings/tia' }, icon('power', { size: 18 }), h('span', `Turn on ${NAME} in Settings`))));
       return false;
     }
@@ -932,15 +930,11 @@ function viewTia({ frame, sub }) {
     } catch (e) {
       return fill(body, h('p.banner.error-box', { role: 'alert' }, icon('alert', { size: 18 }), h('span', `Could not load the activity: ${e.message}. Reload the page to try again.`)));
     }
-    // What she did by herself under her rules (Done by Tia, with Undo): kept by the operator's store, shown only when she did something.
-    const att = await api('/api/operator/attention').catch(() => null);
     if (!alive) return;
-    const byTia = att && att.reflexes && Array.isArray(att.byTia) ? att.byTia : [];
-    const doneBy = byTia.length ? h('section', { 'aria-label': 'Done by Tia' }, h('h2.group-head', h('span', 'Done by Tia')), byTiaList(byTia, att.reflexes, () => activityView())) : null;
-    if (!r.entries.length) return doneBy ? fill(body, doneBy) : fill(body, h('div.empty.compact', icon('text', { size: 28 }), h('div.empty-title', 'Nothing yet'), h('p', `Every change ${NAME} makes or proposes is listed here, and every OK you give.`)));
+    if (!r.entries.length) return fill(body, h('div.empty.compact', icon('text', { size: 28 }), h('div.empty-title', 'Nothing yet'), h('p', `Every change ${NAME} makes or proposes is listed here, and every OK you give.`)));
     // Each entry as one sentence (tiaactivity.js): providers, coding tools, chats and folders by their names; a card's
     // entries (her proposal, your answer, what came of it) as one row.
-    fill(body, doneBy, h('div.rows', activityRows(r.entries).map(({ e, at, steps, error }) => {
+    fill(body, h('div.rows', activityRows(r.entries).map(({ e, at, steps, error }) => {
       const w = activityWords(e, placeAt(e.input && e.input.computer));
       return h('div.row.static',
         h('span.row-icon', icon(e.actor === 'owner' ? 'user' : 'sparkle')),
@@ -994,7 +988,7 @@ const convGet = () => prefs.get('tia.conversation', null);
 const convSet = (v) => prefs.set('tia.conversation', v);
 
 registerPage({
-  id: 'tia', title: NAME, icon: 'sparkle', navAs: 'home', render: viewTia,
+  id: 'tia', title: NAME, icon: 'sparkle', group: 'more', order: 30, render: viewTia,
   badge: () => (lastOverview && lastOverview.cards ? lastOverview.cards.length : 0),
 });
 
@@ -1152,13 +1146,8 @@ function tiaRights({ isAlive }) {
 }
 
 // ---------- Settings → Tia ----------
-/** The label and the one line of her switch, true for the state it shows (never "Tia is on" over a switch that is off). */
-export const onOffWords = (on) => (on
-  ? { label: `${NAME} is on`, line: 'Turn her off to hide her button and stop everything she watches.' }
-  : { label: `${NAME} is off`, line: 'Turn her on to let her do jobs for you. She is experimental.' });
 function tiaSettings({ isAlive }) {
-  const box = h('div', h('p.hint', 'Loading…')); // her switch and the level
-  const limitsBox = h('div.tia-limits-box'); // her providers, the daily limit and what she runs on
+  const box = h('div', h('p.hint', 'Loading…'));
   const usageBox = h('div');
   const clientBox = h('div');
   async function paint() {
@@ -1172,7 +1161,7 @@ function tiaSettings({ isAlive }) {
     const s = v.settings;
     const st = { level: s.level, accounts: s.accounts ? [...s.accounts] : null, runsOn: s.runsOnSet || '', model: s.model || '', lead: s.lead === true, others: s.others || [], maxSteps: s.maxSteps, maxMinutes: s.maxMinutes, computers: Array.isArray(s.computers) ? s.computers.filter((n) => n !== 'this') : [], dailyCapUsd: s.dailyCapUsd ?? null };
     // On or off is kept at once (the page then shows or hides her settings); the rest with Save.
-    const onOff = toggle(onOffWords(s.enabled).label, s.enabled, async (on) => {
+    const onOff = toggle(`${NAME} is on`, s.enabled, async (on) => {
       try {
         await api(`${A}/settings`, { enabled: on });
         pollOverview();
@@ -1182,7 +1171,7 @@ function tiaSettings({ isAlive }) {
         paint();
         return false;
       }
-    }, onOffWords(s.enabled).line); // one true line for the state the switch shows; nothing folded under it
+    }, splitHelp(v.help.enabled)); // the server's two sentences: the first under the switch, the rest under "More"
     // "She answers the OKs of her Work runs" (assistant.answersHers, off at first): kept at once, as on or off is, so one
     // press stops it. Its sentence says what she then answers by herself and what stays his card.
     const answersHers = v.help.answersHers ? toggle('She answers the OKs of her Work runs', s.answersHers === true, async (on) => {
@@ -1271,11 +1260,13 @@ function tiaSettings({ isAlive }) {
       if (back) fill(backSlot, backButton(back));
     }) : null;
     if (capSave) capSave.classList.add('start', 'tia-cap-save');
+    const acts = h('div.tia-acts');
+    tiaActsSetting(acts);
     fill(box,
       onOff,
-      s.enabled ? h('div.fieldrow', h('span.field-label', 'How far she may go'), levelSeg, fold('tia-level-more', 'What each level means', levelLines, levelHelp)) : null);
-    fill(limitsBox,
+      acts,
       s.enabled ? [
+        h('div.fieldrow', h('span.field-label', 'How far she may go'), levelSeg, levelLines, fold('tia-level-more', 'What each level means', levelHelp)),
         answersHers,
         // The field, its Save when he was sent here, what is used today; the long text of what counts under "More".
         h('div.fieldrow', h('label.field-label', { for: 'tia-daily-cap' }, 'Daily limit for paid use (US $)'), cap, capSave, backSlot, spentLine, fold('tia-cap-more', 'What counts against the limit', h('p.hint', v.help.dailyCapUsd))),
@@ -1315,16 +1306,7 @@ function tiaSettings({ isAlive }) {
   }
   paint();
   // What she has used and her tools for your own Claude Code: looked at rarely, so closed until opened.
-  // After her switch and the level, five folds, closed at first: what she may do alone, the limits and roles, her rights
-  // on this computer, her self-improvement rounds, and what she has used with the token for your own Claude Code.
-  return [
-    box,
-    tiaAloneFold(),
-    fold('tia-limits', 'Limits and roles', limitsBox, missionLimits()),
-    fold('tia-rights', 'Rights', tiaRights({ isAlive })),
-    fold('tia-improve', 'Self-improvement', ((slot) => (import('./tiaimprove.js').then((m) => m.improveTia(slot, { isAlive })), slot))(h('div.tia-improve'))),
-    fold('tia-usage', 'Usage and token', usageBox, clientBox),
-  ];
+  return [box, tiaRights({ isAlive }), ((slot) => (import('./tiaimprove.js').then((m) => m.improveTia(slot, { isAlive })), slot))(h('div.tia-improve')), fold('tia-usage', 'Usage, and her tools in your own Claude Code', usageBox, clientBox)];
 }
 
 /**
@@ -1513,7 +1495,7 @@ export const providerWords = (a) => (a.name === 'auto' ? 'Auto mode'
 
 registerSettingsPage({
   id: 'tia', title: NAME, icon: 'sparkle', order: 50, onlyHere: true, tag: 'experimental',
-  desc: `${NAME} gets coding work done and tells you when it is done.`,
+  desc: `${NAME} is the assistant: she gets coding work done through sessions with your coding tools and tells you when it is done. Choose how far she may go and which providers she may use.`,
   summary: async () => {
     const v = await api(`${A}/settings`);
     return v.settings.enabled ? `On · ${{ ask: 'asks first', work: 'does the work', handsoff: 'hands off' }[v.settings.level] || v.settings.level}` : 'Off';

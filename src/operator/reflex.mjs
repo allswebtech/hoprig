@@ -54,7 +54,7 @@ function cardWords(s) {
 export const DECIDE = 'decide';
 /** Who the owner reads as the doer of an act of this rule: Tia for a decision and for a rule that spends usage, Hoprig for a rule that needs no model. */
 const doerOf = (id) => (id === DECIDE || ruleById(id)?.cost !== 'none' ? 'Tia' : 'Hoprig');
-const decisionRule = (act, why = null) => ({ id: DECIDE, act, why, undo: act === 'switch' ? ruleById('limit').undo : null, noUndo: act === 'switch' ? null : act === 'hold' ? 'Lift the hold in Settings → Tia.' : 'It cannot be undone.', ...(act === 'hold' ? { noUndoWays: ['operator-page'] } : {}) });
+const decisionRule = (act, why = null) => ({ id: DECIDE, act, why, undo: act === 'switch' ? ruleById('limit').undo : null, noUndo: act === 'switch' ? null : act === 'hold' ? 'Lift the hold on the Operator page.' : 'It cannot be undone.', ...(act === 'hold' ? { noUndoWays: ['operator-page'] } : {}) });
 
 /**
  * A refusal of a rule's act: `code` names it (one line per item rev and code), `say: false` writes no line. `keep`: the
@@ -396,7 +396,7 @@ export function reflexes({ ctx, perform, fresh, peek = fresh, line, dir, now, ac
     });
     const frozen = d?.frozenUntil != null && t < d.frozenUntil;
     const anyOn = RULE_IDS.some((id) => s.rules[id]);
-    const said = !s.acts ? '"Tia acts by herself" is off: she follows none of her rules on her own and decides nothing by herself. Work you ask of her is not affected.'
+    const said = !s.acts ? '"Tia acts by herself" is off: she follows none of the Operator\'s rules on her own and decides nothing by herself. Work you ask of her is not affected.'
       : !s.tia ? 'Tia is turned off in Settings → Tia, so she does nothing by herself.'
         : frozen ? `The record of what Tia did could not be read, so she does nothing by herself until ${clock(d.frozenUntil, t)}.`
           : !anyOn ? 'Tia may act, but every rule is off, so she does nothing by herself.'

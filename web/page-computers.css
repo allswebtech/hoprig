@@ -5,6 +5,7 @@
 .cp-rowwrap { cursor: default; }
 .cp-rowwrap:hover { background: var(--surface-2); }
 .cp-rowlink { flex: 1; min-width: 0; display: flex; align-items: center; gap: 12px; color: inherit; text-decoration: none; }
+.cp-health { flex: none; }
 .cp-row .row-title .badge { vertical-align: 1px; }
 .cp-row .row-sub { display: flex; align-items: center; gap: 6px; }
 .cp-row .cp-claude { display: block; }
@@ -24,10 +25,7 @@
 
 /* ---- one computer: the parts ---- */
 .cp-parttext { font-size: var(--fs-sm); color: var(--muted); margin: 10px 2px 4px; }
-.cp-part { min-height: 40vh; } /* the page keeps its height while a part loads: no jump */
-.cp-part > .fold, .cp-part > .cp-section { margin-top: 12px; }
-.cp-status .btn { margin-left: auto; }
-.cp-part > .rows { margin-top: 12px; }
+.cp-part { min-height: 60vh; } /* the page keeps its height while a part loads: no jump */
 .cp-wrap .row-title, .cp-wrap .row-sub { white-space: normal; overflow-wrap: anywhere; }
 
 /* Overview */
@@ -131,8 +129,9 @@
 /* A computer that does not answer: its line says what to do, so it wraps on a phone instead of being cut. */
 .cp-row.cp-off .row-sub { white-space: normal; overflow-wrap: anywhere; }
 
-/* A narrow screen: the row's lines wrap under its name. */
+/* A narrow screen: the Health link goes under the row's text so the name and the lines keep their width. */
 @media (max-width: 640px) {
   .cp-rowwrap { flex-wrap: wrap; row-gap: 4px; }
   .cp-rowlink { flex-basis: 100%; }
+  .cp-health { margin-left: 46px; }
 }

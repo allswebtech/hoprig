@@ -28,12 +28,12 @@ const read = (f) => fs.readFileSync(new URL(`../../web/${f}`, import.meta.url), 
 const page = read('trouteaipage.js');
 const { publicNeed, PUBLIC_SENTENCE, ROWS_SHOWN, GATEWAY_NEEDS } = await import('../../web/trouteaipage.js');
 const { GATEWAY_NEEDS: SERVER_NEEDS, GATEWAY_PIN } = await import('../../src/addons/gateways.mjs');
-const { accountLine, lowestLeft, publicOffWords } = await import('../../web/trouteai.js');
+const { publicOffWords } = await import('../../web/trouteai.js');
 
 test('the parts come in the order of the design: status, problem, Open, Accounts, Add account, then the folds', () => {
   const run = page.slice(page.indexOf('const parts = [statusLine'));
   const at = (s) => run.indexOf(s);
-  const order = ['statusLine(ctx, gw)', 'const problem', "'Open TRouteAI'", 'accountsPart(ctx, accounts.accounts, limits)', "label: 'Add account'", 'combosPart(', 'publicFold(pub, ctx)', 'sharing(gw, load', 'otherComputers(gws, load)', 'manageFold(ctx, gw));\n    fill(body'];
+  const order = ['statusLine(ctx, gw, others)', 'const problem', "'Open TRouteAI'", 'accountsPart(ctx, accounts.accounts, limits)', "label: 'Add account'", 'combosPart(', 'pubFold);', 'sharing(gw, load', 'manageFold(ctx, gw));\n    fill(body'];
   let last = -1;
   for (const s of order) {
     assert.ok(at(s) > last, `${s} comes after the part before it`);
@@ -76,20 +76,21 @@ test('each state of the page: not set up, not running, running with a problem', 
   assert.match(page, /label: 'Use it for my sessions'/);
 });
 
-test('the account line says the state, and the lowest window left while it works', () => {
-  const lim = { windows: [{ name: 'a', percentLeft: 80 }, { name: 'b', percentLeft: 62 }] };
-  assert.equal(lowestLeft(lim), 62);
-  assert.equal(accountLine({ state: 'ok' }, lim), 'Works · 62% left');
-  assert.equal(accountLine({ state: 'ok' }, null), 'Works');
-  assert.equal(accountLine({ state: 'off' }, lim), 'Turned off');
-  assert.equal(accountLine({ state: 'error' }, lim), 'Needs attention');
-  assert.equal(accountLine({ state: 'limited' }, lim), 'Limit reached');
+test('an account row keeps Test, Turn off or on and Remove on the row itself, with its limits', () => {
+  const src = read('trouteai.js');
+  const row = src.slice(src.indexOf('export function accountRow'), src.indexOf('/** The keys Hoprig made'));
+  for (const w of ["label: 'Test'", "a.on ? 'Turn off' : 'Turn on'", "label: 'Remove'", 'lim.windows.map(limitLine)', '/remove`']) assert.ok(row.includes(w), w);
+  assert.doesNotMatch(row, /openSheet/, 'no sheet between the row and its buttons');
+  assert.match(read('trouteaipage.js'), /accountRow\(a, limits && limits\[a\.id\], ctx, ctx\.reload\)/);
 });
 
 test('every refusal of the public address has one sentence and at most one press', () => {
   const need = (n, extra = {}) => publicNeed({ need: n, hostname: 'tai-pc.example.com', ...extra });
-  assert.deepEqual(need('link-custom'), ['Set up Hoprig\'s public link as Custom first (Settings, Public link).', 'settings']);
-  assert.deepEqual(need('link-off'), ['Turn Hoprig\'s public link on first (Settings, Public link).', 'settings']);
+  // Each says the one thing to do in Settings, Public link, and has the one press that opens it.
+  assert.deepEqual(need('link-custom'), ['Hoprig\'s public link is not a Custom one yet. In Settings, Public link, choose Custom (your own domain on a named tunnel), then come back here.', 'settings']);
+  assert.deepEqual(need('link-off'), ['Hoprig\'s public link is off. In Settings, Public link, turn it on, then come back here.', 'settings']);
+  // A tunnel token: the server's own sentence says why the address cannot be made from here.
+  assert.match(need('link-custom', { why: 'With a tunnel token the names are set in the Cloudflare dashboard, so TRouteAI\'s address cannot be made from here. Set up Hoprig\'s public link as Custom first (Settings, Public link).' })[0], /^With a tunnel token/);
   assert.deepEqual(need('first-password'), ['TRouteAI still uses its first password. Set your own first.', 'password']);
   assert.deepEqual(need('no-password'), ['TRouteAI has no password. Set one first.', 'password']);
   assert.deepEqual(need('open-api'), ['TRouteAI answers its model address without a key, so it stays private.', null]);
@@ -111,7 +112,8 @@ test('switching the public address on or off asks first, names what becomes reac
 test('a page that is not on this computer says where TRouteAI opens until the public address is on', () => {
   assert.match(publicOffWords({ computer: 'pc', port: 20017 }), /^TRouteAI opens from here once its public address is on \(Public address, below\)\. On pc itself it opens at http:\/\/127\.0\.0\.1:20017\/\.$/);
   const t = read('trouteai.js');
-  assert.match(t, /if \(!onThatComputer && !state\.publicUrl\) return hint\(publicOffWords\(state\)\);/, 'no tab is opened');
+  // No tab is opened; the line comes with a press that goes to the Public address fold.
+  assert.match(t, /if \(!onThatComputer && !state\.publicUrl\) return hint\(publicOffWords\(state\), state\.goPublic \? btn\('small secondary', \{ label: 'Go to Public address', onclick: state\.goPublic \}\) : null\);/);
 });
 
 test('Settings, Public link shows the name of TRouteAI as turned on and off on its page, with no Remove', () => {

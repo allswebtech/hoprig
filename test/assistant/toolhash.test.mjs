@@ -8,7 +8,7 @@ import { handleMessage } from '../../src/assistant/mcp.mjs';
 import { MCP_TOOLS_JSON, TOOLS } from '../../src/assistant/tools.mjs';
 
 // Her roles and their tool arrays: Hoprig has one owner, one door, one role.
-const ROLES = { owner: { count: 24, sha256: '9b0c08615f416ec8467347fc7897c7c77a295bd831fe390c112d75bcbbf92dd7' } };
+const ROLES = { owner: { count: 24, sha256: 'a019e8113ad43cbc57e55ec4a0c136afb374ef64e9f172a27bf9d9c098fb76bc' } };
 
 test('the owner\'s role gets at most 24 tools, the same bytes over three turns, with the pinned hash', async () => {
   const client = { call: async () => ({ text: '', isError: false }) };

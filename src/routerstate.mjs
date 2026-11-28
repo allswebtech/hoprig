@@ -238,10 +238,32 @@ export function rememberLogin({ loggedIn = null, plan = null, account = null, me
 // Enterprise seat signs in the same way and reports none.
 const PLANS_WITH_USAGE = new Set(['pro', 'max', 'ultra']);
 
+// ---- refused sign-ins: a key Claude answered 401 or 403 to ------------------------------------------------------
+// { name: { at, text } } in signin-refused.json. Fed by the router and by the read of the limits, cleared by a new
+// sign-in or by the next good answer: the page says "Sign-in refused" and not "Limit reached" (the router's own mark of
+// such an answer is a ten-minute pause, which is not a limit).
+export const refusedAll = () => readJson('signin-refused.json', {});
+export const refusedOf = (name) => {
+  const r = refusedAll()[name];
+  return r && Number.isFinite(r.at) ? r : null;
+};
+export function noteRefused(name, text = '', now = Date.now()) {
+  if (!name) return;
+  writeJson('signin-refused.json', { ...refusedAll(), [name]: { at: now, text: String(text || '').slice(0, 200) } });
+}
+export function clearRefused(name) {
+  const all = refusedAll();
+  if (!(name in all)) return false;
+  delete all[name];
+  writeJson('signin-refused.json', all);
+  return true;
+}
+
 /**
  * What the page shows of a provider that signs in, beyond the public profile (an API key has none of these):
  *   signedIn       "login": the stored sign-in as last checked: true, false, or null when nobody checked yet.
- *                  "subscription": true (it carries its own token; whether Anthropic still takes it shows at use)
+ *                  "subscription": true while its token is there and Anthropic did not refuse it (signinRefused: { at });
+ *                  false with signedOut when the token was taken away here
  *   plan           "login": the plan Claude Code names for the sign-in ("pro", "max", "team", …), else null
  *   usageReported  true: figures were seen for this provider, or its plan reports them; false: its plan does not
  *                  report them (the page says so instead of showing nothing); null: not known yet
@@ -251,13 +273,22 @@ export function providerFacts(profile) {
   if (!profile || (profile.kind !== 'login' && profile.kind !== 'subscription')) return {};
   const kept = usageStore()[profile.name];
   const seen = Boolean(kept && (kept.fiveHour || kept.week)); // not what forgetUsage left
-  if (profile.kind === 'subscription') return { signedIn: true, plan: null, usageReported: seen ? true : null };
+  const hasKey = Boolean(profile.env && profile.env.CLAUDE_CODE_OAUTH_TOKEN);
+  const refused = profile.kind === 'login' || hasKey ? refusedOf(profile.name) : null; // a stored sign-in Claude refused shows as refused as well
+  if (profile.kind === 'subscription') {
+    return {
+      // Signed out here (no key line): not signed in. A key Claude refused: not signed in either. Else the key is there.
+      signedIn: hasKey ? !refused : false, plan: null, usageReported: seen ? true : null,
+      ...(hasKey ? {} : { signedOut: true }), ...(refused ? { signinRefused: { at: refused.at } } : {}),
+    };
+  }
   // A folder of its own: the check that is kept is the default folder's, which says nothing about this one.
-  if (ownFolder(profile)) return { signedIn: null, plan: null, usageReported: seen ? true : null, accountAt: null };
+  if (ownFolder(profile)) return { signedIn: refused ? false : null, plan: null, usageReported: seen ? true : null, accountAt: null, ...(refused ? { signinRefused: { at: refused.at } } : {}) };
   const login = loginSeen();
   const plan = login && login.loggedIn ? login.plan : null;
   return {
-    signedIn: login ? login.loggedIn : null, plan, usageReported: seen ? true : plan ? PLANS_WITH_USAGE.has(plan.toLowerCase()) : null,
+    // The hub's subscription on a linked computer (src/hubprov) is signed in only when THIS computer's own sign-in is seen: not known is not signed in, so the row says Sign in here and no new session starts on it first.
+    signedIn: refused ? false : profile.signinHere ? !!(login && login.loggedIn) : login ? login.loggedIn : null, plan, ...(refused ? { signinRefused: { at: refused.at } } : {}), usageReported: seen ? true : plan ? PLANS_WITH_USAGE.has(plan.toLowerCase()) : null,
     // when another account was last signed in here: a limit seen before that moment was the earlier account's
     accountAt: login ? login.accountAt : null,
     // a sign-in on a key billed by use (billedLogin): `paid` as every provider billed by use has it

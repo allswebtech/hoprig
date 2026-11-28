@@ -17,6 +17,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { loadConfig, saveConfig } from './config.mjs';
+import { hubRows } from './hubprov/rows.mjs';
 import { stateDir } from './paths.mjs';
 import { listProfiles, servesTools, validName } from './profiles.mjs';
 import { billedLogin } from './routerstate.mjs';
@@ -214,7 +215,9 @@ function splitOrder(names) {
   const known = new Set(profiles.filter((p) => servesTools(p).includes('claude')).map((p) => p.name));
   const paid = paidNames(profiles);
   const as = getAutoSwitch();
-  const inOrder = (Array.isArray(names) ? names : as.order).filter((n) => known.has(n));
+  // This computer's own order, then the rows of the main computer's Auto order (src/hubprov/rows.mjs): one rule.
+  const base = Array.isArray(names) ? names : [...as.order, ...hubRows.autoNames().filter((n) => !as.order.includes(n))];
+  const inOrder = base.filter((n) => known.has(n));
   const left = (n) => !as.payPerUse && paid.has(n);
   return { usable: inOrder.filter((n) => !left(n)), billed: inOrder.filter(left) };
 }

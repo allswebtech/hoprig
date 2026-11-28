@@ -515,7 +515,57 @@ const DEMO_SIGNIN = {
 let stored = null; // the demo's stored sign-in (main sets it after isolate())
 async function demoRouterState() {
   const rs = await import('../routerstate.mjs');
-  return { ...rs, providerFacts: (p) => (p.name === 'pro' ? stored.facts() : DEMO_SIGNIN[p.name] || rs.providerFacts(p)) };
+  // The five key providers of the Providers page's states (seedMany): the real facts (refused, signed out), a plan.
+  return { ...rs, providerFacts: (p) => (p.name === 'pro' ? stored.facts() : DEMO_SIGNIN[p.name] || (MANY.includes(p.name) ? { ...rs.providerFacts(p), plan: 'max' } : rs.providerFacts(p))) };
+}
+
+// Providers of every state the Providers page can show, with made-up keys (none works anywhere): at a weekly limit, signed
+// in and free, at a five-hour limit, refused by Claude (a revoked sign-in), signed out here.
+const MANY = ['sub2', 'sub3', 'sub4', 'sub5', 'sub6'];
+async function seedMany(writeProfile, now) {
+  const h = 3600_000;
+  const { saveProfileUsage } = await import('../routerstate.mjs');
+  const rs = await import('../routerstate.mjs');
+  const { markLimited } = await import('../autoswitch.mjs');
+  const key = (n) => ({ CLAUDE_CODE_OAUTH_TOKEN: ['sk-ant-oat01', 'demo-not-a-real-token', n].join('-') });
+  const at = now - 12 * 60_000;
+  writeProfile('sub2', { label: 'sub2', env: key('sub2') });
+  saveProfileUsage('sub2', { fiveHour: { pct: 0, resetsAt: now + 3 * h }, week: { pct: 100, resetsAt: now + 3.4 * 24 * h }, status: 'rejected', at });
+  markLimited('sub2', { until: now + 3.4 * 24 * h, reason: 'rate_limit' }, now);
+  writeProfile('sub3', { label: 'sub3', env: key('sub3') });
+  markLimited('sub3', { until: now + 10 * 60_000, reason: 'auth' }, now); // what the router marks at a 401
+  if (rs.noteRefused) rs.noteRefused('sub3', 'Claude answered 401', now - 20 * 60_000);
+  writeProfile('sub4', { label: 'sub4', env: key('sub4') });
+  saveProfileUsage('sub4', { fiveHour: { pct: 100, resetsAt: now + 1.35 * h }, week: { pct: 52, resetsAt: now + 4 * 24 * h }, status: 'rejected', at });
+  markLimited('sub4', { until: now + 1.35 * h, reason: 'rate_limit' }, now);
+  writeProfile('sub5', { label: 'sub5', env: key('sub5') });
+  saveProfileUsage('sub5', { fiveHour: { pct: 22, resetsAt: now + 2 * h }, week: { pct: 88, resetsAt: now + 2.2 * 24 * h }, status: 'allowed_warning', at });
+  writeProfile('sub6', { label: 'sub6', signin: 'claude', env: {} }); // signed out here: its key line is gone
+}
+
+/** The made-up read of the Refresh of the demo: after 1.5 seconds, figures by key, kept as the router keeps a real answer. No program runs. */
+export function demoLimitsAsk(now = Date.now) {
+  return async (p) => {
+    await new Promise((r) => setTimeout(r, 1500));
+    const rs = await import('../routerstate.mjs');
+    const key = String((p.env && p.env.CLAUDE_CODE_OAUTH_TOKEN) || '');
+    const h = 3600_000;
+    const t = now();
+    const win = (pct, ms) => ({ pct, resetsAt: t + ms });
+    const figures = (five, week) => {
+      rs.saveProfileUsage(p.name, { at: t, fiveHour: five, week });
+      return { name: p.name, ok: true, read: 'figures' };
+    };
+    if (key.endsWith('sub3')) {
+      rs.noteRefused(p.name, 'Claude answered 401', t);
+      return { name: p.name, ok: false, read: 'signin', error: 'Claude refused the sign-in' };
+    }
+    if (key.endsWith('sub2')) return figures(win(0, 3 * h), win(100, 82 * h));
+    if (key.endsWith('sub4')) return figures(win(100, 1.3 * h), win(52, 96 * h));
+    if (key.endsWith('sub5')) return figures(win(24, 2 * h), win(88, 53 * h));
+    if (key.endsWith('000000000000')) return figures(win(96, 2.3 * h), win(58, 77 * h));
+    return { name: p.name, ok: true, read: 'none' };
+  };
 }
 
 // A made-up certificate fingerprint in the shape of a real one: "sha256:" and 43 base64url characters.
@@ -574,6 +624,7 @@ async function seed(home, { secondary, password }) {
   writeProfile('api', { label: 'API (pay as you go)', env: { ANTHROPIC_API_KEY: 'demo-not-a-real-key-2222222222' } });
   // A provider whose sign-in is gone: no token in its file (a stored sign-in), "not signed in" in DEMO_SIGNIN.
   if (!secondary) writeProfile('pro', { label: 'Claude Pro', env: {} });
+  if (!secondary) await seedMany(writeProfile, Date.now());
   const h = 3600_000;
   const now = Date.now();
   saveProfileUsage('max', { fiveHour: { pct: 96, resetsAt: now + 2.4 * h }, week: { pct: 58, resetsAt: now + 3.2 * 24 * h }, status: 'allowed_warning', at: now });
@@ -858,7 +909,7 @@ export async function main(args = [], hooks = {}) {
       // The list of computers: the sample version, not "not installed". The join line: what a hub with its own
       // certificate answers (the address in server.publicUrl below; a made-up fingerprint), so the page shows it whole.
       machines: { claudeVersion: async () => CLAUDE_INFO.installed, certOf: async () => ({ kind: 'own', pin: DEMO_PIN }) },
-      accounts: { gateways: [addon] },
+      accounts: { gateways: [addon], readLimits: { askOne: demoLimitsAsk() } },
       // Who is signed in to Claude Code (Providers, the sign-in sheets): the demo's made-up stored sign-in, never a program.
       claudeLogin: { status: stored.status, logout: stored.logout },
       // The demo's chat talks to no model. OpenCode is on (its pages show it) but has no server here: a chat of it says

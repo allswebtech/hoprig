@@ -1,9 +1,9 @@
 # The workspace and the AI brain
 
-One folder tree, the same on every computer. Coding happens inside `projects/`. The dashboard's **Projects** page shows
-your projects, each with its state and a **New session** button.
+One folder tree, the same on every computer. Coding happens inside `projects/`. The dashboard's **Workspace** page shows
+your projects, each with its sessions.
 
-![The Projects page: the projects that are not in step with the git server, then every project with its state and a New session button](screenshots/projects-desktop-light.webp)
+![The Workspace page: two projects, each with its folder, its branch and the sessions that run in it](screenshots/workspace-desktop-light.webp)
 
 ```
 ~/Workspace/
@@ -88,9 +88,9 @@ there. So:
   (`--with-projects` is the one option for an owner who wants every project everywhere). A project that is here is
   looked at every 30 minutes and before a session starts: a clean branch that is only behind is fast-forwarded (switch
   `ffProjects`, on for the projects folder, off for a group's own place); a branch with changes in the same files,
-  commits on both sides, work under way or a session open is left alone and listed as Not in step on the Projects
+  commits on both sides, work under way or a session open is left alone and listed as Not in step on the Workspace
   page. Nothing is ever merged, rebased, stashed or pushed by itself. The rest is yours: `hoprig sync [<name>]`,
-  `hoprig workspace sync`, or Sync on the Projects page (under **More**). One switch per place (`pushBranches`, below) lets committed work on a branch that is
+  `hoprig workspace sync`, or Sync on the Workspace page. One switch per place (`pushBranches`, below) lets committed work on a branch that is
   not the default branch go up by itself; a default branch is never pushed by itself (a push there can be a release).
 - **`hoprig get <name>`: every step can be run again.** A get that was cut off (the network, a closed lid) leaves
   what is complete and fetches the rest on the next run. A folder that holds a clone cut off half way (a repository
@@ -106,7 +106,7 @@ A computer that held projects before Hoprig came keeps them where they were: `~/
 project with its repositories and notes beside them. Three steps bring each into the layout above, and none of them
 moves, changes or deletes what was there. The commands do the mechanical part; the bundled skill `adopt-projects`
 does the reading and the asking in a coding session you start (as `new-project` stands over `project new`). In the
-dashboard: **Projects → Add project → Found on this computer**, the same three steps without a terminal.
+dashboard: **Workspace → Projects found on this computer**, the same three steps without a terminal.
 
 ```sh
 hoprig adopt scan                          # looks at nothing: names the usual folders that are there
@@ -423,9 +423,9 @@ back); a tag only here; a repository without `origin`; a linked worktree with wo
 (remove it first: `git worktree remove <path>`); Claude Code's memory for a folder of the project kept as a real
 folder, not a link (it is in no git); a folder that leads out through a link that is not your own.
 
-### Drop from a project's page
+### Drop from the Workspace page
 
-Everything above can be done on a project's page (**Projects**, then the project), without a terminal. A project's page has **Take it off this
+Everything above can be done on the Workspace page, without a terminal. A project's page has **Take it off this
 computer** under Advanced. It opens a sheet that is the terminal's drop, question for question:
 
 - first the check, in the same words `hoprig drop <name> --check` prints: what exists only on this computer;
@@ -506,7 +506,7 @@ into the look. **Push my other branches** pushes the committed work of every bra
 branch, in every repository of the map, through the same gates as the upkeep's push; it never pushes a default
 branch. Only your own page may press it, and two presses never run at once.
 
-Two looks can run by themselves, both off until you turn them on (Settings → Automations → Workspace → By itself → More). **Look once a
+Two looks can run by themselves, both off until you turn them on (Settings → Workspace → By itself → More). **Look once a
 day at what is only on this computer** runs this check without asking any git server and keeps only how many things
 it found, by kind: never a name or a path. When that number changes it writes one line in Work → Activity, and it
 tells you when something exists only here. **Look once a week at the git servers** asks the git server of each
@@ -534,7 +534,7 @@ The routes: `GET /api/workspace/leave` (starts the whole check, or polls it with
 
 - **The label** is your own short name for the computer (lower-case letters, digits, `-` and `_`), asked once at
   set-up; the host name is only offered as a suggestion and is never stored without your word. `hoprig workspace
-  label <name>` gives it later, and so does this computer's name field in **Settings → Automations → Workspace → Where things are**. On the
+  label <name>` gives it later, and so does this computer's name field in **Settings → Workspace → Where things are**. On the
   **Workspace** page's computers list, a name another
   computer's file holds asks "Is this computer <name>, set up again?", and **Yes, this is <name>** is the page's
   `--again`. After **Bring my workspace from git**, a computer with no name yet gets one line that leads there.
@@ -561,7 +561,7 @@ there under another name than its label in the workspace is joined with its file
 (kept when it is added and at each look; its row says the name it has under Computers). One whose Hoprig is too old to
 tell its label is shown as unknown with the files it may be: update Hoprig there and the two are joined. For a project
 that is not on this computer, the brain's history of this computer's own file says when it was last here, when it
-does. The Projects page (**Your computers**, under **More**), `hoprig workspace status --all --json` and `hoprig get --list --json`
+does. The Workspace page (**Your computers**), `hoprig workspace status --all --json` and `hoprig get --list --json`
 give the same answer, from one reader.
 
 ## The map: every repository in one file
@@ -643,7 +643,7 @@ hoprig workspace group remove client-work                                # only 
 hoprig workspace group ignore kits                                       # the ignore lines kits lacks, written on a yes
 ```
 
-On the Projects page, under **More**, **Groups**: **Add a group** shows exactly what goes into the map (and the ignore lines a
+On the Workspace page, under **Groups**: **Add a group** shows exactly what goes into the map (and the ignore lines a
 group that is a repository needs) before you press **Add it to the map**; **Take out of the map** takes a group out
 of the map with the same check as `group remove`, and never deletes its folder. **Text for coding sessions** shows the
 "Your workspace" text and writes it on your press (adding a group never writes it). Only your own page may change the
@@ -688,7 +688,7 @@ groups or write the text; Tia can prepare a group and open the sheet for you.
   the group's own); for a project or a group that was here before, restore and `get` say a missing link with that
   command instead of making it.
 - **Everything that listed the projects folder lists every place**: `workspace status`, `map`, `sync`, restore (a
-  group's repository is cloned before its projects), the Projects page (one section per place), the new-session
+  group's repository is cloned before its projects), the Workspace page (one section per place), the new-session
   list, `project status|sync|link`, and Tia's project list. `project new` stays in the projects folder unless
   `--in <group>` is given; `hoprig get <place>/<name>` (or `--in <group>` for a project the map does not have yet)
   puts a project into its group. `group add` drops nothing from the map: a repository an earlier map listed as
@@ -736,7 +736,7 @@ reported an older one, and always that a computer that never reported cannot be 
 "no" as the default. It keeps the content as it is and drops entries whose folder here is a linked worktree (a
 second checkout an older map took for a repository).
 
-**The map's old form, on the page.** Settings → Automations → Workspace says "Your workspace map is in the old form" while the map
+**The map's old form, on the page.** Settings → Workspace says "Your workspace map is in the old form" while the map
 is version 1, with **See what the upgrade changes**: a sheet with the entries that leave the map, that nothing on
 disk changes, the same lines about the computers as the command, and what undo can and cannot do. **Upgrade the map**
 does it (`POST /api/workspace/map/upgrade`, the owner's own page only); when the map changed since the sheet was
@@ -800,7 +800,7 @@ one word when its place says how its repositories are named. A place whose proje
   memory (in Claude Code's own folder); a parent that does not ignore `code/` is said, not changed. A project another
   tool made in such a place is seen by the next scan and written into the map. In a plain group without a rule a get
   still writes a `project.json` after asking.
-- **On the page: "Look on the git server".** In **Settings → Automations → Workspace**, the map's part lists each place with a
+- **On the page: "Look on the git server".** In **Settings → Workspace**, the map's part lists each place with a
   naming rule under **On the git server**, with a button **Look on the git server**. It shows what the command lists:
   each project with its parent repository, its code repositories, its folder and what the rule leaves out; what is in
   the map already (and whether it is on this computer); and what does not fit the rule, never guessed. Without the
@@ -918,7 +918,7 @@ question, never clones a project, and moves a project only by the `ffProjects` l
 | `push` | off | Uploads what is purely ahead: sync's pushes, and the brain. With `commitMap` on, the brain is fetched every round and brought in step by the map's own rule (below); the map's own commits go up even with this switch off, and nothing else of yours does. |
 | `pushBranches` | none | One switch per place that holds projects (`projects` for the projects folder, else the group's or held folder's name): committed work on a branch that is not the repository's default branch is pushed (to its upstream, or under its own name); a default branch never is, nor a branch whose upstream is another branch on this computer. Nothing is ever forced: every push is a plain push, which git refuses when it is not a fast-forward, and a branch behind or rewritten here is only said. A push of a branch without an upstream sets it (its first push, or one already on the server from a push without `-u`), so once its branch on the server is removed and a fetch here prunes it, it shows as gone and is never pushed back. When the last fetch did not prune, the server is asked once per repository which branches it has and which one it calls its default (`git ls-remote --symref`): a branch removed there, or moved there from elsewhere, is said and not pushed; when the server cannot be asked, or calls another branch its default than this computer knows, nothing of that repository is pushed in that round (the second with `git remote set-head origin --auto`). A branch that follows another git server than `origin` is said, never pushed. |
 | `credentials` | off | A change in the credentials repository the map names is committed ("Update credentials", with that folder's own git name and e-mail) and pushed to that address only; a GitHub address only when `gh` says it is private in that round. Public, or a visibility `gh` cannot give: nothing is pushed, and you are told once. Without this switch a change there is never committed. |
-| `ffProjects` | `projects` on | One switch per place that holds projects (`projects` for the projects folder; a group's own place is off unless you set it). Every 30 minutes, right after start and before a session or chat starts there (3 seconds at most), each project is fetched and a clean branch that is only behind is fast-forwarded, only where nothing is under way and no session is open in that folder. What is left is listed as Not in step on the Projects page. Never a merge, reset, rebase, stash or push. All places off: no look at all. `hoprig workspace auto --ff projects=off`. |
+| `ffProjects` | `projects` on | One switch per place that holds projects (`projects` for the projects folder; a group's own place is off unless you set it). Every 30 minutes, right after start and before a session or chat starts there (3 seconds at most), each project is fetched and a clean branch that is only behind is fast-forwarded, only where nothing is under way and no session is open in that folder. What is left is listed as Not in step on the Workspace page. Never a merge, reset, rebase, stash or push. All places off: no look at all. `hoprig workspace auto --ff projects=off`. |
 | `everyHours` | 6 | How often (1 to 168). |
 
 ```sh
@@ -1024,7 +1024,7 @@ repository's name (the last part of the address). No option skips this, and with
   `credentials` (off) commits and pushes a change by itself.
 - Nothing from it leaves through Hoprig: no value, no file name inside it and no diff of it in any output, log,
   activity line, notification, the map or the dashboard. What is said is counts ("1 changed file").
-- **In the Workspace part** (Settings → Automations → Workspace, under Workspace folders) the credentials line says where they are
+- **On the Workspace page** (Settings → Workspace, under Workspace folders) the credentials line says where they are
   kept: on this computer only, or in a private repository of yours with its address (never a file in it). For a
   plain folder, **Make it a private repository** offers the same two choices as the command: a new private repository
   on GitHub, or the address of a repository you made yourself. The sheet shows the plan first (the cost sentence
@@ -1034,7 +1034,7 @@ repository's name (the last part of the address). No option skips this, and with
   plan that changed since you looked ("This changed since you looked: look again."), asks the visibility again right
   before the push and runs the step as the page's background job. Only your own page can do it, never Tia. With a
   map of version 1 the line says to upgrade the map first.
-- **The upkeep's switch in the Workspace part.** Settings → Automations → Workspace, By itself, under More, shows **Save and upload the
+- **The upkeep's switch on the Workspace page.** Settings → Workspace, By itself, under More, shows **Save and upload the
   credentials by itself** beside the other switches, only when the credentials folder is a repository, and off until
   you turn it on. Its sentence: "At each look of the upkeep, every change in the credentials folder is saved and
   uploaded to its repository, by itself, only while that repository is private. Whoever can read that repository
@@ -1107,7 +1107,7 @@ repository as a job. No GitHub password or token goes through the dashboard:
    Two that look like a brain: which one, asked. Then this computer's label (once) and *keep the map on your git
    server by itself?* Without a terminal nothing is made on GitHub, nothing restored and no label stored: the
    commands are said. A brain with another name: `hoprig workspace restore <its address>`. In the dashboard the same
-   path is one press on Settings → Automations → Workspace while there is no map.
+   path is one press on Settings → Workspace while there is no map.
 
 Other git servers (GitLab, your own SSH server) work for map, restore and sync through plain git with your own
 sign-in (SSH key or credential helper). Only this sign-in help and creating a repository are GitHub's.
@@ -1167,17 +1167,18 @@ coding tools read the same rules, skills and memory:
 | OpenCode | `~/.agents/skills/` | `ai_brain/skills/` |
 | OpenCode | `~/.config/opencode/AGENTS.md` | `ai_brain/claude/CLAUDE.md` |
 | OpenCode | `"instructions"` in `~/.config/opencode/opencode.json`: Claude Code's `rules/*.md` and each project's `ai_brain/claude-memory/MEMORY.md` | (added to the list; the file's other settings stay, the old file is kept as a backup) |
+- skills: name and one-line description of each (Claude Code's skills folder, and the brain's when it is another);
 
 It keeps no memory of its own, so the shared rules file gets a short **Memory** section at its end (once,
 between two marker lines, after your own text) that tells it where each project's memory is and to keep it.
 OpenCode does not read `CLAUDE.md` in a project, only `AGENTS.md`: the projects Hoprig sets up have both.
-The **Memory** tab shows, per coding tool, whether it is linked, with one **Link** button.
+The **AI brain** page shows, per coding tool, whether it is linked, with one **Link** button.
 
 ## The AI brain in the dashboard
 
-The **Memory** tab of **Projects** (it was the AI brain page) shows what the AI knows on a computer (also another computer, through the
-main computer), read-only. The workspace folders themselves are in **Settings → Automations → Workspace** (the **Setup** part of a computer's page
-links there). The Memory tab shows:
+The **AI brain** page (under **More**) shows what the AI knows on a computer (also another computer, through the
+main computer), read-only. The workspace folders themselves are in **Settings → Workspace** (the **Setup** part of a computer's page
+links there). The AI brain page shows:
 
 - the global rules (`CLAUDE.md` and Claude Code's `rules/` folder), and the brain's own copy;
 - the brain's `BRAIN.md`, `learnings.md`, `active_context.md`, `PENDING.md`, the daily logs (newest first);
@@ -1185,7 +1186,7 @@ links there). The Memory tab shows:
   entry per file with its name, description and type, and when it changed;
 - each project's `AGENTS.md`, `decisions.md`, `ai_brain/learnings.md` and `ai_brain/active_context.md`.
 
-The rules are open and the other groups are folded with their counts (a group with nothing in it is not drawn); a file opens when you tap it, never by itself. Each project's own memory is a fold on its page. The skills are in the **Skills** tab. The page asks for one item by the id the index gave it, never by a path. **Never shown**: anything outside these
+The page asks for one item by the id the index gave it, never by a path. **Never shown**: anything outside these
 places (no `..`, no absolute path, no link that leads out), folders named `no-ai`, `ignore` or `ai-ignore-dir`
 (not even counted), `credentials` folders, dot-files, `.env` files, key files, and anything that is not plain
 text (`.md`, `.txt`). Text that looks like a secret is masked before it leaves the computer; an item is cut at

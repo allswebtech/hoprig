@@ -53,12 +53,12 @@ test('the page head is solid: no text of the page shows through it', () => {
 
 test('at 390 px the Advanced part\'s lines (Rename) and Setup\'s Workspace line wrap instead of being cut', () => {
   assert.match(css, /\.cp-acts \.row-sub, \.ws-link \.row-sub \{ white-space: normal; overflow-wrap: anywhere; \}/);
-  assert.match(src('pc.js'), /fold\('computer-name', 'Name and power', h\('div\.rows\.cp-acts', rename,/);
+  assert.match(src('pc.js'), /section\('This computer', undefined, h\('div\.rows\.cp-acts', rename,/);
   assert.match(src('pcsetup.js'), /h\('div\.rows\.ws-link'/);
 });
 
 test('a computer that no longer lets this dashboard in offers no Open desktop', () => {
-  assert.match(src('pc.js'), /notAllowed\(ctx\.entry\(\)\) \? null : h\('div\.savebar\.start', h\('a\.btn\.secondary\.small', \{ href: link\('#\/desktop'\) \}/);
+  assert.match(src('pc.js'), /actions: notAllowed\(entry\(\)\) \? \[\] : \[desktop\]/);
 });
 
 test('the Operator\'s "Computers → Add a computer" is a link to that step, the sentence word for word', async () => {

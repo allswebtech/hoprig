@@ -707,24 +707,6 @@ test('the pill says what matters in words: the mode when it is not Manual, then 
   assert.equal(pillParts({ ...claudeChat, permissionMode: 'fortress', ultracode: false })[0].text, 'fortress');
 });
 
-test('the pill says what the session runs on: the model short name, never a bare Auto when the session knows it, the effort muted after it', () => {
-  const man = { ...claudeChat, permissionMode: 'manual', ultracode: false };
-  const parts = (v) => pillParts(v).map((p) => `${p.k}:${p.text}`).join(' | ');
-  assert.equal(parts({ ...man, model: null, liveModel: 'claude-opus-4-8' }), 'model:Opus', 'Auto reads as the model it runs on');
-  assert.equal(parts({ ...man, model: null, liveModel: 'claude-sonnet-5-5' }), 'model:Sonnet');
-  assert.equal(parts({ ...man, model: null, liveModel: null }), 'model:Auto', 'nothing known yet: Auto');
-  assert.equal(parts({ ...man, model: 'opus', liveModel: 'claude-sonnet-5-5' }), 'model:Opus', 'a chosen model wins');
-  assert.equal(parts({ ...man, model: 'opus', effort: 'high' }), 'model:Opus | effort:High');
-  assert.equal(parts({ ...claudeChat, effort: 'low' }), 'mode:Bypass | model:Fable | effort:Low | ultra:Ultracode');
-  const all = pillParts({ ...claudeChat, permissionMode: 'allowEverything', effort: null, choices: { ...claudeChat.choices, modes: [...claudeChat.choices.modes, 'allowEverything'] } });
-  assert.deepEqual([all[0].text, all[0].tone], ['Allow everything', 'danger'], 'Allow everything is in the pill in the danger colour');
-  const c = createComposer({ A: '/api/chats/f3b', id: 'f3b', stop() {}, compact() {}, own: () => [] });
-  c.paint({ ...man, model: 'opus', effort: 'high' });
-  const pill = byClass(c.el, 'chat-setpill')[0];
-  assert.equal(byClass(pill, 'chat-pill-effort').length, 1, 'the effort has its own muted span');
-  assert.match(pill.getAttribute('aria-label'), /^This session: Opus, High\./);
-});
-
 test('the pill is painted from the state: its words, its colour, one label for a screen reader', () => {
   const c = createComposer({ A: '/api/chats/f3', id: 'f3', stop() {}, compact() {}, own: () => [] });
   c.paint(claudeChat);

@@ -367,7 +367,7 @@ export function createTimeline(o) {
         {
           const lead = ev.by === 'all' ? 'Allowed without asking (Allow everything): ' : 'Allowed by Hoprig in bypass mode: ';
           const what = `${ev.tool && ev.tool !== 'Bash' ? `${ev.tool}: ` : ''}${ev.what || ev.tool}${ev.folder ? ` · in ${ev.folder}` : ''}`;
-          return add(groupOf(at), h('p.chat-item.chat-note.chat-allowed', { role: 'status', title: `${lead}${what}` }, h('strong', lead), what));
+          return add(groupOf(at), h('p.chat-item.chat-note.chat-allowed', { role: 'status' }, h('strong', lead), what));
         }
       case 'session-changed':
         at.group = null;

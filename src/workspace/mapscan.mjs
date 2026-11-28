@@ -170,7 +170,10 @@ export async function scanWorkspace({ dir = workspaceDir(), projects = projectsI
     if (!o.url) notes.push(`${r}: ${o.why}`);
     // The branch it is on (a toolchain is restored on its channel, e.g. "stable"), and tools are never synced.
     const b = await gitRead(path.join(dir, r), ['symbolic-ref', '--short', '-q', 'HEAD'], { run, timeout: 10_000 });
-    const branch = b.ok && BRANCH_RE.test(b.stdout.trim()) ? b.stdout.trim() : null;
+    // A folder on no branch (at a tag: a detached HEAD) says nothing about it: the line the map has stays, or computers on
+    // a branch and at a tag take it out and put it back in turn, a commit of the map at every go-live.
+    const was = ((previous.others || []).find((x) => x.dir === r) || {}).branch;
+    const branch = b.ok && BRANCH_RE.test(b.stdout.trim()) ? b.stdout.trim() : BRANCH_RE.test(was || '') ? was : null;
     map.others.push(withSync({ dir: r, url: o.url, ...(branch ? { branch } : {}) }, `other:${r}`, r.split('/')[0] === 'development' ? false : undefined));
   }
   const v = validateMap(map);

@@ -33,10 +33,7 @@ export function pillParts(v) {
   const info = modeInfo(v, mode);
   const parts = [];
   if (mode && mode !== 'manual') parts.push({ k: 'mode', text: modeChip(mode).replace(/ permissions$/i, ''), tone: info && info.danger ? 'danger' : MODE_TONE[mode] || 'warn' });
-  // Auto says nothing: the pill reads the model the session runs on (the coding tool names it when it starts).
-  const running = v && !v.model && v.liveModel ? /opus|sonnet|haiku|fable/i.exec(String(v.liveModel)) : null;
-  parts.push({ k: 'model', text: v && v.model ? modelName(v.model) : running ? modelName(running[0].toLowerCase()) : 'Auto' });
-  if (v && v.effort && !(v.ultracode && toolWord(v) !== 'Claude')) parts.push({ k: 'effort', text: effortName(v.effort) });
+  parts.push({ k: 'model', text: v && v.model ? modelName(v.model) : 'Auto' });
   if (v && v.ultracode && caps(v).ultracode) parts.push({ k: 'ultra', text: 'Ultracode' });
   if (v && v.lead && v.engine && v.engine.id === 'claude') parts.push({ k: 'lead', text: 'Lead' });
   return parts;
@@ -650,7 +647,7 @@ export function createComposer(o) {
       // The phone's pill: the mode when it is not Manual, the model, what is on; its colour is the mode's.
       const parts = pillParts(v);
       pillBtn.setAttribute('data-tone', parts[0].k === 'mode' ? parts[0].tone : '');
-      fill(pillBtn, h('span.chat-pill-text', parts.flatMap((x, i) => [i && x.k !== 'effort' ? h('span.chat-pill-dot', ' · ') : i ? ' ' : null, h(`span.chat-pill-${x.k}`, x.text)])), icon('chevronDown', { size: 14 }));
+      fill(pillBtn, h('span.chat-pill-text', parts.flatMap((x, i) => [i ? h('span.chat-pill-dot', ' · ') : null, h(`span.chat-pill-${x.k}`, x.text)])), icon('chevronDown', { size: 14 }));
       pillBtn.setAttribute('aria-label', `This session: ${parts.map((x) => x.text).join(', ')}. Change settings`);
       pillBtn.disabled = ro;
       if (settingsLive) settingsLive();

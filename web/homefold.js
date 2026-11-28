@@ -7,6 +7,8 @@ export const FOLD_AFTER_MS = 6 * 3600_000;
 // The states of Home's group "Finished" (home.js GROUPS): finished (waiting) and ended.
 const WAITS = ['waiting', 'ended'];
 
+/** Finished: the cards with a result to read first, the Ready ones (nothing to read yet) after them; each kept newest first. */
+export const readyLast = (list) => [...list.filter((s) => stateOf(s).text !== 'Ready'), ...list.filter((s) => stateOf(s).text === 'Ready')];
 /** Since when the session has been in its state (ms): its state time, else its last activity; 0 when not known. */
 export const waitedSince = (s) => Number(s && (s.statusAt || s.activity)) || 0;
 /** Something on its card asks him or shows him an act (a question, a notice, a held act). */
@@ -34,8 +36,8 @@ export function splitWaiting(list, now = Date.now()) {
   return { recent, old };
 }
 
-/** The fold's line: "Ready for more than 6 hours: 12" (the group is Ready). */
-export const foldLine = (n) => `Ready for more than 6 hours: ${n}`;
+/** The fold's line: "Finished more than 6 hours ago: 12". */
+export const foldLine = (n) => `Finished more than 6 hours ago: ${n}`;
 
 /** How long it has waited, in the unit the card's "1 day ago" uses (lib.js span): "7 h", "1 day". */
 export function waitedFor(s, now = Date.now()) {

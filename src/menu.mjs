@@ -7,7 +7,7 @@ import { loadConfig } from './config.mjs';
 import { chooseDefault, lastProviderIn } from './defaultprovider.mjs';
 import { providerFacts, speedVerdicts } from './routerstate.mjs';
 import { tilde } from './paths.mjs';
-import { withoutSecrets } from './secretenv.mjs';
+import { isSubscriptionToken, SUBSCRIPTION_TOKEN_SENTENCE, withoutSecrets } from './secretenv.mjs';
 import { listProfiles, publicProfile, readProfile, servesTools, validName, writeProfile } from './profiles.mjs';
 import { sessionsIn } from './sessions.mjs';
 
@@ -300,6 +300,10 @@ export async function addProfile(nameArg) {
   } else if (kind === '2') {
     const key = await askHidden('API key (it is not shown): ');
     if (!key) return null;
+    if (isSubscriptionToken(key)) {
+      out(`${SUBSCRIPTION_TOKEN_SENTENCE} Nothing was saved.`);
+      return null;
+    }
     env.ANTHROPIC_API_KEY = key;
     defaultLabel = 'Anthropic API';
   } else if (kind === '3') {
@@ -311,6 +315,10 @@ export async function addProfile(nameArg) {
     }
     const token = await askHidden('Token for it (it is not shown; Enter if it needs none): ');
     if (token === null) return null;
+    if (isSubscriptionToken(token)) {
+      out(`${SUBSCRIPTION_TOKEN_SENTENCE} Nothing was saved.`);
+      return null;
+    }
     env.ANTHROPIC_BASE_URL = url;
     if (token) env.ANTHROPIC_AUTH_TOKEN = token;
     const pre = await ask('Command to run before Claude starts, e.g. to start the proxy (Enter for none): ');
@@ -322,6 +330,10 @@ export async function addProfile(nameArg) {
   } else if (kind === '5') {
     const key = await askHidden('API key (it is not shown): ');
     if (!key) return null;
+    if (isSubscriptionToken(key)) {
+      out(`${SUBSCRIPTION_TOKEN_SENTENCE} Nothing was saved.`);
+      return null;
+    }
     const url = await ask('Base URL (Enter for https://api.openai.com): ');
     if (url === null) return null;
     if (url && !/^https?:\/\/\S+$/.test(url)) {

@@ -1,0 +1,13 @@
+// The same call with a later beta value.
+export async function readOne(p) {
+  const key = p.env.CLAUDE_CODE_OAUTH_TOKEN;
+  const res = await fetch('https://api.example.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'x-api-key': key,
+      'anthropic-beta': 'oauth-2026-09-30',
+    },
+    body: '{}',
+  });
+  return res.status;
+}

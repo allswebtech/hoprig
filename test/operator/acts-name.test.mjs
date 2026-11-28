@@ -25,7 +25,7 @@ test('with "Tia acts by herself" off, the line names the switch by the page\'s o
   try {
     const v = f.reflex.view();
     assert.equal(v.acts, false);
-    assert.equal(v.said, '"Tia acts by herself" is off: she follows none of her rules on her own and decides nothing by herself. Work you ask of her is not affected.');
+    assert.equal(v.said, '"Tia acts by herself" is off: she follows none of the Operator\'s rules on her own and decides nothing by herself. Work you ask of her is not affected.');
     // The page's switch carries that very label.
     const page = fs.readFileSync(new URL('../../web/operator-tia.js', import.meta.url), 'utf8');
     const label = page.match(/sw\('([^']+)', v\.acts,/)?.[1];

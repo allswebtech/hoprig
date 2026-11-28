@@ -19,6 +19,7 @@ import { compareVersions } from '../setup/system.mjs';
 import { MAP_SINCE, configDirOf, ownOverrides, sessionMap } from './sessionmap.mjs';
 import { replaceFile } from '../replacefile.mjs';
 import { SHIPPED, prerunAddonId } from '../addons/gateways.mjs';
+import { isSubscriptionToken } from '../secretenv.mjs';
 
 const TIMEOUT_MS = 15_000;
 const AT_ONCE = 4;
@@ -31,7 +32,7 @@ const PIXEL = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQD
 const file = () => path.join(stateDir(), 'providers', 'checks.json');
 
 /** True for a profile the check may ask: Claude's API with a key, direct or through a gateway. */
-export const checkable = (p) => !!p && p.kind === 'api' && !!(p.env?.ANTHROPIC_API_KEY || p.env?.ANTHROPIC_AUTH_TOKEN);
+export const checkable = (p) => !!p && p.kind === 'api' && !!(p.env?.ANTHROPIC_API_KEY || p.env?.ANTHROPIC_AUTH_TOKEN) && !isSubscriptionToken(p.env?.ANTHROPIC_API_KEY) && !isSubscriptionToken(p.env?.ANTHROPIC_AUTH_TOKEN);
 
 /**
  * What a press would send: each name as a plain session of `p` sends it (after the map it gets, only where the installed

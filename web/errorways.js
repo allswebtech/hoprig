@@ -38,9 +38,9 @@ export const WAYS = {
   'tia-off': { label: 'Settings → Tia', button: "Open Tia's settings", href: '#/settings/tia' },
   // Gateways (src/addons/localgateway.mjs, src/gateway/index.mjs).
   'gateway-not-confirmed': { label: 'Add-ons', href: '#/settings/addons' },
-  'gateway-service': { label: 'Service', button: 'Open its service', href: '#/computer/advanced?show=service' },
-  'gateway-no-provider': { label: 'Providers', href: '#/providers?show=gateways' },
-  'gateway-not-shared': { label: 'Providers', href: '#/providers?show=gateways' },
+  'gateway-service': { label: 'Health', href: '#/computer/health' },
+  'gateway-no-provider': { label: 'Providers', href: '#/providers' },
+  'gateway-not-shared': { label: 'Providers', href: '#/providers' },
   // Work's place (src/work/place.mjs): a project that is gone (Work → Tasks → Work settings), or no AI brain yet (its page sets it up).
   'work-place-gone': { label: 'Work settings', button: "Open Work's settings", href: '#/work/tasks?show=work-place' },
   'no-workspace': { label: 'AI brain', href: '#/brain' },

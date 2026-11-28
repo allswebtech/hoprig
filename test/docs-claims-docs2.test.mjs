@@ -19,13 +19,13 @@ function titles(file, name) {
   return [...body.matchAll(/title: '([^']+)'/g)].map((m) => m[1]);
 }
 
-test('PC-SETUP: a computer\'s page has the parts the guide names, and Setup links to Settings → Automations → Workspace', () => {
+test('PC-SETUP: a computer\'s page has the parts the guide names, and Setup links to Settings → Workspace', () => {
   const parts = titles('web/pc.js', 'PARTS');
-  assert.deepEqual(parts, ['Overview', 'Setup', 'Advanced']);
+  assert.deepEqual(parts, ['Overview', 'Setup', 'Health', 'Advanced']);
   const doc = flat(read('docs/PC-SETUP.md'));
   assert.ok(doc.includes(`one of its ${['', '', 'two', 'three', 'four', 'five'][parts.length]} parts: ${parts.slice(0, -1).map((p) => `**${p}**`).join(', ')} and **${parts.at(-1)}**`), 'the guide names every part');
-  assert.match(read('web/pcsetup.js'), /h\('a\.row', \{ href: link\('#\/settings\/workspace'\) \}/, 'Setup links to Settings → Automations → Workspace');
-  assert.ok(doc.includes('Setup also has a link to the workspace folders, which live in **Settings → Automations → Workspace**'));
+  assert.match(read('web/pcsetup.js'), /h\('a\.row', \{ href: link\('#\/settings\/workspace'\) \}/, 'Setup links to Settings → Workspace');
+  assert.ok(doc.includes('Setup also has a link to the workspace folders, which live in **Settings → Workspace**'));
 });
 
 test('PC-SETUP: pc status names the coding tools Hoprig installs, as the status code checks them', async () => {
@@ -39,12 +39,12 @@ test('PC-SETUP: pc status names the coding tools Hoprig installs, as the status 
   assert.ok(doc.includes(`the other coding tools Hoprig installs into its own tools folder (${managed.map((t) => t.name).join(', ')})`), 'the status list names them');
 });
 
-test('PC-SETUP: the projects folder is changed in the Projects page\'s More part', () => {
+test('PC-SETUP: the projects folder is changed in the Workspace page\'s Advanced part', () => {
   const page = read('web/projects.js');
-  assert.match(page, /fold\('projects-more', 'More', strip\.el, rest\)/, 'the Projects page has a More part');
-  assert.match(page, /fill\(rest,[\s\S]{0,400}folderLine\(data, load\)/, 'the folder line is in it');
+  assert.match(page, /fold\('projects', 'Advanced', advanced\)/, 'the Workspace page has an Advanced part');
+  assert.match(page, /fill\(advanced, folderLine\(data, load\)\)/, 'the folder line is in it');
   assert.match(page, /'Projects folder: '[\s\S]{0,200}label: 'Change'/, 'with its Change button');
-  assert.ok(flat(read('docs/PC-SETUP.md')).includes('change the folder there: **More**, **Projects folder**, **Change**'));
+  assert.ok(flat(read('docs/PC-SETUP.md')).includes('change the folder there: **Advanced**, **Projects folder**, **Change**'));
 });
 
 test('PROVIDERS: an endpoint that does not answer offers a gateway restart only where a gateway runs the provider', async () => {

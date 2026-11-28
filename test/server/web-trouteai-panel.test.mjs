@@ -68,11 +68,11 @@ test('the provider check makes the press for a managed TRouteAI, and copies the 
 
 test('the Providers page holds no gateway cards: TRouteAI is one row and a page of its own, on this computer only', () => {
   const acc = read('accounts.js');
-  assert.match(acc, /here \? listRow\(\{ href: link\('#\/providers\/trouteai'\), icon: 'swap', title: 'TRouteAI'/);
-  assert.doesNotMatch(acc.slice(acc.indexOf('function viewAccounts')), /gatewaysPanel|trouteaiPanel/, 'the page itself draws neither card');
+  assert.match(acc, /here \? \[groupHead\('Gateway'\), h\('div\.rows', listRow\(\{ href: link\('#\/providers\/trouteai'\), icon: 'swap', title: 'TRouteAI'/);
+  assert.doesNotMatch(acc.slice(acc.indexOf('function viewAccounts')), /trouteaiPanel/, 'the page itself draws no TRouteAI card (its closed fold of the gateways on your computers is the one gateway part, with Use here)');
   assert.match(acc, /import \{ viewTrouteai \} from '\.\/trouteai\.js'/);
   assert.match(acc, /if \(sub === 'trouteai'\) return viewTrouteai\(\{ frame, sub, query \}\);/, 'its address draws the page of its own');
   assert.doesNotMatch(src, /export function trouteaiPanel/, 'the old panel is gone: the page holds what it held');
-  assert.doesNotMatch(read('gateways.js'), /export function gatewaysPanel/, 'the old gateways card is gone');
+  assert.match(read('gateways.js'), /export function gatewaysPanel/, 'the fold of the gateways on your computers, with Use here');
   assert.match(read('index.html'), /page-gatewaymanage\.css/);
 });

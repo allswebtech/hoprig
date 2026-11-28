@@ -242,5 +242,6 @@ test('the door: the coding tools\' routes take only what the tools send; updates
   assert.equal(checkRoute('POST', '/api/updates/run', { id: 'claude' }).route, '/api/updates/run');
   assert.throws(() => checkRoute('POST', '/api/updates/run', {}), /say which item/);
   assert.throws(() => checkRoute('POST', '/api/updates/check', { fresh: true }), /"fresh" is the owner's to send/);
-  assert.throws(() => checkRoute('GET', '/api/updates/log', null), /not a route Tia's tools use/);
+  // What the update commands printed may show a key or a token: the acts file answers it open, so the door names it the owner's.
+  assert.throws(() => checkRoute('GET', '/api/updates/log', null), /not a route Tia's tools use|owner's own step/);
 });

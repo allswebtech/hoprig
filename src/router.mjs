@@ -21,16 +21,18 @@
 // one line per request: which account, which status. Per account it keeps how soon answers start and its refusals
 // (routerstate.mjs noteSpeed), from the requests it passes on.
 import { spawn } from 'node:child_process';
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import http from 'node:http';
 import https from 'node:https';
 import path from 'node:path';
 import { gatewayOfPrerun } from './addons/gateways.mjs';
-import { billedOutOfOrder, leftOutOfOrder, limitedProfiles, markLimited, usableOrder } from './autoswitch.mjs';
+import { billedOutOfOrder, clearLimited, leftOutOfOrder, limitedProfiles, markLimited, usableOrder } from './autoswitch.mjs';
 import { binFile, stateDir } from './paths.mjs';
 import { listProfiles } from './profiles.mjs';
 import { providerName } from './operator/detect/util.mjs';
-import { noteSpeed, routerAddress, routerSessions, routerSpeed, saveProfileUsage, saveRouterSessions, saveRouterSpeed, usageFromHeaders } from './routerstate.mjs';
+import { clearRefused, noteRefused, noteSpeed, routerAddress, routerSessions, routerSpeed, saveProfileUsage, saveRouterSessions, saveRouterSpeed, usageFromHeaders } from './routerstate.mjs';
+import { isSubscriptionToken } from './secretenv.mjs';
 
 export const AUTO = 'auto';
 const BODY_MAX = 128 * 1024 * 1024; // requests carry whole conversations, images included
@@ -131,6 +133,7 @@ const betaList = (v) => String(v || '').split(',').map((s) => s.trim()).filter(B
  * a subscription's token, so the router never attaches one).
  */
 export function upstreamRequest(profile, { isIdentity, rest, headers, body }) {
+  if (profile.kind === 'api' && (isSubscriptionToken(profile.env.ANTHROPIC_API_KEY) || isSubscriptionToken(profile.env.ANTHROPIC_AUTH_TOKEN))) return null; // a subscription token pasted as a key: never sent
   const base = (profile.env.ANTHROPIC_BASE_URL || anthropicBase()).replace(/\/+$/, '');
   const out = {};
   for (const [k, v] of Object.entries(headers)) if (!HOP.has(k)) out[k] = v;
@@ -222,7 +225,7 @@ async function collect(res, max) {
 }
 
 /** Build the router's HTTP server. `log(line)` gets one line per routed request. */
-export function createRouter({ key = routerAddress().key, log = () => {}, version = '', gatewayOf = gatewayOfPrerun, now: clock = Date.now } = {}) {
+export function createRouter({ key = routerAddress().key, log = () => {}, version = '', gatewayOf = gatewayOfPrerun, now: clock = Date.now, probeOnly = false } = {}) {
   const prefix = `/${key}`;
   const preran = new Set();
   const sessions = routerSessions();
@@ -274,12 +277,12 @@ export function createRouter({ key = routerAddress().key, log = () => {}, versio
     return g.defined ? `another program answers on the port of ${g.title}: Hoprig did not start it, so nothing is passed on to it` : null;
   }
 
-  function noteUsage(profile, headers) {
+  function noteUsage(profile, headers, always = false) {
     const u = usageFromHeaders(headers);
     if (!u) return;
     const sig = JSON.stringify([u.fiveHour, u.week, u.status]);
     const prev = usageSeen.get(profile.name);
-    if (prev && prev.sig === sig && u.at - prev.at < 60_000) return; // nothing new: spare the disk
+    if (!always && prev && prev.sig === sig && u.at - prev.at < 60_000) return; // nothing new: spare the disk (a read always saves: its time is the news)
     usageSeen.set(profile.name, { sig, at: u.at });
     saveProfileUsage(profile.name, u);
   }
@@ -303,8 +306,13 @@ export function createRouter({ key = routerAddress().key, log = () => {}, versio
   }, 2000);
   flush.unref();
 
+  const notFound = (res, message) => {
+    res.writeHead(404, { 'content-type': 'application/json' });
+    return res.end(JSON.stringify({ type: 'error', error: { type: 'not_found_error', message } }));
+  };
+
   async function handle(req, res) {
-    if (req.url === `${prefix}/__router`) {
+    if (!probeOnly && req.url === `${prefix}/__router`) {
       res.writeHead(200, { 'content-type': 'application/json' });
       return res.end(JSON.stringify({ ok: true, version, pid: process.pid, inflight }));
     }
@@ -314,12 +322,18 @@ export function createRouter({ key = routerAddress().key, log = () => {}, versio
     }
     // "/as/<profile>/..." names the account this session's Claude Code runs as (the launcher puts it in the URL).
     let rest = req.url.slice(prefix.length);
-    const as = /^\/as\/([a-z0-9_-]{1,32})(\/.*)$/.exec(rest);
+    // "/probe/<profile>/..." is the Providers page's read of one provider's limits (providers/readlimits.mjs): Claude
+    // Code's own request, passed on to that one provider and to no other, and leaving nothing but its figures behind.
+    // Only the router that the read itself serves (probeOnly, serveProbe below) knows it; the long-lived router never.
+    const probeAs = probeOnly ? /^\/probe\/([a-z0-9_-]{1,32})(\/.*)$/.exec(rest) : null;
+    if (probeOnly ? !probeAs : /^\/probe\//.test(rest)) return notFound(res, 'not found');
+    const as = probeAs || /^\/as\/([a-z0-9_-]{1,32})(\/.*)$/.exec(rest);
     if (as) rest = as[2];
     const body = await readBody(req, BODY_MAX);
     const profiles = listProfiles();
     const order = usableOrder(); // pay-per-use keys only when the owner allows them
-    const identity = (as && profiles.find((p) => p.name === as[1])) || autoIdentity(order, profiles, limitedProfiles());
+    const identity = (as && profiles.find((p) => p.name === as[1])) || (probeAs ? null : autoIdentity(order, profiles, limitedProfiles()));
+    if (probeAs && !(identity && isSubscription(identity) && !identity.hub && !identity.virtual)) return notFound(res, 'no such provider'); // a read is of a subscription only
     if (!identity) {
       // An order whose every provider is left out (gone, not serving Claude Code, billed by use) is there, it may not
       // be used: say why, each provider with its own reason.
@@ -335,7 +349,7 @@ export function createRouter({ key = routerAddress().key, log = () => {}, versio
     // the switch went off, or before its sign-in became a Console account's): its model requests are not passed on,
     // as Auto mode passes nothing through such a provider. Its identity cannot be moved from here (the launcher moves a
     // session only at a limit), so the answer says so and nothing is spent.
-    if (routed && as && billedOutOfOrder([identity.name]).length) {
+    if (routed && as && !probeAs && billedOutOfOrder([identity.name]).length) {
       res.writeHead(503, { 'content-type': 'application/json' });
       return res.end(JSON.stringify({ type: 'error', error: { type: 'api_error', message: `hoprig: this session runs as ${providerName(identity.name, identity.label)}, which is billed by use, and "Also use pay-per-use providers" is off, so Auto mode does not use it: turn that switch on on the Providers page, or start the session again under Auto mode.` } }));
     }
@@ -348,8 +362,8 @@ export function createRouter({ key = routerAddress().key, log = () => {}, versio
     let first = true;
     for (;;) {
       let profile;
-      if (!routed) {
-        if (!first) break;
+      if (!routed || probeAs) {
+        if (!first) break; // a read is never moved to another provider
         profile = identity;
       } else {
         const choice = pick(order, profiles, identity, limitedProfiles(), refusedBy);
@@ -361,7 +375,8 @@ export function createRouter({ key = routerAddress().key, log = () => {}, versio
       }
       first = false;
       refusedBy.add(profile.name);
-      const request = upstreamRequest(profile, { isIdentity: profile.name === identity.name, rest, headers: req.headers, body });
+      // A read never applies a model map: Claude Code's one question stays on the smallest model it asked for.
+      const request = upstreamRequest(probeAs ? { ...profile, models: '' } : profile, { isIdentity: profile.name === identity.name, rest, headers: req.headers, body });
       if (!request) continue;
       await prerun(profile);
       let foreign = await foreignGateway(profile);
@@ -383,9 +398,16 @@ export function createRouter({ key = routerAddress().key, log = () => {}, versio
         continue;
       }
       const verdict = routed ? judge(answer.status, answer.headers) : { next: false, mark: null };
-      if (routed) noteUsage(profile, answer.headers);
+      if (routed) noteUsage(profile, answer.headers, Boolean(probeAs));
       tried.push(`${profile.name}:${answer.status}`);
-      if (verdict.mark) markLimited(profile.name, verdict.mark);
+      if (verdict.mark && !(probeAs && verdict.mark.reason !== 'rate_limit')) markLimited(profile.name, verdict.mark); // a read learns a limit, never a ten-minute pause
+      // A refused sign-in is kept as that (the mark above is only a pause); a good answer takes the refusal away.
+      if (routed && (answer.status === 401 || answer.status === 403)) noteRefused(profile.name, `Claude answered ${answer.status}`);
+      else if (routed && answer.status >= 200 && answer.status < 300) {
+        clearRefused(profile.name);
+        // A read that was answered proves the sign-in works: the ten-minute pause of an earlier refusal goes too.
+        if (probeAs && limitedProfiles()[profile.name]?.reason === 'auth') clearLimited(profile.name);
+      }
       if (timed && (answer.status === 429 || answer.status === 529)) noteAnswer(profile, { refused: true });
       if (verdict.next) {
         // Keep the refusal: if nobody else can answer, Claude Code gets the first one (the preferred account's).
@@ -393,8 +415,8 @@ export function createRouter({ key = routerAddress().key, log = () => {}, versio
         held = held || refused;
         continue;
       }
-      if (routed) noteSession(req, profile);
-      if (routed) log(`${new Date().toISOString()} ${String(req.headers['x-claude-code-session-id'] || '-').slice(0, 8)} ${tried.join(' > ')}`);
+      if (routed && !probeAs) noteSession(req, profile);
+      if (routed && !probeAs) log(`${new Date().toISOString()} ${String(req.headers['x-claude-code-session-id'] || '-').slice(0, 8)} ${tried.join(' > ')}`);
       const headers = { ...answer.headers };
       delete headers.connection;
       delete headers['keep-alive'];
@@ -406,7 +428,7 @@ export function createRouter({ key = routerAddress().key, log = () => {}, versio
       if (timed && streamed && answer.status < 400) answer.res.once('data', () => noteAnswer(profile, { ms: Date.now() - answer.sentAt }));
       return;
     }
-    if (routed) log(`${new Date().toISOString()} ${String(req.headers['x-claude-code-session-id'] || '-').slice(0, 8)} ${tried.join(' > ') || '-'} (${handoff ? `continue as ${handoff}` : 'no account could answer'})`);
+    if (routed && !probeAs) log(`${new Date().toISOString()} ${String(req.headers['x-claude-code-session-id'] || '-').slice(0, 8)} ${tried.join(' > ') || '-'} (${handoff ? `continue as ${handoff}` : 'no account could answer'})`);
     if (!held && handoff) {
       // The identity was already known to be at its limit, so it was not even asked. Claude Code must still hear
       // "limit reached": that is what makes the launcher restart it as the next subscription. Not to be retried.
@@ -419,6 +441,7 @@ export function createRouter({ key = routerAddress().key, log = () => {}, versio
       return res.end('{"type":"error","error":{"type":"api_error","message":"hoprig router: no provider in the Auto order can be used from here. Check: hoprig auto status"}}');
     }
     const headers = { ...held.headers };
+    if (probeAs) headers['x-should-retry'] = 'false'; // Claude Code asks once: the limit is the answer
     delete headers.connection;
     delete headers['keep-alive'];
     delete headers['transfer-encoding'];
@@ -439,6 +462,7 @@ export function createRouter({ key = routerAddress().key, log = () => {}, versio
   server.requestTimeout = 0; // a model answer may stream for many minutes
   server.headersTimeout = 60_000;
   server.keepAliveTimeout = 120_000;
+  server.on('close', () => clearInterval(flush));
   return server;
 }
 
@@ -453,6 +477,26 @@ async function ping(address, timeoutMs = 800) {
   } catch {
     return null;
   }
+}
+
+/**
+ * The pass-through of one read of the limits (providers/readlimits.mjs), served by the process that makes the read, for
+ * as long as the read lasts: the same handler as the router's (createRouter), on 127.0.0.1 on a free port, with a secret
+ * made for this read in its path. It answers /<secret>/probe/<a subscription provider>/... and nothing else (404; nothing
+ * is passed on). `close()` ends it and every connection of it.
+ */
+export async function serveProbe({ version = '' } = {}) {
+  const secret = crypto.randomBytes(16).toString('hex');
+  const server = createRouter({ key: secret, version, probeOnly: true });
+  await new Promise((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', resolve);
+  });
+  const close = () => new Promise((resolve) => {
+    server.close(() => resolve());
+    server.closeAllConnections();
+  });
+  return { url: `http://127.0.0.1:${server.address().port}/${secret}`, close };
 }
 
 /** `hoprig router`: run the router in the foreground (the launcher starts it in the background by itself). */

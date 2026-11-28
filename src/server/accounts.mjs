@@ -58,12 +58,15 @@ import { gatewayAddons, gatewayOfPrerun, goneGatewayOf, notLoadedReason } from '
 import { codexSignedIn } from '../codetools/codexsignin.mjs';
 import { findTool } from '../codetools/index.mjs';
 import { MODEL_RE, listModels, probeShapes, scrub, shapesAfterTest, testModel } from './endpoint.mjs';
-import { withoutSecrets } from '../secretenv.mjs';
-import { billedLogin } from '../routerstate.mjs';
+import { isSubscriptionToken, SUBSCRIPTION_TOKEN_SENTENCE, withoutSecrets } from '../secretenv.mjs';
+import { billedLogin, clearRefused } from '../routerstate.mjs';
+import { createLimitReader } from '../providers/readlimits.mjs';
 import { lastBackup, ownEndpoint, ownEndpointWords, ownGatewaySecret, removeOwnEndpoint, restoreBackup } from '../codetools/ownsettings.mjs';
 import { hasSetUp } from '../gateway/trouteai.mjs';
 import { firstCheck } from '../providers/check.mjs';
 import { deleteProfile, knownShapes, listProfiles, metaOf, ownFolder, readProfile, servesTools, validName, writeProfile } from '../profiles.mjs';
+import { isKept, relayable, sharing } from '../hubprov/list.mjs';
+import { loadMachines } from '../machines/store.mjs';
 
 export const ANTHROPIC_URL = 'https://api.anthropic.com';
 export const OPENAI_URL = 'https://api.openai.com';
@@ -102,6 +105,7 @@ export function cleanBaseUrl(v) {
 
 export function cleanKey(v) {
   if (typeof v !== 'string' || !KEY_RE.test(v.trim())) throw fail(400, 'Paste the whole key: one line, no spaces');
+  if (isSubscriptionToken(v)) throw fail(400, SUBSCRIPTION_TOKEN_SENTENCE);
   return v.trim();
 }
 
@@ -121,6 +125,8 @@ export function cleanLabel(v, dflt) {
 export function cleanNewName(v, dflt) {
   const n = typeof v === 'string' && v.trim() ? v.trim().toLowerCase() : dflt;
   if (!validName(n)) throw fail(400, `"${n}" cannot be used as a short name: use a–z, 0–9, - and _, starting with a letter or digit`);
+  // #/providers/trouteai is the gateway's own page: a provider with that short name could never be opened there.
+  if (n === 'trouteai') throw fail(400, '"trouteai" is the name of the gateway\'s own page: choose another short name');
   if (readProfile(n)) throw fail(409, `There is already a provider called "${n}"`);
   return n;
 }
@@ -296,6 +302,7 @@ export function accountsFeature(ctx, opts = {}) {
   const tool = opts.findTool || findTool;
   const codexOffered = () => !!tool('codex');
   const offered = (ids) => ids.filter((id) => tool(id));
+  const limits = createLimitReader({ now, ...(opts.readLimits || {}) });
   const probes = new Map(); // id → { baseUrl, key, auth, models, at, account }
   let flow = null;
   let lastFlowError = null;
@@ -321,9 +328,10 @@ export function accountsFeature(ctx, opts = {}) {
   function stored(profile) {
     const env = profile.env || {};
     if (profile.kind === 'openai') {
-      return { baseUrl: env.OPENAI_BASE_URL ? cleanBaseUrl(env.OPENAI_BASE_URL) : OPENAI_URL, key: env.OPENAI_API_KEY || '', auth: 'bearer', model: (/^\*=(.+)$/.exec(profile.models || '') || [])[1] || '', smallModel: '' };
+      return { baseUrl: env.OPENAI_BASE_URL ? cleanBaseUrl(env.OPENAI_BASE_URL) : OPENAI_URL, key: isSubscriptionToken(env.OPENAI_API_KEY) ? '' : env.OPENAI_API_KEY || '', auth: 'bearer', model: (/^\*=(.+)$/.exec(profile.models || '') || [])[1] || '', smallModel: '' };
     }
-    const key = env.ANTHROPIC_AUTH_TOKEN || env.ANTHROPIC_API_KEY || '';
+    const kept = env.ANTHROPIC_AUTH_TOKEN || env.ANTHROPIC_API_KEY || '';
+    const key = isSubscriptionToken(kept) ? '' : kept; // a provider file written before the refusal: no key, nothing is sent
     return {
       baseUrl: env.ANTHROPIC_BASE_URL ? cleanBaseUrl(env.ANTHROPIC_BASE_URL) : ANTHROPIC_URL,
       key,
@@ -351,6 +359,10 @@ export function accountsFeature(ctx, opts = {}) {
   /** Only the owner, on this dashboard's own page, may change a file of the coding tool's. */
   function ownerPress(req) {
     if (ctx.caller && ctx.caller(req) !== 'page') throw fail(403, "Only you, on this computer's own dashboard page, may change the coding tool's settings file");
+  }
+
+  function pageOnly(req) {
+    if (ctx.caller && ctx.caller(req) !== 'page') throw fail(403, "Only you, on this computer's own dashboard page, may do this");
   }
 
   const accountOr404 = (m) => {
@@ -391,6 +403,8 @@ export function accountsFeature(ctx, opts = {}) {
     const gws = gateways();
     // A Codex sign-in: whether Codex is signed in on this computer (null: Codex is not installed or does not say).
     const all = listProfiles();
+    // Whether this computer has linked computers of the owner's own to share with (src/hubprov): the page shows its one switch then.
+    const sharesWith = loadMachines().some((m) => m.own !== false);
     const codexIn = codexOffered() && all.some((p) => p.kind === 'chatgpt') ? await (opts.codexSignedIn || codexSignedIn)().catch(() => null) : null;
     return all.map((p) => {
       const s = st.profiles.find((x) => x.name === p.name) || {};
@@ -411,9 +425,13 @@ export function accountsFeature(ctx, opts = {}) {
         // notLoaded: config.json still holds it, but it was not loaded, and why (Settings → Add-ons says the same).
         ...((id) => (id ? { gatewayGone: { id, ...((why) => (why ? { notLoaded: why } : {}))(notLoadedReason(id)) } } : {}))(goneGatewayOf(p.prerun, gws)),
         remote: remote.has(p.name) ? (({ computer, title, state, text }) => ({ computer, title: title || null, state, text }))(remote.get(p.name)) : null,
+        // A row of the hub's (a provider of the main computer, src/hubprov): the muted word hub, and for its subscription
+        // the sign-in on this computer. On the hub itself, `keep`: whether the owner keeps this one to this computer.
+        ...(p.hub ? { hub: true, hubLabel: p.hubLabel || '', ...(p.hubOffline ? { hubOffline: true } : {}), ...(p.signinHere ? { signinHere: true } : {}) } : {}),
+        ...(!p.hub && sharesWith && relayable(p) ? { kept: isKept(p.name) } : {}),
         limited: s.limited || null, usage: s.usage || null, inUse: s.inUse || 0, inAuto: order.includes(p.name),
         // providers that sign in: is the sign-in there, its plan, and whether that plan reports usage at all
-        ...('signedIn' in s ? { signedIn: s.signedIn, plan: s.plan ?? null, usageReported: s.usageReported ?? null } : {}),
+        ...('signedIn' in s ? { signedIn: s.signedIn, plan: s.plan ?? null, usageReported: s.usageReported ?? null, ...(s.signedOut ? { signedOut: true } : {}), ...(s.signinRefused ? { signinRefused: s.signinRefused } : {}) } : {}),
         // Codex's own sign-in, while Codex is offered (else the file is from a version that offered it: `unusable`).
         ...(p.kind === 'chatgpt' && tools.length ? { signedIn: codexIn } : {}),
       };
@@ -444,6 +462,9 @@ export function accountsFeature(ctx, opts = {}) {
       }
       return {
         accounts: await list(),
+        limitsReadAt: limits.lastAt(),
+        // The hub's one switch (More fold of the page): only where another computer of his own is linked.
+        ...(loadMachines().some((m) => m.own !== false) ? { hubShare: { on: sharing() } } : {}),
         // Auto mode's "Also use pay-per-use providers": a provider's page says before a press what "Use in Auto mode"
         // turns on with it.
         payPerUse: auto.getAutoSwitch().payPerUse === true,
@@ -649,6 +670,25 @@ export function accountsFeature(ctx, opts = {}) {
       }
       return { ok: true };
     }],
+    // Sign out of a provider that has its own key: this computer forgets the key (the key is not cancelled at Claude).
+    ['POST', /^\/api\/accounts\/([^/]+)\/signout$/, async (req, m) => {
+      pageOnly(req);
+      const prof = accountOr404(m);
+      await ctx.readJson(req);
+      if (prof.kind !== 'subscription' || prof.hub) throw fail(400, 'Only a provider with its own Claude key is signed out here');
+      const env = { ...prof.env };
+      delete env.CLAUDE_CODE_OAUTH_TOKEN;
+      writeProfile(prof.name, { ...metaOf(prof), signin: 'claude', env });
+      clearRefused(prof.name);
+      return { ok: true };
+    }],
+    // Read the limits now: the page's own press only (it spends this computer's keys), never Tia or another computer.
+    ['POST', /^\/api\/accounts\/limits\/read$/, async (req) => {
+      pageOnly(req);
+      const b = await ctx.readJson(req);
+      const name = b && typeof b.name === 'string' && validName(b.name) ? b.name : null;
+      return limits.read({ name });
+    }],
     // ---- Claude subscription ----
     ['GET', /^\/api\/accounts\/subscription$/, async () => signinState()],
     ['POST', /^\/api\/accounts\/subscription\/start$/, async (req) => {
@@ -706,7 +746,9 @@ export function accountsFeature(ctx, opts = {}) {
           // the sign-in is replaced, in one atomic write. Up to here its file was never touched.
           const prof = signinProvider(f.name);
           label = prof.label;
-          writeProfile(prof.name, { ...metaOf(prof), env: { ...prof.env, CLAUDE_CODE_OAUTH_TOKEN: token } });
+          writeProfile(prof.name, { ...metaOf(prof), signin: '', env: { ...prof.env, CLAUDE_CODE_OAUTH_TOKEN: token } });
+          clearRefused(prof.name);
+          try { auto.clearLimited(prof.name); } catch { /* nothing recorded */ }
         } else {
           if (readProfile(f.name)) throw fail(409, `There is already a provider called "${f.name}"`);
           writeProfile(f.name, { label: f.label, env: { CLAUDE_CODE_OAUTH_TOKEN: token } });
@@ -734,6 +776,7 @@ export function accountsFeature(ctx, opts = {}) {
       if (flow) flow.close();
       flow = null;
       probes.clear();
+      limits.close(); // a read in flight: its runs and its pass-through end with the dashboard
     },
     // for tests
     _flow: () => flow,

@@ -1,0 +1,13 @@
+// A direct call written inside the router file: the file is not left out of the rules.
+const OAUTH_BETA = 'oauth-2025-04-20';
+const betaList = (v) => String(v || '').split(',').map((s) => s.trim()).filter(Boolean);
+export const keep = (betas) => betas.filter((b) => b !== OAUTH_BETA);
+export async function readOwn(p, fetchImpl = fetch) {
+  const key = p.env.CLAUDE_CODE_OAUTH_TOKEN;
+  const res = await fetchImpl('https://api.example.com/v1/messages', {
+    method: 'POST',
+    headers: { authorization: 'Bearer ' + key },
+    body: '{}',
+  });
+  return res.status;
+}

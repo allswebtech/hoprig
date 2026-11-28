@@ -3,7 +3,7 @@
 import { heldActCard } from './handsoff.js';
 import { hasCard, runsInBackground } from './homefold.js';
 import { icon } from './icons.js';
-import { TOOL_NAMES, api, askNote, atOf, bgCommandNote, cardTool, h, isCodingCard, limitBox, link, liveBasic, permissionActions, profileIcon, profileText, stateOf, statusPill, switchProfile, toast, toolChip, worktreeOf } from './lib.js';
+import { api, askNote, askNoteNodes, atOf, bgCommandNote, h, isCodingCard, limitBox, link, liveBasic, machinePill, permissionActions, profileIcon, profileText, stateOf, statusPill, switchProfile, toast, toolChip, worktreeOf } from './lib.js';
 import { isStarting, markStarting, startingPill } from './newsession.js';
 import { registeredCardBadges } from './registry.js';
 
@@ -11,6 +11,34 @@ import { registeredCardBadges } from './registry.js';
 export const sessionHref = (s) => link(s.kind === 'chat' ? `#/chat/${s.chatId}` : `#/s/${encodeURIComponent(s.name)}`, s.machine);
 const open = (s) => (location.hash = sessionHref(s));
 const nameOf = (s) => s.display || s.name;
+/**
+ * A message as one plain line for a card: the marks of formatting (stars, back quotes, hashes, list dashes and numbers,
+ * quote signs, the words of a link kept) taken out, line breaks made spaces. The card clamps it to its width.
+ */
+export function plainLine(text) {
+  const lines = String(text || '')
+    .replace(/```[^\n]*\n?/g, '')
+    .replace(/!?\[([^\]\n]*)\]\([^)\s]*\)/g, '$1')
+    .split('\n');
+  // The items of one list are joined with a dot, so "all 9 pass" and "one skipped" do not run into one sentence.
+  let joined = '';
+  let prevItem = false;
+  for (const line of lines) {
+    const m = /^[ \t]*(?:[-*+•]|\d{1,3}[.)])[ \t]+/.exec(line);
+    joined += `${joined ? (m && prevItem ? ' · ' : '\n') : ''}${m ? line.slice(m[0].length) : line}`;
+    prevItem = Boolean(m);
+  }
+  return joined
+    .replace(/^[ \t]*(?:#{1,6}[ \t]+|>[ \t]?)/gm, '')
+    .replace(/(\*\*|__)(?=\S)([^\n]*?\S)\1/g, '$2')
+    .replace(/(?<![*\w])([*_])(?=[^\s*_])([^*_\n]*[^\s*_])\1(?![*\w])/g, '$2')
+    .replace(/`+/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+// A short title never breaks for its pill: they share a line only when both fit whole (page-home.css); a long one keeps two lines.
+export const shortTitle = (t) => String(t).length <= 20;
+const chatTag = (s) => (s.kind === 'chat' ? h('span.badge.soft', icon('text', { size: 13 }), 'App') : null);
 const chip = (s, opts) => (isStarting(s) ? startingPill(s) : statusPill(s, opts));
 
 /**
@@ -193,39 +221,6 @@ function backButton(s, profiles, after) {
 }
 
 /**
- * A message as plain text: the marks of formatting (stars, back quotes, title and list marks, a link's address) are
- * taken out, lines run into one. A card shows what was said, not how it was typed.
- */
-export function plainText(text) {
-  return String(text || '')
-    .replace(/\[([^\]\n]+)\]\([^)\s]*\)/g, '$1')
-    .replace(/^\s{0,3}(?:#{1,6}|>|[-*+])\s+/gm, '')
-    .replace(/(\*\*|__|~~|`)/g, '')
-    .replace(/(^|\s)\*([^*\s][^*]*?)\*(?=\s|$|[.,;:!?)])/g, '$1$2')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
-
-/** A card's last line: its last message as plain text, never its title again (that told nothing). null: no line. */
-export function lastLine(s) {
-  const text = plainText(s && s.lastMessage);
-  return text && text !== String(nameOf(s)).trim() ? text : null;
-}
-
-/** Whose words the last line is: "You", the coding tool's name, or null (the computer does not say). */
-export const saidBy = (s) => (s.lastBy === 'you' ? 'You' : s.lastBy === 'claude' ? (cardTool(s) === 'claude' ? 'Claude' : TOOL_NAMES[cardTool(s)] || 'Claude') : null);
-
-/** Where a conversation runs, as a word: "App" for a chat, "Terminal" for a terminal (a computer that says it, says it). */
-export const whereWord = (s) => (s.where === 'app' || (!s.where && s.kind === 'chat') ? 'App' : 'Terminal');
-
-/** The last part of the folder a session runs in ("~/Workspace/projects/shop" is "shop"); a branch of its own keeps its branch. */
-export function folderLast(s) {
-  const wt = worktreeOf(s.cwd);
-  if (wt) return `${wt.project} · ${wt.branch}`;
-  return String(s.short || '').split(/[\\/]/).filter(Boolean).pop() || '';
-}
-
-/**
  * The card of the conversation `was` (a terminal that has gone: { name, key, sessionId }) as the list shows it now,
  * under another name: the chat it was handed to. null while it still stands or nothing carries it on.
  */
@@ -235,31 +230,28 @@ export function whereNow(list, was) {
 }
 
 /**
- * Home: a session as a card, one look on every width. Row 1: its title, and its state in words with the time. Row 2,
- * one line that never wraps: where it runs (App or Terminal), the computer only while several are shown (`multi`),
- * its provider, the folder's last part. Row 3: its last words as plain text, said by whom when the computer says it.
+ * Home: a session as a card, with the computer's name when there are several. Its pill always says the state in words
+ * ("Working · 2 min ago"), the same words as the session's own page, whatever the group's heading says.
  */
 export function sessionCard(s, profiles, refresh, multi) {
   const st = stateOf(s);
   const after = moved(s, refresh);
   const back = backButton(s, profiles, after);
-  const said = lastLine(s);
-  const by = saidBy(s);
-  const extra = [extrasLine(s), liveBasic(s), ...registeredCardBadges().map((b) => b(s))].filter(Boolean);
-  const hasFolder = folderWorthShowing(s) && folderLast(s);
   return h(`article.card.st-${st.key}`, linkProps(s, `${nameOf(s)}${multi ? ` on ${s.machineLabel}` : ''}: ${st.text}`),
-    h('div.card-top', h('h3.card-name', nameOf(s)), chip(s)),
-    h('div.card-where',
+    h('div.card-top', h(`h3.card-name${shortTitle(nameOf(s)) ? '.short' : ''}`, nameOf(s)), chip(s)),
+    h('div.card-meta',
+      chatTag(s),
       toolChip(s),
-      h('span.cw', icon(s.kind === 'chat' ? 'text' : 'terminal', { size: 14 }), whereWord(s)),
-      multi && s.machineLabel ? h('span.cw', s.machineLabel) : null,
-      s.profile ? h('span.cw.cw-provider', profileText(s)) : null,
-      hasFolder ? h('span.cw.card-path', { title: s.short || null }, icon('folder', { size: 14 }), h('span.card-path-text', folderLast(s))) : null),
-    extra.length ? h('div.card-meta', extra) : null,
-    said ? h('p.card-msg', by ? [h('strong.card-by', `${by}: `), said] : said) : null,
+      multi ? machinePill(s.machineLabel) : null,
+      provider(s),
+      folderWorthShowing(s) ? h('span.card-path', icon('folder', { size: 14 }), folderLine(s)) : null,
+      extrasLine(s),
+      liveBasic(s),
+      registeredCardBadges().map((b) => b(s))),
+    s.lastMessage ? h('p.card-msg', plainLine(s.lastMessage)) : s.title && s.kind !== 'chat' ? h('p.card-msg.title', s.title) : null,
     // A held act: show what the wall held (web/handsoff.js) in place of the short note, so the owner sees the whole
     // act before Allow, here on Home too and not only on the session page.
-    st.key === 'attention' && s.held ? heldActCard(s.held) : st.key === 'attention' && s.note ? h('p.card-note', askNote(s.note)) : st.key === 'failed' && s.note ? h('p.card-note', s.note) : null,
+    st.key === 'attention' && s.held ? heldActCard(s.held) : st.key === 'attention' && s.note ? h('p.card-note', askNoteNodes(s.note)) : st.key === 'failed' && s.note ? h('p.card-note', s.note) : null,
     // Refused as root: what to do next, in plain words.
     st.key === 'failed' && rootRefusedNext(s.note) ? h('p.card-note.card-next', rootRefusedNext(s.note)) : null,
     // A command still running in the background while it waits for the owner (web/lib.js): the state stays
@@ -281,7 +273,7 @@ export function sessionRow(s, profiles, refresh, { where = null } = {}) {
     h('span.row-main',
       h('span.si-top', h('span.row-title', nameOf(s)), chip(s)),
       h('span.si-meta', toolChip(s), provider(s), where ? h('span.si-where', icon('folder', { size: 13 }), where) : null, extrasLine(s), liveBasic(s)),
-      lastLine(s) ? h('span.row-sub.si-msg', lastLine(s)) : null,
+      s.lastMessage ? h('span.row-sub.si-msg', plainLine(s.lastMessage)) : null,
       st.key === 'attention' && s.held ? heldActCard(s.held) : st.key === 'attention' && s.note ? h('span.si-note', askNote(s.note)) : st.key === 'failed' && s.note ? h('span.si-note', s.note) : null,
       bgCommandNote(s) ? h('span.row-sub.si-bg-note', bgCommandNote(s)) : null,
       permissionActions(s, refresh),

@@ -1,0 +1,89 @@
+// Read the limits of the providers now (Refresh on the Providers page). Limits are otherwise learnt only from answers
+// that pass the router, so a provider nobody used lately showed nothing. This asks each Claude subscription key one
+// question that is not a model answer and is not billed (token counting, one character), reads the plan-limit headers
+// of the answer, and learns from its status whether Claude still takes the sign-in. Nothing else is ever asked.
+//   subscription with its key   one POST /v1/messages/count_tokens, 8 seconds at most
+//   the stored sign-in          Claude Code's own sign-in check (no figures: Hoprig holds no key of it)
+//   keys, gateways, hub rows    not read here
+// All at the same time; one read in flight; a call within 30 seconds of the last one gets that answer.
+import * as autoswitchModule from '../autoswitch.mjs';
+import { claudeLoginStatus } from '../claudecode.mjs';
+import { listProfiles, ownFolder } from '../profiles.mjs';
+import { clearRefused, noteRefused, saveProfileUsage, usageFromHeaders } from '../routerstate.mjs';
+
+export const READ_LIMIT_MS = 8000;
+export const SHARE_MS = 30_000;
+export const SMALLEST_MODEL = 'claude-haiku-4-5';
+
+export function createLimitReader({ fetchImpl = fetch, now = Date.now, loginStatus = claudeLoginStatus, autoswitch = autoswitchModule, profiles = listProfiles, base = () => process.env.HOPRIG_ANTHROPIC_URL || 'https://api.anthropic.com' } = {}) {
+  let last = null; // { key, at, answer }
+  let flight = null; // { key, promise }
+
+  async function readOne(p) {
+    const name = p.name;
+    if (p.hub || p.kind === 'api' || p.kind === 'openai' || p.kind === 'chatgpt') return { name, ok: true, read: 'none', error: p.hub ? 'read on the other computer' : 'billed by use: no limits to read' };
+    if (p.kind === 'login') {
+      if (ownFolder(p)) return { name, ok: true, read: 'none', error: 'keeps its sign-in in a folder of its own' };
+      try {
+        await loginStatus();
+        return { name, ok: true, read: 'signin' };
+      } catch (e) {
+        return { name, ok: false, read: 'none', error: String(e && e.message ? e.message : e).slice(0, 120) };
+      }
+    }
+    const key = p.env && p.env.CLAUDE_CODE_OAUTH_TOKEN;
+    if (!key) return { name, ok: true, read: 'signin' }; // signed out here: nothing to ask
+    let res;
+    try {
+      res = await fetchImpl(`${base().replace(/\/+$/, '')}/v1/messages/count_tokens`, {
+        method: 'POST',
+        headers: { authorization: `Bearer ${key}`, 'anthropic-version': '2023-06-01', 'anthropic-beta': 'oauth-2025-04-20', 'content-type': 'application/json' },
+        body: JSON.stringify({ model: SMALLEST_MODEL, messages: [{ role: 'user', content: '.' }] }),
+        signal: AbortSignal.timeout(READ_LIMIT_MS),
+      });
+    } catch (e) {
+      return { name, ok: false, read: 'none', error: e && e.name === 'TimeoutError' ? 'did not answer in 8 seconds' : 'could not be reached' };
+    }
+    try {
+      await res.arrayBuffer();
+    } catch {
+      /* the headers are what counts */
+    }
+    const headers = Object.fromEntries(res.headers);
+    if (res.status === 401 || res.status === 403) {
+      noteRefused(name, `Claude answered ${res.status}`);
+      return { name, ok: false, read: 'signin', error: `Claude refused the sign-in (${res.status})` };
+    }
+    if (res.status === 429 && headers['anthropic-ratelimit-unified-status'] === 'rejected') {
+      const reset = Number(headers['anthropic-ratelimit-unified-reset']);
+      if (Number.isFinite(reset) && reset * 1000 > now()) autoswitch.markLimited(name, { until: reset * 1000, reason: 'rate_limit' }, now());
+    }
+    const figures = usageFromHeaders(headers, now());
+    if (res.status >= 200 && res.status < 300) clearRefused(name);
+    if (figures && (figures.fiveHour || figures.week)) {
+      saveProfileUsage(name, figures, now());
+      return { name, ok: true, read: 'figures' };
+    }
+    if ((res.status >= 200 && res.status < 300) || res.status === 429) return { name, ok: true, read: 'none' };
+    return { name, ok: false, read: 'none', error: `Claude answered ${res.status}` };
+  }
+
+  /** Read every provider (or `name` only); the answer: { at, results: [{ name, ok, read, error? }] }. */
+  function read({ name = null } = {}) {
+    const key = name || '*';
+    const t = now();
+    if (last && last.key === key && t - last.at < SHARE_MS) return Promise.resolve(last.answer);
+    if (flight) return flight.promise;
+    const list = profiles().filter((p) => !p.virtual && (!name || p.name === name));
+    const promise = Promise.all(list.map((p) => readOne(p).catch((e) => ({ name: p.name, ok: false, read: 'none', error: String(e && e.message ? e.message : e).slice(0, 120) }))))
+      .then((results) => {
+        const answer = { at: now(), results };
+        last = { key, at: answer.at, answer };
+        return answer;
+      })
+      .finally(() => { flight = null; });
+    flight = { key, promise };
+    return promise;
+  }
+  return { read, lastAt: () => (last ? last.at : null) };
+}

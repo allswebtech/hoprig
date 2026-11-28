@@ -1,4 +1,4 @@
-// "Tia acts by herself" (Settings -> Tia, What she may do alone) is the ONE switch for her small acts on Hoprig itself
+// "Tia acts by herself" (the Operator page, What Tia does by herself) is the ONE switch for her small acts on Hoprig itself
 // too: the server reads it as her "act alone" right, there is no second switch, and the sentence that sends the owner
 // to a switch names words that the page has.
 import assert from 'node:assert/strict';
@@ -21,10 +21,9 @@ test('her act-alone right follows the one switch Tia acts by herself', async () 
 
 test('the sentence names words the page has, and no key she could send herself', () => {
   const why = decide({ act: 'hold-starts', value: true }, {}, { actAlone: false, level: 'work' }).why;
-  assert.match(why, /Settings → Tia, What she may do alone, Tia acts by herself/);
-  assert.ok(page.includes("'What she may do alone'"), 'the fold is on the page');
+  assert.match(why, /the Operator page, What Tia does by herself, Tia acts by herself/);
+  assert.ok(page.includes("'What Tia does by herself'"), 'the fold is on the page');
   assert.ok(page.includes("'Tia acts by herself'"), 'the switch is on the page');
-  assert.ok(page.includes('small jobs on Hoprig itself, each with Undo'), 'its line says what else it allows');
 });
 
 test('she cannot raise her own right: the switch and the old key are the owner own', () => {

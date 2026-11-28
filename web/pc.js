@@ -1,18 +1,16 @@
 // One computer's page (#/computer, #/m/<computer>/computer), opened from Computers. Three parts, each with its own
-// address so back and links work: Overview (#/computer: one status line, load, memory, the main disk, the sessions on
-// it; the rest in one closed fold), Setup (#/computer/setup, pcsetup.js: every check, the red ones first; Home → Get
-// started opens it) and Advanced (#/computer/advanced: desktop, programs, ports, service, name and power, before you
-// format). #/computer/health, the old fourth part, lands on Setup. The last answers of each computer are kept while
-// the page is open, so switching between the parts draws at once, without a jump.
+// address so back and links work: Overview (#/computer: status, load, memory, disks, Claude Code, sessions, whether
+// it can be reached from anywhere), Setup (#/computer/setup, pcsetup.js; Home → Get started opens it) and Advanced
+// (#/computer/advanced: processes, listening ports, rename / test / remove, power). The last answers of each
+// computer are kept while the page is open, so switching between the parts draws at once, without a jump.
 import { APP_NAME } from './brand.js';
 import { icon } from './icons.js';
 import { MACHINE_STATE, add, api, at, btn, bytes, confirmSheet, fill, h, link, machine, openSheet, prefs, promptSheet, span, stateOf, toast, wayLink } from './lib.js';
 import { registerPage } from './registry.js';
-import { errorBox, fold, groupHead, okBox, tabBar } from './shell.js';
+import { errorBox, groupHead, okBox, tabBar } from './shell.js';
 import { store } from './store.js';
-import { setupSection, setupSummary } from './pcsetup.js';
-import { healthAdvanced } from './health.js';
-import { roomsPart } from './operator-rooms.js';
+import { setupSection } from './pcsetup.js';
+import { healthSection } from './health.js';
 import { hubMoveBox } from './moveuser.js';
 import { partOf, showPart } from './showpart.js';
 
@@ -22,12 +20,9 @@ const LINK_SWITCH = '#/settings/public-link?show=public-link-switch';
 export const PARTS = [
   { id: '', title: 'Overview', text: 'How it is doing now: load, memory, disks, Claude Code and the sessions on it.' },
   { id: 'setup', title: 'Setup', text: 'What it has for coding, what is missing, and one button to install it.' },
+  { id: 'health', title: 'Health', text: 'Its checks (with a Fix where one can run), its versions, its service, and its gateways.' },
   { id: 'advanced', title: 'Advanced', text: 'The programs running on it, its open ports, its name, and power.' },
 ];
-// Addresses that were a part once: they land on the part that holds what they showed.
-const OLD_PARTS = { health: 'setup' };
-/** The part an address names (the old Health one is Setup), or null for an unknown one. */
-export const partFor = (sub) => PARTS.find((p) => p.id === (OLD_PARTS[sub] || sub)) || null;
 
 // A computer that no longer lets this dashboard in (state unauthorised): nothing of it can be read, so each part says
 // so instead of promising load, checks or programs. Advanced stays: Rename and Remove from this list are this
@@ -35,6 +30,7 @@ export const partFor = (sub) => PARTS.find((p) => p.id === (OLD_PARTS[sub] || su
 const NOT_ALLOWED_TEXT = {
   '': 'How it is doing cannot be read now. To rename it or take it off this list, open Advanced.',
   setup: 'What it has for coding cannot be checked while it does not let this dashboard in.',
+  health: 'Its checks cannot be read while it does not let this dashboard in.',
   advanced: 'Its name, and taking it off this list. Its programs, ports and power can be used again once it lets this dashboard in.',
 };
 /** Whether `m` (an entry of store.all) no longer lets this dashboard in. */
@@ -159,22 +155,9 @@ const section = (title, count, ...body) => h('section.cp-section', groupHead(tit
 
 // ======================= Overview =======================
 
-/** The one status word of Overview from the number of things Setup finds to fix; '' until that is known. */
-export const readyWords = (fix) => (!Number.isFinite(fix) ? '' : fix ? `${fix} thing${fix === 1 ? '' : 's'} to fix` : 'Ready for coding');
-
-/** The disk the system lives on (a card of its own), and the others (a fold): boot disks and the like are never a card. */
-export function splitDisks(disks) {
-  const list = Array.isArray(disks) ? disks : [];
-  const main = list.find((x) => diskName(x.mount) === 'Main disk') || null;
-  return { main, others: list.filter((x) => x !== main) };
-}
-
 function overview(ctx) {
   const root = h('div.cp-part');
   let offCard = null; // made once: a repaint must not wipe the answer to Try again
-  // Each computer's room for new work (the Operator's computers box): this hub's own list, so on this computer only. Made once.
-  const rooms = machine.current ? null : h('div.cp-rooms');
-  if (rooms) roomsPart(rooms).load();
   const paint = () => {
     const c = cache.get(keyOf()) || {};
     if (c.failed && !c.pc) {
@@ -186,43 +169,35 @@ function overview(ctx) {
     if (!c.pc) return fill(root, tilesLoading());
     const d = c.pc;
     const i = c.info || {};
-    const cl = c.claude && c.claude.installed ? c.claude : null;
     const used = d.mem.total - d.mem.available;
     const hasSwap = Number.isFinite(d.mem.swapTotal) && Number.isFinite(d.mem.swapFree);
     const swapUsed = hasSwap ? d.mem.swapTotal - d.mem.swapFree : 0;
     const load = Array.isArray(d.load) && d.load.every(Number.isFinite) ? d.load : null;
-    const { main, others } = splitDisks(d.disks);
-    const ready = readyWords(c.fix);
-    const actionable = c.claude && (!c.claude.installed || c.claude.updateAvailable);
     fill(root,
       c.failed ? ctx.connectionBanner(c.failed) : null,
       h('p.cp-status',
-        h(`span.cp-dot${c.fix ? '' : '.on'}`, { 'aria-hidden': 'true' }),
-        h('span', h('strong', ready || 'Online'), [ready ? 'online' : null, Number.isFinite(d.uptime) ? `up ${upFor(d.uptime)}` : null, osName(d.platform || i.platform), i.version ? `${APP_NAME} ${i.version}` : null, cl ? `Claude Code ${cl.installed}` : null].filter(Boolean).map((t) => ` · ${t}`).join('')),
-        c.fix ? h('a.btn.small.primary', { href: link('#/computer/setup') }, 'Set up') : null),
+        h('span.cp-dot.on', { 'aria-hidden': 'true' }),
+        h('span', h('strong', 'Online'), [Number.isFinite(d.uptime) ? `up ${upFor(d.uptime)}` : null, osName(d.platform || i.platform), i.version ? `${APP_NAME} ${i.version}` : null].filter(Boolean).map((t) => ` · ${t}`).join(''))),
       h('div.tiles',
         load ? busyTile(load, d.cpus) : tile('CPUs', String(d.cpus || '—'), 'no load figure on this system', null),
         tile('Memory', bytes(used), `of ${bytes(d.mem.total)}`, used / d.mem.total),
-        main ? tile('Main disk', `${bytes(main.avail)} free`, `${bytes(main.used)} of ${bytes(main.size)} used`, main.used / main.size) : null,
-        hasSwap && swapUsed > 0 ? tile('Swap', bytes(swapUsed), d.mem.swapTotal ? `of ${bytes(d.mem.swapTotal)}` : 'none', d.mem.swapTotal ? swapUsed / d.mem.swapTotal : 0) : null),
-      // An update or a missing Claude Code is something to press: it stays in view; the rest of Claude Code is in the fold.
-      actionable ? h('div.rows', claudeRow(ctx, c)) : null,
-      d.sessions.length ? section('Sessions', d.sessions.length, h('div.rows', d.sessions.map((t) => sessionRow(t)))) : null,
-      fold('computer-more', 'More about it',
-        others.length ? section('Other disks', undefined, h('div.rows', others.map((x) => diskRow(x)))) : null,
-        actionable ? null : section('Claude Code', undefined, h('div.rows', claudeRow(ctx, c))),
-        section('Reach it from anywhere', undefined, h('div.rows', reachRow(c.reach))),
-        rooms),
+        hasSwap ? tile('Swap', bytes(swapUsed), d.mem.swapTotal ? `of ${bytes(d.mem.swapTotal)}` : 'none', d.mem.swapTotal ? swapUsed / d.mem.swapTotal : 0) : null,
+        tile('Sessions', String(d.sessions.length), 'running', null)),
+      section('Disks', undefined, h('div.rows', d.disks.map((x) =>
+        h('div.row.static.col',
+          h('span.row-main', h('span.row-title', diskName(x.mount)), h('span.row-sub', `${bytes(x.avail)} free · ${bytes(x.used)} of ${bytes(x.size)} used${diskName(x.mount) === x.mount ? '' : ` · ${x.mount}`}`)),
+          meter(x.used / x.size))))),
+      section('Claude Code', undefined, h('div.rows', claudeRow(ctx, c))),
+      section('Sessions', d.sessions.length, d.sessions.length
+        ? h('div.rows', d.sessions.map((t) => sessionRow(t)))
+        : h('div.rows', h('div.row.static', h('span.row-main', h('span.row-sub', 'No sessions on it right now.'))))),
+      section('Reach it from anywhere', undefined, h('div.rows', reachRow(c.reach))),
       d.errors && d.errors.length ? h('div.banner.warn', icon('alert', { size: 18 }), h('span', `Some figures could not be read: ${d.errors.join(' · ')}`)) : null);
   };
   ctx.onData(paint);
   paint();
   return root;
 }
-
-const diskRow = (x) => h('div.row.static.col',
-  h('span.row-main', h('span.row-title', diskName(x.mount)), h('span.row-sub', `${bytes(x.avail)} free · ${bytes(x.used)} of ${bytes(x.size)} used${diskName(x.mount) === x.mount ? '' : ` · ${x.mount}`}`)),
-  meter(x.used / x.size));
 
 /** A session on this computer: what it is doing and its folder, from the session poll when it knows it. */
 function sessionRow(t) {
@@ -452,14 +427,11 @@ function advanced(ctx) {
   paintSort();
   paint();
   paintActs();
-  // Each part is one closed row: nothing long, and no Stop button, is on the first screen.
   return h('div.cp-part',
-    notAllowed(ctx.entry()) ? null : h('div.savebar.start', h('a.btn.secondary.small', { href: link('#/desktop') }, icon('monitor', { size: 16 }), h('span', 'Open desktop'))),
-    fold('computer-programs', 'Programs', h('div.cp-bar', h('p.hint', 'The busiest and the largest. Only programs of your own user can be stopped.'), sortBar), procs),
-    fold('computer-ports', 'Listening ports', ports),
-    fold('computer-service', 'Service', healthAdvanced(ctx)),
-    fold('computer-name', 'Name and power', h('div.rows.cp-acts', rename, name ? test : null, name ? hostKey : null, name ? remove : null), manageMsg, hostMsg, acts),
-    h('div.rows', h('a.row', { href: link('#/leave') }, h('span.row-icon', icon('archive')), h('span.row-main', h('span.row-title', 'Before you format this computer'), h('span.row-sub', 'What exists only on this computer, and what to do about each before it is erased.')), h('span.row-end', icon('chevronRight', { size: 18 })))));
+    section('Programs running', undefined, h('div.cp-bar', h('p.hint', 'The busiest and the largest. Only programs of your own user can be stopped.'), sortBar), procs),
+    section('Listening ports', undefined, ports),
+    section('This computer', undefined, h('div.rows.cp-acts', rename, name ? test : null, name ? hostKey : null, name ? remove : null), manageMsg, hostMsg),
+    acts);
 }
 
 /**
@@ -511,14 +483,9 @@ export async function compareHostKey(ctx, name, msg) {
 
 function viewPc({ frame, connectionBanner, sub, query }) {
   store.viewing = null;
-  const part = partFor(sub);
+  const part = PARTS.find((p) => p.id === sub);
   if (!part) {
     location.replace(link('#/computer'));
-    return () => {};
-  }
-  // The old Health part: its checks are in Setup now (the address, with a computer's prefix, is made by link()).
-  if (sub === 'health') {
-    location.replace(link('#/computer/setup'));
     return () => {};
   }
   const entry = () => store.all.find((m) => m.machine === machine.current) || null;
@@ -538,13 +505,14 @@ function viewPc({ frame, connectionBanner, sub, query }) {
     },
   };
   const tabs = tabBar('Parts of this page', PARTS.map((p) => ({ id: p.id, label: p.title, href: link(p.id ? `#/computer/${p.id}` : '#/computer') })), part.id);
-  const content = part.id === 'setup' ? setupSection(ctx) : part.id === 'advanced' ? advanced(ctx) : overview(ctx);
+  const content = part.id === 'setup' ? setupSection() : part.id === 'health' ? healthSection(ctx) : part.id === 'advanced' ? advanced(ctx) : overview(ctx);
   // A link back here names the part ("Setup"), and the computer once there are several.
   const place = () => (part.id ? (store.multi ? `${part.title} · ${label()}` : part.title) : label());
+  // Its desktop: the apps of this computer as windows (web/desktop/; a grid of the apps on a small screen).
+  const desktop = h('a.btn.secondary.small', { href: link('#/desktop') }, icon('monitor', { size: 16 }), h('span', 'Open desktop'));
   // "?show=<part>" (e.g. #/computer/setup?show=git): the part a sentence elsewhere names is brought into view.
   const shown = partOf(query);
-  // The line under the tabs is said only where it tells something that is not plain: a computer that does not let this dashboard in.
-  const draw = () => frame({ title: label(), place: place(), page: 'computer', back: '#/computers', backLabel: 'Computers', body: [tabs, notAllowed(entry()) ? h('p.cp-parttext', partText(part, entry())) : null, content] });
+  const draw = () => frame({ title: label(), place: place(), page: 'computer', back: '#/computers', backLabel: 'Computers', intro: 'One computer: how it is doing, what is set up on it, and its controls.', actions: notAllowed(entry()) ? [] : [desktop], body: [tabs, h('p.cp-parttext', partText(part, entry())), content] });
   draw();
   if (shown) showPart(shown, { alive: () => alive });
   const tell = () => listeners.forEach((fn) => fn());
@@ -578,14 +546,12 @@ function viewPc({ frame, connectionBanner, sub, query }) {
   // The slower, rarer facts once per visit.
   async function facts() {
     computerInfo().then((info) => set({ info })).catch(() => {});
-    // The one status line: how many things Setup finds to fix (the same read as the Setup part).
-    api('/api/pcsetup/status').then((d) => set({ fix: setupSummary(d.checks).fix.length })).catch(() => {});
     api(at(machine.current, '/api/claude')).then((claude) => set({ claude })).catch(() => set({ claude: { installed: null } }));
     Promise.all([api('/api/settings'), api('/api/public-link').catch(() => null)])
       .then(([s, l]) => set({ reach: reachOf(s, l) }))
       .catch(() => set({ reach: { level: 'unknown', text: 'Its settings could not be read.' } }));
   }
-  if (part.id !== 'setup') {
+  if (part.id !== 'setup' && part.id !== 'health') {
     refresh();
     if (part.id === '') facts();
   }

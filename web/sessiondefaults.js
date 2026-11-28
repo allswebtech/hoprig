@@ -27,7 +27,7 @@ const CLAUDE_DEFAULT = ['', 'Claude Code\'s own default'];
  */
 export const toolWords = (others) => ({
   dflt: others ? ['', 'The coding tool\'s own default'] : CLAUDE_DEFAULT,
-  desc: `For new sessions. A session started with its own options keeps them.${others ? ' The model is for Claude Code only.' : ''}`,
+  desc: `For sessions started from now on. A session started with its own options keeps them.${others ? ' The model is for Claude Code; another coding tool in the App takes the mode and the effort where it has them.' : ''}`,
 });
 const SHORT_MODE = Object.fromEntries(Object.entries(MODE).map(([m, w]) => [m, w.chip]));
 

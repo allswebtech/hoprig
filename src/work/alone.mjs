@@ -47,6 +47,7 @@ import { endAsHers, startAsHers } from '../assistant/hersignin.mjs';
 import { credsDir } from '../workspace/credlinks.mjs';
 import { fileURLToPath } from 'node:url';
 import { resolveWindowsBin, windowsSpawnPlan } from '../winspawn.mjs';
+import { endWith } from '../hubprov/localkeys.mjs';
 
 // A mission's session that may run the project's tests in the box (src/mission/boxtool.mjs): the one tool server of the
 // product's own, by its file, started with the Node that runs Hoprig; its one tool by the name the coding tool gives it.
@@ -866,6 +867,7 @@ export function aloneRunner(o) {
     try {
       // noHooksEnv: an allowed `git commit` of the session runs no repository hook (a program the owner did not ask it to start).
       child = (o.spawn || spawn)(plan.command, plan.args, { cwd: inTree, env: { ...env, ...noHooksEnv(env), HOPRIG_RUN_FILE: '' }, stdio: ['pipe', 'pipe', 'pipe'], detached: process.platform !== 'win32', windowsHide: true, ...plan.options });
+      endWith(child, env); // a hub provider's session key ends with this run's process
       child.stdin.on('error', () => {}); // a tool that ends before it reads its prompt: its end says why
       child.stdin.end(prompt);
     } catch (e) {

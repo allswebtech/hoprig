@@ -3,12 +3,13 @@
 // Routes: #/  #/new  #/s/<session>  #/more  #/<page>  #/<page>/<sub>  #/<page>?<query> (the code editor's deep links)
 //         #/m/<computer>/...   the same pages for another computer (Home is always every computer at once)
 // Addresses from before the pages were split keep working: ALIASES sends them to where the thing lives now.
-import { applyPageTheme, link, machine } from './lib.js';
-import { allPages } from './registry.js';
-import { connectionBanner, endFrame, frame } from './shell.js';
+import { applyPageTheme, h, link, machine } from './lib.js';
+import { allPages, navPages } from './registry.js';
+import { connectionBanner, endFrame, frame, listRow } from './shell.js';
 import { openSession } from './session.js';
 import { arrive } from './trail.js';
 import { viewHome } from './home.js';
+import { queryAlias } from './addressalias.js';
 import { newFromAddress } from './newsession-popup.js';
 import { hubStandIn, store } from './store.js';
 // Features: one import each; they register their pages and Settings pages (registry.js).
@@ -46,10 +47,10 @@ let stopView = () => {};
  * checks each one leads to a page.
  */
 export const PAGE_ADDRESSES = [
-  '#/', '#/new', '#/more', // #/more is an old address: it lands on Settings (ALIASES)
-  '#/work', '#/work/tasks', '#/work/plans', '#/work/schedules', '#/work/activity', '#/work/team', '#/work/golive',
+  '#/', '#/new', '#/more',
+  '#/work', '#/work/today', '#/work/tasks', '#/work/plans', '#/work/schedules', '#/work/activity', '#/work/team', '#/work/golive',
   '#/workspace', '#/new-project', '#/get-project',
-  '#/providers',
+  '#/providers', '#/providers/trouteai',
   '#/computers', '#/computers/add', '#/computer', '#/computer/setup', '#/computer/advanced',
   '#/skills', '#/skills/installed', '#/skills/suggested', '#/skills/find', '#/skills/learned',
   '#/brain',
@@ -62,7 +63,7 @@ export const PAGE_ADDRESSES = [
 
 /** Old addresses (and the screens Tia links to) → where that lives now. */
 export const ALIASES = {
-  '/more': '/settings', // the page is gone: its five rows are in the menu, the gear and Home
+  '/work/today': '/work', // the Today part is the first part of Work
   '/pc': '/computer',
   '/pc/setup': '/computer/setup',
   '/pc/projects': '/workspace',
@@ -112,6 +113,17 @@ export const renamed = (path) => {
   }
   return null;
 };
+
+/** More (#/more): the second group of pages, as a list — the phone's fifth navigation item. */
+function viewMore() {
+  store.viewing = null;
+  frame({
+    title: 'More',
+    page: 'more',
+    intro: 'Everything else: skills, the AI brain, the assistant and the settings.',
+    body: [h('div.rows', navPages('more').map((p) => listRow({ href: p.perComputer ? link(`#/${p.id}`) : `#/${p.id}`, icon: p.icon, title: p.title, end: p.count ? h('span.badge', String(p.count)) : null })))],
+  });
+}
 
 // The pages that belong to a computer that codes. On a hub (`setup --hub`: it only links the others) they open on
 // the first computer that runs sessions, not on the hub's empty one.
@@ -164,13 +176,13 @@ function route(e) {
   const q = hash.indexOf('?');
   const path = hash.slice(1, q < 0 ? undefined : q);
   const query = new URLSearchParams(q < 0 ? '' : hash.slice(q + 1));
-  const to = ALIASES[path] || renamed(path);
+  const to = ALIASES[path] || renamed(path) || queryAlias(path, query);
   if (to) return location.replace(mm ? `#/m/${mm[1]}${to}` : `#${to}`);
   const s = /^\/s\/(.+)$/.exec(path);
   const p = /^\/([a-z][a-z0-9-]*)(?:\/(.*))?$/.exec(path);
   const page = p && allPages().find((x) => x.id === p[1]);
   if (page && !mm && CODING_PAGES.includes(page.id) && onHub(hash)) return;
-  if (!s && !page && !['/new', '/new/here'].includes(path) && (mm || path !== '/')) return location.replace('#/');
+  if (!s && !page && !['/new', '/new/here', '/more'].includes(path) && (mm || path !== '/')) return location.replace('#/');
   arrive(location.hash || '#/', leftFrom(e));
   let stop;
   if (s) {
@@ -180,6 +192,7 @@ function route(e) {
     stop = viewHome(); // New session is a popup: over Home when it is opened by its address
     newFromAddress({ query });
   }
+  else if (path === '/more') stop = viewMore();
   else if (page) stop = page.render({ frame, connectionBanner, sub: p[2] || '', query });
   else stop = viewHome();
   stopView = typeof stop === 'function' ? stop : () => {};

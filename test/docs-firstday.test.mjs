@@ -22,16 +22,16 @@ const part = (file, title) => {
 test('the page names the docs use are the page\'s own', () => {
   assert.match(read('src/setup/onboarding.mjs'), /\{ kind: 'claude-login', label: 'Sign in to Claude' \}/);
   assert.match(read('web/computers.js'), /registerPage\(\{ id: 'computers', title: 'Computers',/);
-  assert.match(read('web/pc.js'), /\{ id: 'setup', title: 'Setup',/);
+  assert.match(read('web/pc.js'), /\{ id: 'health', title: 'Health',/);
   assert.match(read('web/health.js'), /btn\('small primary', \{ label: 'Fix',/);
   assert.match(read('src/setup/checks.mjs'), /result\('login', 'Claude login',/);
   assert.match(read('web/claudelogin.js'), /btn\('small primary', \{ icon: 'user', label: 'Sign in',/);
 });
 
-test('README Install: what the line does in one sentence, and the checks on Setup before hoprig doctor', () => {
+test('README Install: what the line does in one sentence, and the checks on Health before hoprig doctor', () => {
   const install = flat(part('README.md', 'Install'));
   assert.match(install, /The line fetches Hoprig's installer from GitHub and runs it on your computer\./);
-  assert.match(install, /Check a computer at any time on its \*\*Setup\*\* tab \(\*\*Computers\*\* → the computer → \*\*Setup\*\*\), where a problem that one press can fix has a \*\*Fix\*\* button \(or, in a terminal, `hoprig doctor`\)\./);
+  assert.match(install, /Check a computer at any time on its \*\*Health\*\* tab \(\*\*Computers\*\* → the computer → \*\*Health\*\*\), where a problem that one press can fix has a \*\*Fix\*\* button \(or, in a terminal, `hoprig doctor`\)\./);
   assert.doesNotMatch(install, /Check a computer at any time with `hoprig doctor`/);
 });
 
@@ -64,12 +64,12 @@ test('the changelog says it under 0.3.4, in "Easier when you are not a programme
 
 test('INSTALL Troubleshooting: Health first, the doctor in a terminal second; the login row names the press', () => {
   const raw = part('docs/INSTALL.md', 'Troubleshooting');
-  assert.match(flat(raw), /Open \*\*Computers → this computer → Setup\*\* on the dashboard: the same checks as `hoprig doctor`, with a \*\*Fix\*\* button where one press can fix a problem \(it shows what it runs and asks first\)\. In a terminal: ```sh hoprig doctor ```/);
+  assert.match(flat(raw), /Open \*\*Computers → this computer → Health\*\* on the dashboard: the same checks as `hoprig doctor`, with a \*\*Fix\*\* button where one press can fix a problem \(it shows what it runs and asks first\)\. In a terminal: ```sh hoprig doctor ```/);
   // The table rows keep the doctor's own two spaces, so they are read as written, not flattened.
   const p = raw;
   assert.ok(p.includes('| `✗ Claude login  not logged in` | **Sign in to Claude** on the card on Home, or **Providers → Sign in**; in a terminal: `claude`, then type `/login` |'), p);
   assert.ok(!p.includes('| `✗ Claude login  not logged in` | `claude`, then type `/login` |'));
-  // Lingering: the press on Advanced → Service first (web/health.js, the Gateways part), the command as the other way.
-  assert.match(flat(raw), /On Linux, to keep the dashboard running while you are logged out: open \*\*Computers → this computer → Advanced → Service\*\* and press \*\*Let them start after a restart\*\* \(it asks first; where sudo would ask for a password, the page shows the line to type\)\. In a terminal: `sudo loginctl enable-linger \$USER`\./);
+  // Lingering: Health's press first (web/health.js, the Gateways part), the command as the other way.
+  assert.match(flat(raw), /On Linux, to keep the dashboard running while you are logged out: open \*\*Computers → this computer → Health\*\* and press \*\*Let them start after a restart\*\* \(it asks first; where sudo would ask for a password, the page shows the line to type\)\. In a terminal: `sudo loginctl enable-linger \$USER`\./);
   assert.match(read('web/health.js'), /label: 'Let them start after a restart'/);
 });

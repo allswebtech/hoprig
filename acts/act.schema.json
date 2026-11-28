@@ -1,0 +1,199 @@
+{
+  "$generated": "Generated from tia-core 0.2.0. Change it there, not here.",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "tia-core/acts/act.schema.json",
+  "title": "A product's acts file",
+  "description": "One row for every act a person can do in the product. bin/check-acts.mjs checks it against acts/CONTRACT.md. The answer (read, alone, card, open) is never a field: it is computed from the facts. The schema holds the shape only; what a field may hold is checked by the rule of the same name in acts/CONTRACT.md.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "contract",
+    "product",
+    "version",
+    "screens",
+    "areas",
+    "rows"
+  ],
+  "properties": {
+    "contract": {
+      "const": "tia-acts-0.2"
+    },
+    "product": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "pattern": "^[a-z0-9][a-z0-9-]*$"
+    },
+    "version": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 40
+    },
+    "screens": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 80,
+        "pattern": "^[a-z0-9][a-z0-9/_-]*$"
+      },
+      "description": "The screen ids of the product: every row names one."
+    },
+    "areas": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 40,
+        "pattern": "^[a-z][a-z0-9-]*$"
+      },
+      "description": "The closed list of areas find_acts filters by."
+    },
+    "census": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "test": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "dry_test": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "bytes_test": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        }
+      },
+      "description": "The product's three tests (act-census): the census (code list equals rows), the dry do_act for every row, the eager array and prompt bytes."
+    },
+    "rows": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/row"
+      }
+    }
+  },
+  "$defs": {
+    "row": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "kind",
+        "source",
+        "area",
+        "what"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "maxLength": 64,
+          "pattern": "^[a-z][a-z0-9]*(\\.[a-z0-9-]+){1,4}$",
+          "description": "area.object.verb, unique."
+        },
+        "kind": {
+          "enum": [
+            "route",
+            "command",
+            "skill",
+            "step",
+            "not-an-act"
+          ]
+        },
+        "source": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200,
+          "description": "What the census matches: METHOD and path, a command, a skill folder, or a module function."
+        },
+        "area": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "what": {
+          "type": "string",
+          "maxLength": 400,
+          "description": "One plain line for the model, 20 to 140 characters; the same text every turn."
+        },
+        "words": {
+          "type": "array",
+          "maxItems": 20,
+          "items": {
+            "type": "string",
+            "maxLength": 40
+          },
+          "description": "Synonyms in English, Hindi and Hinglish that find_acts ranks by."
+        },
+        "facts": {
+          "type": "object"
+        },
+        "input": {
+          "type": "object",
+          "description": "One strict JSON Schema, or { from: <the product's own schema name> }."
+        },
+        "pick": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "A read row: the field paths kept from the answer."
+        },
+        "cap": {
+          "type": "integer",
+          "description": "A read row: the most characters of one fact, at most 4000."
+        },
+        "holds_secret": {
+          "type": "boolean",
+          "description": "The answer holds a field of the secret class that cannot be picked away: the row is then a never row (open), not a read."
+        },
+        "screen": {
+          "type": "string"
+        },
+        "press": {
+          "type": "string"
+        },
+        "undo": {
+          "description": "The act id that takes this act back; only for facts.undo true."
+        },
+        "raise": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "The facts the server looks up itself at the call and may only turn on: spends, seen, other, spoken."
+        },
+        "tool": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "name"
+          ],
+          "properties": {
+            "name": {
+              "type": "string",
+              "maxLength": 64
+            },
+            "action": {
+              "type": "string",
+              "maxLength": 40
+            }
+          },
+          "description": "The eager tool and action that also does this act."
+        },
+        "why": {
+          "type": "string"
+        }
+      }
+    }
+  }
+}

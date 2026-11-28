@@ -240,12 +240,10 @@ test('a tap on a project whose code folder holds an empty chat does not open tha
 // in a code folder by default; the code is opened by the editor button only).
 const page = (f) => fs.readFileSync(new URL(`../../web/${f}`, import.meta.url), 'utf8');
 
-test('the Projects page rows and a project page start in the project folder; a repository row opens code only', () => {
+test('the Workspace page rows and a project page start in the project folder', () => {
   const src = page('projects.js');
-  assert.match(src, /newSessionButton\(p\.dir, p\.name\)/, 'a row of the Projects page');
+  assert.match(src, /newSessionButton\(p\.dir, p\.name\)/, 'a row of the Workspace page');
   assert.match(src, /onclick: \(\) => p && newIn\(p\.dir, p\.name\)/, 'the project page New session');
-  const repos = src.slice(src.indexOf('function paintRepos()'), src.indexOf('reposLabel.textContent'));
-  assert.doesNotMatch(repos, /newIn\(|newSessionButton\(|startButton\(|openNewSession\(/, 'a repository row starts no session');
 });
 
 test('Work starts in the project folder and the New project card opens its chat in the project folder', () => {

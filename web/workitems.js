@@ -88,8 +88,6 @@ export async function moreActions(it, ctx, after) {
     canDoIt(it, ctx) ? { value: 'do', label: 'Do it with a session', sub: 'A coding session works on it; you look at what it did', icon: 'play' } : null,
     run ? { value: 'runs', label: 'Runs', sub: 'What the sessions did: their answers, commits and changed files', icon: 'text' } : null,
     { value: 'edit', label: 'Change', icon: 'pencil' },
-    // A finished task with a run has a branch: Go live puts such branches together and checks them (Tasks, at the end).
-    run && (it.status === 'done' || it.status === 'review') ? { value: 'golive', label: 'Go live', sub: 'Put the finished tasks of a project together, check them, make them live', icon: 'zap' } : null,
     // What it waits for may never come (a task removed, or one he wants to start before): he can end the wait.
     it.editable && !closed && it.waits && it.waits.length ? { value: 'nowait', label: 'Stop waiting', sub: `Start it without waiting for ${it.waits.map((w) => `"${w.title}"`).join(', ')}`, icon: 'clock' } : null,
     planChooser && it.editable ? { value: 'plan', label: it.plan ? 'Its plan' : 'Put it in a plan', sub: it.plan ? 'Move it to another milestone or plan, or take it out' : 'A plan of your workspace and one of its milestones', icon: 'stack' } : null,
@@ -103,10 +101,6 @@ export async function moreActions(it, ctx, after) {
   const pick = await chooseSheet({ title: it.title, items });
   if (pick === 'do') return doItSheet(it).then((r) => r && after());
   if (pick === 'runs') return runsSheet(it, after);
-  if (pick === 'golive') {
-    location.hash = '#/work/tasks?show=golive';
-    return null;
-  }
   if (pick === 'edit') return itemSheet(it, ctx).then((ok) => ok && after());
   if (pick === 'plan') return planChooser(it).then((ok) => ok && after());
   if (pick === 'nowait') return act(`/api/work/items/${enc(it.id)}/plan`, { at: it.at, after: [] }, 'It no longer waits', after);

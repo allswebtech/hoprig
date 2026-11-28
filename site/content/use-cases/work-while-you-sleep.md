@@ -18,9 +18,9 @@ A session finishes its task at 1 a.m. and then sits idle. Or it stops at a usage
 
 ## What Hoprig does
 
-The rules that start things are fixed, with no AI deciding: a schedule starts at its time, the queue sends at the end of a reply. What they start can be an AI session. The schedules and the queue are in **Work → Schedules**; the switches are in **Settings → Automations**.
+The rules that start things are fixed, with no AI deciding: a schedule starts at its time, the queue sends at the end of a reply. What they start can be an AI session. The schedules and the queue are in **Work → Schedules**; the switches are in **Settings → While you are away**.
 
-1. **Queue** (always on: it acts only on messages you queued; you queue a message on the session itself): give a session its next messages. Each goes in when a reply ends, and only while the coding tool is the program in front in that terminal; otherwise it waits and its row says why.
+1. **Queue** (always on: it acts only on messages you queued; its list is **Queued messages** in Work → Schedules): give a session its next messages. Each goes in when a reply ends, and only while the coding tool is the program in front in that terminal; otherwise it waits and its row says why.
 2. **Schedules**: at a set time (once, every day, on some days of the week or every month), let the AI work by itself in a project, start a chat (or a terminal session), or send a message to one. When the AI works by itself, it works on a branch of its own. A task of Work can repeat, and can be run by AI at a set time.
 3. **Try again after a server error** (on at first): in a Claude Code session, after a server error that is not a limit (never a 4xx, and never on a provider billed by use), wait and continue, three times, then stop and say so in Needs you.
 4. **Reopen sessions after a restart**: Claude Code's and OpenCode's terminal sessions come back where they were. It is on at first, with the built-in terminals (the dashboard's own) and with tmux (a program that keeps terminals running when the dashboard stops): with tmux it matters after a restart of the computer, and when tmux itself dies.

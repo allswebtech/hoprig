@@ -5,11 +5,11 @@ import test from 'node:test';
 import { HELP } from '../../src/assistant/tia.mjs';
 
 test('"Hands off" in the level text says the cap and the Operator\'s part', () => {
-  assert.ok(HELP.level.includes('"Hands off" — as "Do the work", and she may also use the paid API providers you allowed without asking, within the daily limit for paid use (none at first, so each of those still asks you); only at this level, and within the same limit, do her limit rule and "Tia decides" move a session onto such a provider, type into a session on one, or think on one.'), HELP.level);
+  assert.ok(HELP.level.includes('"Hands off" — as "Do the work", and she may also use the paid API providers you allowed without asking, within the daily limit for paid use (none at first, so each of those still asks you); only at this level, and within the same limit, do the Operator\'s limit rule and "Tia decides" move a session onto such a provider, type into a session on one, or think on one.'), HELP.level);
 });
 
 test('the Hands off text begins with the cap and the Operator, and keeps its Work sentence', () => {
-  assert.ok(HELP.levelHandsoff.startsWith('As "Do the work", and she may also start or move sessions on the paid API providers you allowed, without asking, within the daily limit for paid use (none at first: then each of those asks you). Only at this level, and within the same limit, do her limit rule and "Tia decides" move a session onto such a provider, type into a session on one, or think on one; each counts against the limit. '), HELP.levelHandsoff);
+  assert.ok(HELP.levelHandsoff.startsWith('As "Do the work", and she may also start or move sessions on the paid API providers you allowed, without asking, within the daily limit for paid use (none at first: then each of those asks you). Only at this level, and within the same limit, do the Operator\'s limit rule and "Tia decides" move a session onto such a provider, type into a session on one, or think on one; each counts against the limit. '), HELP.levelHandsoff);
   assert.match(HELP.levelHandsoff, /On the Work page she always asks you first, at every level/);
 });
 

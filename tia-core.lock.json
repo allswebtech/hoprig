@@ -1,0 +1,18 @@
+{
+  "core": "tia-core",
+  "version": "0.2.0",
+  "files": [
+    {
+      "path": "acts/CONTRACT.md",
+      "sha256": "9e9bed60f9a059d9db34825cead7d9a6e287a3101dbabcb2c6ea6b8434d3aa23"
+    },
+    {
+      "path": "acts/act.schema.json",
+      "sha256": "66d85441ec43832219f6b6b6343d0fc915974cd528e5ea6a9b519fa13143e666"
+    },
+    {
+      "path": "acts/level-table.json",
+      "sha256": "01ff97d13ccd5560a48ec8f7f96ced3dec2df37011e6aed09850338943b81fac"
+    }
+  ]
+}

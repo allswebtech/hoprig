@@ -120,6 +120,17 @@ export function ranBefore(now = Date.now()) {
 }
 
 /**
+ * A new run id: the millisecond and the process id, and when a record of that name is there already (two made in one
+ * millisecond by one process), the same with eight hex digits after it (RUN_ID_RE allows that tail).
+ */
+function freeRunId() {
+  const base = `${Date.now().toString(36)}-${process.pid}`;
+  let id = base;
+  while (fs.existsSync(path.join(runsDir(), `${id}.json`))) id = `${base}-${crypto.randomBytes(4).toString('hex')}`;
+  return id;
+}
+
+/**
  * `file`: the record of this launcher's previous run, written anew (its own move to another profile keeps it).
  * `hand`: a move of the dashboard's (launchfile.mjs HAND): the record takes the run id the dashboard chose, unless a
  * record of that id is there already, and the stops and the count of the run it came from, only when it starts on the
@@ -127,7 +138,7 @@ export function ranBefore(now = Date.now()) {
  */
 export function createRun({ profile, cwd, carryArgs = [], tool = 'claude', conversation = null, file: again = null, hand = null }) {
   const given = !again && hand && typeof hand.runId === 'string' && RUN_ID_RE.test(hand.runId) && !fs.existsSync(path.join(runsDir(), `${hand.runId}.json`)) ? hand.runId : null;
-  const runId = again ? path.basename(again, '.json') : given || `${Date.now().toString(36)}-${process.pid}`;
+  const runId = again ? path.basename(again, '.json') : given || freeRunId();
   const file = again || path.join(runsDir(), `${runId}.json`);
   const now = Date.now();
   const before = again ? readRun(again) : null;

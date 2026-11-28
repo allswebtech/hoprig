@@ -299,8 +299,11 @@ export function claudeLoginFeature(ctx, opts = {}) {
   let flow = null; // the last one, kept after it ended so the page can read how it ended
   let seen = null; // { at, account }: the last answer, for a page that looks again within a few seconds
 
-  const owner = (req) => {
-    if (!ctx.authed(req)) throw fail(403, 'Only the owner of this dashboard can sign in Claude Code');
+  // `hub`: the three routes of Sign in here (start, code, cancel) are also open to the hub's own token, which the gate of
+  // src/machines lets reach exactly these and nothing else under /api/accounts: only the link and the one-time code pass,
+  // the credentials file is made here and never goes through the hub.
+  const owner = (req, { hub = false } = {}) => {
+    if (!ctx.authed(req) && !(hub && ctx.caller && ctx.caller(req) === 'computer')) throw fail(403, 'Only the owner of this dashboard can sign in Claude Code');
   };
   const changed = () => {
     seen = null;
@@ -331,7 +334,7 @@ export function claudeLoginFeature(ctx, opts = {}) {
       return account(q.get('fresh') === '1');
     }],
     ['POST', /^\/api\/accounts\/claude-login\/start$/, async (req) => {
-      owner(req);
+      owner(req, { hub: true });
       const b = await ctx.readJson(req);
       let email = null;
       if (b.email !== undefined && b.email !== null && b.email !== '') {
@@ -372,7 +375,7 @@ export function claudeLoginFeature(ctx, opts = {}) {
       return { ok: true };
     }],
     ['POST', /^\/api\/accounts\/claude-login\/code$/, async (req) => {
-      owner(req);
+      owner(req, { hub: true });
       const b = await ctx.readJson(req);
       const code = typeof b.code === 'string' ? b.code.trim() : '';
       if (!CODE_RE.test(code)) throw fail(400, 'Paste the whole code from the sign-in page: it has a # in the middle');
@@ -381,7 +384,7 @@ export function claudeLoginFeature(ctx, opts = {}) {
       return flow.view();
     }],
     ['POST', /^\/api\/accounts\/claude-login\/cancel$/, async (req) => {
-      owner(req);
+      owner(req, { hub: true });
       await ctx.readJson(req);
       if (flow) flow.end('Cancelled');
       flow = null;

@@ -47,10 +47,10 @@ test('a typed name still goes through Next to its check', async () => {
   assert.equal(named(box, /^Get it$/).length, 1);
 });
 
-test('each row on Computers is one link to that computer, with no second button beside it', async () => {
+test('each row on Computers has a Health link that goes straight to that computer\'s checks', async () => {
   const fs = await import('node:fs');
   const src = fs.readFileSync(new URL('../../web/computers.js', import.meta.url), 'utf8');
-  assert.doesNotMatch(src, /#\/computer\/health/);
-  assert.match(src, /h\('a\.cp-rowlink', \{ href: link\('#\/computer', s\.machine\) \}/);
-  assert.ok(!/h\(`a\.row\.cp-row/.test(src), 'no link nested in a link');
+  assert.match(src, /link\('#\/computer\/health', s\.machine\)/);
+  assert.match(src, /'aria-label': `Health of \$\{s\.machineLabel\}`/);
+  assert.ok(!/h\(`a\.row\.cp-row/.test(src), 'no link nested in a link: the row is a div with two links');
 });

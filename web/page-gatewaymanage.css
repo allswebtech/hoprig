@@ -30,6 +30,11 @@
 .tr-open-hint:empty { display: none; }
 .tr-acchead { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .tr-acchead .group-head { margin: 0; }
-.tr-compact, .tr-more { width: 100%; text-align: left; cursor: pointer; background: none; font: inherit; color: inherit; }
+.tr-more { width: 100%; text-align: left; cursor: pointer; background: none; font: inherit; color: inherit; }
 .tr-sheetacts { flex-wrap: wrap; }
 .tr-danger .row-title, .tr-danger .row-icon { color: var(--danger); }
+
+/* Why it is stopped: the end of its log wraps instead of pushing the page wider. */
+.tr-why { display: grid; gap: 6px; }
+.tr-why .output { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 30vh; overflow: auto; margin: 0; }
+.tr-open-hint { display: grid; gap: 6px; justify-items: start; }

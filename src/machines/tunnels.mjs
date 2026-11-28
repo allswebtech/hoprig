@@ -64,6 +64,8 @@ export class Tunnel extends EventEmitter {
     this.retryTimer = null;
     this.lastAttemptAt = 0;
     this.upSince = null;
+    this.reversePort = null; // the port sshd gave the relay's forward on the other computer (src/hubprov), once it said so
+    this.reverseOff = false; // the other computer refused that forward: from then on the tunnel is made without it
   }
 
   /** Resolves the local port once the tunnel is up; rejects with a TunnelError when it cannot come up in time. */
@@ -110,17 +112,25 @@ export class Tunnel extends EventEmitter {
       return this.#failed(`no free local port: ${e.message}`);
     }
     if (this.state === 'closed') return;
-    const { target, remoteHost, remotePort, extra } = this.machine;
+    const { target, remoteHost, remotePort, extra, reverse } = this.machine;
     let child;
+    this.reversePort = null;
     try {
-      const args = this.buildArgs ? this.buildArgs(port) : tunnelArgs({ target, localPort: port, remoteHost, remotePort, extra });
+      const args = this.buildArgs ? this.buildArgs(port) : tunnelArgs({ target, localPort: port, remoteHost, remotePort, extra, reverse: this.reverseOff ? null : reverse });
       child = this.spawnImpl(this.sshBin, args, { stdio: ['ignore', 'ignore', 'pipe'], env: this.env });
     } catch (e) {
       return this.#failed(`cannot start ssh: ${e.message}`);
     }
     this.child = child;
     let stderr = '';
-    child.stderr?.on('data', (c) => (stderr = (stderr + c.toString('utf8')).slice(-2000)));
+    child.stderr?.on('data', (c) => {
+      stderr = (stderr + c.toString('utf8')).slice(-2000);
+      const got = /Allocated port (\d+) for remote forward/.exec(stderr);
+      if (got && this.child === child) {
+        this.reversePort = Number(got[1]);
+        this.emit('reverse', this.reversePort);
+      }
+    });
     let upAt = null;
     let exited = false;
     child.on('error', (e) => (stderr += `\n${e.message}`));
@@ -130,6 +140,8 @@ export class Tunnel extends EventEmitter {
       if (this.state === 'closed') return;
       if (upAt !== null && this.now() - upAt >= this.stableMs) this.failures = 0;
       const why = stderr.trim().split(/\r?\n/).filter((l) => !/^Warning: Permanently added/.test(l)).pop() || `ssh ended (${signal || `exit ${code}`})`;
+      // A refused remote forward must never cost the link itself: the next try is made without it.
+      if (this.machine.reverse && /remote port forwarding failed|forwarding.*(refused|not allowed|administratively)/i.test(stderr)) this.reverseOff = true;
       this.#failed(why.slice(0, 300));
     });
     // ssh prints nothing when the forward is ready, so watch for the local port to accept connections. With
@@ -161,6 +173,7 @@ export class Tunnel extends EventEmitter {
     this.failures++;
     this.lastError = msg;
     this.localPort = null;
+    this.reversePort = null;
     this.upSince = null;
     this.state = 'waiting';
     this.emit('fail', msg);
@@ -179,7 +192,7 @@ export class Tunnel extends EventEmitter {
 
   /** For the machine list: what the tunnel does now. */
   status() {
-    return { state: this.state, localPort: this.localPort, upSince: this.upSince, error: this.lastError || null, failures: this.failures };
+    return { state: this.state, localPort: this.localPort, reversePort: this.reversePort, upSince: this.upSince, error: this.lastError || null, failures: this.failures };
   }
 }
 
@@ -192,16 +205,18 @@ export class Tunnels {
 
   // A computer with a kept key gets its options from `extraOf` (hub.mjs): they are part of the key, so a key given or
   // taken away starts a new tunnel.
-  static key = (m, extra = []) => `${m.target}|${m.remoteHost}|${m.remotePort}|${extra.join(' ')}`;
+  static key = (m, extra = [], reverse = null) => `${m.target}|${m.remoteHost}|${m.remotePort}|${extra.join(' ')}|${reverse || ''}`;
 
   get(m) {
     const extra = this.opts.extraOf ? this.opts.extraOf(m) : [];
+    // reverseOf(m): the port of the hub-provider relay on this computer when this computer is to reach it back over the same ssh.
+    const reverse = this.opts.reverseOf ? this.opts.reverseOf(m) || null : null;
     const cur = this.map.get(m.name);
-    if (cur && cur.key === Tunnels.key(m, extra)) return cur.tunnel;
+    if (cur && cur.key === Tunnels.key(m, extra, reverse)) return cur.tunnel;
     if (cur) cur.tunnel.close();
-    const { extraOf, ...opts } = this.opts;
-    const tunnel = new Tunnel({ ...opts, machine: { target: m.target, remoteHost: m.remoteHost, remotePort: m.remotePort, extra } });
-    this.map.set(m.name, { key: Tunnels.key(m, extra), tunnel });
+    const { extraOf, reverseOf, ...opts } = this.opts;
+    const tunnel = new Tunnel({ ...opts, machine: { target: m.target, remoteHost: m.remoteHost, remotePort: m.remotePort, extra, reverse } });
+    this.map.set(m.name, { key: Tunnels.key(m, extra, reverse), tunnel });
     return tunnel;
   }
 

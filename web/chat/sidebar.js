@@ -21,7 +21,7 @@ export const sideFits = () => typeof matchMedia !== 'undefined' && matchMedia(`(
 export const GROUP_BY = [['folder', 'Folder'], ['state', 'State'], ['computer', 'Computer']];
 export const SORT_BY = [['recent', 'Recent activity'], ['name', 'Name']];
 // The state groups, in Home's order (home.js GROUPS): what needs the owner first.
-const STATES = [['needs', 'Needs you', ['attention', 'limit']], ['working', 'Working', ['working', 'starting']], ['waiting', 'Ready', ['waiting', 'ended']], ['terminals', 'Terminals', ['shell']]];
+const STATES = [['needs', 'Needs you', ['attention', 'limit']], ['working', 'Working', ['working', 'starting']], ['waiting', 'Finished', ['waiting', 'ended']], ['terminals', 'Terminals', ['shell']]];
 
 const base = (p) => String(p || '').split(/[\\/]/).filter(Boolean).pop() || String(p || '') || 'No folder';
 const when = (s) => s.statusAt || s.activity || s.created || 0;

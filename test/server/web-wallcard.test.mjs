@@ -207,7 +207,7 @@ test('the first-time sheet says what Hands-off does, what stays yours, what it c
   assert.match(words, /These always stay yours\. When Hoprig sees the session about to do one of these, it stops and asks you first:/);
   assert.doesNotMatch(words, /asks you first, every time/, 'no absolute "every time" promise: the wall reads a line, it does not run it, so a few disguised forms get past it');
   assert.match(words, /reads each command before it runs to catch these\. It is careful, not perfect: a session that deliberately disguises a command could still slip one past it/, 'the sheet owns the limit of reading a line');
-  assert.match(words, /If the tool has not marked a recommended answer, it gives your note for the project \(Settings → New sessions → Hands-off\) as a written answer where the tool takes one; without a note that question still waits for you/, 'it does not promise every question carries on');
+  assert.match(words, /If the tool has not marked a recommended answer, it gives your note for the project \(Settings → Hands-off\) as a written answer where the tool takes one; without a note that question still waits for you/, 'it does not promise every question carries on');
   for (const a of OWNER_ACTS) {
     assert.ok(words.includes(a.title), `the sheet names ${a.title}`);
     assert.ok(words.includes(a.plain), `the sheet glosses ${a.title} in plain words`);

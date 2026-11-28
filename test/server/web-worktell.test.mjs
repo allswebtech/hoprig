@@ -85,3 +85,11 @@ test('the digest switch says in plain words that Tia writes it', () => {
   assert.match(parts.more.map(text).join(' '), /Tia writes my digest/);
   assert.doesNotMatch(parts.more.map(text).join(' '), /Tia words my digest/);
 });
+
+test('Today\'s Needs you does not say "Nothing needs you" under a Progress that lists what waits for him', async () => {
+  const { needsNoneWords } = await import('../../web/workpulse.js');
+  const [title, sub] = needsNoneWords(2);
+  assert.notEqual(title, 'Nothing needs you right now');
+  assert.match(sub, /Progress above/);
+  assert.equal(needsNoneWords(0)[0], 'Nothing needs you right now');
+});
