@@ -103,7 +103,10 @@ test('the sign-in check leaves its answer for the page: signedIn, plan, and whet
   S.rememberUsage('sub', { week: { pct: 5, resetsAt: Date.now() + HOUR } });
   assert.equal(S.providerFacts(login).usageReported, true);
   // a provider with its own token is signed in by what it is; an API key has none of these fields
-  assert.deepEqual(S.providerFacts({ name: 'second', kind: 'subscription' }), { signedIn: true, plan: null, usageReported: null });
+  const token = ['made-up', 'token', 'value'].join('-'); // never the shape of a real key
+  assert.deepEqual(S.providerFacts({ name: 'second', kind: 'subscription', env: { CLAUDE_CODE_OAUTH_TOKEN: token } }), { signedIn: true, plan: null, usageReported: null });
+  // signed out here: the key line is gone
+  assert.deepEqual(S.providerFacts({ name: 'second', kind: 'subscription' }), { signedIn: false, plan: null, usageReported: null, signedOut: true });
   assert.deepEqual(S.providerFacts({ name: 'api', kind: 'api' }), {});
   // a sign-in kept in a folder of its own: the default folder's check says nothing about it, signed in or not
   const own = { name: 'second-folder', kind: 'login', env: { CLAUDE_CONFIG_DIR: path.join(box.root, 'another-claude-folder') } };

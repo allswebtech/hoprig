@@ -609,7 +609,7 @@ Every act of Hoprig is one row of `src/assistant/inventory.json`: 394 in all (45
 - `POST /api/accounts/<id>/test`: Adding, testing, naming or removing a provider handles its key or its sign-in.
 - `POST /api/accounts/codex-signin`: Adding, testing, naming or removing a provider handles its key or its sign-in.
 - `POST /api/accounts/<id>/signout`: Adding, testing, naming or removing a provider handles its key or its sign-in.
-- `POST /api/accounts/limits/read`: Adding, testing, naming or removing a provider handles its key or its sign-in.
+- `POST /api/accounts/limits/read`: Refresh starts the coding tool with your sign-ins and spends a small part of their limit: it is your own press on Providers.
 - `POST /api/accounts/<id>/delete`: Adding, testing, naming or removing a provider handles its key or its sign-in.
 - `POST /api/accounts/subscription/start`: Adding, testing, naming or removing a provider handles its key or its sign-in.
 - `POST /api/accounts/subscription/code`: Adding, testing, naming or removing a provider handles its key or its sign-in.
