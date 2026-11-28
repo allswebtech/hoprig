@@ -50,7 +50,7 @@ test('End the session: its undo names the one place an ended session is continue
 });
 
 test('Hold new starts: its undo names the Operator page by its code', () => {
-  assert.equal(PREPARED_ACTS.hold.undo, 'Lift the hold in Settings → Tia.');
+  assert.equal(PREPARED_ACTS.hold.undo, 'Lift the hold on the Operator page.');
   assert.deepEqual(PREPARED_ACTS.hold.ways, ['operator-page']);
 });
 

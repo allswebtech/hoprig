@@ -1,19 +1,21 @@
 # Providers: how a stop is named
 
 When a provider stops the coding tool's work, Hoprig names how, from what Claude Code itself wrote, and shows it on
-Home, as a row of **Needs you** with the one step that recovers (see `docs/OPERATOR.md`). The names come from one closed table in
+the Operator page with the one step that recovers (see `docs/OPERATOR.md`). The names come from one closed table in
 `src/providers/table.mjs`. Only Claude Code's records are read; OpenCode's are not.
 
 ## Where the providers are in the dashboard
 
-**Providers** (in the menu) is one list: a row for each provider with its state in one line (and its limits, when it
-reports them), **Add provider** at the top, a row for **TRouteAI** and a row **At a limit** that says what happens when a provider is used up.
-A press on a row opens it. **At a limit** opens a sheet with the two choices, **Stop and ask me** and **Carry on with the
-next provider**, the order of the providers and, under **Advanced**, the rest. **TRouteAI** opens its own page
+**Providers** (in the menu) answers who can work now: a line that counts the accounts that can work, are at a limit or
+need a sign-in, **Refresh** to read the limits again (it asks each subscription one small question through Claude Code itself, a very small part of its limit; Hoprig sends no request of its own with a subscription sign-in), then the rows in those groups (each with its state, its two limits and,
+where it applies, one button: **Sign in** or **Sign in with another account**), **Add provider** at the top, a row for
+**TRouteAI** and, under the rows, **When an account reaches its limit**: the two choices, **Stop and ask me** and
+**Carry on with the next provider**, how it works, the order of the providers and, under **Advanced**, the rest.
+A press on a row opens it. **TRouteAI** opens its own page
 (`#/providers/trouteai`): is it running, open it, its accounts and combos, its public address, and everything to manage it.
 Adding an account from a list, Open TRouteAI signed in and the public address need TRouteAI 1.0.13 or newer: with an older copy the page says so, with **Update** beside it.
 
-![Providers, At a limit: Stop and ask me or Carry on with the next provider, and the order of providers](screenshots/auto-mode-desktop-light.webp)
+![Providers, when a provider reaches its limit: Stop and ask me or Carry on with the next provider, and the order of providers](screenshots/auto-mode-desktop-light.webp)
 
 ![TRouteAI's own page on a computer where it is not set up yet: one button, Set up TRouteAI](screenshots/gateway-desktop-light.webp)
 
@@ -106,7 +108,7 @@ folder) goes only from this computer, only to a program that runs as your own us
 for that step and removed right after. If another user's program answers on its port, Set up and Start refuse and send it nothing.
 
 On Providers its panel lists the accounts it holds (state, last test, limit windows), and you can test, turn off and on,
-remove and add accounts, make and remove combos and remove the keys Hoprig made. Advanced → Service → Gateways has Restart, Log,
+remove and add accounts, make and remove combos and remove the keys Hoprig made. Health → Gateways has Restart, Log,
 Update, Remove (only its copy in Hoprig's folder; the data and the provider stay) and its own dashboard password. Until
 its next version lists its providers for Hoprig, adding a provider that its catalog should offer opens its own page.
 
@@ -133,7 +135,7 @@ with the switch on or off, so an Auto session gets no map here.
 
 ## Auto mode and providers billed by use
 
-Auto mode (on Providers, **At a limit**, **Carry on with the next provider**) uses a
+Auto mode (on Providers, **When an account reaches its limit**, **Carry on with the next provider**) uses a
 provider billed by use only while **Also use pay-per-use providers** is on. Billed by use are an API key that is billed
 for every use and a Claude sign-in on a Console account: such a sign-in is named "Claude sign-in billed by use (Console
 account)", never a subscription. While the switch is off, such a provider can stay in the order, but Auto mode leaves
@@ -169,3 +171,28 @@ dashboard started, kept in memory only); "at the pace of the last hour this wind
 from two readings of the same window at least 30 minutes apart within the last hour, with its basis ("from 12% to
 30% used in 48 minutes"); and one line when more than half of the day's stops were limits ("another account would have
 avoided N stops"). Without such readings or stops there is no line.
+
+## The main computer's providers on your other computers
+
+The providers of your main computer are offered on every linked computer that you marked as your own, with nothing added
+there. In the one list of providers each of them carries a small muted tag, after the computer's own, in the main computer's
+order. A session or chat that starts on one needs no key of its own: the coding tool talks to its own dashboard on 127.0.0.1
+(`/hub/p/<name>`) with a key made for that one session (`hop_hl_`), and the dashboard carries the request over the link it
+already has to the main computer, which adds the key and answers byte for byte. No token is spent on the way and the body is
+passed on unchanged, so the prompt cache works as before.
+
+- **Where the key is.** Only on the main computer. A linked computer holds no key, profile file or environment value of it;
+  its session key works only from that computer's loopback, only for that provider, and ends after 12 hours.
+- **What passes.** For a Claude key or a gateway: `/v1/messages`, `/v1/messages/count_tokens` and `/v1/models`. For an OpenAI
+  key: `/v1/responses`, `/v1/chat/completions` and `/v1/models`. Nothing else, and no path with an encoded slash or dot segment.
+- **What the main computer decides.** One switch under **Providers → More** ("My other computers may use this computer's
+  providers", on by default), **Keep to this computer** on a provider's own page, and the mark that a computer is not your own
+  (such a computer gets nothing). Only your own page changes them. A computer may make at most 300 requests a minute.
+- **Subscriptions.** A sign-in is never relayed or copied: on the other computer the subscription of the main computer is one
+  row, **Sign in here**, which opens the sign-in that computer already has.
+- **At a limit, or when the main computer is off.** It keeps the limit marks of its providers, also from requests it relayed,
+  and tells the other computers when they change. Auto mode skips such a row at its limit. A request that cannot reach the main
+  computer counts like a refused connection, so Auto mode goes on to the next provider; without Auto mode the start says that
+  the main computer is offline.
+- **The price of it.** Anyone who is a linked computer of yours can use the main computer's providers, but never read a key.
+  That is why only computers you marked as your own get them.

@@ -7,8 +7,8 @@
 import { icon } from './icons.js';
 import { api, btn, confirmSheet, copyText, fill, h, link, machine, toast } from './lib.js';
 import { errorBox, fold, okBox, skeletonRows, toggle } from './shell.js';
-import { otherComputers, setupBlock, sharing } from './gateways.js';
-import { accountSheet, addSheet, combosPart, compactRow, keysSheet, openGatewayPage, publicOffWords } from './trouteai.js';
+import { addSharedRow, setupBlock, sharing } from './gateways.js';
+import { accountRow, addSheet, combosPart, keysSheet, openGatewayPage, publicOffWords } from './trouteai.js';
 import { bootSheet, lingerLine, passwordSheet, removeIt, restartIt, showFirst, showLog, startIt, stopIt, updateIt } from './gatewayacts.js';
 
 const ID = 'trouteai';
@@ -22,8 +22,8 @@ export const PUBLIC_SENTENCE = 'Anyone on the internet can then reach two things
 /** The one line of what a refused public address needs, and the press that fixes it: [sentence, kind]. */
 export function publicNeed(p) {
   const words = {
-    'link-custom': ['Set up Hoprig\'s public link as Custom first (Settings, Public link).', 'settings'],
-    'link-off': ['Turn Hoprig\'s public link on first (Settings, Public link).', 'settings'],
+    'link-custom': [p.why && /token/.test(p.why) ? p.why : 'Hoprig\'s public link is not a Custom one yet. In Settings, Public link, choose Custom (your own domain on a named tunnel), then come back here.', 'settings'],
+    'link-off': ['Hoprig\'s public link is off. In Settings, Public link, turn it on, then come back here.', 'settings'],
     'first-password': ['TRouteAI still uses its first password. Set your own first.', 'password'],
     'no-password': ['TRouteAI has no password. Set one first.', 'password'],
     'open-api': ['TRouteAI answers its model address without a key, so it stays private.', null],
@@ -105,8 +105,8 @@ function manageFold(ctx, gw) {
       manageRow('trash', 'Remove TRouteAI', null, () => removeIt(ctx), '.tr-danger')));
 }
 
-/** The status line: a dot, the state, the version, the computer, and whether sessions use it. */
-function statusLine(ctx, gw) {
+/** The status line: a dot, the state, the version, the computer, and whether sessions use it (and which gateway they use instead). */
+function statusLine(ctx, gw, others = []) {
   const { g } = ctx;
   const used = gw && gw.usedAs;
   const first = g.running ? ['Running', gw && gw.version ? `version ${gw.version}` : null, `on ${ctx.computer}`].filter(Boolean).join(' · ') : 'Not running';
@@ -114,8 +114,26 @@ function statusLine(ctx, gw) {
     h('div.tr-state', h(`span.tr-dot.${g.running ? 'on' : 'off'}`, { 'aria-hidden': 'true' }), h('span.tr-state-text', first),
       g.running ? null : btn('primary', { icon: 'play', label: 'Start', onclick: () => startIt(ctx) })),
     used
-      ? h('p.hint', 'Your sessions use it as ', h('a', { href: link(`#/providers/${encodeURIComponent(used.name)}`) }, used.label || used.name))
-      : h('p.hint', 'Your sessions do not use it yet.'));
+      ? h('p.hint', 'Your sessions use it as ', h('a', { href: link(`#/providers/${encodeURIComponent(used.name)}`) }, used.label || used.name), g.running ? null : ', so they cannot answer until it runs.')
+      : h('p.hint', 'Your sessions do not use it yet.', others.length ? ` ${otherWords(others)}` : ''));
+}
+
+/** Which provider the sessions use instead, and which gateway it goes through (a provider that points at another gateway). */
+export const otherWords = (others) => {
+  const a = others[0];
+  const where = a.viaGateway ? a.viaGateway.title : `${a.remote.title || 'a gateway'} on ${a.remote.computer}`;
+  return `${a.label} goes through ${where}${others.length > 1 ? `, and ${others.length - 1} more through other gateways` : ''}.`;
+};
+
+/** Why it is not running, as far as the computer knows: what Start does, and the end of its log. Filled when the log is read. */
+function whyStopped(ctx) {
+  const box = h('div.tr-why', { role: 'status' }, h('p.hint', `Start runs it on port ${ctx.g.port}, listening on ${ctx.computer} only.`));
+  api(T('/log')).then((r) => {
+    const tail = (r.lines || []).slice(-4);
+    fill(box, h('p.hint', `Start runs it on port ${ctx.g.port}, listening on ${ctx.computer} only.`),
+      tail.length ? [h('p.hint', 'The end of its log:'), h('pre.output', tail.join('\n'))] : h('p.hint', 'Its log is empty: it has not written anything yet.'));
+  }).catch(() => {});
+  return box;
 }
 
 /** The accounts: its head with Read limits now, then up to five compact rows, then "All N accounts". */
@@ -126,7 +144,7 @@ function accountsPart(ctx, accounts, first) {
   const paint = () => {
     const shown = all ? accounts : accounts.slice(0, ROWS_SHOWN);
     fill(list, ...(accounts.length
-      ? [...shown.map((a) => compactRow(a, limits && limits[a.id], () => accountSheet(a, limits && limits[a.id], ctx, ctx.reload))),
+      ? [...shown.map((a) => accountRow(a, limits && limits[a.id], ctx, ctx.reload)),
         !all && accounts.length > ROWS_SHOWN ? h('button.row.tr-more', { type: 'button', onclick: () => { all = true; paint(); } }, h('span.row-main', h('span.row-title', `All ${accounts.length} accounts`)), icon('chevronDown', { size: 18 })) : null]
       : [h('p.hint', 'No account yet. Add the provider your coding tools should use.')]));
   };
@@ -162,9 +180,11 @@ export function trouteaiPage({ frame }) {
     if (machine.current) return fill(body, h('p.hint', 'TRouteAI\'s page is for the computer you are on. Open this dashboard on that computer to manage its TRouteAI.'));
     let host;
     let gws;
+    let accts;
     try {
       host = await api('~/api/gatewayhost');
       gws = await api('~/api/gateways/all').catch(() => null);
+      accts = await api('~/api/accounts').catch(() => null);
     } catch (e) {
       return alive && fill(body, errorBox(e, load));
     }
@@ -176,9 +196,10 @@ export function trouteaiPage({ frame }) {
     const ctx = { g, host, computer: host.computer, port: g.port, out, reload: load, signedIn: host.signedIn || [] };
     const mine = { id: ID, title: g.title };
     if (!g.installed) {
-      return fill(body, h('div.tr-status', h('p.tr-state-text', 'TRouteAI is not set up on this computer.')), setupBlock(mine, { done: load }));
+      return fill(body, h('div.tr-status', h('p.tr-state-text', 'TRouteAI is not set up on this computer.')), setupBlock(mine, { done: load }), addSharedRow(load));
     }
-    const parts = [statusLine(ctx, gw)];
+    const others = ((accts && accts.accounts) || []).filter((a) => (a.viaGateway && a.viaGateway.id !== ID) || a.remote);
+    const parts = [statusLine(ctx, gw, others)];
     if (!(gw && gw.usedAs) && g.running) parts.push(setupBlock(mine, { done: load, label: 'Use it for my sessions' }));
     const problem = g.problem || g.restart;
     if (problem) {
@@ -189,16 +210,16 @@ export function trouteaiPage({ frame }) {
       parts.push(h('div.banner.warn', icon('alert', { size: 18 }), h('span', 'A newer TRouteAI is there.'), btn('small secondary', { label: 'Update', onclick: () => updateIt(ctx) })));
     }
     if (!g.running) {
-      parts.push(manageFold(ctx, gw));
+      parts.push(whyStopped(ctx), addSharedRow(load), manageFold(ctx, gw));
       return fill(body, ...parts);
     }
     // Its program runs but nothing answers (the other list knocks on its port): its accounts would be refused, so they
     // are not asked for. One line says so, and Manage has Restart.
     if (gw && gw.running === false) {
-      parts.push(h('div.banner.warn', icon('alert', { size: 18 }), h('span', 'It runs, but it does not answer yet. Restart it under Manage.')), manageFold(ctx, gw));
+      parts.push(h('div.banner.warn', icon('alert', { size: 18 }), h('span', 'It runs, but it does not answer yet. Restart it under Manage.')), addSharedRow(load), manageFold(ctx, gw));
       return fill(body, ...parts);
     }
-    const hint = h('p.hint.tr-open-hint', { role: 'status' });
+    const hint = h('div.tr-open-hint', { role: 'status' });
     let pub = { state: 'unavailable', need: 'not-running' };
     let accounts = { accounts: [] };
     let limits = null;
@@ -210,19 +231,24 @@ export function trouteaiPage({ frame }) {
       return fill(body, ...parts);
     }
     ctx.computer = accounts.computer || ctx.computer;
-    const openState = { computer: ctx.computer, port: g.port, signedIn: ctx.signedIn, publicUrl: pub.state === 'on' ? pub.url : null };
+    const pubFold = publicFold(pub, ctx);
+    const goPublic = () => {
+      pubFold.open = true;
+      pubFold.scrollIntoView({ block: 'center' });
+    };
+    const openState = { computer: ctx.computer, port: g.port, signedIn: ctx.signedIn, publicUrl: pub.state === 'on' ? pub.url : null, goPublic };
     const onLoop = ['localhost', '127.0.0.1', '[::1]', '::1'].includes(location.hostname);
-    hint.textContent = !onLoop && !openState.publicUrl ? publicOffWords(openState) : '';
+    const paintHint = (t, more) => fill(hint, t ? h('p.hint', t) : null, more);
+    if (!onLoop && !openState.publicUrl) paintHint(publicOffWords(openState), btn('small secondary', { label: 'Go to Public address', onclick: goPublic }));
     openState.update = () => updateIt(ctx);
     parts.push(
-      h('div.tr-open', btn('primary block', { icon: 'external', label: 'Open TRouteAI', onclick: () => openGatewayPage(openState, (t, more) => fill(hint, t, more)) }), hint),
+      h('div.tr-open', btn('primary block', { icon: 'external', label: 'Open TRouteAI', onclick: () => openGatewayPage(openState, paintHint) }), hint,
+        h('p.hint', 'Accounts, combos, its password and the public address are managed on this page. Its other settings are on its own page: the button opens it, signed in.')),
       accountsPart(ctx, accounts.accounts, limits),
       h('div.savebar.start', btn('secondary', { icon: 'plus', label: 'Add account', onclick: () => addSheet({ computer: ctx.computer, port: g.port, signedIn: ctx.signedIn, update: () => updateIt(ctx) }, load) })),
       combosPart({ computer: ctx.computer }),
-      publicFold(pub, ctx));
-    if (gw && gw.ready) parts.push(sharing(gw, load, `Share with your other computers · ${gw.shared ? 'On' : 'Off'}`));
-    const others = otherComputers(gws, load);
-    if (others) parts.push(others);
+      pubFold);
+    parts.push(gw && gw.ready ? sharing(gw, load, `Share with your other computers · ${gw.shared ? 'On' : 'Off'}`) : addSharedRow(load));
     parts.push(manageFold(ctx, gw));
     fill(body, ...parts);
   }

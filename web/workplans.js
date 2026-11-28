@@ -4,13 +4,13 @@
 // and milestones week by week, with what waits for what said plainly. A plan is made by hand here, changed, marked
 // done or dropped; a task is put into a plan and taken out. "Plan with AI" and its proposals are workpropose.js.
 import { drawRows, partRows } from './chat/parts.js';
-import { goalSheet, MISSION_WORDS, missionHref, paintBrief } from './mission.js';
+import { goalSheet } from './mission.js';
 import { icon } from './icons.js';
 import { add, api, btn, fill, h, openSheet, toast } from './lib.js';
 import { mdView } from './mdtext.js';
 import { emptyState, errorBox, fold, groupHead, skeletonRows } from './shell.js';
 import { dayName, itemRow, setPlanChooser, whoText } from './workitems.js';
-import { goalField, planWithAiSheet, proposalSections, setNoteView, setPlanWays, takeFocusFor, viewProposal } from './workpropose.js';
+import { goalField, planWithAiSheet, proposalSections, setNoteView, takeFocusFor, viewProposal } from './workpropose.js';
 
 const enc = encodeURIComponent;
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -60,32 +60,20 @@ export function paintPlans(content, { sub, data, ctx, reload }) {
   const pm = /^proposal\/([^/]+)$/.exec(sub);
   if (pm) return viewProposal(content, decodeURIComponent(pm[1]), { data, reload });
   if (m) return viewPlan(content, decodeURIComponent(m[1]), { data, ctx, reload });
-  return viewList(content, { data });
+  return viewList(content, { data, reload });
 }
 
 // ---------- the list ----------
 
-/** One of Tia's missions as a row of the list (mission.js draws the mission's own screen). */
-function missionRow(m) {
-  const face = m.face || m.state;
-  const c = m.counts || {};
-  const facts = [plural(m.tasks.length, 'task'), c.done ? `${c.done} done` : null, c.waits ? `${c.waits} wait${c.waits === 1 ? 's' : ''} for you` : null, c.failed ? `${c.failed} failed` : null].filter(Boolean).join(' · ');
-  return h('a.row.ms-row.wk-mission-row', { href: missionHref(m.id), dataset: { key: `mission:${m.id}` }, 'aria-label': `${m.goal}, ${MISSION_WORDS[face] || face}, ${m.project}, ${facts}` },
-    h('span.row-icon', icon('sparkle')),
-    h('span.row-main', h('span.row-title.ms-goal', m.goal), h('span.row-sub', h('span.badge.soft', MISSION_WORDS[face] || face), h('span', `${m.project} · ${facts}`))),
-    h('span.row-end', icon('chevronRight', { size: 18 })));
-}
-
-// The sheet of Plan with AI also offers the two other ways to a plan: write it yourself, give it to Tia as a goal.
-setPlanWays((data) => [
-  { label: 'Write the plan yourself', icon: 'pencil', run: () => planSheet(null, data).then((p) => p && (location.hash = `#/work/plans/${enc(p.id)}`)) },
-  { label: 'Give Tia a goal', icon: 'sparkle', run: () => goalSheet(data.projects || []).then((r) => r && (location.hash = '#/work/plans')) },
-]);
-
-function viewList(content, { data }) {
+function viewList(content, { data, reload }) {
   let alive = true;
-  const draw = (r, missions) => {
+  const draw = (r) => {
     if (!alive) return;
+    const head = h('div.wk-plans-head',
+      h('p.hint.wk-plans-intro', 'A plan is a goal with milestones and the tasks that reach it. Its tasks are ordinary tasks of your list.'),
+      h('div.wk-plans-actions',
+        btn('secondary', { icon: 'sparkle', label: 'Give Tia a goal', onclick: () => goalSheet(data.projects || []).then((r) => r && reload()) }),
+        btn('secondary', { icon: 'plus', label: 'New plan', onclick: () => planSheet(null, data).then((p) => p && (location.hash = `#/work/plans/${enc(p.id)}`)) })));
     const waiting = proposalSections(data.proposals || []);
     const row = (p) => h('a.row.wk-plan-row', { href: `#/work/plans/${enc(p.id)}` },
       h('span.row-icon', icon(p.status === 'done' ? 'check' : p.status === 'dropped' ? 'x' : 'stack')),
@@ -102,21 +90,14 @@ function viewList(content, { data }) {
     const done = r.plans.filter((p) => p.status === 'done');
     const dropped = r.plans.filter((p) => p.status === 'dropped');
     const broken = r.unreadable.length ? h('div.banner.warn', icon('alert', { size: 18 }), h('span', `${plural(r.unreadable.length, 'file')} in the plans folder ${r.unreadable.length === 1 ? 'is' : 'are'} not read as a plan: ${r.unreadable.map((u) => `${u.name} (${u.why})`).join('; ')}.`)) : null;
-    // One empty line: Plan with AI in the page's head is the one action.
-    const empty = !r.plans.length && !missions.length && !(data.proposals || []).length ? h('p.hint.wk-hint.wk-empty', 'No plans yet. Plan with AI: write a goal and a session proposes milestones and dated tasks.') : null;
-    // Tia's missions and the plans in one list: a mission is a goal she works on; each opens its own screen.
-    const mine = missions.filter((m) => !['done', 'stopped'].includes(m.face || m.state));
-    const finished = missions.filter((m) => ['done', 'stopped'].includes(m.face || m.state));
-    // Tia's morning brief: only when something happened since yesterday or waits for you (nothing is drawn otherwise).
-    fill(content, waiting, broken, empty, briefSlot,
-      active.length || mine.length ? h('section.wk-section', groupHead('Active', active.length + mine.length), h('div.rows', [...mine.map(missionRow), ...active.map(row)])) : null,
-      done.length || finished.length ? fold('work-plans-done', `Done (${done.length + finished.length})`, h('div.rows', [...finished.map(missionRow), ...done.map(row)])) : null,
+    const empty = !r.plans.length ? h('div.card.wk-start', emptyState('stack', 'No plans yet. Write a goal and let a session research it and propose milestones and dated tasks, or make a plan yourself.',
+      data.planWithAi ? btn('primary', { icon: 'sparkle', label: 'Plan with AI', onclick: () => planWithAiSheet(data) }) : null)) : null;
+    fill(content, head, waiting, broken, empty,
+      active.length ? h('section.wk-section', groupHead('Active', active.length), h('div.rows', active.map(row))) : null,
+      done.length ? fold('work-plans-done', `Done (${done.length})`, h('div.rows', done.map(row))) : null,
       dropped.length ? fold('work-plans-dropped', `Dropped (${dropped.length})`, h('div.rows', dropped.map(row))) : null);
-    if (missions.length) paintBrief(briefSlot);
   };
-  const briefSlot = h('div.ms-brief-slot');
-  // Missions are Tia's: where they cannot be read the plans stand without them.
-  const load = () => Promise.all([api('/api/work/plans'), api('/api/work/missions').then((d) => d.missions || [], () => [])]).then(([r, m]) => draw(r, m), (e) => alive && fill(content, errorBox(`Could not load the plans: ${e.message}`, load)));
+  const load = () => api('/api/work/plans').then(draw, (e) => alive && fill(content, errorBox(`Could not load the plans: ${e.message}`, load)));
   fill(content, skeletonRows(3));
   load();
   return { refresh: load, working: () => false, stop: () => (alive = false) };

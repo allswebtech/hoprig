@@ -45,7 +45,7 @@ wget -qO- https://raw.githubusercontent.com/allswebtech/hoprig/main/install.sh |
 
 ![Home on a new install: one card, Welcome to Hoprig, with Signed in to Claude and Start your first chat, New project or My own folder](/screenshots/first-run-desktop-light.webp)
 
-At any time, open **Computers**, then this computer, then its **Setup** tab: it checks everything, and under a problem that one press can fix there is a **Fix** button, which asks before it changes anything. (Or, in a terminal, `hoprig doctor` shows the same checks.)
+At any time, open **Computers**, then this computer, then its **Health** tab: it checks everything, and under a problem that one press can fix there is a **Fix** button, which asks before it changes anything. (Or, in a terminal, `hoprig doctor` shows the same checks.)
 
 ## What you need
 

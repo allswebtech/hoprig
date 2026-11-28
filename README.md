@@ -89,7 +89,8 @@ wget -qO- https://raw.githubusercontent.com/allswebtech/hoprig/main/install.sh |
   the tool marked as recommended, or your note for the project — so a session does not wait for you, while still
   holding, as your card, anything that is yours alone: a push to the main branch, a release, a pull request, admin
   rights, a delete outside the folder, and the rest. Off until you turn it on, per project or per session.
-- **Work**: your tasks, and its **Tasks** tab that lists what waits for your yes first and what is due this week. The list is one file in a git repository of your workspace (the AI
+- **Work**: your tasks, and its **Today** tab that lists what is due this week, what waits for your yes, and the
+  sessions that need an OK or reached a usage limit. The list is one file in a git repository of your workspace (the AI
   brain by default); Save commits only that file, brings another computer's changes in task by task, and either
   reaches the server or leaves your change in the file; a save that was interrupted is finished the next time.
   **Do it** on a task starts a coding session with the task as its brief; on a git project it works on a branch of
@@ -97,14 +98,14 @@ wget -qO- https://raw.githubusercontent.com/allswebtech/hoprig/main/install.sh |
   commits and changed files) comes back onto the task for **Accept** or **Send back**; Accept leaves the branch for
   Go live, and nothing is merged or pushed. **Plans** hold a goal, milestones and
   dated tasks with what waits for what, on a timeline; **Plan with AI** has a session research a goal and propose a
-  plan, and nothing is written before you accept it. **Auto**, a switch per project in Settings → Tia → Limits and roles (off at first),
+  plan, and nothing is written before you accept it. **Auto**, a switch per project on Work → Team (off at first),
   lets Tia start that project's ready tasks by herself, one at a time, each one in Activity and stopped by **End**. **Another program** adds a task with a Work token (made in
   Work settings at the foot of Work → Tasks, shown once, good for Work only) and hears its result through a signed webhook; such a task starts
-  only when you start it. **Missions** (off at first, in Settings → Tia → Limits and roles) let Tia do a goal with roles: a developer,
+  only when you start it. **Missions** (off at first, on Work → Team) let Tia do a goal with roles: a developer,
   tester or ops session may run only the project's tests, its build and its scripts, each in a box with no network.
   [docs/WORK.md](docs/WORK.md)
-- **Operator**: what stopped or is about to, from everything Hoprig watches (a session at its limit,
-  an OK that waits, a disk 85% full, a run that stopped), as rows of **Home**'s **Needs you** group (the address `#/operator` opens Home), with one recommended step for each; Tia's own switches are under **Settings**, **Tia**; what costs nothing Hoprig mends by itself from the first run (**Settings → Automations → Mend problems by itself**), and nothing that spends usage happens until you tap it, unless you
+- **Operator**: one page with what stopped or is about to, from everything Hoprig watches (a session at its limit,
+  an OK that waits, a disk 85% full, a run that stopped), with one recommended step for each; what costs nothing Hoprig mends by itself from the first run (**Settings → While you are away → Mend problems by itself**), and nothing that spends usage happens until you tap it, unless you
   switched on one of Tia's rules, **Tia decides** or **Tia looks into what nobody can explain** (all are off at first; [docs/OPERATOR.md](docs/OPERATOR.md)).
 - **Updates** of Hoprig, the coding tools and the helper for the public link (cloudflared) on one page, Manual by
   default.
@@ -194,16 +195,16 @@ the network ([docs/INSTALL.md](docs/INSTALL.md#a-server-with-only-a-root-login))
 Just want to look? `hoprig demo` opens the dashboard with sample data: no coding tool and no account needed.
 On Windows, what was tried there is in [docs/INSTALL.md](docs/INSTALL.md). Everything else:
 [docs/INSTALL.md](docs/INSTALL.md).
-Check a computer at any time on its **Setup** tab (**Computers** → the computer → **Setup**), where a problem that
+Check a computer at any time on its **Health** tab (**Computers** → the computer → **Health**), where a problem that
 one press can fix has a **Fix** button (or, in a terminal, `hoprig doctor`). Where the dashboard runs as a background
-service, **Restart the dashboard** under its **Advanced** tab restarts it; its sheet first says what happens to that computer's sessions
+service, **Restart the dashboard** there restarts it; its sheet first says what happens to that computer's sessions
 (kept by tmux (a program that keeps terminals running when the dashboard stops), they go on; in the built-in
 terminals they end, and come back only if "Reopen sessions after a restart" is on). Only your own page restarts it, never Tia or a token. The command is `hoprig`, or `hop` for short.
 
 ## Code in a chat
 
 <p align="center">
-  <img src="docs/screenshots/chat-desktop-light.webp" alt="A chat: the to-do list, a changed file, and Claude Code asking to run the tests, with Do not allow and Allow" width="760">
+  <img src="docs/screenshots/chat-desktop-light.webp" alt="A chat: the to-do list, a changed file, and Claude Code asking to run the tests, with Allow, Allow in this session, Always allow in this project and Do not allow" width="760">
 </p>
 
 **New session** on Home opens with **Tap a project to start**: the projects as big rows (**Recent**, then **All
@@ -253,7 +254,7 @@ From a terminal on that computer, `hop chat [folder]` prints the chat's address 
   **Auto-fix** (when checks fail) and **Merge when ready**, which asks you first because others will see it.
   A session's state reads as **Finished** (its turn is over), **Ready** (nothing written to it yet), **Ended**
   (closed), **Working**, **Working in the background**, **Needs your OK** or **Limit reached**, the same on Home
-  (whose group is **Ready**), in the list and in notifications.
+  (whose group is **Finished**), in the list and in notifications.
 - **As in the Claude Code desktop app**: the modes are Manual, Accept edits, Plan, Auto and Bypass permissions
   (Bypass only once **Allow bypass permissions mode** is on in **Settings → New sessions**, which asks
   first; the desktop app has the same switch under **Settings > Code**; off, a terminal session started in bypass
@@ -326,9 +327,9 @@ From a terminal on that computer, `hop chat [folder]` prints the chat's address 
   **Files** in the title bar opens the editor; the diff pane's editor button opens its Changes view.
 
 <p align="center">
-  <img src="docs/screenshots/chat-phone-light.webp" alt="The same chat on a phone: the OK card with Do not allow and Allow, the to-do list and the message box" width="250">
+  <img src="docs/screenshots/chat-phone-light.webp" alt="The same chat on a phone: the OK card with its answers and the message box with its chips" width="250">
   &nbsp;
-  <img src="docs/screenshots/new-session-phone-light.webp" alt="New session on a phone: Tap a project to start, the computers to choose from, a search box, the recent projects with Continue and all projects" width="250">
+  <img src="docs/screenshots/new-session-phone-light.webp" alt="New session on a phone: one line that names the computer, the App and the coding tool, with Change beside it, and the recent projects" width="250">
   &nbsp;
   <img src="docs/screenshots/session-phone-light.webp" alt="A terminal session on a phone: the real terminal, a key bar and a message box" width="250">
 </p>
@@ -380,7 +381,7 @@ subscription's sign-in is for Claude Code only, always). Auto mode, plan usage a
 Code's only.
 
 <p align="center">
-  <img src="docs/screenshots/coding-tools-desktop-light.webp" alt="Settings, New sessions: how new sessions start, and the Coding tools card with Claude Code and OpenCode, each with a switch" width="760">
+  <img src="docs/screenshots/coding-tools-desktop-light.webp" alt="Settings, New sessions: the Coding tools card with Claude Code and OpenCode, each on, and the providers that serve it" width="760">
 </p>
 
 ### One brain for both
@@ -424,7 +425,7 @@ page shows who is signed in and has **Sign out**. A new account has its own limi
 goes when the account changes. See [Is this allowed?](#is-this-allowed)
 
 <p align="center">
-  <img src="docs/screenshots/accounts-desktop-light.webp" alt="The Providers page: four providers, the first two numbered in Auto mode's order, Claude Max with its 5-hour and weekly limits, and a Sign in button for one that is not signed in" width="760">
+  <img src="docs/screenshots/accounts-desktop-light.webp" alt="The Providers page: a line that says 4 can work, 2 are at a limit and 3 need a sign-in, Refresh, the providers in groups with one button each, and the panel When an account reaches its limit" width="760">
 </p>
 
 ### Another gateway
@@ -440,7 +441,7 @@ model…) through Claude's API, so Claude Code can use them. Hoprig ships one as
 - **Accounts, combos and limits on Providers.** A TRouteAI panel shows its accounts with their state and limit
   windows; you can test, turn off, remove and add accounts (by a key, a sign-in code or a link), make combos and
   remove the keys Hoprig made. A provider's check that finds a model name without a combo has a **Make the combo** press.
-- **The lifecycle on Advanced → Service → Gateways.** Restart, Log, Update, Remove (its copy in Hoprig's folder only; your data and
+- **The lifecycle on Health → Gateways.** Restart, Log, Update, Remove (its copy in Hoprig's folder only; your data and
   the provider stay: `hop addons remove trouteai`) and the gateway's own dashboard password. `hop doctor` says which copy runs.
 - **Needs TRouteAI 1.0.13.** Install puts that version into Hoprig's own folder. Adding an account from a list of
   providers, Open TRouteAI signed in and the public address need it: with an older copy the page says so in one line,
@@ -484,7 +485,7 @@ dashboard started), and **Settings → Add-ons → Add a gateway** shows them an
 assistant's tools cannot add one. Nothing of it goes through a shell. This guards against a mistake and against a
 coding tool trying it in passing, not against a program of your user that sets out to: such a program can edit
 `config.json` itself, as it can any of your files.
-On another computer, its page's **Advanced → Service → Gateways** starts, stops and runs a gateway as a service there (see
+On another computer, its page's **Health → Gateways** starts, stops and runs a gateway as a service there (see
 [docs/COMPUTERS.md](docs/COMPUTERS.md#each-computers-health-and-a-gateway-on-it)).
 Once added it is an add-on like the shipped one (`hop addons start | stop relay`); with more than one gateway,
 **Other providers** first asks which one.
@@ -497,14 +498,14 @@ hop auto on                 # off at first: an API key costs money
 hop auto                    # start a session in Auto mode
 ```
 
-In the dashboard: **Providers**, then **At a limit**, and choose **Carry on with the next
+In the dashboard: **Providers**, then **When an account reaches its limit**, and choose **Carry on with the next
 provider** and put the providers in order. A chat or a session on the provider "Auto" then talks to a small
 router on your own computer: your subscription answers as long as it can, and the moment it reaches its limit
 the same request is answered by the next provider, with no error on screen and nothing to type. When the
 subscription is free again, requests go back to it.
 
 <p align="center">
-  <img src="docs/screenshots/auto-mode-desktop-light.webp" alt="Providers, At a limit: Carry on with the next provider chosen, the order of providers, and the switch for pay-per-use providers" width="760">
+  <img src="docs/screenshots/auto-mode-desktop-light.webp" alt="Providers, When an account reaches its limit: Carry on with the next provider chosen, the order of providers, and the switch for pay-per-use providers" width="760">
 </p>
 
 Good to know:
@@ -560,7 +561,7 @@ same apps, each opening as a page.
 ## From anywhere: the public link
 
 <p align="center">
-  <img src="docs/screenshots/public-link-desktop-light.webp" alt="Settings, Security and sign-in: the Public link, one switch, and the two kinds, Temporary and Custom" width="760">
+  <img src="docs/screenshots/public-link-desktop-light.webp" alt="Settings, Public link: one switch, and the two kinds, Temporary and Custom" width="760">
 </p>
 
 **Settings → Public link** (or `hop public on`) makes this dashboard reachable from anywhere through a Cloudflare
@@ -594,10 +595,10 @@ Every other computer keeps one connection out to the main one, so nothing has to
 small: about 80 MB of memory, measured with 20 computers and 20 open terminals. Guides:
 [docs/COMPUTERS.md](docs/COMPUTERS.md), [docs/HUB.md](docs/HUB.md).
 
-**One gateway for every computer.** **Providers → TRouteAI → Gateways on your computers** lists every gateway (such as
-TRouteAI) on every linked computer. **Use here** makes it a provider of this computer in one step. A gateway can
-be shared through its computer's dashboard: the other computer gets a key of its own, the gateway keeps its own
-key and stays on 127.0.0.1, and a key a linked computer made ends when that computer's token is revoked.
+**One set of providers for every computer.** The providers of the main computer (a key, a gateway such as TRouteAI) are
+offered on every linked computer of yours without adding anything there, each with a small muted tag. The keys stay on the
+main computer: a session on another computer talks to its own dashboard, which carries the request over the link it already
+has. One switch under **Providers → More** turns it off, and **Keep to this computer** in a provider's menu holds one back.
 
 <p align="center">
   <img src="docs/screenshots/computer-overview-desktop-light.webp" alt="A computer's page, Overview: load, memory, disks, Claude Code and the sessions on it" width="760">
@@ -623,7 +624,7 @@ computer**, a check's **Fix**, a recipe, the commit name, the GitHub sign-in (wi
 Code's own sign-in. When a step needs the administrator password, the page asks for it once; it goes to `sudo`
 only, is never saved, and is masked in the output.
 
-On **Setup**, each problem has its press under it: **Fix** where Hoprig can do it, a link to the page that does it,
+On **Health**, each problem has its press under it: **Fix** where Hoprig can do it, a link to the page that does it,
 or **Sign in** for Claude Code. A step that needs administrator rights and that no Fix does says why ("It needs
 administrator rights, so the computer asks for your password, which only you type."), shows the one line, and
 **Open a terminal with this line** opens a new terminal session with the line typed: you press Enter yourself, and
@@ -649,7 +650,7 @@ nothing else (not Tia, not an automation, not another computer) types into that 
   what it changes before the one yes.
 
 <p align="center">
-  <img src="docs/screenshots/projects-desktop-light.webp" alt="The Projects page: the tabs Projects, Skills and Memory, what is not in step, and every project with its state and a New session button" width="760">
+  <img src="docs/screenshots/projects-desktop-light.webp" alt="The Workspace page: every project, each with its sessions under it" width="760">
 </p>
 
 ### The workspace and the AI brain
@@ -688,20 +689,21 @@ leads out of it is not followed, unless you name it as yours on that computer wi
 `hop workspace mylink add <path>` (a project kept on another disk). Details: [docs/WORKSPACE.md](docs/WORKSPACE.md).
 
 <p align="center">
-  <img src="docs/screenshots/project-page-desktop-light.webp" alt="A project's page: its sessions, its earlier conversations, and its repositories, skills and memory as one row each" width="760">
+  <img src="docs/screenshots/project-page-desktop-light.webp" alt="A project's page: its sessions, its earlier conversations and its code repositories" width="760">
 </p>
 
 ## It keeps going without you
 
 <p align="center">
-  <img src="docs/screenshots/work-tasks-desktop-light.webp" alt="Work, Tasks: what waits for your yes, what is due this week and later, with Add task at the top" width="760">
+  <img src="docs/screenshots/work-today-desktop-light.webp" alt="Work, Today tab: the sessions that run or wait, three tasks with their due days, and a column for each day of the week" width="760">
 </p>
 
 The rules that start things are fixed, with no AI deciding: a schedule starts at its time, the queue sends at the end
-of a reply. What they start can be an AI session. The schedules are in **Work → Schedules**, what they
-did is in **Work → Activity**, and the switches are under **Advanced** in **Work → Schedules** and in **Settings → Automations**:
+of a reply. What they start can be an AI session. The schedules and the queue are in **Work → Schedules**, what they
+did is in **Work → Activity**, and the switches are at the top of **Work → Schedules** and in **Settings → While you are away**:
 
-- **Queue** (always on: it acts only on messages you queued; you queue a message on the session itself): give a session its next messages; each goes in when a reply ends, and only while the
+- **Queue** (always on: it acts only on messages you queued; its list is **Queued messages** in Work →
+  Schedules): give a session its next messages; each goes in when a reply ends, and only while the
   coding tool is the program in front in that terminal. When it is not (it has ended, or another program runs
   there), the message waits and its row says why.
 - **Schedules**: at a set time (once, daily or on chosen weekdays), let the AI work by itself in a project, start a
@@ -717,7 +719,7 @@ did is in **Work → Activity**, and the switches are under **Advanced** in **Wo
 - **Try again after a server error** (on at first): in a Claude Code session, after a server error that is not a
   limit (never a 4xx, and never on a provider billed by use), wait and continue, three times.
 
-**Pause all automations** is under **Settings → Automations → Advanced**; while they are paused, that page and
+**Pause all automations** is under **Settings → While you are away → Advanced**; while they are paused, that page and
 Work → Schedules say so with a Resume button.
 
 ## Updates
@@ -884,11 +886,10 @@ Her administrator rights (Off, Ask each time, Full) and the git sign-in of the s
 ## The menu and the settings
 
 **Home** (every chat and session, the ones that need you first), **Work**, **Workspace**, **Providers**,
-**Computers**, then under **More**: Skills, AI brain, Tia and Settings. **Settings** is a list of seven
-rows: New sessions (with the coding tools and Hands-off), Notifications, Appearance (with the code editor), Security
-and sign-in (with the folders Hoprig may open, Log out and the Public link), Tia, Automations (with the Workspace)
-and Version and updates (with the field reports); Add-ons is reached from Security and sign-in, and Runs as root
-appears only when it applies. Work's own settings are
+**Computers**, then under **More**: Operator, Skills, AI brain, Tia and Settings. **Settings** is a short list of
+pages: New sessions (with the coding tools), Notifications, Appearance (with the code editor), Security and sign-in
+(with the folders Hoprig may open and Log out), Public link, Workspace, While you are away, Tia, Version and updates
+(with the field reports) and Add-ons; Hands-off and Runs as root appear only when they apply. Work's own settings are
 at the foot of **Work → Tasks**, the schedules' two at the top of **Work → Schedules**. Each
 option has one plain sentence under it. **Notifications**:
 a push to your phone when a session waits for you, needs your OK or reaches a limit.
@@ -908,7 +909,7 @@ front there, without control characters; your own typing on the page goes in as 
 a restart and **End session** end the programs in the terminal first, and only then start the new one or end it.
 
 <p align="center">
-  <img src="docs/screenshots/settings-desktop-light.webp" alt="Settings: seven rows, each with its state in one line, and New sessions open beside them" width="760">
+  <img src="docs/screenshots/settings-desktop-light.webp" alt="Settings: one row per page, most with their current state in one line, and New sessions open beside them" width="760">
 </p>
 
 ## Not built, or not proven yet
@@ -928,7 +929,7 @@ Said plainly, so nothing here is a surprise:
 - **Work, what is not there yet**: Tia does not carry a Work run of hers on to another provider after a usage limit
   by herself, and she does not answer the OKs of a session of hers that no job follows. Hoprig does not write a note
   into a session to take the option it recommends.
-  The sessions that need an OK are shown on the dashboard (Home, under **Needs you**), not in `hoprig tasks`.
+  The sessions that need an OK are shown on the dashboard (Today, Home, the Operator), not in `hoprig tasks`.
 - **What Hoprig's folder check cannot see** (Hoprig stays inside each entry's own folder of the workspace): a folder
   that a program already running on this computer swaps for a link in the instant between the check and the act, and
   a bind mount, which looks like a folder.

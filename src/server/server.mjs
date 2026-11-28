@@ -87,6 +87,7 @@ import { reachableUrl } from '../addons/reach.mjs';
 import { accountsFeature } from './accounts.mjs';
 import { claudeLoginFeature, sameComputer } from './claudelogin.mjs';
 import { gatewayFeature } from '../gateway/index.mjs';
+import { hubprovFeature } from '../hubprov/feature.mjs';
 import { pcsetupFeature } from '../pcsetup/feature.mjs';
 import { newProjectFeature } from '../pcsetup/newprojectstart.mjs';
 import { skillhubFeature } from '../skillhub/feature.mjs';
@@ -330,6 +331,7 @@ export function createServer(opts = {}) {
   // ---- the features: one line each ----
   const machines = machinesFeature(ctx, opts.machines);
   const gateway = gatewayFeature(ctx, { hub: machines.machines.hub, ...opts.gateway });
+  const hubprov = hubprovFeature(ctx, { machines: machines.machines, ...opts.hubprov });
   const chat = chatFeature(ctx, opts.chat);
   // "Use other providers": a Lead chat's one tool. Work's runs and these parts share the computer's slots.
   let work = null;
@@ -352,6 +354,7 @@ export function createServer(opts = {}) {
     assistantFeature(ctx, { hub: machines.machines.hub, chat, ...opts.assistant }), // Tia; first, so her own token is checked before the machines gate
     parts, // a Lead chat's part token (src/models/partdoor.mjs): answered here only, before the machines gate
     gateway, // /gateway/…: a gateway shared with a gateway key (before the machines gate, which takes any bearer as its own)
+    hubprov, // the hub's providers on the owner's other computers: /hubp (the relay) and /hub/p (a session's address), before the machines gate for the same reason
     machines, // other computers: relay, pairing, bearer tokens
     healthFeature(ctx, { own: () => rooms.own(), ...opts.health }), // GET /api/health: this computer's checks, versions, service, load, memory and disks (a hub reads it with its token)
     editorFeature(ctx, opts.editor), // the code editor's files and git under /api/code/ (another computer's token too); removes VS Code Server's leftovers once
@@ -431,6 +434,12 @@ export function createServer(opts = {}) {
   const pickProfile = (name, tool = 'claude') => {
     const p = name === AUTO.name ? (autoOn() && tool === 'claude' ? { name: AUTO.name, env: {} } : null) : v.profile(name);
     if (p) assertServes(p, tool);
+    // A hub's provider while the hub cannot be reached (src/hubprov): Auto mode starts on the next provider of this
+    // computer; without it the start says so, in words, instead of failing inside the coding tool.
+    if (p && p.hub && p.hubOffline && !p.signinHere) {
+      if (autoOn() && tool === 'claude') return { name: AUTO.name, env: {} };
+      throw new HttpError(409, `Your hub ${p.hubLabel || ''} is offline: ${listProfiles().some((x) => !x.hub) ? 'pick another provider.' : 'this computer has no provider of its own.'}`.replace('hub  ', 'hub '));
+    }
     return p;
   };
 
@@ -472,7 +481,8 @@ export function createServer(opts = {}) {
       const mine = list.filter((c) => c.profile && (c.profile.name === p.name || (c.autoOn && c.autoOn.name === p.name)));
       const fromRun = mine.find((c) => c.usage);
       const ru = routerUsage[p.name];
-      const l = limited[p.name];
+      // A hub row carries the hub's own mark (src/hubprov): the same reset time here.
+      const l = limited[p.name] || (p.hub && p.limited ? { until: p.limited.until, reason: p.limited.reason, exact: true } : null);
       return {
         ...publicProfile(p),
         // signedIn, plan, usageReported for providers that sign in (routerstate.mjs: providerFacts; read from files).

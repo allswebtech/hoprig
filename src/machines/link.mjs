@@ -32,6 +32,7 @@ import { OneTimeStore } from './onetime.mjs';
 import { CODE_TTL_MS, dashboardAddress, answers, machineInfo, makeCode, normalizeCode } from './pairing.mjs';
 import { callJson, rejectUpgrade } from './relay.mjs';
 import { Mux, dashboardConnector } from './mux.mjs';
+import { duplexPair } from '../hubprov/duplex.mjs';
 import { LEG_HEADER, noteLinkSocket, upgradeEncrypted } from './legs.mjs';
 import { loadMachines, putMachine, removeMachine, saveMachines } from './store.mjs';
 import { createToken, revokeToken } from './tokens.mjs';
@@ -101,8 +102,9 @@ class LinkHttpError extends Error {
  * `clientIp(req)` is the server's (it honours trustProxy behind a reverse proxy).
  */
 export class LinkHub {
-  constructor({ clientIp = (req) => (req.socket && req.socket.remoteAddress) || 'unknown', limiter = new RateLimiter(), pingMs = 20_000, now = Date.now, authority = caddyRoot } = {}) {
-    Object.assign(this, { clientIp, limiter, pingMs, now, authority });
+  constructor({ clientIp = (req) => (req.socket && req.socket.remoteAddress) || 'unknown', limiter = new RateLimiter(), pingMs = 20_000, now = Date.now, authority = caddyRoot, hubStream = null } = {}) {
+    // hubStream(machine): a socket for a stream that computer opens to this hub (the hub-provider relay, src/hubprov), or null.
+    Object.assign(this, { clientIp, limiter, pingMs, now, authority, hubStream });
     this.ca = { pem: null, until: 0 };
     this.sessions = new Map(); // linkId -> { ws, mux, listener, since, beat }
     this.wss = new WebSocketServer({ noServer: true, maxPayload: 1024 * 1024, perMessageDeflate: false });
@@ -182,7 +184,7 @@ export class LinkHub {
     const old = this.sessions.get(m.linkId);
     if (old) this.#end(m.linkId, old, 4001, 'replaced by a newer connection');
     const s = { ws, since: this.now(), alive: true, port: m.port, encrypted };
-    s.mux = new Mux({ role: 'hub', send: (b) => ws.readyState === ws.OPEN && ws.send(b, { binary: true }), onError: () => ws.close(1002, 'protocol error') });
+    s.mux = new Mux({ role: 'hub', send: (b) => ws.readyState === ws.OPEN && ws.send(b, { binary: true }), connectRemote: this.hubStream ? () => this.hubStream(m.name) : null, onError: () => ws.close(1002, 'protocol error') });
     ws.on('message', (d, isBinary) => (isBinary ? s.mux.receive(d) : ws.close(1003, 'binary frames only')));
     ws.on('pong', () => (s.alive = true));
     ws.on('close', () => this.#end(m.linkId, s));
@@ -381,6 +383,13 @@ export class LinkClient extends EventEmitter {
       };
       this.once('up', ok);
     });
+  }
+
+  /** A stream to the hub's relay: an in-process socket pair, one end carried over this link. null when the link is not up. */
+  hubStream() {
+    if (this.state !== 'up' || !this.mux || this.mux.closed) return null;
+    const [app, wire] = duplexPair();
+    return this.mux.openToHub(wire) === null ? null : app;
   }
 
   status() {

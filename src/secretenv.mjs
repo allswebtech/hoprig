@@ -9,6 +9,10 @@
 
 import { listProfiles } from './profiles.mjs';
 
+/** A Claude subscription sign-in token (`claude setup-token`) starts with this; only Claude Code itself may send one. */
+export const isSubscriptionToken = (key) => /^sk-ant-oat/.test(String(key || '').trim());
+export const SUBSCRIPTION_TOKEN_SENTENCE = 'That is a Claude subscription token, not an API key: use Sign in or Add Claude account instead.';
+
 /** Secrets by exact name. */
 const NAMES = new Set([
   'CLAUDE_CODE_OAUTH_TOKEN', // another Claude account's sign-in (`claude setup-token`)

@@ -51,10 +51,10 @@ const hinglish = (l) => {
 const good = (x = tpl) => [x.title, ...x.lines].map(hinglish).join('\n');
 
 test('the screen\'s name is a placeholder: a wording cannot rename the page', () => {
-  assert.equal(Object.values(tpl.values).includes('Work → Tasks'), true);
-  assert.doesNotMatch(tpl.lines[0], /Work → Tasks/);
+  assert.equal(Object.values(tpl.values).includes('Work → Today'), true);
+  assert.doesNotMatch(tpl.lines[0], /Work → Today/);
   const m = useWording(tpl, good().replace(/\{n(\d+)\}/, (x) => x)); // unchanged: the page keeps its name
-  assert.match(m.body.split('\n')[0], /Work → Tasks/);
+  assert.match(m.body.split('\n')[0], /Work → Today/);
 });
 
 test('a wording that keeps every placeholder in its place is used, with the code\'s values put in', () => {
@@ -180,5 +180,5 @@ test('the real wording on the cheapest model (Hinglish, 19 Nov): its lines pass 
   const m = useWording(real, words.replace(', kya tumhara intezaar ho raha hai.', '.'));
   assert.ok(m, 'a real Hinglish wording of every line is no mix');
   assert.equal(m.title, 'Kaam: 1 intezaar mein, 2 chal rahe');
-  assert.match(m.body.split('\n')[0], /^Dekhne ke liye Work → Tasks kholo\.$/);
+  assert.match(m.body.split('\n')[0], /^Dekhne ke liye Work → Today kholo\.$/);
 });

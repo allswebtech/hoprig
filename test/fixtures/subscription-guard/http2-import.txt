@@ -1,0 +1,7 @@
+// The same direct call over http2.
+import http2 from 'node:http2';
+export function readOne(p) {
+  const key = p.env.CLAUDE_CODE_OAUTH_TOKEN;
+  const s = http2.connect('https://api.example.com');
+  return s.request({ ':path': '/v1/messages', authorization: `Bearer ${key}` });
+}

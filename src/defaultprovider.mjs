@@ -87,11 +87,13 @@ export function chooseDefault({ profiles = [], auto = {}, autoName = 'auto', las
   // The folder's own provider goes first, under the same two tests as every other: not at its limit, and not a
   // pay-per-use key while that is not allowed and another provider can work.
   const order = (auto.order || []).filter((n) => real.some((p) => p.name === n));
-  const rank = (p) => (p.name === last ? -1 : order.includes(p.name) ? order.indexOf(p.name) : order.length + (p.kind === 'api' ? 1 : 0));
+  // The hub's providers (hub: true, src/hubprov) come after this computer's own: with none of its own, the hub's default is used.
+  const rank = (p) => (p.name === last ? -1 : (p.hub ? 1000 : 0) + (order.includes(p.name) ? order.indexOf(p.name) : order.length + (p.kind === 'api' ? 1 : 0)));
   const shown = real.map((p, i) => [p, i]).sort((a, b) => rank(a[0]) - rank(b[0]) || a[1] - b[1]).map(([p]) => p);
   // A provider whose sign-in is gone (signedIn false; null is not known) is passed over while another one works: the
   // first message must not end in "Sign in again".
-  const works = (p) => free(p) && p.signedIn !== false;
+  // A hub provider while its hub cannot be reached does not work either (src/hubprov: hubOffline).
+  const works = (p) => free(p) && p.signedIn !== false && !p.hubOffline;
   const pick = shown.find((p) => works(p) && (auto.payPerUse || !p.paid)) || shown.find(works) || shown.find((p) => free(p) && (auto.payPerUse || !p.paid)) || shown.find(free) || shown[0];
   return pick ? pick.name : null;
 }

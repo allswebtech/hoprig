@@ -21,6 +21,7 @@ import { ClaudeParser } from './claude-parse.mjs';
 import { endPoint, forkPoint, readTranscript } from './claude-transcript.mjs';
 import { WHOLE_MAX, readEarlier, readTail, todosBefore } from './claude-pieces.mjs';
 import { folderHistory } from '../history.mjs';
+import { endWith } from '../../hubprov/localkeys.mjs';
 
 const TERM_MS = 3000; // after its input ends, how long a process gets to exit before SIGTERM
 const KILL_MS = 8000; // … and before SIGKILL
@@ -109,6 +110,7 @@ class ClaudeSession {
     this.noWorkflow = !o.ultracode; // the process has no Workflow tool: switching the chip on needs a new start (controls.mjs)
     const plan = o.command ? { command: o.command.command, args: [...o.command.args, ...args], options: {} } : claudeCommand(args, env);
     const child = (o.spawnImpl || spawn)(plan.command, plan.args, { cwd: o.cwd, env, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true, ...plan.options });
+    endWith(child, env); // a hub provider's session key ends with this process (src/hubprov/localkeys.mjs)
     this.child = child;
     let buf = '';
     child.stdout.setEncoding('utf8');

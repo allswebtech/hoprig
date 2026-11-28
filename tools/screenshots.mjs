@@ -21,7 +21,7 @@ fs.mkdirSync(OUT, { recursive: true });
 
 const DESKTOP = { width: 1280, height: 800, mobile: false };
 const PHONE = { width: 390, height: 844, mobile: true };
-// The pictures of the pages added later (Work, the Projects page, Tia with a card, the gateway page, Skills, the first run).
+// The pictures added for the pages of 0.3.3 (the Operator, Work's Today, the Workspace page, Tia with a card), and the first run, TRouteAI's page and Skills.
 const WIDE = { width: 1440, height: 900, mobile: false };
 
 
@@ -143,6 +143,8 @@ try {
       await chrome.viewport(DESKTOP.width, 600, { theme: 'light' });
       await sleep(1000);
     },
+    // Home → Get started first, while it is open; then it is closed so the other Home shots show the sessions.
+    'get-started-desktop-light': async () => view('#/', DESKTOP, 'light', 3000),
     // Closed only now, after the shot above was taken (the open page would hide it on its next poll).
     'home-desktop-light': async () => {
       await setting({ server: { getStartedDismissed: true } });
@@ -178,13 +180,13 @@ try {
       await click('Task manager', '.desk-app');
       await sleep(1000);
       await snap('ArrowRight');
-      await sleep(4000);
+      await sleep(3000);
     },
     'limit-reached-desktop-light': async () => view('#/s/docs-site', DESKTOP, 'light', 3500),
-    // Providers, At a limit: the row opened, with its two choices (Carry on with the next provider chosen).
+    // Providers, When an account reaches its limit: the panel on the page, with its two choices.
     'auto-mode-desktop-light': async () => {
       await view('#/providers', DESKTOP, 'light', 2500);
-      await click('At a limit', '.row, button, a, [role=button]');
+      await chrome.evaluate(`(() => { const el = document.querySelector('#at-limit'); if (el) { el.scrollIntoView({ block: 'start' }); window.scrollBy(0, -90); } })()`);
       await sleep(1200);
     },
     // The list of providers itself (the shot above shows the choice at the top of the same page).
@@ -200,37 +202,15 @@ try {
       await sleep(500);
     },
     'computers-desktop-light': async () => view('#/computers', DESKTOP, 'light', 2500),
-    'computer-overview-desktop-light': async () => {
-      await view('#/computer', DESKTOP, 'light', 3500);
-      await tallTo(DESKTOP, 'document.scrollingElement.scrollHeight', 1100);
-    },
+    'computer-overview-desktop-light': async () => view('#/computer', DESKTOP, 'light', 3500),
     'computer-setup-desktop-light': async () => view('#/computer/setup', DESKTOP, 'light', 4000),
     'settings-desktop-light': async () => view('#/settings', DESKTOP, 'light', 2500),
     'work-schedules-desktop-light': async () => view('#/work/schedules', DESKTOP, 'light', 3000),
-    // The picture is as tall as the page, so nothing is scrolled away and nothing is cut.
-    'coding-tools-desktop-light': async () => {
-      await view('#/settings/new-sessions', DESKTOP, 'light', 2500);
-      await tallTo(DESKTOP, `(() => { const c = [...document.querySelectorAll('section, .card')].find((e) => /^Coding tools/.test(e.textContent.trim())); return c ? c.getBoundingClientRect().bottom + scrollY + 20 : 0; })()`, 1400);
-      await chrome.evaluate('window.scrollTo(0, 0); true');
-    },
-    'updates-desktop-light': async () => {
-      await view('#/settings/updates', DESKTOP, 'light', 3000);
-      await tallTo(DESKTOP, 'document.scrollingElement.scrollHeight', 1100);
-    },
-    // Settings, Security and sign-in: the Public link fold, opened, with its switch.
-    'public-link-desktop-light': async () => {
-      await view('#/settings/public-link', DESKTOP, 'light', 2500);
-      await tallTo(DESKTOP, '1000', 1000);
-      await chrome.evaluate(`(() => { const el = [...document.querySelectorAll('summary, button, .fold-head, h2, h3')].find((x) => /^Public link/.test(x.textContent.trim())); if (el) window.scrollTo(0, el.getBoundingClientRect().top + scrollY - 90); return true; })()`);
-      await sleep(600);
-    },
-    // The list ends under its sixth project, so no project in it is cut in two.
-    'projects-desktop-light': async () => {
-      await view('#/workspace', DESKTOP, 'light', 4000);
-      await tallTo(DESKTOP, `(() => { const p = [...document.querySelectorAll('.pj-row')]; return p.length > 5 ? p[5].getBoundingClientRect().bottom + scrollY + 1 : 0; })()`);
-    },
-    // Projects, Skills: the one list with its search, Installed, and what is worth adding.
-    'skills-desktop-light': async () => view('#/skills', DESKTOP, 'light', 4000),
+    'coding-tools-desktop-light': async () => view('#/settings/new-sessions?show=coding-tools', DESKTOP, 'light', 2500),
+    'updates-desktop-light': async () => view('#/settings/updates', DESKTOP, 'light', 3000),
+    'public-link-desktop-light': async () => view('#/settings/public-link', DESKTOP, 'light', 2500),
+    'projects-desktop-light': async () => view('#/workspace', DESKTOP, 'light', 4000),
+    'project-page-desktop-light': async () => view('#/workspace/project/shop-frontend', DESKTOP, 'light', 4000),
     // TRouteAI's own page as the demo shows it: the demo's gateway is a pretend that never listens, so the page is the
     // one of a computer where it is not set up yet (what a new person sees first).
     'gateway-desktop-light': async () => {
@@ -238,9 +218,25 @@ try {
       await chrome.viewport(DESKTOP.width, 360, { theme: 'light' });
       await sleep(1000);
     },
-    'project-page-desktop-light': async () => view('#/workspace/project/shop-frontend', DESKTOP, 'light', 4000),
-    // Work's Tasks with three tasks added the way a person adds them (Add task).
-    'work-tasks-desktop-light': async () => {
+    // Skills: the page with its tabs.
+    'skills-desktop-light': async () => view('#/skills', DESKTOP, 'light', 4000),
+    // The Operator: what needs you now, ranked, each item with the one recommended button.
+    'operator-desktop-light': async () => {
+      await view('#/operator', WIDE, 'light', 4000);
+      // The whole "Needs you" list; the side column (its switches, one below the other, run on far longer) ends at
+      // the first line between two of its parts under the list's end, so no part of it is cut in two.
+      await tallTo(WIDE, `(() => { const end = document.querySelector('.op-list').getBoundingClientRect().bottom + scrollY;
+        const lines = [...document.querySelectorAll('.op-side li, .op-side .op-decide, .op-side > section')].map((e) => e.getBoundingClientRect().bottom + scrollY).filter((b) => b >= end);
+        return Math.min(end + 400, ...lines) + 16; })()`);
+    },
+    // The Workspace page: the projects of this computer, each with its sessions; the picture ends under the second
+    // project, so no project in it is cut in two.
+    'workspace-desktop-light': async () => {
+      await view('#/workspace', WIDE, 'light', 4000);
+      await tallTo(WIDE, `(() => { const p = [...document.querySelectorAll('.ws-project')]; return p.length > 1 ? p[1].getBoundingClientRect().bottom + scrollY + 12 : 0; })()`);
+    },
+    // Work's Today with three tasks added the way a person adds them (Add task): what needs you, the week, the progress.
+    'work-today-desktop-light': async () => {
       const day = (n) => new Date(Date.now() + n * 86400_000).toISOString().slice(0, 10);
       for (const item of [
         { title: 'Renew the test certificate', date: day(0), priority: 'high' },

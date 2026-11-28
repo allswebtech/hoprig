@@ -30,6 +30,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { offeredOnly } from './codetools/offered.mjs';
 import { profilesDir } from './paths.mjs';
+import { hubRows } from './hubprov/rows.mjs';
 import { replaceFile } from './replacefile.mjs';
 
 export const NAME_RE = /^[a-z0-9][a-z0-9_-]{0,31}$/;
@@ -82,6 +83,9 @@ export function kindOf(env, meta = {}) {
   if (env.CLAUDE_CODE_OAUTH_TOKEN) return 'subscription';
   if (env.OPENAI_API_KEY || env.OPENAI_BASE_URL) return 'openai';
   if (meta.SIGNIN === 'codex') return 'chatgpt';
+  // A provider with its own key that was signed out here (the key line is gone, the SIGNIN=claude line stays): it is
+  // still that provider, signed out, until Sign in again writes a key back.
+  if (meta.SIGNIN === 'claude') return 'subscription';
   return 'login';
 }
 
@@ -122,8 +126,17 @@ function fileOf(name) {
   return path.join(profilesDir(), `${name}.env`);
 }
 
-/** Read one profile, or null when it does not exist. */
+// The hub's providers on a linked computer (src/hubprov/rows.mjs): rows that are no file, kept by the dashboard in a file
+// of its state folder. A row of its own (a file) always wins over a hub row of the same name.
+const hubSource = hubRows;
+
+/** Read one profile, or null when it does not exist. A name that is no file may be a row of the hub's (hubSource). */
 export function readProfile(name) {
+  return readOwnProfile(name) || (validName(name) && name.startsWith('hub-') ? hubSource.read(name) : null);
+}
+
+/** Read one profile of this computer (its file), or null: never a row of the hub's. The hub's own relay reads only these. */
+export function readOwnProfile(name) {
   if (!validName(name)) return null;
   let text;
   try {
@@ -138,7 +151,7 @@ export function readProfile(name) {
   const kind = kindOf(env, all);
   return {
     name, label: all.LABEL || DEFAULT_LABEL[kind], prerun: all.PRERUN || '', models: all.MODELS || '', mapSessions: all.MAPSESSIONS === 'on', kind, paid: isPayPerUse(env), env,
-    api: listOf(all.API, API_SHAPES), tools: listOf(all.TOOLS, TOOL_IDS), signin: all.SIGNIN === 'codex' ? 'codex' : '',
+    api: listOf(all.API, API_SHAPES), tools: listOf(all.TOOLS, TOOL_IDS), signin: all.SIGNIN === 'codex' ? 'codex' : all.SIGNIN === 'claude' ? 'claude' : '',
   };
 }
 
@@ -214,22 +227,29 @@ export function hiddenProfiles() {
   }
 }
 
-/** All profiles, sorted by name. */
-export function listProfiles() {
+/** The profiles of this computer (files), sorted by name; never the hub's rows. */
+export function ownProfiles() {
   let names;
   try {
     names = fs.readdirSync(profilesDir());
   } catch (e) {
-    if (e.code === 'ENOENT') return [];
-    throw e;
+    if (e.code !== 'ENOENT') throw e;
+    names = [];
   }
-  return names
+  const own = names
     .filter((f) => f.endsWith('.env'))
     .map((f) => f.slice(0, -4))
     .filter(validName)
     .sort()
     .map(readProfile)
     .filter(Boolean);
+  return own;
+}
+
+/** All profiles: this computer's own, sorted by name, then the hub's rows in the hub's order (see hubSource). */
+export function listProfiles() {
+  const own = ownProfiles();
+  return [...own, ...hubSource.list().filter((h) => !own.some((o) => o.name === h.name))];
 }
 
 /**
@@ -245,7 +265,7 @@ export const ownFolder = (p) => !!(p && p.env && p.env.CLAUDE_CONFIG_DIR);
 export function publicProfile(p) {
   const tools = offeredOnly(servesTools(p));
   // ownFolder: a fact, never the folder.
-  return { name: p.name, label: p.label, kind: p.kind, paid: p.paid === true, tools, ...(tools.length ? {} : { unusable: true }), ...(ownFolder(p) ? { ownFolder: true } : {}) };
+  return { name: p.name, label: p.label, kind: p.kind, paid: p.paid === true, tools, ...(tools.length ? {} : { unusable: true }), ...(ownFolder(p) ? { ownFolder: true } : {}), ...(p.hub ? { hub: true, ...(p.hubOffline ? { hubOffline: true } : {}), ...(p.signinHere ? { signinHere: true } : {}) } : {}) };
 }
 
 /** Create or replace a profile. The folder is 700 and the file 600. */
@@ -266,7 +286,7 @@ export function writeProfile(name, { label = '', prerun = '', models = '', mapSe
   if (apiList.length) lines.push(`API=${apiList.join(',')}`);
   const toolList = listOf((tools || []).join(','), TOOL_IDS);
   if (toolList.length) lines.push(`TOOLS=${toolList.join(',')}`);
-  if (signin === 'codex') lines.push('SIGNIN=codex');
+  if (signin === 'codex' || signin === 'claude') lines.push(`SIGNIN=${signin}`);
   for (const [k, v] of Object.entries(env)) lines.push(`${k}=${quote(v)}`);
   fs.mkdirSync(profilesDir(), { recursive: true, mode: 0o700 });
   const file = fileOf(name);
@@ -296,7 +316,8 @@ export function profileEnv(profile, base = process.env) {
   assertServes(profile, 'claude');
   const env = { ...base };
   for (const k of AUTH_VARS) delete env[k];
-  Object.assign(env, profile.env);
+  // A hub's provider: this computer's loopback address and a key made for this session, never the hub's key.
+  Object.assign(env, profile.hub ? hubSource.sessionEnv(profile) : profile.env);
   env.HOPRIG_PROFILE = profile.name;
   // A key or gateway provider: Claude Code's first system line holds a fingerprint of the first message, so no two
   // sessions share a cached start; off, they do (measured 27 Nov 2026: byte-identical system text). Not for a

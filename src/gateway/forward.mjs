@@ -43,7 +43,7 @@ const pickRes = (headers) => {
  * words. `idleMs`: how long nothing may move before it is given up (a long answer keeps sending, so this only
  * catches a gateway that hangs). Resolves when the exchange is over.
  */
-export function forward(req, res, { target, auth = {}, failed, idleMs = 10 * 60_000, tls = {} }) {
+export function forward(req, res, { target, auth = {}, failed, idleMs = 10 * 60_000, tls = {}, createConnection = null }) {
   return new Promise((resolve) => {
     let done = false;
     const finish = () => {
@@ -62,7 +62,7 @@ export function forward(req, res, { target, auth = {}, failed, idleMs = 10 * 60_
     const mod = target.protocol === 'https:' ? https : http;
     const out = mod.request({
       protocol: target.protocol, hostname: target.hostname, port: target.port, method: req.method, path: target.path,
-      headers: { ...pickReq(req.headers), ...auth }, agent: false, ...(target.protocol === 'https:' ? tls : {}),
+      headers: { ...pickReq(req.headers), ...auth }, ...(createConnection ? { createConnection } : { agent: false }), ...(target.protocol === 'https:' ? tls : {}),
     });
     out.setTimeout(idleMs, () => out.destroy(Object.assign(new Error('timeout'), { code: 'timeout' })));
     out.on('error', fail);

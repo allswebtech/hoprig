@@ -4,20 +4,8 @@
 // each link, grouped by coding tool, then "Link" does it and says what was done; nothing is overwritten (a conflict is
 // left alone with its reason). toolsPart() is the AI brain page's "Coding tools": the state per tool, one button.
 import { icon } from './icons.js';
-import { TOOL_NAMES, api, btn, fill, h, link, openSheet } from './lib.js';
-import { errorBox, fold, groupHead, okBox, tabBar } from './shell.js';
-
-/**
- * The three tabs of Projects: Projects, Skills, Memory. Every one of the three pages puts this first in its body, with
- * nothing above it. `current`: 'projects' | 'skills' | 'memory'. Plain links: each tab is a page of its own.
- */
-export function projectsTabs(current) {
-  return tabBar('Projects', [
-    { id: 'projects', label: 'Projects', href: link('#/workspace') },
-    { id: 'skills', label: 'Skills', href: link('#/skills') },
-    { id: 'memory', label: 'Memory', href: link('#/brain') },
-  ], current);
-}
+import { TOOL_NAMES, api, btn, fill, h, openSheet } from './lib.js';
+import { errorBox, fold, groupHead, okBox } from './shell.js';
 
 const LEFT = ['already', 'conflict'];
 const mark = (e) => (e.error ? 'alert' : e.action === 'conflict' ? 'minus' : 'check');
@@ -125,9 +113,6 @@ export function noteWords(todo) {
   return `Not everything is linked yet: ${whoReads(todo).replace(/ reads?$/, '')} ${one ? 'does' : 'do'} not read all of the AI brain.`;
 }
 
-/** The line of Memory's banner while the brain is not linked: what switching on does, in plain words. */
-export const SWITCH_ON_NOTE = 'Switch on so your coding tools use these rules, skills and memory. Nothing is deleted.';
-
 export function linkBrainNote({ only = null, text = null, after = () => {}, prefix = '', switchOn = false } = {}) {
   const box = h('div.bl-note-slot');
   async function load() {
@@ -139,7 +124,7 @@ export function linkBrainNote({ only = null, text = null, after = () => {}, pref
     }
     const todo = plan.entries.filter((e) => !LEFT.includes(e.action) && (!only || only.includes(String(e.id).split(':').pop())));
     if (!plan.brain || !todo.length) return fill(box);
-    const said = text ? text(todo) : switchOn ? SWITCH_ON_NOTE : noteWords(todo);
+    const said = text ? text(todo) : noteWords(todo);
     fill(box, h('div.banner.info.bl-note', { role: 'status' }, icon('brain', { size: 18 }),
       h('span.bl-note-text', said),
       btn('small primary', { icon: 'check', label: switchOn ? 'Switch on' : 'Link', onclick: async () => {

@@ -371,9 +371,9 @@ export function span(ms) {
  * "in 2 h 10 min" / "Mon 17:00" for a time in the future. Always the 24-hour clock, as schedules write their rule
  * ("Weekdays at 18:00"), so one list never mixes "18:00" with "06:00 PM".
  */
-export function until(ms) {
+export function until(ms, now = Date.now()) {
   if (!ms) return '';
-  const s = Math.round((ms - Date.now()) / 1000);
+  const s = Math.round((ms - now) / 1000);
   if (s <= 60) return 'any moment';
   if (s < 3600) return `in ${Math.round(s / 60)} min`;
   const min = Math.round(s / 60); // whole minutes first: 1 h 59.7 min is "2 h 0 min", never "1 h 60 min"
@@ -514,10 +514,37 @@ export function speedWords(speed) {
   return speed.verdict === 'fast' ? `Answers in about ${secs}` : null;
 }
 
+/** A clock time for a moment that is not soon: "14:30" today, "Thu 04:30" on another day. */
+export function clockAt(ms) {
+  const d = new Date(ms);
+  const hm = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+  return d.toDateString() === new Date().toDateString() ? hm : `${d.toLocaleDateString([], { weekday: 'short' })} ${hm}`;
+}
+
+/** Which window a limit is: the weekly one (at 100% or whose reset is the limit's end), the 5-hour one, or null. */
+export function limitWindow(p) {
+  const u = p && p.usage;
+  const until = p && p.limited && p.limited.until;
+  const near = (w) => w && Number.isFinite(w.resetsAt) && Number.isFinite(until) && Math.abs(w.resetsAt - until) < 120_000;
+  if (!u) return null;
+  if ((u.week && u.week.pct >= 100) || near(u.week)) return 'week';
+  if ((u.fiveHour && u.fiveHour.pct >= 100) || near(u.fiveHour)) return 'fiveHour';
+  return null;
+}
+
 export function profileState(p) {
   if (p.virtual) return { key: 'free', text: 'Uses your providers in order; never stops at a limit' };
+  // A provider with its own key that was signed out here: the key is gone, Sign in puts one back.
+  if (p.signedOut) return { key: 'signin', text: 'Signed out' };
+  // Claude answered that the key is no longer valid (the router marks that as a pause of ten minutes; it is no limit).
+  if (p.signinRefused || (p.limited && p.limited.reason === 'auth')) {
+    const at = p.signinRefused && p.signinRefused.at ? p.signinRefused.at : p.limited && p.limited.until ? p.limited.until - 10 * 60_000 : null;
+    return { key: 'signin', text: at ? `Sign-in refused at ${clockAt(at)}` : 'Sign-in refused' };
+  }
   // A sign-in provider whose sign-in is gone (or never finished): it cannot be used until someone signs in again.
   if (p.signedIn === false) return { key: 'signin', text: 'Not signed in' };
+  // A hub's provider while that computer cannot be reached (src/hubprov): said in words, with the computer's name.
+  if (p.hub && p.hubOffline) return { key: 'unusable', text: `${p.hubLabel || 'Your hub'} is offline` };
   // A provider that serves no coding tool this computer's Hoprig offers (src/profiles.mjs): kept, never used.
   if (p.unusable) return { key: 'unusable', text: 'Not used by this version of Hoprig' };
   // Its PRERUN starts a gateway that was removed (src/server/accounts.mjs): its sessions end at the start.
@@ -525,8 +552,12 @@ export function profileState(p) {
   // A Codex sign-in when Codex is not installed (or does not say whether it is signed in).
   if (p.kind === 'chatgpt' && p.signedIn == null) return { key: 'signin', text: 'Codex is not installed' };
   if (p.limited) {
-    const when = p.limited.until ? `${p.limited.exact === false ? 'about ' : ''}${until(p.limited.until)}` : '';
-    return { key: 'limit', text: when ? `Limit reached · free ${when}` : 'Limit reached' };
+    const l = p.limited;
+    if (l.reason === 'billing_error') return { key: 'limit', text: l.until ? `Out of credit · try again ${clockAt(l.until)}` : 'Out of credit' };
+    const win = limitWindow(p);
+    const name = win === 'week' ? 'Weekly limit' : win === 'fiveHour' ? '5-hour limit' : 'At its limit';
+    const when = l.until ? (l.exact === false ? `back about ${clockAt(l.until)}` : `back ${until(l.until)}`) : '';
+    return { key: 'limit', text: when ? `${name} · ${when}` : name };
   }
   if (p.inUse) return { key: 'inuse', text: `In use · ${p.inUse} session${p.inUse > 1 ? 's' : ''}` };
   return { key: 'free', text: 'Available' };
@@ -822,6 +853,26 @@ export const limitActions = [];
 // The sessions whose "Other ways" he opened: the card is drawn anew with each look, and stays open.
 const limitOpen = new Set();
 /**
+ * The limit text with its reset said as the 24-hour clock and the time left ("resets 18:00 (in 2 h 10 min)") where the
+ * card knows the reset time: the provider's own usage figures. null where it does not: the tool's words stay.
+ */
+export function limitResetText(s, profiles, now = Date.now()) {
+  const text = (s.limit && s.limit.text) || '';
+  const said = s.limit && s.limit.resets;
+  if (!said || !text.includes(said)) return null;
+  const win = /week/i.test(text) ? 'week' : /5-hour|five.hour/i.test(text) ? 'fiveHour' : null;
+  const p = win && s.profile && (profiles || []).find((x) => x.name === s.profile.name);
+  const w = p && p.usage && p.usage[win];
+  const at = w && (typeof w.resetsAt === 'number' ? w.resetsAt : Date.parse(w.resetsAt));
+  if (!Number.isFinite(at) || at <= now) return null;
+  const d = new Date(at);
+  const clock = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+  const left = until(at, now);
+  const day = d.toDateString() === new Date(now).toDateString() ? '' : `${d.toLocaleDateString([], { weekday: 'short' })} `;
+  const words = `resets ${day}${clock}${left.startsWith('in ') || left === 'any moment' ? ` (${left.replace(/ /g, '\u00a0')})` : ''}`;
+  return text.replace(new RegExp(`resets (?:at )?${said.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`), words);
+}
+/**
  * The red "limit reached" box with one button per other profile. The main button is the first free provider in
  * the order Auto mode uses (`autoPlace`), never a paid one, and stands alone; the others are under "Other ways".
  * Auto mode's button says where it would go next.
@@ -872,7 +923,7 @@ export function limitBox(s, profiles, after) {
     : null;
   return h('div.limitbox', { role: 'alert', ...chrome() },
     h('div.limit-head', icon('alert'), h('strong', 'Limit reached'), s.limit && s.limit.resets && !text.includes(s.limit.resets) ? h('span', ` · resets ${s.limit.resets}`) : null),
-    text ? h('p.limit-text', text) : null,
+    text ? h('p.limit-text', limitResetText(s, profiles) || text) : null,
     s.autoMove ? h('p.limit-text', `Moving to ${s.autoMove} automatically…`) : null,
     fold ? [h('div.limit-actions', front), fold] : moves.length || extra.length ? h('div.limit-actions', leads, moves, extra.filter((b) => !leads.includes(b))) : null,
   );
@@ -947,6 +998,21 @@ export function askNote(note) {
   if (!tool) return `${who} wants your OK`;
   if (tool === 'Bash') return what ? `${who} wants to run: ${what}` : `${who} wants to run a command`;
   return `${who} wants to use ${tool}${what ? `: ${what}` : ''}`;
+}
+
+// A word longer than this may break inside itself; shorter ones stay whole, so a package name is never cut at its hyphen.
+const WHOLE_WORD = 32;
+/** A command as nodes: the mono font, a break only at a space (one word wider than a card breaks where it must). */
+export function commandNodes(cmd) {
+  const out = [];
+  String(cmd).split(/( +)/).forEach((w) => out.push(w.length && w.length <= WHOLE_WORD && !/^ +$/.test(w) ? h('span.cmd-word', w) : w));
+  return h('code.card-cmd', out);
+}
+/** askNote for a card: the command of "Claude wants to run: <command>" in its own mono part, the words as askNote says. */
+export function askNoteNodes(note) {
+  const said = askNote(note);
+  const m = /^(\S+ wants to run: )([\s\S]+)$/.exec(said);
+  return m && /^\S+ needs your permission to use Bash:/.test(String(note || '')) ? [m[1], commandNodes(m[2])] : said;
 }
 
 export function permissionActions(s, after, { here = false } = {}) {

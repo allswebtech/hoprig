@@ -1,11 +1,10 @@
-// Projects (the address stays #/workspace): the projects of the open computer (src/pcsetup/feature.mjs + the session
-// poll). Three tabs first (Projects, Skills, Memory: brainlink.js), then one row per project: its name, one line of
-// state in plain words, one New session. "Add project" is the one door in (a sheet of three ways: New, Get from
-// GitHub, Found on this computer); Sync, Other folders, Groups and the projects folder are one fold at the end.
-//   #/workspace                      the rows
-//   #/workspace/project/<folder>     one project: New session and Open code, its sessions (earlier ones folded),
-//                                    its repositories as one row with a status, Skills as one row, Memory as a fold;
-//                                    Sync, "Add a repository" and the path under Advanced
+// Workspace: the projects of the open computer and, under each, its sessions (src/pcsetup/feature.mjs + the session
+// poll). The same sessions as Home, seen project by project, drawn by the same part (sessionitem.js).
+//   #/workspace                      each project: name, folder, git state in plain words, New session, the way to
+//                                    its page; its sessions under it, earlier conversations folded; then "Other
+//                                    folders"; "New project" (the main action), "Get an existing project"
+//   #/workspace/project/<folder>     one project: its sessions (running, past ones to continue), its repositories
+//                                    with Sync and "Add a repository", its skills (installed and suggested)
 // (#/projects… addresses from before land here: app.js.)
 //   #/new-project          name, brief, kind and scope → what it creates (shown before anything is made), "Start with AI"
 //                          → done, "Start a session", or the App session that sets it up from the brief (newproject.js)
@@ -20,9 +19,8 @@ import { groupOf } from './home.js';
 import { instepBlock, instepList } from './instep.js';
 import { sessionRow } from './sessionitem.js';
 import { projectBrain } from './brain.js';
-import { projectsTabs } from './brainlink.js';
-import { commandLine, freshFork, workspaceStrip } from './workspace.js';
-import { asOfWords, computersPanel, dropSheet, groupSheet, removeGroup } from './wsplaces.js';
+import { commandLine, freshFork, missingCard, workspaceStrip } from './workspace.js';
+import { asOfWords, computersPanel, dropSheet, groupSheet, lastHereWords, removeGroup } from './wsplaces.js';
 import { groupTools } from './workspacetool.js';
 import { registerPage } from './registry.js';
 import { emptyState, errorBox, fold, groupHead, listRow, okBox, radioCards, skeletonRows as skeleton, stepHeader } from './shell.js';
@@ -341,69 +339,57 @@ function earlier(p) {
   return slot;
 }
 
-/** The ways into a new project: the three choices of "Add project" (one door; the pages behind them stay as they are). */
-export const ADD_WAYS = [
-  { id: 'new', icon: 'plus', title: 'New project', sub: 'A new folder, ready for coding', href: '#/new-project' },
-  { id: 'get', icon: 'download', title: 'Get from GitHub', sub: 'One you already have online', href: '#/get-project' },
-  { id: 'found', icon: 'search', title: 'Found on this computer', sub: 'Folders you already have here', href: '#/adopt' },
-];
-
-/** "Add project": the sheet of the three ways; a press closes it and opens that page. */
-function addSheet() {
-  return openSheet({ title: 'Add project' }, (close) => h('div.rows', ADD_WAYS.map((w) => listRow({ icon: w.icon, title: w.title, sub: w.sub, onclick: () => {
-    close(null);
-    location.hash = link(w.href);
-  } }))));
+/** "N changes" on a project: opens Source Control on the repository with the changes (the project when several have). */
+function changesButton(p) {
+  const changed = p.repos.filter((r) => r.changes > 0);
+  if (!changed.length) return null;
+  const n = changed.reduce((sum, r) => sum + r.changes, 0);
+  return editorButton(changed.length === 1 ? changed[0].dir || p.dir : p.dir, { name: p.name, changes: n });
 }
 
-/** The one line under a project's name: a session that needs you first, then its git state in words. */
-export function projectLine(p, sessions) {
-  const need = sessions.filter((s) => groupOf(s) === 'needs').length;
-  const words = projectWords(p);
-  return { text: need ? `${need === 1 ? 'Needs you' : `${need} need you`} · ${words}` : words, attn: need > 0 || needsLook(p) };
-}
-
-/** One project: its name and state (a press opens its page) and one New session. */
-function projectRow(p, sessions) {
-  const line = projectLine(p, sessions);
-  return h('div.row.static.pj-row', { 'aria-label': p.name },
-    h('a.pj-rowmain', { href: link(`#/workspace/project/${enc(p.id)}`) },
-      h('span.row-icon', icon('folder')),
-      h('span.row-main', h('span.row-title', p.name), h(`span.row-sub.pj-git${line.attn ? '.attn' : ''}`, { title: line.text }, line.text))),
-    newSessionButton(p.dir, p.name));
-}
-
-/** A project of the workspace map that is not on this computer (the normal state): the one way to get it. */
-function awayRow(e, on) {
-  return h('div.row.static.pj-row.pj-away', { 'aria-label': `${e.label}: not on this computer` },
-    h('span.pj-rowmain', h('span.row-icon', icon('download')),
-      h('span.row-main', h('span.row-title', e.label), h('span.row-sub.pj-git', on.length ? `On ${on.join(', ')}` : 'Not on this computer'))),
-    e.url ? h('a.btn.small.secondary', { href: link(`#/get-project/${enc(e.url)}`), title: `Get ${e.label}` }, icon('download', { size: 16 }), h('span', 'Get it')) : null);
+/** One project: its head (name, folder, git state, New session, the way to its page), its sessions under it. */
+function projectCard(p, sessions, profiles, home) {
+  const page = link(`#/workspace/project/${enc(p.id)}`);
+  return h('section.card.ws-project', { 'aria-label': p.name },
+    h('div.ws-head',
+      h('a.ws-name', { href: page }, h('span.row-icon', icon('folder')),
+        h('span.row-main',
+          h('span.ws-title', p.name),
+          h('span.row-sub', tildePath(p.dir, home)),
+          h(`span.row-sub.pj-git${needsLook(p) ? '.attn' : ''}`, projectWords(p)))),
+      h('span.ws-tools',
+        newSessionButton(p.dir, p.name),
+        changesButton(p),
+        editorButton(p.dir, { name: p.name, compact: true }),
+        h('a.btn.icon.ghost.small', { href: page, title: `Open ${p.name}`, 'aria-label': `Open ${p.name}` }, icon('chevronRight', { size: 18 })))),
+    sessions.length
+      ? h('div.ws-sessions', [...sessions].sort(needsYouFirst).map((s) => sessionRow(s, profiles, () => store.refresh(), { where: repoOf(p, s) })))
+      : h('p.ws-none', 'No session yet'),
+    earlier(p));
 }
 
 /** Sessions started outside the projects folder, with the advice to make a project of it. */
 function otherFolders(sessions, profiles) {
   return h('section.ws-other',
     groupHead('Other folders', sessions.length),
-    h('p.hint.ws-advice', 'These run outside the projects folder. Make a project of the folder you keep working in: its coding tools then get its memory and skills.'),
+    h('p.hint.ws-advice', 'These run outside the projects folder. Inside a project, your coding tools get its memory, rules and skills: make it a project when you keep working there.'),
     h('div.rows', [...sessions].sort(needsYouFirst).map((s) => sessionRow(s, profiles, () => store.refresh()))));
 }
 
 function viewList(frame, query = new URLSearchParams()) {
   pastOf.clear();
-  // The workspace's state through git (workspace.js): drawn again when its answer arrives. It lives in the fold at the end.
+  // The workspace's state through git (workspace.js): drawn again when its answer arrives.
   const strip = workspaceStrip(() => paint());
   const body = h('div.pj-page', skeleton(4));
-  const rest = h('div.pj-rest');
-  const more = fold('projects-more', 'More', strip.el, rest);
-  more.classList.add('hidden');
-  const moreLabel = more.querySelector('.fold-summary span');
+  const advanced = h('div');
   frame({
-    title: 'Projects',
+    title: 'Workspace',
     page: 'workspace',
-    primary: { label: 'Add project', icon: 'plus', onclick: addSheet },
-    primaryInHead: true, // on a phone in the page head: a floating button lay over the third project row
-    body: [projectsTabs('projects'), body, more],
+    intro: 'Your projects and the sessions in each. Open a session, or start a new one in a project.',
+    primary: { label: 'New project', icon: 'plus', href: link('#/new-project') },
+    actions: [h('a.btn.secondary.pj-get', { href: link('#/get-project') }, icon('download', { size: 16 }), h('span', 'Get an existing project')),
+      h('a.btn.secondary.pj-adopt', { href: link('#/adopt') }, icon('search', { size: 16 }), h('span', 'Projects found on this computer'))],
+    body: [strip.el, body, fold('projects', 'Advanced', advanced)],
   });
   let alive = true;
   let data = null;
@@ -413,7 +399,7 @@ function viewList(frame, query = new URLSearchParams()) {
     const list = projectsOf(data);
     const map = strip.map();
     // Projects of the workspace map that are not on this computer (the normal state; "missing" from an older
-    // computer): quiet rows with "Get it" and the computers whose own file says they have it.
+    // computer): quiet cards with "Get it" and the computers whose own file says they have it.
     const away = map ? map.entries.filter((e) => e.kind === 'project' && (e.state === 'notHere' || e.state === 'missing')) : [];
     const sessions = (store.data && store.data.sessions) || [];
     const profiles = (store.data && store.data.profiles) || [];
@@ -423,29 +409,28 @@ function viewList(frame, query = new URLSearchParams()) {
     const ordered = [...list].sort((a, b) => projectRank(of.get(a)) - projectRank(of.get(b)) || lastUse(of.get(b)) - lastUse(of.get(a)) || a.name.localeCompare(b.name));
     // Which other computer has an entry of the map: the one reader (whohas), else an older computer's own list.
     const whoEntry = (label) => (data.who ? data.who.entries.find((x) => x.name === label) : null);
-    // An old file says so on the row too: "box2, as of 6 Nov 2026" (it may have changed since).
+    // An old file says so on the card too: "box2, as of 6 Nov 2026" (it may have changed since).
     const said = (l) => {
       const c = data.who.computers.find((x) => x.label === l);
       return c && c.old ? `${l}, ${asOfWords(c).replace(/ \(old.*$/, '')}` : l;
     };
     const onOthers = (label) => (data.who ? (whoEntry(label) || { on: [] }).on.filter((l) => l !== data.who.label).map(said) : ((data.computers && data.computers.computers) || []).filter((c) => !c.mine && c.here.includes(label)).map((c) => c.label));
-    const rows = (ps, aw) => h('div.rows.pj-rows', [...ps.map((p) => projectRow(p, of.get(p))), ...aw.map((e) => awayRow(e, onOthers(e.label)))]);
+    const cards = (ps, aw) => [...ps.map((p) => projectCard(p, of.get(p), profiles, data.home)), ...aw.map((e) => missingCard(e, onOthers(e.label), { lastHere: lastHereWords(whoEntry(e.label)), unknown: data.who ? data.who.unknown : [] }))];
     fill(body, list.length || away.length
-      ? (placesOf(data).length > 1 ? byPlace(placesOf(data), ordered, away, rows) : rows(ordered, away))
+      ? (placesOf(data).length > 1 ? byPlace(placesOf(data), ordered, away, cards) : h('div.ws-list', cards(ordered, away)))
       // A fresh computer (no projects, no map): bring the workspace from git, or start a new project.
       : map && !map.exists ? freshFork(() => { strip.load(); load(); })
-      : emptyState('folder', 'No projects yet. A project is a folder with your code.', btn('primary', { icon: 'plus', label: 'Add project', onclick: addSheet })));
+      : emptyState('folder', 'No projects yet. A project is a folder with your code: start a new one, or get one you already have on GitHub.',
+        h('div.pj-empty-actions',
+          h('a.btn.primary', { href: link('#/new-project') }, icon('plus', { size: 16 }), h('span', 'New project')),
+          h('a.btn.secondary', { href: link('#/get-project') }, icon('download', { size: 16 }), h('span', 'Get an existing project')))),
+    others.length ? otherFolders(others, profiles) : null,
+    map && map.exists ? groupsLine(data, map, () => { strip.load(); load(); }) : null,
+    computersPanel(data.who));
     // Only when something is not in step: the block on top (nothing is drawn when all is in step).
     const off = instepBlock(data.instep, { reload: load });
     if (off) body.prepend(off);
-    // The end fold: Sync (the strip), Other folders, Groups, the computers, the projects folder. Shown when it holds something.
-    fill(rest,
-      others.length ? otherFolders(others, profiles) : null,
-      map && map.exists ? groupsLine(data, map, () => { strip.load(); load(); }) : null,
-      computersPanel(data.who),
-      folderLine(data, load));
-    more.classList.remove('hidden');
-    if (moreLabel) moreLabel.textContent = strip.el.classList.contains('warn') ? 'More: needs a look' : 'More';
+    fill(advanced, folderLine(data, load));
     // Tia's card (or a link) opens a sheet filled in: the owner answers and presses there himself.
     if (!asked && map) {
       asked = true;
@@ -501,14 +486,14 @@ export const placesOf = (d) => (Array.isArray(d.places) && d.places.length ? d.p
 export const placeOfLabel = (label) => (label.includes('/') ? label.slice(0, label.lastIndexOf('/')) : '');
 
 /** With groups in the map: one section per place, the projects folder first, each with its projects (and the ones only in the map). */
-function byPlace(places, ordered, away, rows) {
+function byPlace(places, ordered, away, cards) {
   return h('div.ws-places', places.map((pl) => {
     const ps = ordered.filter((p) => (p.place || '') === pl.id);
     const aw = away.filter((e) => placeOfLabel(e.label) === pl.id);
     return h('section.ws-place', { 'aria-label': pl.id || 'Projects' },
       groupHead(pl.id || 'Projects', ps.length + aw.length),
       pl.id ? h('p.ws-place-sub', pl.members === 'group' ? `In the group ${pl.group}: its projects come with the group's repository` : pl.group && pl.group !== pl.id ? `In the group ${pl.group}` : 'A group of projects') : null,
-      ps.length || aw.length ? rows(ps, aw) : h('p.ws-none', 'No project here yet'));
+      ps.length || aw.length ? h('div.ws-list', cards(ps, aw)) : h('p.ws-none', 'No project here yet'));
   }));
 }
 
@@ -517,7 +502,7 @@ function groupsLine(d, map, reload) {
   const groups = [...new Set(((map.map && map.map.groups) || []).map((g) => g.dir))];
   return h('section.ws-groups', { 'aria-label': 'Groups' },
     groupHead('Groups', groups.length),
-    h('p.ws-place-sub', groups.length ? 'Folders of projects of your own beside the projects folder, kept in the map for every computer.' : 'A folder of projects of your own, for example one for client work.'),
+    h('p.ws-place-sub', groups.length ? 'Folders of projects of your own beside the projects folder, kept in the map for every computer.' : 'A group is a folder of projects of your own beside the projects folder, for example one for client work.'),
     groups.length ? h('div.rows', groups.map((g) => h('div.row.static', h('span.row-icon', icon('folder')),
       h('span.row-main', h('span.row-title', g), h('span.row-sub', ((map.map.groups || []).find((x) => x.dir === g) || {}).url || 'a folder of projects')),
       btn('small ghost', { icon: 'minus', label: 'Take out of the map', title: `Take ${g} out of the map; its folder stays`, onclick: () => removeGroup(g, reload) })))) : null,
@@ -550,7 +535,7 @@ async function rulesSheet() {
   }
 }
 
-/** At the end: where new projects go, and a way to change it. */
+/** Advanced: where new projects go, and a way to change it. */
 function folderLine(d, reload) {
   const mark = h('span.saved-mark', { role: 'status' });
   return h('div.pj-folder',
@@ -617,24 +602,13 @@ function syncResult(p, data) {
   }));
 }
 
-/** A closed fold that reads as one row: its title with one line of state under it (a count, a status). */
-function foldRow(title, sub, body) {
-  return h('details.fold.pj-foldrow',
-    h('summary.fold-summary', h('span.pj-fold-text', h('span.pj-fold-title', title), sub), icon('chevronDown', { size: 18 })),
-    h('div.fold-body', body));
-}
-
 function viewProject(frame, id) {
   const sessionsBox = h('div.pj-wrapsub', skeleton(1));
   const pastBox = h('div');
   const reposBox = h('div', skeleton(1));
-  const reposLabel = h('span.pj-fold-sub', 'Reading…');
-  const reposFold = foldRow('Repositories', reposLabel, h('div.pj-fold-body', reposBox));
   const resultBox = h('div', { 'aria-live': 'polite' });
   const skillsBox = h('div.pj-wrapsub', skeleton(1));
-  const brainBox = h('div.pj-wrapsub');
-  const brainLabel = h('span.pj-fold-sub', '');
-  const brainFold = foldRow('Memory', brainLabel, brainBox);
+  const brainBox = h('div.pj-wrapsub', skeleton(1));
   const needsBox = h('div.pj-wrapsub');
   const advanced = h('div');
   const projectOutBox = h('div');
@@ -649,11 +623,18 @@ function viewProject(frame, id) {
     title,
     page: 'workspace',
     back: link('#/workspace'),
-    backLabel: 'Projects',
+    backLabel: 'Workspace',
+    intro: 'Everything about this project: the sessions in it, its code and the skills used here.',
     primary: { label: 'New session', icon: 'plus', onclick: () => p && newIn(p.dir, p.name) },
-    primaryInHead: true,
-    actions: p ? [editorButton(p.dir, { name: p.name })] : [],
-    body: [sessionsBox, pastBox, reposFold, needsBox, skillsBox, brainFold, fold('project', 'Advanced', advanced)],
+    body: [
+      groupHead('Sessions'), sessionsBox, pastBox,
+      groupHead('Repositories'), h('p.hint.pj-lead', 'Where the code is kept with its history (git). Sync brings each one up to date with its online copy and never decides anything for you.'),
+      reposBox, resultBox,
+      needsBox,
+      groupHead('Skills'), skillsBox,
+      groupHead('AI brain'), brainBox,
+      fold('project', 'Advanced', advanced),
+    ],
   });
   draw(id);
 
@@ -670,8 +651,25 @@ function viewProject(frame, id) {
       ? h('div.rows.pj-sessions', [...list].sort(needsYouFirst).map((s) => sessionRow(s, profiles, () => store.refresh(), { where: repoOf(p, s) })))
       : h('div.rows', h('div.row.static.pj-none', h('span.row-sub', 'No session yet'))));
   }
-  // Earlier conversations: one closed fold under the sessions (the same part as before), only when there are some.
-  const loadPast = () => fill(pastBox, earlier(p));
+  async function loadPast() {
+    let r;
+    try {
+      r = { sessions: await conversationsIn(p.dir) };
+    } catch {
+      return fill(pastBox); // a folder outside the dashboard's folders: nothing to continue from here
+    }
+    if (!alive || !r.sessions.length) return fill(pastBox);
+    let all = false;
+    const paint = () => fill(pastBox,
+      h('p.field-label.pj-sublabel', 'Earlier conversations: continue one where it stopped'),
+      h('div.rows', (all ? r.sessions : r.sessions.slice(0, 4)).map((c) => h('div.row.static.pj-past',
+        h('span.row-icon', icon('text')),
+        h('span.row-main', h('span.row-title', c.title, toolBadge(c.tool)), h('span.row-sub', ago(c.at))),
+        startButton(p.dir, { label: 'Continue', title: 'Continue this conversation in the App', sessionId: c.id, tool: c.tool }),
+        pastDelete(p.dir, c, () => loadPast())))),
+      !all && r.sessions.length > 4 ? h('button.btn.ghost.small.pj-more', { type: 'button', onclick: () => { all = true; paint(); } }, `Show all ${r.sessions.length}`) : null);
+    paint();
+  }
 
   // ---- repositories ----
   const installDir = (r) => (p.workspace ? (r.rel === '.' ? p.id : `${p.id}/${r.rel}`) : p.id);
@@ -695,10 +693,10 @@ function viewProject(frame, id) {
               h('span.row-title', x.rel, h('span.badge.soft', 'not followed')),
               h('span.row-sub.pj-wrap', 'It leads out of the project through a link, so Hoprig does not sync it, install in it or link memory into it.'),
               x.link ? h('span.row-sub.pj-wrap', 'If you made that link yourself (a folder of yours kept elsewhere), say so and Hoprig follows it.') : null)),
-          x.link ? h('div.mrow-actions', btn('small secondary', { icon: 'check', label: 'This link is mine', onclick: () => myLinkSheet(x.link, data && data.home).then((ok) => ok && load(true)) })) : null))));
-    // The one row's status: the project's git state in words, in the colour of "needs a look".
-    reposLabel.textContent = projectWords(p);
-    reposLabel.classList.toggle('attn', needsLook(p));
+          x.link ? h('div.mrow-actions', btn('small secondary', { icon: 'check', label: 'This link is mine', onclick: () => myLinkSheet(x.link, data && data.home).then((ok) => ok && load(true)) })) : null))),
+      h('div.pj-actions',
+        btn('secondary', { icon: 'refresh', label: 'Sync', title: 'Download new changes and upload saved ones; never merges, rebases or overwrites', onclick: (e) => sync(e.currentTarget, false) }),
+        p.workspace ? btn('ghost', { icon: 'plus', label: 'Add a repository', onclick: addRepo }) : null));
   }
 
   /** Run a job from a button: the button says what is happening, the result shows under the repositories. */
@@ -738,9 +736,10 @@ function viewProject(frame, id) {
       syncResult(p, r.data));
   }
 
-  async function addRepo(b) {
+  async function addRepo() {
     const choice = await repoSheet(p, { alive: () => alive });
     if (!choice) return;
+    const b = reposBox.querySelector('.pj-actions .btn.ghost') || reposBox.querySelector('.pj-actions .btn');
     const r = await job(b, '/api/pcsetup/project/add', { name: p.id, ...choice }, 'Adding…');
     if (r && r.ok) fill(resultBox, okBox(`Repository added: ${choice.repo.startsWith(`${p.id}-`) ? choice.repo : `${p.id}-${choice.repo}`}, in the code folder.`));
   }
@@ -761,8 +760,9 @@ function viewProject(frame, id) {
     const open = suggested.suggestions.filter((s) => !s.installed);
     fill(skillsBox,
       h('div.rows',
-        listRow({ href: link(`#/skills/${enc(p.dir)}`), icon: 'book', title: 'Skills',
-          sub: [here.length ? `${here.length} installed here` : 'none installed here yet', open.length ? `${open.length} suggested` : '', forYou ? `${forYou} for you in every project` : ''].filter(Boolean).join(' · ') })));
+        here.map((s) => h('div.row.static', h('span.row-icon', icon('sparkle')), h('span.row-main', h('span.row-title', s.name), h('span.row-sub', s.description || 'no description')))),
+        listRow({ href: link(`#/skills/${enc(p.dir)}`), icon: 'book', title: open.length ? `${plural(open.length, 'skill')} suggested for this project` : 'Skills for this project',
+          sub: [here.length ? `${here.length} installed here` : 'none installed here yet', forYou ? `${forYou} for you in every project` : ''].filter(Boolean).join(' · ') })));
   }
 
   // ---- advanced ----
@@ -770,10 +770,6 @@ function viewProject(frame, id) {
     fill(advanced,
       h('div.pj-adv',
         h('div.inforow', h('div.inforow-top', h('span', 'Folder'), h('strong.pj-wrap', tildePath(p.dir, data.home)))),
-        h('div.pj-actions',
-          btn('small secondary', { icon: 'refresh', label: 'Sync', title: 'Download new changes and upload saved ones; never merges, rebases or overwrites', onclick: (e) => sync(e.currentTarget, false) }),
-          p.workspace ? btn('small secondary', { icon: 'plus', label: 'Add a repository', onclick: (e) => addRepo(e.currentTarget) }) : null),
-        resultBox,
         h('div.pj-actions',
           btn('small secondary', { icon: 'terminal', label: 'Open a terminal here', onclick: async () => {
             try {
@@ -809,22 +805,16 @@ function viewProject(frame, id) {
       fill(reposBox, emptyState('folder', `There is no project "${id}" in ${tildePath(data.projectsDir, data.home)} on this computer.`, h('a.btn.secondary', { href: link('#/workspace') }, 'All projects')));
       fill(skillsBox);
       fill(brainBox);
-      reposLabel.textContent = '';
       return;
     }
     const first = !p;
     p = found;
     if (first) {
-      draw(p.name); // the frame keeps these boxes: drawing it again with the real name (and Open code) moves nothing
+      if (p.name !== id) draw(p.name); // the frame keeps these boxes: drawing it again with the real name moves nothing
       loadPast();
       loadSkills();
       needsBlock(needsBox, p.dir);
-      projectBrain(brainBox, p.name).then(() => {
-        if (!alive) return;
-        const n = brainBox.querySelectorAll('a.row').length;
-        brainLabel.textContent = n ? plural(n, 'file') : 'nothing yet';
-        if (!n) fill(brainBox, h('p.hint', 'Nothing remembered for this project yet.'));
-      });
+      projectBrain(brainBox, p.name);
     }
     paintSessions();
     paintRepos();
@@ -903,7 +893,7 @@ function viewNewProject({ frame, sub }) {
     named = decodeURIComponent(sub || '');
   } catch {}
   if (!NAME_RE.test(named)) named = '';
-  frame({ title: 'New project', page: 'new-project', back: link('#/workspace'), backLabel: 'Projects', intro: 'Makes a ready folder. You see it first.',
+  frame({ title: 'New project', page: 'new-project', back: link('#/workspace'), backLabel: 'Workspace', intro: 'A new project folder, ready for coding, and if you give a brief an AI session that sets it up from it. You see everything it creates before anything is made.',
     body: [named ? h('p.banner.info.pj-from', icon('folder', { size: 18 }), h('span', `Named after the folder you picked. The project is made new in your projects folder; that folder stays where it is: move its files into the project, or ask in a session there.`)) : null, box] });
   let alive = true;
   // brief, kind: as typed (newproject.js); start: "Start with AI"; choices and v: the session's choices and his picks.
@@ -1056,7 +1046,7 @@ const folderName = (s) => specName(s).replace(/(.)-workspace$/, '$1');
 function viewGetProject({ frame, sub }) {
   store.viewing = null;
   const box = h('div.pj-wizard');
-  frame({ title: 'Get an existing project', page: 'get-project', back: link('#/workspace'), backLabel: 'Projects', intro: 'Downloads a project from GitHub.', body: [box] });
+  frame({ title: 'Get an existing project', page: 'get-project', back: link('#/workspace'), backLabel: 'Workspace', intro: 'Download a project you already have on GitHub (or another git server) to this computer.', body: [box] });
   let alive = true;
   // "#/get-project/<address>": a project of the workspace map that is not on this computer yet ("Get it").
   let spec = '';
@@ -1121,6 +1111,6 @@ function viewGetProject({ frame, sub }) {
   };
 }
 
-registerPage({ id: 'workspace', title: 'Projects', icon: 'folder', group: 'main', order: 10, perComputer: true, render: viewProjects });
+registerPage({ id: 'workspace', title: 'Workspace', icon: 'folder', group: 'main', order: 10, perComputer: true, render: viewProjects });
 registerPage({ id: 'new-project', title: 'New project', icon: 'plus', navAs: 'workspace', perComputer: true, render: viewNewProject });
 registerPage({ id: 'get-project', title: 'Get an existing project', icon: 'download', navAs: 'workspace', perComputer: true, render: viewGetProject });

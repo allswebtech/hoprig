@@ -12,9 +12,12 @@ import fs from 'node:fs';
 export const SSH_OPTS = ['-o', 'BatchMode=yes', '-o', 'ConnectTimeout=10', '-o', 'ServerAliveInterval=15', '-o', 'ServerAliveCountMax=3'];
 
 /** ssh arguments for the tunnel: local 127.0.0.1:localPort -> remoteHost:remotePort as seen from the target. */
-export function tunnelArgs({ target, localPort, remoteHost, remotePort, extra = [] }) {
+export function tunnelArgs({ target, localPort, remoteHost, remotePort, extra = [], reverse = null }) {
   const rh = remoteHost.includes(':') ? `[${remoteHost}]` : remoteHost;
-  return [...SSH_OPTS, ...extra, '-o', 'ExitOnForwardFailure=yes', '-N', '-L', `127.0.0.1:${localPort}:${rh}:${remotePort}`, '--', target];
+  // `reverse`: the hub-provider relay's port on this computer (src/hubprov): ONE more forward on the same ssh, a port that
+  // sshd picks on the other computer's loopback (port 0; it prints "Allocated port N"), leading back to that relay.
+  const back = Number.isInteger(reverse) && reverse > 0 && reverse < 65536 ? ['-R', `127.0.0.1:0:127.0.0.1:${reverse}`] : [];
+  return [...SSH_OPTS, ...extra, '-o', 'ExitOnForwardFailure=yes', '-N', '-L', `127.0.0.1:${localPort}:${rh}:${remotePort}`, ...back, '--', target];
 }
 
 /**
@@ -195,6 +198,9 @@ export async function revokeOverSsh(target, tokenId, opts = {}) {
   if (r.ok || r.code !== 'failed' || !/unknown option --yes/.test(r.message)) return r;
   return runHoprig(target, ['tokens', 'revoke', tokenId], o);
 }
+
+/** Bring the hub mark of this dashboard's token up to date there: the token goes on the remote input, never on a command line. */
+export const markHubOverSsh = (target, token, opts = {}) => runHoprig(target, ['tokens', 'mark-main'], { timeoutMs: 20_000, ...opts, stdin: `${token}\n` });
 
 /** https URL without characters a shell would act on inside double quotes. */
 const SAFE_URL_RE = /^https:\/\/[A-Za-z0-9._~:/?#%+=&@-]+$/;

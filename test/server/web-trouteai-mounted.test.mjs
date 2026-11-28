@@ -40,18 +40,14 @@ test('#/providers?show=gateways and ?show=trouteai land on the page; nothing els
   }
   for (const f of fs.readdirSync(new URL('../../web/', import.meta.url)).filter((x) => x.endsWith('.js'))) {
     const src = read(f);
-    assert.doesNotMatch(src, /trouteaiPanel|gatewaysPanel/, `${f}: the old cards are gone`);
+    assert.doesNotMatch(src, /trouteaiPanel/, `${f}: the old TRouteAI card is gone`);
   }
   assert.ok(FakeElement);
 });
 
-test('the gateways of other computers, with Use here, are one closed fold of the page, drawn only when another computer is linked', async () => {
-  const { otherComputers } = await import('../../web/gateways.js');
-  assert.equal(otherComputers(null, () => {}), null);
-  assert.equal(otherComputers({ computers: [{ machine: null, label: 'here', state: 'online', gateways: [{ id: 'x', title: 'X', installed: true, running: true }] }] }, () => {}), null, 'this computer is the page itself');
-  const f = otherComputers({ computers: [{ machine: null, state: 'online', gateways: [] }, { machine: 'box', label: 'Box', state: 'online', gateways: [{ id: 'x', title: 'X', installed: true, running: true, ready: true, shared: true }] }] }, () => {});
-  const text = (n) => (typeof n === 'string' ? n : n && n.text !== undefined ? n.text : n && n.children ? n.children.map(text).join(' ') : '');
-  assert.match(text(f), /Gateways on your computers/);
-  assert.match(text(f), /Use here/);
-  assert.match(read('trouteaipage.js'), /const others = otherComputers\(gws, load\);/);
+test('the panel of the gateways on your computers has Use here; the gateway page does not repeat it', () => {
+  const gateways = read('gateways.js');
+  assert.match(gateways, /panel\(\{ id: 'gateways', icon: 'swap', title: 'Gateways on your computers'/);
+  assert.match(gateways, /label: 'Use here'/);
+  assert.doesNotMatch(read('trouteaipage.js'), /otherComputers|Gateways on your computers/);
 });

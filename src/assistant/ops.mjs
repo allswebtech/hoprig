@@ -346,7 +346,7 @@ export function createOps(o) {
     async assistantSettings() {
       const a = cfg().assistant;
       // Her small acts on Hoprig itself (hoprigact.mjs) follow the ONE switch the owner has for what she does by herself:
-      // Settings → Tia, What she may do alone, "Tia acts by herself" (config operator.acts). No key of their own.
+      // the Operator page, What Tia does by herself, "Tia acts by herself" (config operator.acts). No key of their own.
       const base = a && typeof a === 'object' && !Array.isArray(a) ? a : {};
       return { ...base, actAlone: cfg().operator?.acts === true };
     },

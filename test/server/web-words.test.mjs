@@ -109,7 +109,7 @@ test('New-session defaults: the coding tool\'s own default, the model Claude Cod
   assert.deepEqual(toolWords(false).dflt, ['', 'Claude Code\'s own default']);
   assert.doesNotMatch(toolWords(false).desc, /another coding tool/);
   assert.deepEqual(toolWords(true).dflt, ['', 'The coding tool\'s own default']);
-  assert.match(toolWords(true).desc, /The model is for Claude Code only/);
+  assert.match(toolWords(true).desc, /another coding tool in the App takes the mode and the effort/);
 });
 
 test('the starting pill names the coding tool that starts, by its own name', async () => {
@@ -173,10 +173,10 @@ test('rare things under a closed Advanced: Pause all automations, the map\'s lis
   assert.match(ws, /fold\('settings-map-list', 'Advanced',/, 'every repository of the map, under Advanced');
   assert.match(ws, /h\('div\.savebar\.start', rare \? null : update\(\),/, '"Update the map" is not offered first while the map keeps itself up to date');
   assert.doesNotMatch(ws, /openSheet\(\{ title: 'Update the map', subtitle: 'From what is on this computer', wide: true \}/, 'not a tall wide sheet for a few lines');
-  // The brain's Switch on: in Get started and on Memory (only while it is not linked), with its Coding tools under a fold; not on Setup, Skills or Settings → Workspace.
+  // The brain's Link now: in Get started, Skills and the AI brain page's own Coding tools part; not on Setup or Settings → Workspace.
   assert.doesNotMatch(read('web/pcsetup.js'), /linkBrainNote/);
-  assert.match(read('web/brain.js'), /linkBrainNote\(\{ switchOn: true/);
-  assert.doesNotMatch(read('web/skillhub.js'), /linkBrainNote/);
+  assert.doesNotMatch(read('web/brain.js'), /linkBrainNote\(/);
+  assert.match(read('web/skillhub.js'), /linkBrainNote\(\{ only: \['skills'\]/);
   assert.match(read('web/getstarted.js'), /kind === 'link-brain'/);
 });
 

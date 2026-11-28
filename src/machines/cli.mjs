@@ -14,7 +14,7 @@ import { createLinkCode } from './link.mjs';
 import { tokenName } from './names.mjs';
 import { CODE_TTL_MS, cancelCode, codeStatus, createCode, dashboardAddress, listening, pairInfo, rawDashboardAddress as dashboardAddressRaw } from './pairing.mjs';
 import { loadMachines, publicMachine } from './store.mjs';
-import { createToken, listTokens, revokeToken } from './tokens.mjs';
+import { createToken, listTokens, markHubByToken, revokeToken } from './tokens.mjs';
 import { needsYes } from '../yes.mjs';
 
 export const USAGE = `usage:
@@ -33,6 +33,8 @@ export const USAGE = `usage:
   hoprig tokens [--json]              who may control this computer
   hoprig tokens revoke <id | name> [--yes]
                                          take that right away (asks first; --yes: without asking)
+  hoprig tokens mark-main             mark the token on standard input as your main computer's (the main
+                                         computer does this over SSH for a link made by an early build; not typed by hand)
 
   hoprig machines [--json]            the other computers this dashboard shows
   hoprig machines add <user@host>     add one by SSH (key login; nothing to open in a firewall)
@@ -162,6 +164,17 @@ async function tokens(args) {
     }
     if (o.json) console.log(JSON.stringify({ hoprig: 'revoked', revoked: gone }));
     else for (const t of gone) console.log(`Revoked: ${t.name} (${t.id}). That dashboard can no longer control this computer.`);
+    return 0;
+  }
+  if (sub === 'mark-main') {
+    // The hub that added this computer by SSH, bringing the mark up to date: the token is on the input, never printed.
+    if (o._.length > 1) throw new Error('usage: hoprig tokens mark-main (the token on standard input)');
+    const t = markHubByToken(await readStdin());
+    if (!t) {
+      console.error('No stored token matches the one on the input.');
+      return 1;
+    }
+    console.log(`${t.name} is marked as your main computer.`);
     return 0;
   }
   if (sub !== undefined) throw new Error(`unknown tokens command "${sub}"`);

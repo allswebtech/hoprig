@@ -36,14 +36,14 @@ test('a terminal with a command still running in the background stays Finished, 
   assert.equal(bgCommandNote(s), BG_COMMAND_LINE);
 });
 
-test('Home\'s group is Ready (finished and ended), its fold line says so, the list says the same', () => {
+test('Home\'s group is Finished (waiting and ended), its fold line says so, the list says the same', () => {
   const g = GROUPS.find((x) => x[0] === 'waiting');
-  assert.equal(g[1], 'Ready');
+  assert.equal(g[1], 'Finished');
   assert.deepEqual(g[2], ['waiting', 'ended'], 'the keys stay');
-  assert.equal(foldLine(12), 'Ready for more than 6 hours: 12');
-  assert.equal(foldLine(1), 'Ready for more than 6 hours: 1');
+  assert.equal(foldLine(12), 'Finished more than 6 hours ago: 12');
+  assert.equal(foldLine(1), 'Finished more than 6 hours ago: 1');
   const machines = [{ machine: null, machineLabel: 'W', status: 'online', sessions: [{ name: 'a', kind: 'chat', chatId: 'a', status: 'waiting', cwd: '/w/a' }] }];
-  assert.deepEqual(sideGroups(machines, { group: 'state' }).map((x) => x.label), ['Ready']);
+  assert.deepEqual(sideGroups(machines, { group: 'state' }).map((x) => x.label), ['Finished']);
 });
 
 test('Settings, the notifications and Tia\'s cards use the same words', () => {

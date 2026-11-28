@@ -28,6 +28,7 @@ const ALLOWED = {
   'src/setup/movegateway.mjs': 'the import of the base file',
   'src/server/accounts.mjs': 'imports its set-up',
   'web/accounts.js': 'the import of its panel',
+  'web/app.js': 'its address on the list of pages of the dashboard',
   'web/gatewayacts.js': 'its manage presses on its own page',
   'web/page-gatewaymanage.css': 'the look of its own page',
   'web/publiclink.js': 'the name of its public address in Settings, Public link, with its page as the place to change it',

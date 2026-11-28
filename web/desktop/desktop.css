@@ -359,11 +359,3 @@ button.dfiles-crumb:hover { background: var(--surface-3); color: var(--text); }
   .dapp-tr { gap: 6px; padding: 0 6px; }
   .dapp-st-sub { display: none; }
 }
-
-/* A finger: the apps' small controls (tool buttons, sort heads, name buttons, row buttons) have a 44 by 44 press area. */
-@media (pointer: coarse) {
-  :root:root :is(.dapp-btn, .dapp-sort, .dfiles-name, .dapp-link, .dfiles-tool, .dapp-table .btn.dapp-act, .dapp-table .dapp-lock, .dapp-bar .seg, .dapp-view .seg) { min-height: 44px; }
-  :root:root :is(.dapp-btn, .dapp-table .btn.dapp-act, .dapp-table .dapp-lock, .dfiles-tool, .dapp-bar .seg, .dapp-view .seg) { min-width: 44px; }
-  :root:root .dapp-sort { min-width: 44px; justify-content: flex-start; }
-  :root:root .dfiles-foot a { display: inline-flex; align-items: center; min-height: 44px; }
-}

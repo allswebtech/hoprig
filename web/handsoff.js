@@ -206,7 +206,7 @@ export const OWNER_ACTS = [
  */
 export function consentSheetBody(close) {
   return [
-    h('p.sheet-text', 'Hands-off answers the questions your coding tool would put to you, picking the option the tool marks as recommended, so the work carries on instead of waiting for you. If the tool has not marked a recommended answer, it gives your note for the project (Settings → New sessions → Hands-off) as a written answer where the tool takes one; without a note that question still waits for you. A plan in the App is approved, and the session keeps the mode it had. A plan in a terminal waits for you.'),
+    h('p.sheet-text', 'Hands-off answers the questions your coding tool would put to you, picking the option the tool marks as recommended, so the work carries on instead of waiting for you. If the tool has not marked a recommended answer, it gives your note for the project (Settings → Hands-off) as a written answer where the tool takes one; without a note that question still waits for you. A plan in the App is approved, and the session keeps the mode it had. A plan in a terminal waits for you.'),
     h('p.ho-consent-head', h('strong', 'These always stay yours. When Hoprig sees the session about to do one of these, it stops and asks you first:')),
     h('ul.ho-consent-acts', OWNER_ACTS.map((a) => h('li', h('strong.ho-consent-act', a.title), h('span.ho-consent-why', a.plain)))),
     h('p.sheet-text', 'Hoprig reads each command before it runs to catch these. It is careful, not perfect: a session that deliberately disguises a command could still slip one past it.'),

@@ -1,0 +1,14 @@
+// The same call with the beta value taken from a constant of the router (one export away).
+import { OAUTH_BETA } from '../router.mjs';
+export async function readOne(p, fetchImpl = fetch) {
+  const key = p.env && p.env.CLAUDE_CODE_OAUTH_TOKEN;
+  const res = await fetchImpl('https://api.example.com/v1/messages/count_tokens', {
+    method: 'POST',
+    headers: {
+      authorization: `Bearer ${key}`,
+      'anthropic-beta': OAUTH_BETA,
+    },
+    body: '{}',
+  });
+  return res.status;
+}

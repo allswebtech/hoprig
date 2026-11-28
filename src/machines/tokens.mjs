@@ -73,6 +73,17 @@ export function markHub(id, hub) {
   return publicToken(next.find((x) => x.id === id), readUse());
 }
 
+/**
+ * `hoprig tokens mark-main`: the token presented (read from standard input, never an argument) is one of the stored
+ * tokens: it is marked as a hub's of the owner's, once. A hub that added this computer by SSH before tokens carried the mark
+ * brings its own token up to date this way. → the public entry, or null when no stored token matches.
+ */
+export function markHubByToken(token) {
+  const t = verifyToken(typeof token === 'string' ? token.trim() : token);
+  if (!t) return null;
+  return t.hub === true ? publicToken(t, readUse()) : markHub(t.id, true);
+}
+
 const revokeListeners = new Set();
 /**
  * Call `fn({ id, name, keys })` after each revoke (`keys`: how many gateway keys ended with it). Returns the function

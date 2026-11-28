@@ -79,6 +79,8 @@ function CHANGED(old) {
     // Also added: whether "Also use pay-per-use providers" is on, so a provider's page says before "Use in Auto mode"
     // that the press turns it on (off in this home). One field added, every field 0.2.6 sent kept.
     j.payPerUse = false;
+    // Also added: when the limits were last read on the Providers page's Refresh (null: not yet). One field added.
+    j.limitsReadAt = null;
   }
   return old;
 }

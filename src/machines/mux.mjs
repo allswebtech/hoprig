@@ -36,6 +36,8 @@ export const HEADER = 9;
 export const MAX_PAYLOAD = 64 * 1024;
 export const WINDOW = 256 * 1024;
 export const MAX_STREAMS = 64;
+// Streams the LINKED computer opens (hub providers, src/hubprov): their ids carry this bit, the hub's never do.
+export const REVERSE = 0x40000000;
 
 export function encode(type, id, payload = Buffer.alloc(0)) {
   const b = Buffer.allocUnsafe(HEADER + payload.length);
@@ -86,8 +88,9 @@ export class Decoder {
  * owner then closes the connection).
  */
 export class Mux {
-  constructor({ role, send, connectLocal = null, onError = () => {}, window = WINDOW, maxStreams = MAX_STREAMS }) {
-    Object.assign(this, { role, send, connectLocal, onError, window, maxStreams });
+  constructor({ role, send, connectLocal = null, connectRemote = null, onError = () => {}, window = WINDOW, maxStreams = MAX_STREAMS }) {
+    Object.assign(this, { role, send, connectLocal, connectRemote, onError, window, maxStreams });
+    this.nextReverse = 1;
     this.decoder = new Decoder();
     this.streams = new Map();
     this.nextId = 1;
@@ -108,6 +111,20 @@ export class Mux {
   }
 
   #frame({ type, id, payload }) {
+    if (type === T.OPEN && this.role === 'hub' && (id & REVERSE) !== 0) {
+      // The linked computer opens a stream, and it ends in ONE place on the hub: the hub-provider relay (connectRemote),
+      // never a host or a port the other side names. A hub without that feature, or a full one, refuses.
+      if (!this.connectRemote || this.streams.has(id) || this.streams.size >= this.maxStreams) return this.send(encode(T.RESET, id));
+      let sock;
+      try {
+        sock = this.connectRemote();
+      } catch {
+        sock = null;
+      }
+      if (!sock) return this.send(encode(T.RESET, id));
+      this.#attach(id, sock);
+      return;
+    }
     if (type === T.OPEN) {
       // Only the hub opens streams, and only to the linked computer's own dashboard.
       if (this.role !== 'machine' || this.streams.has(id) || this.streams.size >= this.maxStreams || !this.connectLocal) return this.send(encode(T.RESET, id));
@@ -180,7 +197,20 @@ export class Mux {
       return null;
     }
     const id = this.nextId;
-    this.nextId = (this.nextId % 0x7fffffff) + 1;
+    this.nextId = (this.nextId % 0x3fffffff) + 1;
+    this.send(encode(T.OPEN, id));
+    this.#attach(id, sock);
+    return id;
+  }
+
+  /** Linked computer's side: a socket of this process becomes a stream to the hub's relay. Returns the id, or null. */
+  openToHub(sock) {
+    if (this.role !== 'machine' || this.closed || this.streams.size >= this.maxStreams) {
+      sock.destroy();
+      return null;
+    }
+    const id = (REVERSE | this.nextReverse) >>> 0;
+    this.nextReverse = (this.nextReverse % 0x3fffffff) + 1;
     this.send(encode(T.OPEN, id));
     this.#attach(id, sock);
     return id;

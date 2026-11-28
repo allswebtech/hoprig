@@ -27,6 +27,8 @@ export function oneCard(list) {
   const keyed = list.filter((c) => !(c.shellLeft && plainShell(c))).map((c) => ({ c, key: keyOf(c) }));
   const inTerminal = new Set(keyed.filter((x) => x.c.kind !== 'chat' && !x.key.startsWith('term:')).map((x) => x.key));
   const along = new Set(keyed.filter((x) => x.c.kind === 'chat' && !x.c.running && inTerminal.has(x.key)).map((x) => x.key));
+  // The title the App gave a conversation, kept for its card while a terminal runs it and has none of its own yet.
+  const chatTitle = new Map(keyed.filter((x) => x.c.kind === 'chat' && x.c.display && x.c.display !== 'New session').map((x) => [x.key, x.c.display]));
   const seen = new Set();
   const out = [];
   for (const { c, key } of keyed) {
@@ -34,7 +36,8 @@ export function oneCard(list) {
     const terminal = c.kind !== 'chat';
     if (!terminal && inTerminal.has(key)) continue; // the terminal's card is the conversation's
     seen.add(key);
-    out.push({ ...c, key, where: terminal ? 'terminal' : 'app', ...(terminal && along.has(key) ? { readAlong: true } : {}) });
+    const kept = terminal && !c.display && chatTitle.get(key);
+    out.push({ ...c, ...(kept ? { display: kept } : {}), key, where: terminal ? 'terminal' : 'app', ...(terminal && along.has(key) ? { readAlong: true } : {}) });
   }
   return out;
 }

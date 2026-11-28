@@ -12,17 +12,26 @@ test('a window at 78 % and a week at 75 % is not yet near', () => {
 test('80 % is near (information), 100 % is reached (stopped work), with the reset time', () => {
   const [near] = detectProvider({ providers: [plan('plan-a', 80, 40)] }, { now: NOW });
   assert.equal(near.class, 'info');
-  assert.deepEqual(near.facts, ['the five-hour window: 80 % used, resets at 16:00 UTC']);
+  assert.deepEqual(near.facts, ['5-hour limit: 80% used, resets in 2 h']);
   const [full] = detectProvider({ providers: [plan('plan-b', 60, 100)] }, { now: NOW });
   assert.equal(full.class, 'stopped');
-  assert.deepEqual(full.facts, ['the week: 100 % used, resets at 2026-03-14 09:00 UTC']);
+  assert.deepEqual(full.facts, ['Weekly limit: 100% used, resets in 3 days']);
 });
 
 test('a sign-in that is gone is stopped work and leads to Providers', () => {
   const [it] = detectProvider({ providers: [plan('plan-c', 10, 10, { signedIn: false })] }, { now: NOW });
   assert.equal(it.class, 'stopped');
   assert.match(it.facts[0], /sign-in is gone/);
-  assert.equal(it.acts[0].href, '#/providers');
+  assert.equal(it.acts[0].href, '#/providers/plan-c', 'the sign-in opens that provider own page');
+  assert.equal(it.acts[0].label, 'Open Providers to sign in');
+  const [near] = detectProvider({ providers: [plan('plan-d', 90, 10)] }, { now: NOW });
+  assert.equal(near.acts[0].href, '#/providers', 'a limit opens the list');
+});
+
+test('the limit line has the words of Providers, a reset in minutes, and none when the reset has passed', () => {
+  const two = detectProvider({ providers: [{ name: 'p', signedIn: true, usage: { fiveHour: { pct: 96.4, resetsAt: new Date(NOW + 130 * 60_000).toISOString() }, week: { pct: 85, resetsAt: new Date(NOW - 60_000).toISOString() } } }] }, { now: NOW })[0];
+  assert.deepEqual(two.facts, ['5-hour limit: 96% used, resets in 2 h 10 min', 'Weekly limit: 85% used']);
+  assert.ok(two.facts.every((f) => !/UTC| %/.test(f)));
 });
 
 test('a gateway that runs but does not answer its port: restart it', () => {

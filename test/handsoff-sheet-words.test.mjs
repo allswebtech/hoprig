@@ -36,7 +36,7 @@ const page = () => flat(fs.readFileSync(new URL('../docs/HANDS-OFF.md', import.m
 
 // The sentences both say, word for word.
 const SAME = [
-  'If the tool has not marked a recommended answer, it gives your note for the project (Settings → New sessions → Hands-off) as a written answer where the tool takes one; without a note that question still waits for you.',
+  'If the tool has not marked a recommended answer, it gives your note for the project (Settings → Hands-off) as a written answer where the tool takes one; without a note that question still waits for you.',
   'A plan in the App is approved, and the session keeps the mode it had',
   'A plan in a terminal waits for you.',
 ];

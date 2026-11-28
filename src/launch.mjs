@@ -29,6 +29,7 @@ import { markAll, unmarkAll } from './allmark.mjs';
 import { startAsHers } from './assistant/hersignin.mjs';
 import { credsDir } from './workspace/credlinks.mjs';
 import { endedAtStart, endedLine, noteStartFailure } from './startfail.mjs';
+import { revokeSessionKeys } from './hubprov/localkeys.mjs';
 
 /**
  * The account Auto mode runs Claude Code as (see router.mjs), or null when no order is set. The router is not started.
@@ -559,6 +560,7 @@ function runOnce(profile, args, cfg, { interactive = false, fallback = false, fi
     }, 500);
 
     const done = (code) => {
+      revokeSessionKeys(env); // a hub provider's session key ends with its session
       clearInterval(watch);
       clearTimeout(killTimer);
       process.off('SIGINT', onInt);

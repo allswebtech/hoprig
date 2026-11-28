@@ -149,9 +149,9 @@ export function toolCard(ev, o = {}) {
     if (!quiet) fill(input, inputView(e, o.cwd));
     if (!el.dataset.touched) el.open = wantsOpen(e);
   };
-  /** The transcript view changed: every call opens (Verbose) or folds to its line; one that failed folds too (its line says failed). */
+  /** The transcript view changed: every call opens (Verbose) or folds to its line; one that failed stays open. */
   el.applyView = (v) => {
-    el.open = v === 'verbose';
+    el.open = v === 'verbose' || el.classList.contains('chat-is-err');
   };
   el.addEventListener('toggle', () => (el.dataset.touched = '1'));
   if (ev.input) el.finish(ev);
@@ -186,6 +186,7 @@ export function toolCard(ev, o = {}) {
     const code = last.toolKind === 'shell' ? exitCode(r.text) : null;
     fill(said, r.ok || unwritten ? null : code !== null ? `failed · exit ${code}` : 'failed');
     if (unwritten) fill(input);
+    if (!r.ok) el.open = true;
     const kind = last.toolKind;
     if (kind === 'edit' && r.ok) {
       if (r.diff && r.diff.length) {

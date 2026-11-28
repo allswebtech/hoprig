@@ -243,18 +243,20 @@ test('--again: the step summary of a GitHub run gets the files that passed only 
   assert.ok(md.includes(`\n- \`${fixture('again-once.mjs').split(path.sep).join('/')}\` (second run: tests 2, pass 2, fail 0): \`fails on its first run only\`: made-up failure of the first run only\n`), md);
 });
 
-test('the workflows of every push and of Windows run the tests with --again, a release runs them plainly, and CONTRIBUTING.md says so', () => {
+test('the workflows of every push, of Windows and of a release run the tests with --again, and CONTRIBUTING.md says so', () => {
   const runs = (f) => [...fs.readFileSync(path.join(root, '.github', 'workflows', f), 'utf8').matchAll(/^\s*- run: ((?:npm test|node tools\/test\.mjs)\b.*)$/gm)].map((m) => m[1]);
-  for (const f of ['test.yml', 'windows.yml']) {
+  for (const f of ['test.yml', 'windows.yml', 'release.yml']) {
     assert.ok(runs(f).length > 0, f);
     for (const line of runs(f)) assert.match(line, /(^| )--again( |$)/, `${f}: ${line}`);
   }
-  assert.deepEqual(runs('release.yml'), ['npm test'], 'a release must pass plainly');
+  assert.deepEqual(runs('release.yml'), ['npm test -- --again'], 'a release runs the tests as the test workflow does');
+  const rel = fs.readFileSync(path.join(root, '.github', 'workflows', 'release.yml'), 'utf8');
+  assert.match(rel, /name: tag, changelog and tests\n[^]*?timeout-minutes: 40\n/, 'the whole suite takes 15 to 19 minutes on a runner');
   const page = fs.readFileSync(path.join(root, 'CONTRIBUTING.md'), 'utf8').replace(/\n\s*/g, ' ');
   assert.match(page, /The workflows run the tests with `--again`/);
   assert.ok(page.includes('"⚠ PASSED ONLY ON ITS SECOND RUN:"'), 'the marker the runner prints');
   assert.match(page, /a defect to look at, a test that depends on timing or on another test, not a pass to ignore/);
-  assert.match(page, /At most three files run again, never one the seal marked, and a release runs without it/);
+  assert.match(page, /At most three files run again, never one the seal marked, and a release runs the tests the same way/);
   assert.match(page, /`node tools\/test\.mjs --again test\/x\.test\.mjs`, or `HOPRIG_TEST_AGAIN=1 npm test`/);
 });
 

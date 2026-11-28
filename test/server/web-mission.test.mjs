@@ -272,7 +272,7 @@ test('a mission\'s screen is not drawn again for the same answer, and keeps the 
   serve([m]);
   const p = viewMission(content, m.id);
   await settle();
-  const back = content.all().find((x) => x.tag === 'a' && /Plans/.test(x.textContent));
+  const back = content.all().find((x) => x.tag === 'a' && /Team/.test(x.textContent));
   back.focus();
   await p.refresh();
   assert.equal(document.activeElement, back, 'the same answer: the same link, nothing drawn again');
@@ -280,7 +280,7 @@ test('a mission\'s screen is not drawn again for the same answer, and keeps the 
   serve([{ ...m, line: [{ at: '2026-11-19T09:00:00.000Z', task: null, words: 'Something happened' }] }]);
   await p.refresh();
   assert.match(content.textContent, /Something happened/);
-  assert.ok(content.contains(document.activeElement), 'drawn again: the focus is on the new Plans link');
+  assert.ok(content.contains(document.activeElement), 'drawn again: the focus is on the new Team link');
   assert.equal(document.activeElement.dataset.key, 'back');
   p.stop();
 });

@@ -84,7 +84,7 @@ export async function apply(actions, ctx) {
   const sync = actions.find((x) => x.type === 'sync');
   // Said once to an owner who had keeping in step on: projects used to be fetched and pushed by it, and no longer are.
   if (sync && !data.saidOnDemand) {
-    ctx.notify({ title: 'Workspace: a project is kept in step when you ask', message: 'This covers the AI brain, your groups\' own repositories and the other repositories. The projects are looked at every 30 minutes and before a session starts: a clean branch that is only behind is moved by itself, anything else is listed as Not in step on the Projects page; hoprig sync <name> brings one in step when you ask. Committed work on branches other than the default one can go up by itself: Settings → Workspace → Push my other branches.', session: '' });
+    ctx.notify({ title: 'Workspace: a project is kept in step when you ask', message: 'This covers the AI brain, your groups\' own repositories and the other repositories. The projects are looked at every 30 minutes and before a session starts: a clean branch that is only behind is moved by itself, anything else is listed as Not in step on the Workspace page; hoprig sync <name> brings one in step when you ask. Committed work on branches other than the default one can go up by itself: Settings → Workspace → Push my other branches.', session: '' });
     data = { ...data, saidOnDemand: true };
   }
   if (sync) {

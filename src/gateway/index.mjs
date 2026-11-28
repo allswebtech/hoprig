@@ -47,6 +47,7 @@ import { RateLimiter } from '../server/auth.mjs';
 import { apiError, forward, unreachable } from './forward.mjs';
 import { firstCheck } from '../providers/check.mjs';
 import { GATEWAY_ID_RE, createKey, listKeys, looksLikeKey, removeKey, setShared, sharedProvider, verifyKey } from './keys.mjs';
+import { isSubscriptionToken } from '../secretenv.mjs';
 
 const fail = (status, message, code = null) => Object.assign(new Error(message), { status, ...(code ? { details: { code } } : {}) });
 const sha256 = (s) => crypto.createHash('sha256').update(String(s)).digest();
@@ -129,7 +130,7 @@ export function upstreamAuth(profile, port) {
   }
   if (!LOCAL_HOSTS.has(u.hostname) || Number(u.port || 80) !== port) return null;
   const key = env.ANTHROPIC_AUTH_TOKEN || env.ANTHROPIC_API_KEY || '';
-  if (!key || /^sk-ant-oat/.test(key) || /[\r\n]/.test(key)) return null;
+  if (!key || isSubscriptionToken(key) || /[\r\n]/.test(key)) return null;
   return env.ANTHROPIC_AUTH_TOKEN ? { authorization: `Bearer ${key}` } : { 'x-api-key': key };
 }
 
@@ -482,7 +483,7 @@ export function gatewayFeature(ctx, { hub = null, addons = null, now = Date.now,
       const g = gatewayOr404(m[1]);
       if (b.on === true) {
         const p = localProvider(g);
-        if (!p) throw fail(409, `First add ${g.title} as a provider on ${label()} (Providers → ${g.title} → Use it for my sessions): sharing passes on the key of that provider.`, 'gateway-no-provider');
+        if (!p) throw fail(409, `First add ${g.title} as a provider on ${label()} (Providers → Gateways on your computers → Use here): sharing passes on the key of that provider.`, 'gateway-no-provider');
         setShared(g.id, p.name);
       } else setShared(g.id, null);
       return localView(g, true);
@@ -492,7 +493,7 @@ export function gatewayFeature(ctx, { hub = null, addons = null, now = Date.now,
       const g = gatewayOr404(m[1]);
       const provider = sharedProvider(g.id);
       const p = provider ? readProfile(provider) : null;
-      if (!p || !upstreamAuth(p, g.port)) throw fail(409, `Sharing of ${g.title} is turned off on ${label()}. Turn it on there first: Providers → ${g.title}.`, 'gateway-not-shared');
+      if (!p || !upstreamAuth(p, g.port)) throw fail(409, `Sharing of ${g.title} is turned off on ${label()}. Turn it on there first: Providers → Gateways on your computers.`, 'gateway-not-shared');
       // Asked by a linked hub with its machine token: the key ends when that token is revoked. The owner's login: never.
       const { id, key } = createKey(g.id, typeof b.name === 'string' ? b.name : '', { token: tokenIdOf(req) });
       const cfg = loadConfig().server;

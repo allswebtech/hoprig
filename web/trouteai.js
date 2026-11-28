@@ -7,7 +7,7 @@
 // sheet, while it is open.
 import { icon } from './icons.js';
 import { ago, api, btn, confirmSheet, fill, h, openSheet, toast, until } from './lib.js';
-import { errorBox, field, fold, okBox, skeletonRows } from './shell.js';
+import { errorBox, field, fold, skeletonRows } from './shell.js';
 import { gatewayPageLink } from './gateways.js';
 import { plainHost } from './health.js';
 import { trouteaiPage } from './trouteaipage.js';
@@ -35,18 +35,6 @@ export function limitLine(w) {
 
 const say = (e) => toast(e, { kind: 'error', ms: 9000 });
 
-/** The plain-text rows of the lowest window of an account's limits: its lowest percent left, or null. */
-export function lowestLeft(lim) {
-  const w = lim && Array.isArray(lim.windows) ? lim.windows.filter((x) => Number.isFinite(x.percentLeft)) : [];
-  return w.length ? Math.min(...w.map((x) => x.percentLeft)) : null;
-}
-
-/** One account in one compact line: its state in a word, and the lowest window left while it works. */
-export function accountLine(a, lim) {
-  const left = lowestLeft(lim);
-  return [STATE_WORDS[a.state], a.state === 'ok' && left !== null ? `${left}% left` : null].filter(Boolean).join(' · ');
-}
-
 /** The sentence under Open TRouteAI on a page that is not on this computer, while its public address is off. */
 export const publicOffWords = (state) => `TRouteAI opens from here once its public address is on (Public address, below). On ${state.computer} itself it opens at http://127.0.0.1:${state.port}/.`;
 
@@ -57,7 +45,7 @@ export const publicOffWords = (state) => `TRouteAI opens from here once its publ
  */
 export async function openGatewayPage(state, hint = () => {}) {
   const onThatComputer = LOOPBACK.includes(location.hostname);
-  if (!onThatComputer && !state.publicUrl) return hint(publicOffWords(state));
+  if (!onThatComputer && !state.publicUrl) return hint(publicOffWords(state), state.goPublic ? btn('small secondary', { label: 'Go to Public address', onclick: state.goPublic }) : null);
   const host = onThatComputer ? plainHost(location.hostname, state.signedIn || []) : null;
   if (onThatComputer && !host) {
     const l = gatewayPageLink(`http://localhost:${state.port}/`, { title: 'TRouteAI', pageHost: location.hostname, signedIn: state.signedIn || [] });
@@ -298,73 +286,38 @@ export function combosPart(state) {
 
 // ---------- the new page's parts (web/trouteaipage.js) ----------
 
-/** One account as one compact line that opens its sheet: an icon for its state, its name, and its state in a word. */
-export function compactRow(a, lim, onOpen) {
-  return h('button.row.tr-compact', { type: 'button', onclick: onOpen },
-    h('span.row-icon', icon(a.state === 'ok' ? 'check' : a.state === 'off' ? 'power' : 'alert')),
-    h('span.row-main', h('span.row-title', a.name), h('span.row-sub', accountLine(a, lim))),
-    icon('chevronRight', { size: 18 }));
-}
-
-/** The sheet of one account: its provider, state, limits, and Test, Read its limits now, Turn off or on, Remove. `done()` draws the page again. */
-export function accountSheet(a, lim, state, done) {
-  const out = h('div', { role: 'status' });
-  const bars = h('div.tr-limits', lim && lim.windows && lim.windows.length ? lim.windows.map(limitLine) : null);
-  const note = h('p.hint', lim && lim.message && !(lim.windows && lim.windows.length) ? lim.message : '');
+/**
+ * One account as it was before: its provider, state, what it says and its limits, with Test, Turn off or on and Remove
+ * on the row itself. `reload()` draws the page again after a press.
+ */
+export function accountRow(a, lim, state, reload) {
+  const press = async (fn) => {
+    try {
+      await fn();
+    } catch (e) {
+      say(e);
+    }
+    reload();
+  };
   const id = encodeURIComponent(a.id);
-  const sentence = [STATE_WORDS[a.state], a.lastTested ? `tested ${ago(a.lastTested)}` : null, a.limitedUntil ? `back ${until(a.limitedUntil)}` : null].filter(Boolean).join(' · ');
-  return openSheet({ title: a.name, subtitle: a.provider }, (close) => [
-    h('p.sheet-text', sentence),
-    a.says ? h('p.tr-says', a.says) : null,
-    bars, note, out,
-    h('div.sheet-actions.tr-sheetacts',
-      btn('secondary', { label: 'Test', onclick: async (e) => {
-        const me = e.currentTarget;
-        me.disabled = true;
-        fill(out, h('p.hint', 'Testing…'));
-        try {
-          const r = await api(T(`/accounts/${id}/test`), { confirm: state.computer });
-          fill(out, r.valid ? okBox(`${a.name} works.`) : errorBox(r.says || 'The test failed.'));
-          done();
-        } catch (er) {
-          fill(out, errorBox(er));
-        }
-        me.disabled = false;
-      } }),
-      btn('secondary', { label: 'Read its limits now', onclick: async (e) => {
-        const me = e.currentTarget;
-        me.disabled = true;
-        try {
-          const r = await api(T(`/limits?account=${id}`));
-          const l = r.limits && r.limits[a.id];
-          fill(bars, ...(l && l.windows ? l.windows.map(limitLine) : []));
-          fill(note, l && l.message && !(l.windows && l.windows.length) ? l.message : '');
-          done();
-        } catch (er) {
-          fill(out, errorBox(er));
-        }
-        me.disabled = false;
-      } }),
-      btn('secondary', { label: a.on ? 'Turn off' : 'Turn on', onclick: async () => {
-        try {
-          await api(T(`/accounts/${id}/on`), { confirm: state.computer, on: !a.on });
-          close(true);
-          done();
-        } catch (er) {
-          fill(out, errorBox(er));
-        }
-      } }),
-      btn('danger', { label: 'Remove', onclick: async () => {
-        if (!(await confirmSheet({ title: `Remove ${a.name}?`, text: `TRouteAI forgets this account and its key or sign-in. You can add it again later.`, ok: 'Remove', danger: true }))) return;
-        try {
-          await api(T(`/accounts/${id}/remove`), { confirm: state.computer });
-          close(true);
-          done();
-        } catch (er) {
-          fill(out, errorBox(er));
-        }
-      } })),
-  ]);
+  return h('div.row.static.tr-row',
+    h('span.row-icon', icon(a.state === 'ok' ? 'check' : a.state === 'off' ? 'power' : 'alert')),
+    h('span.row-main',
+      h('span.row-title', a.name, h('span.hint', ` · ${a.provider}`)),
+      h('span.row-sub', [STATE_WORDS[a.state], a.lastTested ? `tested ${ago(a.lastTested)}` : null, a.limitedUntil ? `back ${until(a.limitedUntil)}` : null].filter(Boolean).join(' · ')),
+      a.says ? h('span.row-sub.tr-says', a.says) : null,
+      lim && lim.windows && lim.windows.length ? h('span.tr-limits', lim.windows.map(limitLine)) : null,
+      lim && lim.message && !(lim.windows && lim.windows.length) ? h('span.row-sub', lim.message) : null),
+    h('span.tr-acts',
+      btn('small secondary', { label: 'Test', onclick: () => press(async () => {
+        const r = await api(T(`/accounts/${id}/test`), { confirm: state.computer });
+        toast(r.valid ? `${a.name} works` : `${a.name}: ${r.says}`, { kind: r.valid ? 'info' : 'error', ms: 8000 });
+      }) }),
+      btn('small secondary', { label: a.on ? 'Turn off' : 'Turn on', onclick: () => press(() => api(T(`/accounts/${id}/on`), { confirm: state.computer, on: !a.on })) }),
+      btn('small secondary', { label: 'Remove', onclick: async () => {
+        if (!(await confirmSheet({ title: `Remove ${a.name}?`, text: `TRouteAI on ${state.computer} forgets this account and its key or sign-in. You can add it again later.`, ok: 'Remove', danger: true }))) return;
+        press(() => api(T(`/accounts/${id}/remove`), { confirm: state.computer }));
+      } })));
 }
 
 /** The keys Hoprig made in TRouteAI, with Remove, in a sheet (Manage → Keys Hoprig made). */

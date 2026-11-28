@@ -35,7 +35,7 @@ jobs:
     name: tag, changelog and tests
     if: github.repository == 'allswebtech/hoprig'
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 40
     steps:
       - name: The run is the tag's own (its provenance names the tag's commit)
         run: |
@@ -62,7 +62,8 @@ jobs:
       - name: tmux (the end-to-end test also runs on it)
         run: sudo apt-get update && sudo apt-get install -y tmux
       - run: npm ci
-      - run: npm test
+      # The same run as the test workflow (--again), so a release checks exactly what that checks.
+      - run: npm test -- --again
 
   release:
     name: GitHub release

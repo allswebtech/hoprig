@@ -35,7 +35,7 @@ const PHONE_TOP = { width: 390, height: 520 }; // the first screen's picture on 
 // A desktop screen that starts further down its page: the element brought up to just under the page's sticky head.
 // Providers: the list of providers itself (the Auto mode panel above it is the auto-mode picture). Taken from the top,
 // its heading "PROVIDERS 4" sat on the bottom edge (a sliver at 2176) and the first card was cut there.
-const SCROLL_TO = { providers: '.group-head' };
+const SCROLL_TO = { providers: '.group-head', 'auto-mode': '#at-limit' };
 fs.mkdirSync(OUT, { recursive: true });
 
 const { launchChrome } = await import(path.join(ROOT, 'tools/chrome.mjs'));

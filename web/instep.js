@@ -1,4 +1,4 @@
-// "Not in step": the block on the Projects page (and a computer's page) that lists what is NOT in step between this
+// "Not in step": the block on the Workspace page that lists what is NOT in step between this
 // computer and its git servers, and shows nothing at all when everything is. One row and one button each (src/workspace/
 // instep.mjs, GET /api/workspace/instep): Show opens the project, Get it brings what the git server has.
 //   instepList()                       the list from the server (the last look; no network on the computer)

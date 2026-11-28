@@ -1,4 +1,4 @@
-// A start refused because new starts are held ("Lift the hold in Settings → Tia to start now.") carries the code of
+// A start refused because new starts are held ("Lift the hold on the Operator page to start now.") carries the code of
 // the Operator page beside its words (web/errorways.js turns it into a button to that page): a session's start and a
 // chat's open. Nothing starts while the hold stands.
 import assert from 'node:assert/strict';
@@ -48,11 +48,11 @@ test('a held start says so with the Operator page\'s code; its words stay; nothi
     const s = await d.req('/api/sessions', { dir: work, profile: 'sub', mode: 'new' });
     assert.equal(s.status, 409, by);
     assert.equal(s.json.code, 'operator-page', `${by}: a session's start`);
-    assert.match(s.json.error, /hold new starts for about \d+ min more.*Lift the hold in Settings → Tia to start now\.$|holds new starts for about \d+ min more.*Lift the hold in Settings → Tia to start now\.$/);
+    assert.match(s.json.error, /hold new starts for about \d+ min more.*Lift the hold on the Operator page to start now\.$|holds new starts for about \d+ min more.*Lift the hold on the Operator page to start now\.$/);
     const c = await d.req('/api/chats', { dir: work, profile: 'sub', text: 'hello' });
     assert.equal(c.status, 409, by);
     assert.equal(c.json.code, 'operator-page', `${by}: a chat's open`);
-    assert.match(c.json.error, /Lift the hold in Settings → Tia to start now\.$/);
+    assert.match(c.json.error, /Lift the hold on the Operator page to start now\.$/);
   }
   assert.equal((await d.list()).length, 0, 'nothing started');
   liftHold();

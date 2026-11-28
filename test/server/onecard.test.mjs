@@ -44,3 +44,12 @@ test('a shell the owner opened is keyed by its name; another tool keys by its ow
   assert.equal(keyOf(term('c', { tool: 'codex', kind: 'claude', sessionId: Y })), `codex:${Y}`);
   assert.equal(keyOf(term('c', { sessionId: null })), 'term:c', 'a new conversation whose id nobody knows yet');
 });
+
+test('a terminal with no title of its own keeps the title the chat of that conversation had', () => {
+  const [c] = oneCard([term('proj', { sessionId: X, title: '' }), chat(X, { display: 'Limit the cart requests' })]);
+  assert.equal(c.display, 'Limit the cart requests');
+  const [own] = oneCard([term('proj', { sessionId: X, display: 'Its own title' }), chat(X, { display: 'Limit the cart requests' })]);
+  assert.equal(own.display, 'Its own title', 'a title the terminal has is kept');
+  const [plain] = oneCard([term('proj', { sessionId: X, title: '' }), chat(X, { display: 'New session' })]);
+  assert.equal(plain.display, undefined, 'the chat placeholder is no title');
+});

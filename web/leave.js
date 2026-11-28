@@ -62,7 +62,7 @@ function viewLeave({ frame }) {
     if (!report) {
       return fill(lookBox, looking
         ? h('div.empty', h('div.spinner', { 'aria-hidden': 'true' }), h('p', 'Looking at the whole computer… this can take a minute.'))
-        : emptyState('search', 'Nothing looked at yet on this page.')); // the one Look now is the page's own button
+        : emptyState('search', 'Nothing looked at yet on this page.', btn('primary', { icon: 'search', label: 'Look now', onclick: look })));
     }
     const r = report;
     const parts = [];
@@ -150,7 +150,7 @@ function viewLeave({ frame }) {
     title: TITLE,
     page: 'leave',
     back: '#/computers',
-    intro: 'Only reads. Nothing is sent or deleted.',
+    intro: 'This page looks at the whole computer for what exists only here: work on no git server, folders in no git, keys, databases and settings. It only reads: it never uploads, moves or deletes anything.',
     primary: { label: 'Look now', icon: 'search', onclick: look },
     body: [hint, lookBox, pushBox],
   });

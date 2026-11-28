@@ -315,7 +315,8 @@ test('setup and fix: Tia sends the kits or the check, never a password and never
   assert.throws(() => checkRoute('POST', '/api/public-link', { on: true }, stubCtx()), /turning the public link on is the owner's own press/);
   assert.throws(() => checkRoute('POST', '/api/public-link', { on: true, kind: 'custom' }, stubCtx()), /"kind" is the owner's to send/);
   assert.throws(() => checkRoute('POST', '/api/public-link', { on: false, password: 'x' }, stubCtx()), /"password" is the owner's to send/);
-  assert.throws(() => checkRoute('POST', '/api/machines/ssh', { target: 'a@b' }, stubCtx()), /not a route Tia's tools use/);
+  // Adding a computer is the owner's own step (pair): the acts file names it, so the door says so.
+  assert.throws(() => checkRoute('POST', '/api/machines/ssh', { target: 'a@b' }, stubCtx()), /not a route Tia's tools use|owner's own step/);
   for (const p of ['/api/addons/public-link/start', '/api/addons/public-link/do/fixed-on', '/api/public-link/custom/sign-in', '/api/public-link/temporary/add-service']) {
     assert.throws(() => checkRoute('POST', p, {}, stubCtx()), `${p} is refused`);
   }

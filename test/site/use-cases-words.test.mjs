@@ -31,7 +31,7 @@ test('no use case says the Mac installs were checked read-only: the installs ran
 });
 
 test('the Providers picture is described as the README describes it: what the picture shows', () => {
-  const alt = 'The Providers page: four providers, the first two numbered in Auto mode\'s order, Claude Max with its 5-hour and weekly limits, and a Sign in button for one that is not signed in';
+  const alt = 'The Providers page: a line that says 4 can work, 2 are at a limit and 3 need a sign-in, Refresh, the providers in groups with one button each, and the panel When an account reaches its limit';
   assert.ok(fs.readFileSync(path.join(ROOT, 'README.md'), 'utf8').includes(`<img src="docs/screenshots/accounts-desktop-light.webp" alt="${alt}"`), 'the README\'s alt text');
   const page = pages.find(([f]) => f === 'api-key-or-gateway.md')[1];
   assert.ok(page.includes(`![${alt}](/screenshots/accounts-desktop-light.webp)`), 'the use case says the same');

@@ -140,11 +140,11 @@ test('the page sends only the id and the name, says why, and never presses Enter
   assert.doesNotMatch(web, /health\/line[^\n]*(enter|owner)/i);
 });
 
-test('the README and the changelog say what Setup does with a line that needs administrator rights', () => {
+test('the README and the changelog say what Health does with a line that needs administrator rights', () => {
   const root = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
   const flat = (p) => fs.readFileSync(path.join(root, p), 'utf8').replace(/\s+/g, ' ');
   const readme = flat('README.md');
-  assert.match(readme, /On \*\*Setup\*\*, each problem has its press under it: \*\*Fix\*\* where Hoprig can do it, a link to the page that does it, or \*\*Sign in\*\* for Claude Code\./);
+  assert.match(readme, /On \*\*Health\*\*, each problem has its press under it: \*\*Fix\*\* where Hoprig can do it, a link to the page that does it, or \*\*Sign in\*\* for Claude Code\./);
   assert.match(readme, /\*\*Open a terminal with this line\*\* opens a new terminal session with the line typed: you press Enter yourself/);
   const log = flat('site/content/changelog.md');
   const at = log.indexOf('### Easier when you are not a programmer');

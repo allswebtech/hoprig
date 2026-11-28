@@ -7,7 +7,7 @@ import { loadConfig } from '../config.mjs';
 import { MACHINE_RE, dashboardUrl, label as cleanLabel, machineName, slug, sshHost, sshTarget, tokenName, uniqueSlug } from './names.mjs';
 import { API_VERSION, normalizeCode } from './pairing.mjs';
 import { NOT_ALLOWED, RelayError, callJson } from './relay.mjs';
-import { installHint, installOverSsh, installSource, pairOverSsh, remoteUid, revokeOverSsh, runHoprig } from './ssh.mjs';
+import { installHint, installOverSsh, installSource, markHubOverSsh, pairOverSsh, remoteUid, revokeOverSsh, runHoprig } from './ssh.mjs';
 import { ROOT_LOGIN_WHY, USER_NAME_RE, stayRootChoice } from '../setup/rootfacts.mjs';
 import { withUser } from './movehub.mjs';
 import { getMachine, loadMachines, publicMachine, putMachine, removeMachine, renameMachine, saveMachines } from './store.mjs';
@@ -392,5 +392,7 @@ export function createHub({ ssh = {}, tunnels = new Tunnels({ ...Object.fromEntr
     }
   }
 
-  return { tunnels, hubName, hubLabel, endpoint, probe, health, list, sessions, stateOfMachine, addBySsh, addByUrl, remove, rename, install, installStatus, close: () => tunnels.closeAll() };
+  /** A computer added by SSH on an early build holds this dashboard's token without the hub mark: brought up to date over the same ssh. */
+  const markHubOverSshOf = (m) => (m && m.via === 'ssh' && m.token ? markHubOverSsh(m.target, m.token, { ...ssh, sshExtra: sshExtraOf(m) }) : Promise.resolve({ ok: false, code: 'failed', message: 'not added by SSH' }));
+  return { tunnels, hubName, hubLabel, endpoint, probe, health, list, sessions, stateOfMachine, addBySsh, addByUrl, markHubOverSsh: markHubOverSshOf, remove, rename, install, installStatus, close: () => tunnels.closeAll() };
 }

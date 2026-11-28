@@ -8,20 +8,13 @@ import { icon } from './icons.js';
 import { api, btn, confirmSheet, fill, h, openSheet, toast, wayLink } from './lib.js';
 import { modelPicker } from './modelpicker.js';
 import { leadSwitch } from './leadswitch.js';
-import { errorBox, fold, groupHead, skeletonRows } from './shell.js';
+import { errorBox, groupHead, skeletonRows } from './shell.js';
 import { sessionLink, timeText } from './workdo.js';
 import { whoText } from './workitems.js';
 
 const enc = encodeURIComponent;
 const ROW_WORDS = { ready: 'A plan to look at', working: 'A session is planning', unreadable: 'The proposal could not be read', failed: 'Planning ended without a proposal' };
 const ROW_ICONS = { ready: 'sparkle', working: 'clock', unreadable: 'alert', failed: 'alert' };
-
-/** The coding tool, provider, model and effort: closed (advanced), and open only while a provider is still to be chosen. */
-const planMore = (needsProvider, body) => {
-  const d = fold('plan-more', 'More options', body);
-  if (needsProvider) d.open = true;
-  return d;
-};
 
 /**
  * The proposals that wait for the owner, as rows: each opens its proposal screen. A ready one is named by his own goal;
@@ -92,10 +85,6 @@ export function planMissing(project, provider) {
   const miss = [project ? null : 'the project the goal is about', provider ? null : 'a provider'].filter(Boolean);
   return miss.length ? `Choose ${miss.join(' and ')}.` : '';
 }
-
-let planWays = () => [];
-/** The other ways to a plan, offered in the sheet (workplans.js sets them: write it yourself, give it to Tia). */
-export const setPlanWays = (fn) => (planWays = fn);
 
 export function planWithAiSheet(data, again = null) {
   return openSheet({ title: 'Plan with AI', subtitle: 'A session researches your goal and proposes a plan', tall: true }, (close) => {
@@ -173,7 +162,7 @@ export function planWithAiSheet(data, again = null) {
           load({ project: x, tool: v.tool });
         }),
         others.length ? h('div.fieldrow', h('span.field-label', 'Also about'), also) : null,
-        planMore(!(v.provider || c.provider), h('div.wk-trio',
+        h('div.wk-trio',
           c.tools.length > 1 ? select('Coding tool', v.tool || c.tool, c.tools.map((x) => [x.id, x.name]), (x) => {
             v.tool = x;
             v.provider = null;
@@ -189,15 +178,10 @@ export function planWithAiSheet(data, again = null) {
           // The provider's own models (src/models/catalog.mjs), asked when the sheet is drawn.
           modelPicker({ provider: v.provider || c.provider, tool: v.tool || c.tool, value: v.model || c.model || '', key: 'Model',
             emptyLabel: c.model ? `Default (${c.model})` : 'Default', onchange: (x) => (v.model = x || null) }),
-          select('Effort', v.effort || c.effort || '', [['', c.effort ? `Default (${c.effort})` : 'Default'], ...c.efforts.filter((x) => x !== c.effort).map((x) => [x, x])], (x) => (v.effort = x || null)))),
+          select('Effort', v.effort || c.effort || '', [['', c.effort ? `Default (${c.effort})` : 'Default'], ...c.efforts.filter((x) => x !== c.effort).map((x) => [x, x])], (x) => (v.effort = x || null))),
         leadSwitch({ value: typeof v.lead === 'boolean' ? v.lead : c.lead === true, provider: v.provider || c.provider || null, tool: v.tool || c.tool, onchange: (on) => (v.lead = on), others: v.others || c.others || [], onothers: (l) => (v.others = l) }),
         project && (v.provider || c.provider) ? h('p.wk-do-line', icon('info', { size: 16 }),
           h('span', `A session starts in ${project}, in the App so you can watch. It reads the project (and the web where it can) and writes a research note and a draft plan with milestones and dated tasks. Nothing is created before you accept it.`)) : null,
-        // The other two ways to a plan are rows here, so the page has one button for all three (not for a plan done again).
-        again ? null : h('div.wk-plan-ways', planWays(data).map((w) => btn('small ghost', { icon: w.icon, label: w.label, onclick: () => {
-          close(null);
-          w.run();
-        } }))),
         // Why Plan is grey stands beside it, in the footer that stays in view, not below the first screen.
         h('div.sheet-actions', project && (v.provider || c.provider) ? null : h('span.wk-left.wk-plan-missing', planMissing(project, v.provider || c.provider)),
           h('button.btn.secondary', { type: 'button', onclick: () => close(null) }, 'Cancel'), go)));

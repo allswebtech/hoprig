@@ -135,10 +135,7 @@ test('structure: the main pages, the second group, the Settings pages, and old a
   const group = (g) => pages.filter((m) => m[2] === g).sort((a, b) => a[3] - b[3]).map((m) => m[1]);
   assert.deepEqual(group('main'), ['work', 'workspace', 'providers', 'computers'], 'Home is the router\'s own, then Work · Workspace · Providers · Computers');
   // Automations has no page of its own any more: Work → Schedules, Settings → Automations, Work → Activity.
-  // The menu is Home, Work, Workspace, Providers, Computers and Settings last (shell.js menuItems); no More page.
-  // Skills and Memory are tabs of Projects (navAs: 'workspace'); Tia has no item of her own (her button and Settings -> Tia); her page lights Home, as the App chat does.
-  assert.deepEqual(group('more'), ['settings']);
-  assert.match(src('tia.js'), /registerPage\(\{\s*id: 'tia', title: NAME, icon: 'sparkle', navAs: 'home'/);
+  assert.deepEqual(group('more'), ['operator', 'skills', 'brain', 'tia', 'settings']);
   // Every address in PAGE_ADDRESSES (what Tia's open_screen may open) leads to a page that exists.
   const ids = new Set([...pages.map((m) => m[1]), ...[...pageFiles().map(src).join('\n').matchAll(/registerPage\(\{\s*id: '([a-z-]+)'/g)].map((m) => m[1])]);
   const list = /export const PAGE_ADDRESSES = \[([\s\S]*?)\];/.exec(src('app.js'))[1];
@@ -146,7 +143,7 @@ test('structure: the main pages, the second group, the Settings pages, and old a
   assert.ok(addresses.length > 20);
   for (const a of addresses) {
     const first = a.slice(2).split('/')[0];
-    assert.ok(first === '' || ['new'].includes(first) || a === '#/more' || ids.has(first), `${a} leads to a page`);
+    assert.ok(first === '' || ['new', 'more'].includes(first) || ids.has(first), `${a} leads to a page`);
   }
   // The Settings pages, in the order of the list (registry.js SETTINGS_ORDER wins over a file's own number): the design's
   // order, nothing else. Editor, Coding tools, About, Work and Field reports are cards of other pages now.
@@ -205,7 +202,7 @@ test('one floating thing on a phone: Tia is a button in the page head there, the
   const before = registeredHeadTools().length;
   registerHeadTool(() => null);
   assert.equal(registeredHeadTools().length, before + 1);
-  assert.match(src('shell.js'), /h\('div\.head-icons', registeredHeadTools\(\)/, 'the page head draws the registered buttons next to the Settings gear');
+  assert.match(src('shell.js'), /h\('div\.head-icons', registeredHeadTools\(\)/, 'the page head draws the registered buttons next to light/dark');
   assert.match(src('tia.js'), /registerHeadTool\(/);
   const css = src('page-automations.css').replace(/\/\*[\s\S]*?\*\//g, '');
   assert.match(css, /@media \(max-width: 899px\) \{\s*\.tia-launch \{ display: none; \}/, 'no round launcher on a phone');
@@ -267,7 +264,7 @@ test('AI brain: a file is shown as safe formatting, never as HTML; the list is g
     dailyLogs: { count: 1, items: [item('d1', { date: '2026-11-14' })] },
     projects: [{ name: 'shop', agents: item('agents'), decisions: null, learnings: null, activeContext: null, memory: { count: 0, items: [] } }],
   });
-  assert.deepEqual(g.map((x) => x.title), ['Rules for every tool', 'What they remembered', 'Learnings and current context', 'Daily logs', 'Pending', 'shop']);
+  assert.deepEqual(g.map((x) => x.title), ['What your coding tools are told everywhere', 'Memory', 'Learnings and current context', 'Daily logs', 'Pending', 'shop']);
   assert.deepEqual(g[1].rows[1], { item: g[1].rows[1].item, title: 'How I work', sub: 'Short answers', chip: 'about you' });
   assert.equal(g[4].rows.length, 0, 'nothing pending: the group says so instead of an empty box');
   // A coding tool's links to make: the count and the names agree (two to make, two named; the linked one is not).
@@ -336,7 +333,7 @@ test('session view: the header holds back, name and state, the account and one m
 // ---------- Home ----------
 test('Home: groups by what the session needs, plain terminals last, and one plain line about the providers', async () => {
   const { GROUPS, groupOf, accountsLine } = await import('../../web/home.js');
-  assert.deepEqual(GROUPS.map((g) => g[1]), ['Needs you', 'Working', 'Ready', 'Terminals']);
+  assert.deepEqual(GROUPS.map((g) => g[1]), ['Needs you', 'Working', 'Finished', 'Terminals']);
   assert.equal(groupOf({ status: 'attention' }), 'needs');
   assert.equal(groupOf({ status: 'waiting', limit: { text: 'x' } }), 'needs', 'a limit needs you');
   assert.equal(groupOf({ status: 'waiting' }), 'waiting', 'a finished turn only waits for the next message');
@@ -521,7 +518,7 @@ test('wording: "provider" and "computer" in everything a visitor reads; Auto mod
   const accounts = fs.readFileSync(path.join(WEB, 'accounts.js'), 'utf8');
   assert.doesNotMatch(accounts, /never stop at a usage limit/);
   assert.match(accounts, /'Stop and ask me'/);
-  assert.match(accounts, /Work continues on the next provider in the order below, without you doing anything\. This is called Auto mode\./);
+  assert.match(accounts, /The work moves to the next provider in the order\. This is called Auto mode\./);
   assert.match(accounts, /On an API provider the session goes on without stopping\./);
   assert.match(accounts, /On another subscription, Claude Code restarts on that provider/);
   const { subscriptionsNote, manySubscriptions } = await import('../../web/lib.js');
@@ -1424,7 +1421,7 @@ test('a sentence that sends him to a switch in Settings opens the page at that s
   const { BYPASS_SWITCH } = await import('../../web/home.js');
   assert.equal(BYPASS_SWITCH, '#/settings/new-sessions?show=bypass');
   assert.match(fs.readFileSync(path.join(WEB, 'home.js'), 'utf8'), /href: BYPASS_SWITCH, onclick: \(\) => seen\(\) \}, 'Open the switch'/);
-  assert.match(fs.readFileSync(path.join(WEB, 'settings.js'), 'utf8'), /const part = partFor\(sub, partOf\(query\), pages\);[\s\S]*if \(part\) showPart\(part, \{ alive: isAlive \}\);/);
+  assert.match(fs.readFileSync(path.join(WEB, 'settings.js'), 'utf8'), /const part = partFor\(sub, partOf\(query\), pages\);\n\s*if \(part\) showPart\(part, \{ alive: isAlive \}\);/);
 });
 
 test('the sign-in code\'s banner opens the switch it names', async () => {

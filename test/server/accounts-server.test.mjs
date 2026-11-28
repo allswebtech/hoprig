@@ -272,6 +272,16 @@ test('sign in again for an existing provider: replaced only on success; everythi
   assert.deepEqual(getAutoSwitch().order, ['work', 'team'], 'its place in the order is kept');
   if (process.platform !== 'win32') assert.equal((fs.statSync(path.join(profilesDir(), 'team.env')).mode & 0o777).toString(8), '600');
 
+  // signed out (its key line gone), then signed in again: the key is back, the signed-out line is gone, the order stays
+  r = await call('/api/accounts/team/signout', {});
+  assert.equal(r.status, 200);
+  assert.ok(!fileOf('team').includes('CLAUDE_CODE_OAUTH_TOKEN') && fileOf('team').includes('SIGNIN=claude'));
+  assert.deepEqual(getAutoSwitch().order, ['work', 'team']);
+  await call('/api/accounts/subscription/start', { mode: 'signin', name: 'team' });
+  r = await call('/api/accounts/subscription/code', { code: 'abcDEF123456#stateXYZ' });
+  assert.equal(r.json.state, 'done');
+  assert.ok(fileOf('team').includes(NEW) && !fileOf('team').includes('SIGNIN=claude'), 'the key is back and the signed-out line is gone');
+
   // a provider that used Claude Code's own stored login gets its sign-in in its own file, under the same name and label
   writeProfile('stored', { label: 'Claude account (stored login)' });
   await call('/api/accounts/subscription/start', { mode: 'signin', name: 'stored' });

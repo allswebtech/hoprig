@@ -66,37 +66,36 @@ export function progressParts(p, { title = 'Progress' } = {}) {
       part('Done', p.done, 'done'), part('Failed or stopped', p.failed, 'failed')) : null);
 }
 
-/** What runs now: one group of rows, nothing at all when nothing runs (Activity's top). */
-export function runningNow(p) {
-  if (!p || !p.running.length) return null;
-  const none = noEstimateLine(p.running);
-  return h('section.wk-section.wk-pulse', groupHead('Running now', p.running.length),
-    h('div.rows', p.running.map((u) => unitRow(u, 'running'))),
-    none ? h('p.wk-pulse-none', none) : null);
-}
-
-/** Activity's "Running now" into `slot` (drawn again on each look of the page). → the progress, or null. */
-export async function paintRunning(slot) {
+/** Today's progress into `slot` (drawn again on each look of the page). → the progress, or null. */
+export async function paintProgress(slot) {
   try {
     const p = await api('/api/work/progress');
-    fill(slot, runningNow(p));
+    fill(slot, progressParts(p));
     // A chat's row takes its title from the store (unitTitle), which may answer after the progress: drawn again when
     // the chats' titles change, until the slot leaves the page.
     let seen = chatKey();
-    if (slot.offRunning) slot.offRunning(); // one listener per slot, however often the page is drawn
-    const off = store.subscribe(() => {
-      if (slot.isConnected === false) return off();
+    let off = null;
+    off = store.subscribe(() => {
+      if (slot.isConnected === false) return off && off();
       const now = chatKey();
       if (now === seen) return;
       seen = now;
-      fill(slot, runningNow(p));
+      fill(slot, progressParts(p));
     });
-    slot.offRunning = off;
     return p;
   } catch {
-    fill(slot); // the rest stands without it
+    fill(slot); // the rest of Today stands without it
     return null;
   }
+}
+
+/**
+ * Today's "Needs you" when it has nothing of its own: [title, sentence]. `waiting`: what Progress above lists as
+ * waiting for him (a finished run to look at, a session's question), so the two never give two answers on one screen.
+ */
+export function needsNoneWords(waiting = 0) {
+  if (waiting) return ['Nothing else needs you', `What waits for you (${waiting}) is under Progress above.`];
+  return ['Nothing needs you right now', 'Tasks due in the next seven days, waiting for you or ready for your review show here, and sessions that need an OK.'];
 }
 
 /** A task's own progress, for its runs sheet: only when something of it runs or waits. */

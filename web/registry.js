@@ -9,8 +9,7 @@ const RESERVED = ['s', 'm', 'new', 'more', 'pc'];
 
 /**
  * A page: `#/<id>` and `#/<id>/<sub>` (and `#/m/<computer>/<id>…` for another computer).
- *   group     'main' (Home · Work · Projects · Providers · Computers; Settings is added last by the menu itself), 'more'
- *             (no longer listed: kept so an old registration still loads) or null (reached from
+ *   group     'main' (Home · Workspace · Providers · Computers), 'more' (the second group) or null (reached from
  *             another page only; `navAs` names the navigation item it lights up)
  *   order     its place in the group
  *   render(ctx)  draws the page with ctx.frame (shell.js) and returns its cleanup function. ctx: { frame,
@@ -25,18 +24,6 @@ export function registerPage({ id, title, icon, group = null, order = 100, navAs
   if (![null, 'main', 'more'].includes(group)) throw new Error(`bad group "${group}"`);
   pages.push({ id, title, icon, group, order, navAs, perComputer, render, visible, badge });
 }
-
-const homeCounts = [];
-/**
- * The one number badge of the menu sits on Home: it is the rows of Home's Needs you. A feature that adds such rows
- * registers `count()` (a number, 0 for none; a hook that throws or answers something else counts as 0) and calls
- * navChanged() when it changes. Nothing registered: Home shows no badge.
- */
-export function registerHomeCount(count) {
-  if (typeof count !== 'function') throw new TypeError('registerHomeCount needs a function');
-  homeCounts.push(count);
-}
-export const homeCount = () => homeCounts.reduce((n, f) => n + (Math.max(0, Math.floor(Number(safe(f, 0)))) || 0), 0);
 
 /** Ask the page to draw the navigation again (a page's visible() or badge() answer changed). */
 export function navChanged() {
@@ -99,7 +86,7 @@ export function registerCardBadge(badge) {
 
 export const registeredSessionActions = () => [...sessionActions];
 
-// Small round buttons in every page head, left of the Settings gear (phone).
+// Small round buttons in every page head, left of the light/dark button.
 const headTools = [];
 /**
  * `make()` returns a 34px button (`.icon-btn`) or null; it is called each time a page head is drawn. The feature

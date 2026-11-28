@@ -503,7 +503,7 @@ test('Tia OFF: no new act of hers starts after the press; the act in flight ends
   await round;
   assert.deepEqual(r.calls, [['move', 'alpha', 'plan-b']], 'the second one is not started');
   assert.equal(o.acts, false);
-  assert.equal(o.said, '"Tia acts by herself" is off: she follows none of her rules on her own and decides nothing by herself. Work you ask of her is not affected.');
+  assert.equal(o.said, '"Tia acts by herself" is off: she follows none of the Operator\'s rules on her own and decides nothing by herself. Work you ask of her is not affected.');
   await r.round();
   assert.deepEqual(r.calls, [['move', 'alpha', 'plan-b']]);
   assert.equal(loadConfig().operator.rules.limit, true, 'OFF keeps the rules as he set them');

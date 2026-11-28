@@ -15,10 +15,11 @@
 // those providers is open (after a reboot, or stopped by the owner) is not started yet: information, not stopped work.
 
 import { act, makeItem } from '../item.mjs';
-import { clock, ms, num, providerName } from './util.mjs';
+import { ms, num, providerName, span } from './util.mjs';
 
 export const NEAR_PCT = 80;
-const WINDOWS = [['fiveHour', 'the five-hour window'], ['week', 'the week']];
+// The names the Providers page uses for the two limits.
+const WINDOWS = [['fiveHour', '5-hour limit'], ['week', 'Weekly limit']];
 
 export function detectProvider(board, { now = Date.now() } = {}) {
   const out = [];
@@ -31,7 +32,9 @@ export function detectProvider(board, { now = Date.now() } = {}) {
       const pct = num(w?.pct);
       if (pct == null || pct < NEAR_PCT) continue;
       worst = Math.max(worst, pct);
-      facts.push(`${words}: ${Math.round(pct)} % used${w.resetsAt ? `, resets at ${clock(w.resetsAt, now)}` : ''}`);
+      // The time left, not a clock time: it needs no time zone. A reset that has passed is not said.
+      const left = ms(w.resetsAt) - now;
+      facts.push(`${words}: ${Math.round(pct)}% used${left > 0 ? `, resets in ${span(left)}` : ''}`);
     }
     if (p.usage?.at) since = ms(p.usage.at);
     const gone = p.signedIn === false;
@@ -63,7 +66,7 @@ export function detectProvider(board, { now = Date.now() } = {}) {
       since,
       state: [gone ? 'signed out' : 'signed in', reached ? 'reached' : worst ? 'near' : 'fine'],
       facts,
-      acts: [act('open', { href: '#/providers', label: gone ? 'Open Providers to sign in' : 'Open Providers' })],
+      acts: [act('open', gone ? { href: `#/providers/${encodeURIComponent(p.name)}`, label: 'Open Providers to sign in' } : { href: '#/providers', label: 'Open Providers' })],
       why: gone ? 'Sign in again on the Providers page.' : reached ? 'Sessions on it stop until the reset; another provider can take them.' : 'It is near its limit: plan the next work on another provider.',
       target: { provider: p.name },
     }));
