@@ -344,7 +344,7 @@ test('money, the stop and Auto mode: a rule and Tia decides spend on a paid prov
     const FOLDER = '/home/owner/projects/api';
     const tryLevel = async (level, cap) => {
       const st = baseState();
-      st.assistant = { enabled: true, level, accounts: ['sub', 'api'], ...(cap == null ? {} : { dailyCapUsd: cap }) };
+      st.assistant = { enabled: true, actAlone: true, level, accounts: ['sub', 'api'], ...(cap == null ? {} : { dailyCapUsd: cap }) };
       const ops = new FakeOps(st);
       const now = () => new Date(2026, 10, 18, 22, 0).getTime();
       const core = createAssistantCore({ ops, now, cards: new CardStore({ now }), audit: new AuditLog({ file: null, now }), jobs: new JobStore({ dir: null, now }), spend: new SpendLedger({ file: null, now }) });

@@ -46,6 +46,8 @@ for (const who of ['self', 'computer']) {
     for (const [method, re, handler] of f.routes) {
       const url = SAMPLES.find((p) => re.test(p));
       assert.ok(url, `a sample path for ${re}`);
+      // The reads answer her own door (below); a computer link without her mark is still refused on them.
+      if (who === 'self' && method === 'GET') { covered++; continue; }
       const req = { method, url, headers: { host: '127.0.0.1' } };
       await assert.rejects(handler(req, re.exec(url)), (e) => e.status === 403, `${method} ${url}`);
       covered++;
@@ -56,6 +58,20 @@ for (const who of ['self', 'computer']) {
     assert.equal(fs.existsSync(path.join(process.env.HOPRIG_STATE_DIR, 'ship')), false, 'nothing written');
   });
 }
+
+test('her door READS the go-live state (the list, one project, the limiter) and every act stays refused', async () => {
+  const ctx = { config: () => ({}), caller: () => 'self', readJson: async () => ({}), backend: { list: async () => [] } };
+  const f = shipFeature(ctx, { projectsDir: () => t.projects, busy: idle });
+  for (const [method, re, handler] of f.routes) {
+    const url = SAMPLES.find((p) => re.test(p));
+    const req = { method, url, headers: { host: '127.0.0.1' } };
+    if (method === 'GET') {
+      const r = await handler(req, re.exec(url));
+      assert.ok(r && typeof r === 'object', `GET ${url} answers her`);
+      assert.ok(!JSON.stringify(r).includes(shop), 'no full path of the project in what she reads');
+    } else await assert.rejects(handler(req, re.exec(url)), (e) => e.status === 403, `${method} ${url}`);
+  }
+});
 
 test('two dashboards on one repository: one goes live, the other is refused and names who holds it', async () => {
   const slow = path.join(t.projects, 'cafe');

@@ -210,7 +210,7 @@ export const ACTS = {
       const before = now && now.plan ? { title: now.plan.title, goal: now.plan.goal } : null;
       await ops.route({ computer: comp(a), method: 'POST', path: `/api/work/plans/${encodeURIComponent(a.item)}`, body: { seen: now.hash, ...a.value } });
       const back = before && Object.keys(a.value).every((k) => k === 'title' || k === 'goal') ? Object.fromEntries(Object.keys(a.value).map((k) => [k, before[k]])) : null;
-      return { summary: `The plan ${a.item} was changed.`, data: { plan: a.item }, audit: { plan: a.item, ...(back ? { undo: undoOf('change-plan', a.item, back) } : { undo: { say: 'change the plan back on the Work page' } }) } };
+      return { summary: `The plan ${a.item} was changed.`, data: { plan: a.item }, audit: { plan: a.item, ...(back ? { undo: { ...undoOf('change-plan', a.item, back), was: a.value } } : { undo: { say: 'change the plan back on the Work page' } }) } };
     },
   },
   'undo-act': {
@@ -235,12 +235,7 @@ export const ACTS = {
     async run(ops, a, ctx) {
       const e = entryOf(ctx, a.item);
       if (!e) throw toolError('no such act in the last 7 days, or it was undone already', 'call hoprig_act with act "list" and word "undo"');
-      const u = e.result.undo;
-      if (!u.act) throw toolError(`that act cannot be undone from here: ${String(u.say || 'no way is recorded').slice(0, 120)}`, 'tell the owner');
-      const inv = ACTS[u.act];
-      const args = { act: u.act, ...(u.item !== undefined ? { item: u.item } : {}), ...(u.value !== undefined ? { value: u.value } : {}), ...(e.input && e.input.computer ? { computer: e.input.computer } : {}) };
-      inv.check(args, ctx);
-      await inv.run(ops, args, ctx);
+      await putBack(ops, e, ctx);
       return { summary: `Undone: ${whatOf(e)}.`, data: { undone: Number(a.item) }, audit: { undid: Number(a.item) } };
     },
   },
@@ -321,6 +316,22 @@ export const ACTS = {
   },
 };
 
+/** The recorded way back of one entry of the audit log, done now: the act the entry's `undo` names (Activity's Undo and undo-act). */
+export async function putBack(ops, e, ctx) {
+  const u = e.result && e.result.undo;
+  if (!u || !u.act || !ACTS[u.act]) throw toolError(`that act cannot be undone from here: ${String((u && u.say) || 'no way is recorded').slice(0, 120)}`, 'tell the owner');
+  const inv = ACTS[u.act];
+  // What she set must still be there: a later change of the owner is never written over.
+  if (u.was && typeof u.was === 'object' && u.act === 'change-plan') {
+    const now = await ops.workPlanOne({ computer: comp(e.input || {}), id: u.item });
+    const p = (now && now.plan) || {};
+    if (!Object.keys(u.was).every((k) => JSON.stringify(p[k]) === JSON.stringify(u.was[k]))) throw toolError('the plan was changed since: left as it is', 'leave it');
+  }
+  const args = { act: u.act, ...(u.item !== undefined ? { item: u.item } : {}), ...(u.value !== undefined ? { value: u.value } : {}), ...(e.input && e.input.computer ? { computer: e.input.computer } : {}) };
+  inv.check(args, ctx);
+  await inv.run(ops, args, ctx);
+}
+
 const mapAuto = (a) => ({ ...(a.value && a.value.enabled !== undefined ? { enabled: a.value.enabled } : {}), ...(a.value && a.value.order ? { order: a.value.order } : {}), ...(a.value && a.value.return_to_preferred !== undefined ? { return_to_preferred: a.value.return_to_preferred } : {}), ...(a.computer ? { computer: a.computer } : {}) });
 const mapSetting = (a) => ({ key: a.item, value: a.value, ...(a.computer ? { computer: a.computer } : {}) });
 const placeWord = (n) => ['first', 'second', 'third', 'fourth', 'fifth', 'sixth', 'seventh', 'eighth', 'ninth', 'tenth'][n - 1];
@@ -328,7 +339,7 @@ const bytesWord = (n) => (n >= 1e9 ? `${(n / 1e9).toFixed(1)} GB` : n >= 1e6 ? `
 
 // What the audit log holds of her acts: any conversation, the last 7 days, not undone yet.
 function undone(entries) {
-  return new Set(entries.filter((e) => e.tool === 'hoprig_act' && e.outcome === 'done' && e.result && Number.isFinite(e.result.undid)).map((e) => e.result.undid));
+  return new Set(entries.filter((e) => e.outcome === 'done' && e.result && Number.isFinite(e.result.undid)).map((e) => e.result.undid));
 }
 function entryOf(ctx, at) {
   if (!ctx || !ctx.audit) return null;

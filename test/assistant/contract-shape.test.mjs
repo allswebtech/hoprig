@@ -37,6 +37,8 @@ function core0(clock) {
   const now = () => clock.t;
   const core = createAssistantCore({ ops, now, audit: new Log({ file: null, now }), cards: new CardStore({ now }), jobs: new JobStore({ dir: null, now }) });
   core.shown.add('c1', { session: ['this|web-ui'] });
+  // the terminal is hers: a message into one of his would be a card (it cannot be taken back)
+  core.jobs.markStarted('this', 'web-ui', 1_700_000_002_000);
   return { ops, call: (t, a, conv = 'c1') => core.call(t, a, { conversation: conv }) };
 }
 

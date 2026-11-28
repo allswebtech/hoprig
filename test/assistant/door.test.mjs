@@ -24,7 +24,7 @@ function stubCtx(answer = () => ({})) {
   const seen = [];
   const ctx = {
     seen,
-    config: () => ({ server: { roots: ['/home/owner/projects'] }, sessionDefaults: { permissionMode: 'default' }, assistant: { enabled: true, level: 'work' } }),
+    config: () => ({ server: { roots: ['/home/owner/projects'] }, sessionDefaults: { permissionMode: 'default' }, assistant: { enabled: true, level: 'work' }, operator: { acts: true } }),
     poke() {},
     notify: async () => ({ sent: false }),
     async dispatch(method, url, body) {
@@ -256,7 +256,7 @@ test('typing into a session: only her text; never the owner\'s own typing (owner
   const ctx = stubCtx();
   ctx.dispatch = async (method, url) => {
     const u = new URL(url, 'http://x');
-    const sessions = [{ name: 's1', kind: 'claude', status: 'waiting', profile: { name: 'sub' }, cwd: '/home/owner/projects/x' }];
+    const sessions = [{ name: 's1', kind: 'claude', status: 'waiting', profile: { name: 'sub' }, cwd: '/home/owner/projects/x', created: 1_700_000_000_000 }];
     if (u.pathname === '/api/state') return { status: 200, json: { sessions } };
     if (u.pathname === '/api/machines/sessions') return { status: 200, json: { machines: [{ status: 'online', sessions }] } };
     if (u.pathname.endsWith('/send')) return { status: 409, json: { error: 'whatever the other computer says', code: 'not_in_front' } };
@@ -266,6 +266,7 @@ test('typing into a session: only her text; never the owner\'s own typing (owner
     ops: createOps({ ctx, runShell: async () => ({}), jobWaitMs: 0 }), cards: new CardStore(), audit: new AuditLog({ file: null }), jobs: new JobStore({ dir: null }),
     skills: new Skills({ dirs: [{ dir: '/nonexistent', source: 'owner' }] }),
   });
+  core.jobs.markStarted('this', 's1', 1_700_000_000_000); // hers: a message into one of his is a card
   await core.call('list_sessions', {}, { conversation: 'door' }); // ids only from her own tool results
   const r = await core.call('send_to_session', { session: 's1', text: 'yes' }, { conversation: 'door' });
   assert.equal(r.isError, true, r.text);
@@ -283,7 +284,7 @@ test('her keys: only the key, never the owner\'s own; refused or half-sent typin
   let answer = null;
   ctx.dispatch = async (method, url) => {
     const u = new URL(url, 'http://x');
-    const sessions = [{ name: 's1', kind: 'claude', status: 'waiting', profile: { name: 'sub' }, cwd: '/home/owner/projects/x' }];
+    const sessions = [{ name: 's1', kind: 'claude', status: 'waiting', profile: { name: 'sub' }, cwd: '/home/owner/projects/x', created: 1_700_000_000_000 }];
     if (u.pathname === '/api/state') return { status: 200, json: { sessions } };
     if (u.pathname === '/api/machines/sessions') return { status: 200, json: { machines: [{ status: 'online', sessions }] } };
     if (u.pathname.endsWith('/send') || u.pathname.endsWith('/key')) return answer;
@@ -293,6 +294,7 @@ test('her keys: only the key, never the owner\'s own; refused or half-sent typin
     ops: createOps({ ctx, runShell: async () => ({}), jobWaitMs: 0 }), cards: new CardStore(), audit: new AuditLog({ file: null }), jobs: new JobStore({ dir: null }),
     skills: new Skills({ dirs: [{ dir: '/nonexistent', source: 'owner' }] }),
   });
+  core.jobs.markStarted('this', 's1', 1_700_000_000_000);
   await core.call('list_sessions', {}, { conversation: 'keys' });
   answer = { status: 409, json: { error: 'whatever the other computer says', code: 'not_in_front' } };
   let r = await core.call('send_to_session', { session: 's1', key: 'Enter' }, { conversation: 'keys' });

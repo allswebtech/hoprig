@@ -8,7 +8,7 @@
 // refusal of the same item as it is now (its rev) is written once, not on every tick.
 
 import { randomBytes } from 'node:crypto';
-import { resolveTia } from '../assistant/tia.mjs';
+import { resolveTia, tiaRaw } from '../assistant/tia.mjs';
 import { BUDGET_DEFAULTS, RULES, RULE_IDS, readOperator, ruleById, ruleFor, ruleOn } from './rules.mjs';
 import { TICK_LINE, mayEndFor, readDecide } from './decide-store.mjs';
 import { engineOwns } from '../mission/seam.mjs';
@@ -172,7 +172,7 @@ export function reflexes({ ctx, perform, fresh, peek = fresh, line, dir, now, ac
     const { session, to } = it.target;
     const acc = await accounts();
     if (acc?.autoSwitch?.enabled === true) throw refusal('auto', 'Auto mode is on and moves sessions at a limit by itself: Tia leaves it to Auto mode');
-    const tia = resolveTia(ctx.config().assistant, acc || { profiles: [] });
+    const tia = resolveTia(tiaRaw(ctx.config()), acc || { profiles: [] });
     if (!tia.allowed.includes(to)) throw refusal('allowed', `${to} is not a provider Tia may use (Settings → Tia). You decide this move yourself.`, true, [], ['tia-settings']);
     // A provider paid per use: her own switch_account asks the owner first unless her level is "Hands off"
     // (policy.mjs), so a rule of hers does not spend that money either.
@@ -195,7 +195,7 @@ export function reflexes({ ctx, perform, fresh, peek = fresh, line, dir, now, ac
     const acc = (await accounts()) || { profiles: [] };
     const pt = paidTyping(it, board, acc);
     if (!pt) return null;
-    const tia = resolveTia(ctx.config().assistant, acc);
+    const tia = resolveTia(tiaRaw(ctx.config()), acc);
     if (tia.level !== 'handsoff') throw refusal('paid', `${pt.what} costs money by use, and Tia types into such a session only at "Hands off" (Settings → Tia): it is yours`, true, [], ['tia-settings']);
     return { what: pt.what, cap: tia.dailyCapUsd, kind: 'type' };
   }

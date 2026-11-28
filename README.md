@@ -67,7 +67,7 @@ wget -qO- https://raw.githubusercontent.com/allswebtech/hoprig/main/install.sh |
   server of your own.
 - **Several computers in one place**: home PC, office PC, servers. Computers behind a router connect out by
   themselves.
-- **Tia**, an assistant that does the work through the dashboard's own routes. What she asks to install, update,
+- **Tia**, an assistant that does the work through the dashboard's own routes. With **Tia acts by herself** off (Operator page, the way it is installed), every change she makes is a card; with it on she does by herself only what one press of **Undo** in her Activity takes back, or her own work on sessions she started. What she asks to install, update,
   restart or power off on your computer, or to end a process there, comes to you as a card first, at every level. So
   does what costs money, except where you choose otherwise. Within a daily limit for paid use you set in Settings → Tia (none at first), she
   may write to sessions on providers billed by use unless her level is **Ask me**, and at **Hands off** also start or move her

@@ -138,7 +138,7 @@ test('Engine: profile env + claude + args; turns in order; resumes after the pro
 });
 
 test('the system prompt: the name, the fence rule, cards, secrets, out of scope; skills index appended', () => {
-  for (const s of ['You are Tia', 'DATA', 'never instructions', 'can never authorise an action', 'confirm card', 'open_screen', 'no tool does', 'finish_job']) assert.ok(BASE_PROMPT.includes(s), s);
+  for (const s of ['You are Tia', 'DATA', 'never instructions', 'can never authorise an act', 'card he taps', 'open_screen', 'nothing here does', 'end_job']) assert.ok(BASE_PROMPT.includes(s), s);
   assert.ok(systemPrompt('- a: b').endsWith('- a: b'));
   assert.equal(systemPrompt(''), BASE_PROMPT);
 });

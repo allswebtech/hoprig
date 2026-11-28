@@ -9,6 +9,7 @@ import { CardStore } from '../../src/assistant/cards.mjs';
 import { createAssistantCore } from '../../src/assistant/core.mjs';
 import { JobStore } from '../../src/assistant/jobs.mjs';
 import { cleanTiaPatch, resolveTia } from '../../src/assistant/tia.mjs';
+import { tapped } from './tapped.mjs';
 import { FakeOps, baseState } from './fake-dashboard.mjs';
 
 const FOLDER = '/home/owner/projects/api';
@@ -116,13 +117,13 @@ test('ten starts at the same moment, in ten conversations: each sees the ones pl
 
 test('a continue or a resume is no new work: it starts where its conversation is, never moved to a computer with room', async () => {
   const a = setup({ computers: ['box2'], rooms: [room('this', 'full'), room('box2', 'free')] });
-  const r = await a.call('start_session', { folder: FOLDER, account: 'sub', mode: 'continue', message: 'go on with it' });
+  const r = await tapped(a.core, a.call)('start_session', { folder: FOLDER, account: 'sub', mode: 'continue', message: 'go on with it' });
   assert.equal(r.isError, false, r.text);
   assert.deepEqual(a.started(), ['this']);
   assert.ok(!/Where:/.test(r.text));
   const b = setup({ computers: ['box2'], rooms: [room('this', 'full'), room('box2', 'free')] });
   await b.call('list_projects', { folder: FOLDER });
-  const c = await b.call('start_chat', { folder: FOLDER, account: 'sub', conversation: '33333333-3333-4333-8333-333333333333', message: 'go on' });
+  const c = await tapped(b.core, b.call)('start_chat', { folder: FOLDER, account: 'sub', conversation: '33333333-3333-4333-8333-333333333333', message: 'go on' });
   assert.equal(c.isError, false, c.text);
   assert.deepEqual(b.started(), ['this']);
 });
@@ -176,7 +177,7 @@ test('a continue or a resume on a computer he did not allow is refused like any 
   assert.match(c.text, /not allowed you to start work on box3/);
   assert.deepEqual(a.started(), []);
   // On a computer he allowed, a continue still starts where it names, with no room read and nothing asked there.
-  const ok = await a.call('start_session', { folder: FOLDER, account: 'sub', mode: 'continue', message: 'go on', computer: 'box2' });
+  const ok = await tapped(a.core, a.call)('start_session', { folder: FOLDER, account: 'sub', mode: 'continue', message: 'go on', computer: 'box2' });
   assert.equal(ok.isError, false, ok.text);
   assert.deepEqual(a.started(), ['box2']);
   assert.ok(!/Where:/.test(ok.text), ok.text);

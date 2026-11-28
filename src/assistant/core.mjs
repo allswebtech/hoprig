@@ -24,14 +24,17 @@ import { toolOf } from '../automation/cards.mjs';
 import { AuditLog } from './audit.mjs';
 import { CardError, CardStore } from './cards.mjs';
 import { ViewStore, makeCard, shortText, validForm } from './cardkinds.mjs';
-import { cardOf, jobProgress, runProgress, needsItems } from './cardmake.mjs';
+import { cardOf, jobProgress, planFields, runProgress, needsItems } from './cardmake.mjs';
+import { PlanStore } from './plans.mjs';
 import { HIDDEN_REMOVED, cleanInput, fence, fenceData, maskShapes, neutralize, stripped } from './fence.mjs';
 import { JobStore } from './jobs.mjs';
-import { decideLevel } from './policy.mjs';
+import { decideLevel, switchGate } from './policy.mjs';
+import { aloneOf } from './takeback.mjs';
+import { createUndo, withUndo } from './undo.mjs';
 import { runConfirmed } from './confirmed.mjs';
-import { SchemaError, validate } from './schema.mjs';
+import { SchemaError, shapeNext, validate } from './schema.mjs';
 import { looksSecret, redact, stringsIn } from './secrets.mjs';
-import { FIRST_CALL, LOCAL, ShownIds } from './shown.mjs';
+import { FIRST_CALL, LOCAL, ShownIds, idsIn, wordsOf } from './shown.mjs';
 import { Skills } from './skills.mjs';
 import { namesWord } from './notewords.mjs';
 import { nextOf } from './next.mjs';
@@ -40,7 +43,7 @@ import { leftOutOfOrder } from '../autoswitch.mjs';
 import { nothingUsableWhy } from '../router.mjs';
 import crypto from 'node:crypto';
 import { ASSISTANT_NAME, DEFAULTS as TIA_DEFAULTS, autoLeftOut, chooseAccount, freePct, resolveTia, servesTool } from './tia.mjs';
-import { OLD_NAMES, ToolError, TOOL_NAMES, byName, statusOf } from './tools.mjs';
+import { EAGER_NAMES, OLD_NAMES, ToolError, byName, statusOf } from './tools.mjs';
 import { adminDeletes, wallHeld, wallKind, WALL_TITLE } from '../wall.mjs';
 import { sudoArgv } from './adminrefused.mjs';
 import { herRightsLevel } from './herrights.mjs';
@@ -71,7 +74,7 @@ const WAKE_OK = new Set(['notify_owner', 'finish_job', 'open_screen', 'watch_ses
 
 /** Turn an id ref from the schema into the ledger key: sessions and pids are per computer. */
 // Everything but a computer, a Claude conversation and a job belongs to one computer: its id is kept with it.
-const GLOBAL_KINDS = new Set(['computer', 'conversation', 'job', 'address']);
+const GLOBAL_KINDS = new Set(['computer', 'conversation', 'job', 'address', 'act']);
 
 /**
  * Repository addresses the owner wrote himself (https, ssh, git@host:path, owner/name): his own words, so they may be
@@ -195,6 +198,9 @@ export function createAssistantCore({
   jobs = null,
   spend = new SpendLedger({ file: null, now }), // the dashboard passes the one kept in its state folder (feature.mjs)
   views = new ViewStore(),
+  plans = new PlanStore({ now }), // the plans of a plan_acts card (plans.mjs)
+  acts = null, // the adapter that runs one act by its id for a plan (plans.mjs); null: the acts file's own, which cannot run
+  watches = null, // the owner's watches (watches.mjs); the dashboard passes the one kept in its state folder
 } = {}) {
   let lastTia = { ...TIA_DEFAULTS };
   jobs ||= new JobStore({ now });
@@ -253,7 +259,7 @@ export function createAssistantCore({
   }
 
   const ctxFor = (conversation, extra = {}) => ({
-    now, conversation, skills, jobs, memo, audit, tia: tiaFor, choose: chooseAccount, freePct,
+    now, conversation, skills, jobs, memo, audit, tia: tiaFor, choose: chooseAccount, freePct, plans, watches, ...(acts ? { acts } : {}),
     // A turn a job woke: the owner may not be looking at the conversation (notify_owner pushes its question too).
     woken: turns.get(conversation)?.origin === 'job', spoken: turns.get(conversation)?.spoken === true, heSaid: heSaid.get(conversation) || '', ...extra,
   });
@@ -449,7 +455,7 @@ export function createAssistantCore({
    * Handle one tool call. opts: { conversation, actor }. Returns { text, isError, card?, ui? } — never throws for
    * anything the caller did; a failure in a handler becomes a plain error result too.
    */
-  async function call(name, rawArgs, { conversation = 'direct', actor = 'assistant', undoOf = null, door: via = 'team' } = {}) {
+  async function call(name, rawArgs, { conversation = 'direct', actor = 'assistant', undoOf = null, door: via = 'team', internal = false } = {}) {
     // An old name answers as the tool it became, through this same door (its input is cleaned and checked there).
     const old = OLD_NAMES.get(name);
     if (old) {
@@ -457,7 +463,7 @@ export function createAssistantCore({
       return { ...r, text: `${r.text}\n${old.note}` };
     }
     const tool = byName.get(name);
-    if (!tool) return { isError: true, text: errorText(`there is no tool "${String(name).slice(0, 40)}"`, `use one of: ${TOOL_NAMES.join(', ')}`) };
+    if (!tool || (tool.internal && !internal)) return { isError: true, text: errorText(`there is no tool "${String(name).slice(0, 40)}"`, `use one of: ${EAGER_NAMES.join(', ')}`) };
     let args;
     let refs;
     // Her input is cleaned once, here: the card shows and the run sends that one value, byte for byte (a text with
@@ -465,12 +471,19 @@ export function createAssistantCore({
     const door = cleanInput(rawArgs);
     try {
       ({ value: args, refs } = validate(tool.input, door.value));
-      if (tool.check) tool.check(args, ctxFor(conversation));
+      if (tool.check) tool.check(args, ctxFor(conversation, { shownHas: (kind, id) => shown.has(conversation, kind, id) }));
     } catch (e) {
       // A tool may name the one call that recovers from a wrong field (recover); else the generic step.
-      if (e instanceof SchemaError) return { isError: true, text: errorText(`invalid input for ${name}: ${e.message}`, tool.recover?.(e.path, rawArgs) || 'fix that field and call again (see the tool schema)') };
+      if (e instanceof SchemaError) return { isError: true, text: errorText(`invalid input for ${name}: ${e.message}`, tool.recover?.(e.path, rawArgs) || shapeNext(tool.input, e.path) || 'fix that field and call again (see the tool schema)') };
       if (e instanceof ToolError) return { isError: true, text: errorText(e.message, e.next, e.detail, name) };
       throw e;
+    }
+    // A tool that sends its call to the tool(s) that do it (look, start_work, steer_work, and do_act for an act a tool of hers
+    // already reaches): its own input is checked above, then each part runs as a call of that tool, with that tool's own
+    // checks, level, card and audit. The new names add no way past a rule: a part is a call like any other.
+    if (tool.forwards) {
+      const parts = tool.forwards(args);
+      if (parts) return forwardParts(parts, { conversation, actor, undoOf, door: via, internal: true });
     }
     // A question with answers as buttons shows her words as they are: one with characters nobody can see is refused,
     // as Do it's brief refuses one, so the owner never taps an answer that says more than he sees.
@@ -532,7 +545,7 @@ export function createAssistantCore({
       const key = REPEATS.has(name) ? repeatKey(conversation, name, args) : null;
       const was = key && recent.get(key);
       if (was && now() - was.at < REPEAT_MS) return repeated(await was.text);
-      let d = decideLevel(tool, args, f, tia);
+      let d = switchGate(tool, decideLevel(tool, args, f, tia), tia, args, f);
       if (d.refuse) {
         log('refused', { error: d.refuse });
         return { isError: true, text: errorText(d.refuse, d.next) };
@@ -558,6 +571,19 @@ export function createAssistantCore({
         const words = heSaid.get(conversation) || '';
         if (![args.computer, c && c.label].some((w) => w && namesWord(words, w))) d = { level: 'L2', why: `the owner did not name the computer ${args.computer} in this conversation` };
       }
+      // An act she does alone is one she can take back (takeback.mjs): what it is now is read BEFORE it runs, and where that cannot be
+      // read or cannot be put back, the call is a card after all.
+      const way = d.level === 'L1' ? aloneOf(name, args, f) : null;
+      const back = way && way.kind === 'back' ? way.entry : null;
+      let kept = null;
+      if (back) {
+        try {
+          kept = await back.capture(ops, args, ctx);
+        } catch {
+          kept = null;
+        }
+        if (kept === null || kept === undefined) d = { level: 'L2', why: back.why || 'what it is now could not be read, so it could not be put back with one press' };
+      }
       let hold = null;
       if (d.level !== 'L2' && spendsPaid(tool, args, f)) {
         hold = `act-${crypto.randomBytes(6).toString('hex')}`;
@@ -581,6 +607,7 @@ export function createAssistantCore({
         }
         if (hold) bindSpend(hold, name, args, f, result);
         if (result.shown) shown.add(conversation, result.shown);
+        if (result.data) shown.add(conversation, idsIn(result.data)); // what a result named counts as shown (a pick of hers later)
         if (where && result.summary) {
           result.summary = `${result.summary} Where: ${where.place}, because ${where.why}; say so to the owner in one clause, with the computer's name as written here.`;
           result.data = { ...(result.data || {}), where_why: where.why, where_computer: args.computer || LOCAL };
@@ -588,7 +615,9 @@ export function createAssistantCore({
         // An answer of hers in the run of a Work task she started (the owner's switch): Activity says so, with what it
         // asked, in the dashboard's own words (shortText masks paths and secrets).
         const herOk = f.herWork && name === 'send_to_chat' && args.answer && f.session ? { herWork: true, asked: shortText(f.session.screen, 200) } : null;
-        const audited = herOk ? { ...(result.audit || {}), ...herOk } : result.audit;
+        const rec = back && !back.own && kept ? back.record(args, kept, result) : null;
+        if (rec && result.summary) result.summary = `${result.summary} He can take it back with one press of Undo in ${ASSISTANT_NAME}'s Activity.`;
+        const audited = herOk || rec ? { ...(result.audit || {}), ...(herOk || {}), ...(rec ? { undo: rec } : {}) } : result.audit;
         log('done', { level: d.level, ...(where ? { result: { ...(audited || {}), computer: args.computer || LOCAL, where: where.why } } : audited ? { result: audited } : {}) });
         const view = viewOf(name, args, result, conversation, undoBefore);
         const text = `${render(result, name, args)}${door.changed ? `\n${HIDDEN_TOLD}` : ''}${view ? `\n${viewLine(view)}` : ''}`;
@@ -618,6 +647,16 @@ export function createAssistantCore({
       log('failed', { error: e.message });
       return { isError: true, text: errorText(`${name} failed (what the dashboard said is in the data)`, e.status === 404 ? 'call list_sessions or get_computer_status to see what exists now' : 'check the state with a read tool, then try once more or tell the owner', errorDetail(e), name) };
     }
+  }
+
+  /** The parts of a forwarding tool, one after the other; one part answers as it is, several are joined, each under its fact. */
+  async function forwardParts(parts, opts) {
+    const done = [];
+    for (const part of parts) done.push(await call(part.tool, part.args, opts));
+    if (done.length === 1) return done[0];
+    const text = done.map((r, i) => `Fact ${i + 1} (${parts[i].tool}):\n${r.text}`).join('\n\n');
+    const first = done.find((r) => r.card) || done.find((r) => r.view);
+    return { isError: done.every((r) => r.isError), text, ...(first && first.card ? { card: first.card } : {}), ...(done.find((r) => r.ui) ? { ui: done.find((r) => r.ui).ui } : {}), ...(first && first.view ? { view: first.view } : {}) };
   }
 
   /**
@@ -807,6 +846,9 @@ export function createAssistantCore({
         } else if (c.kind === 'progress' && c.subject.type === 'run') {
           const r = ((await ops.workRuns({ computer: c.subject.computer, id: c.subject.id })).runs || []).find((x) => x.id === c.subject.id);
           fields = r ? runProgress(r, c.subject.computer) : { ...stripCard(c), state: 'gone' };
+        } else if (c.kind === 'plan') {
+          const p = plans.get(c.subject.id);
+          fields = p ? planFields(p) : { ...stripCard(c), state: 'gone' };
         } else if (c.kind === 'needs') {
           const list = await listOf(v.hidden.kind || null);
           const now2 = list.items || [];
@@ -948,6 +990,10 @@ export function createAssistantCore({
     jobTick,
     refreshViews,
     undoView,
+    /** The owner pressed Undo in Activity on the entry made at `at` (undo.mjs). */
+    undoAct: createUndo({ audit, ops, ctxFor, now, tell: (conversation, text) => tell(conversation, null, text) }),
+    /** Audit entries with `undo: 'press' | 'done'` where Activity offers a way back. */
+    undoMarks: (entries) => withUndo(entries, audit.since(now() - 7 * 24 * 3600_000)),
     views,
     tiaSettings: tiaFor,
     /** The engine marks who started a turn: the owner's message, or a job wake-up. */
@@ -958,6 +1004,8 @@ export function createAssistantCore({
         const choices = views.of(conversation).filter((c) => c.kind === 'choice');
         const hers = new Set(choices.flatMap((c) => c.options.flatMap(addressesIn)));
         shown.add(conversation, { address: addressesIn(turn.text).filter((x) => !hers.has(x)) });
+        // What he typed himself is his pick: a name or an id in his own words may be the target of an act.
+        if (!choices.some((c) => c.options.some((o) => String(o).trim() === String(turn.text).trim()))) shown.add(conversation, { target: wordsOf(turn.text) });
         // A tap on an answer she offered is her words sent in his name: it is not counted as his.
         if (!choices.some((c) => c.options.some((o) => String(o).trim() === String(turn.text).trim()))) heSaid.set(conversation, `${heSaid.get(conversation) || ''}\n${String(turn.text).slice(0, 20_000)}`.slice(-60_000));
       }
@@ -968,6 +1016,8 @@ export function createAssistantCore({
     },
     cards,
     jobs,
+    plans,
+    watches,
     audit,
     skills,
     shown,

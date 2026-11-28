@@ -9,6 +9,7 @@ import { createAssistantCore } from '../../src/assistant/core.mjs';
 import { JobStore } from '../../src/assistant/jobs.mjs';
 import { Skills } from '../../src/assistant/skills.mjs';
 import { TOOLS, typedTextRisk } from '../../src/assistant/tools.mjs';
+import { tapped } from './tapped.mjs';
 import { FakeOps, baseState } from './fake-dashboard.mjs';
 import { fileURLToPath } from 'node:url';
 
@@ -84,7 +85,7 @@ test('unknown tool → error listing the tools', async () => {
   const { call } = setup();
   const r = await call('delete_everything', {});
   assert.equal(r.isError, true);
-  assert.match(r.text, /no tool "delete_everything".*list_sessions/);
+  assert.match(r.text, /no tool "delete_everything".*look/);
 });
 
 test('ids only for things shown: sessions, pids, conversations, computers, jobs', async () => {
@@ -151,7 +152,7 @@ test('start_session on a conversation that runs already: nothing starts, nothing
   await showAll(call);
   await call('list_projects', { folder: '/home/owner/projects/api' });
   const before = state.sessions.length;
-  const r = await call('start_session', { folder: '/home/owner/projects/api', mode: 'resume', conversation: '33333333-3333-4333-8333-333333333333', message: 'go on', goal: 'done' });
+  const r = await tapped(core, call)('start_session', { folder: '/home/owner/projects/api', mode: 'resume', conversation: '33333333-3333-4333-8333-333333333333', message: 'go on', goal: 'done' });
   assert.equal(r.isError, false, r.text);
   assert.match(r.text, /Nothing was started: this conversation already runs in the session api-old.*the first message was not sent/);
   assert.equal(ops.s.sessions.length, before, 'no second session');
@@ -169,8 +170,13 @@ test('start_session on an earlier conversation (continue or resume): a terminal,
       const folder = how.conversation ? '/home/owner/projects/api' : '/home/owner/projects/shop';
       const r = await call('start_session', { folder, account: 'sub', message: 'go on', ...how, ...(goal ? { goal } : {}) });
       assert.equal(r.isError, false, r.text);
-      assert.match(r.text, /continuing an earlier conversation.*It continues an earlier conversation, so it is not yours: every OK it asks for is the owner's/s);
-      const name = ops.calls.find((c) => c.op === 'startSession') && /Started session (\S+) /.exec(r.text)[1];
+      // going on in an earlier conversation is never alone, even with the switch on: his tap starts it
+      assert.ok(r.card, 'a card');
+      assert.ok(!ops.calls.some((c) => c.op === 'startSession'), 'nothing started before the tap');
+      const ok = await core.confirm(r.card.id);
+      assert.equal(ok.ok, true, ok.error);
+      assert.match(ok.summary, /continuing an earlier conversation.*It continues an earlier conversation, so it is not yours: every OK it asks for is the owner's/s);
+      const name = ops.calls.find((c) => c.op === 'startSession') && /Started session (\S+) /.exec(ok.summary)[1];
       const card = ops.s.sessions.find((x) => x.name === name);
       assert.equal(core.jobs.startedByTia('this', name, card.created), false, `${how.mode}: not hers`);
       if (goal) assert.equal(core.jobs.list()[0].sessions[0].startedByTia, false, 'her job watches it, but did not start it');
@@ -199,7 +205,7 @@ test('account choice: never outside the allowed list, never at a limit; API only
   // The owner allows the API account: with "Do the work" it is a card; with "Hands off" too while no daily spending cap
   // is set (paid usage without his tap only inside a cap he set: spend.mjs), and it runs once he set one.
   const s3 = baseState();
-  s3.assistant = { enabled: true, level: 'work', accounts: ['api'] };
+  s3.assistant = { enabled: true, actAlone: true, level: 'work', accounts: ['api'] };
   const t3 = setup({ state: s3 });
   r = await t3.call('start_session', { folder: '/home/owner/projects/api', message: 'go' });
   assert.match(r.text, /Waiting for the owner's OK/);
@@ -247,8 +253,9 @@ test('"Ask me": everything typed into a session, and starting one, becomes a car
     ['send_to_session', { session: 'web-ui', text: 'yes' }],
     ['send_to_session', { session: 'web-ui', key: 'Enter' }],
   ]) assert.match((await call(tool, args)).text, /Waiting for the owner's OK/, tool);
-  assert.equal((await call('send_to_session', { session: 'web-ui', key: 'Escape' })).isError, false, 'Escape (interrupt) never needs a card');
-  assert.deepEqual(ops.calls.map((c) => c.op), ['pressKey']);
+  // Escape (interrupt) is a card too, in a session that is not hers: a key cannot be taken back
+  assert.match((await call('send_to_session', { session: 'web-ui', key: 'Escape' })).text, /Waiting for the owner's OK/);
+  assert.deepEqual(ops.calls.map((c) => c.op), []);
 });
 
 test('an L2 tool never executes on the call; it only stages a card', async () => {
@@ -345,7 +352,7 @@ test('confirm runs the card once; a second confirm, a decline, expiry and a chan
 
 test('a card whose account was un-allowed meanwhile goes stale', async () => {
   const state = baseState();
-  state.assistant = { enabled: true, level: 'work', accounts: ['sub', 'api'] };
+  state.assistant = { enabled: true, actAlone: true, level: 'work', accounts: ['sub', 'api'] };
   const { call, core, ops } = setup({ state });
   const id = (await call('start_session', { folder: '/home/owner/projects/api', account: 'api', message: 'go' })).card.id;
   ops.s.assistant.accounts = ['sub'];
@@ -377,9 +384,10 @@ test('shell escapes, unlisted slash commands and permission prompts of sessions 
     ['send_to_session', { session: 'api-fix', text: 'yes' }],
   ]) assert.match((await call(tool, args)).text, /Waiting for the owner's OK/, `${tool} ${JSON.stringify(args)}`);
   assert.equal(ops.calls.length, 0);
-  assert.equal((await call('send_to_session', { session: 'api-fix', key: 'Escape' })).isError, false);
-  assert.equal((await call('send_to_session', { session: 'web-ui', text: '/compact' })).isError, false);
-  assert.deepEqual(ops.calls.map((c) => c.op), ['pressKey', 'sendText']);
+  // Even a harmless key or message into a session that is not hers is a card: it cannot be taken back with one press.
+  assert.match((await call('send_to_session', { session: 'api-fix', key: 'Escape' })).text, /Waiting for the owner's OK/);
+  assert.match((await call('send_to_session', { session: 'web-ui', text: '/compact' })).text, /Waiting for the owner's OK/);
+  assert.deepEqual(ops.calls.map((c) => c.op), []);
   assert.equal(typedTextRisk('  !ls'), 'it starts with "!", which runs a shell command');
   assert.equal(typedTextRisk('hello /login'), null);
 });
@@ -447,9 +455,10 @@ test('results fence untrusted text and mask secrets; summaries carry none of it'
 
 test('job wake-ups: act only on the job\'s sessions, within the step cap; cards still allowed', async () => {
   const state = baseState();
-  state.assistant = { enabled: true, level: 'work', maxSteps: 3 };
+  state.assistant = { enabled: true, actAlone: true, level: 'work', maxSteps: 3 };
   const { call, ops, core } = setup({ state });
   await call('list_sessions', {});
+  core.jobs.markStarted('this', 'web-ui', 1_700_000_002_000); // hers: a message into one of his is a card
   const w = await call('watch_session', { session: 'web-ui', goal: 'dark mode done' });
   const jobId = /Job (j_[0-9a-f]{10})/.exec(w.text)[1];
   core.beginTurn('c1', { origin: 'job', job: jobId, mode: 'answer' });

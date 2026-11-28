@@ -12,6 +12,7 @@ import { CardStore } from '../../src/assistant/cards.mjs';
 import { createAssistantCore } from '../../src/assistant/core.mjs';
 import { JobStore } from '../../src/assistant/jobs.mjs';
 import { Skills } from '../../src/assistant/skills.mjs';
+import { tapped } from './tapped.mjs';
 import { FakeOps, baseState } from './fake-dashboard.mjs';
 
 const BUILTIN = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..', 'skills');
@@ -81,7 +82,8 @@ test('an update id, a why and a title from the computer: in the data, never in t
 });
 
 test('a chat start: the why of a held message and the permission mode are the computer\'s words', async () => {
-  const { ops, call } = setup();
+  const { ops, call: plain, core } = setup();
+  const call = tapped(core, plain);
   await call('list_projects', { folder: API });
   ops.startChat = async () => ({ id: '11111111-1111-4111-8111-111111111111', sent: false, why: EVIL });
   onlyFenced((await call('start_chat', { folder: API, account: 'sub', message: 'hi' })).text, 'a held first message');

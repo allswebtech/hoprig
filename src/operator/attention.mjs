@@ -1,7 +1,8 @@
 // The attention list: every detector over one board, ranked. An item the owner put off with "Not now" stays
 // hidden while what it says is the same (its rev); when its facts change it comes back by itself.
 
-import { KINDS, actCatalog, publicItem, rank } from './item.mjs';
+import { KINDS, act, actCatalog, makeItem, publicItem, rank } from './item.mjs';
+import { factsOf, sentence } from '../assistant/watches.mjs';
 import { detectAsks } from './detect/asks.mjs';
 import { detectAutomation } from './detect/automation.mjs';
 import { detectEnded } from './detect/ended.mjs';
@@ -28,15 +29,34 @@ export const DETECTORS = Object.freeze({
   providerstop: detectProviderStop, unknown: detectUnknown,
 });
 
+const WATCH_HREF = (w) => (w.on === 'session' || w.on === 'chat' ? `#/s/${encodeURIComponent(w.target)}` : w.on === 'computer' ? '#/computers' : w.on === 'provider' ? '#/providers' : '#/operator');
+
+/**
+ * Watches (src/assistant/watches.mjs, the owner's own state): this look's facts decide which of them fire (a push, no model
+ * turn), and the ones he asked to see as a row become a row of the list. A watch changes nothing but its own record.
+ */
+function watchRows(watches, board, items, now) {
+  watches.evaluate(factsOf(board, items));
+  return watches.rows().map((w) => makeItem({
+    kind: 'ended', cls: 'waits', subject: `Watch: ${w.on}${w.target ? ` ${w.target}` : ''}`, key: `watch-${w.id}`, since: w.firedAt || now,
+    facts: [sentence(w), 'You asked to be told.'], acts: [act('open', { href: WATCH_HREF(w), label: 'Open' })],
+    why: 'Watching is off now: ask Tia to watch it again if you want.', target: { watch: w.id },
+  }));
+}
+
 /**
  * All items of a board, ranked (with their server-side targets). `dismissed` maps an item's id to the rev it had
  * when it was put off. A detector that throws on odd input does not hide the others: it becomes its own note.
  */
-export function attention(board, { now = Date.now(), dismissed = new Map(), decorate = null } = {}) {
+export function attention(board, { now = Date.now(), dismissed = new Map(), decorate = null, watches = null } = {}) {
   const all = [];
   const broken = [];
   for (const kind of KINDS) {
     try { all.push(...DETECTORS[kind](board, { now })); } catch (e) { broken.push({ kind, error: String(e?.message || e).slice(0, 120) }); }
+  }
+  // The owner's watches: evaluated on the facts of this look; a failure of theirs does not hide the others.
+  if (watches) {
+    try { all.push(...watchRows(watches, board, all, now)); } catch (e) { broken.push({ kind: 'watches', error: String(e?.message || e).slice(0, 120) }); }
   }
   // One card per run: a failed run that the kind unknown reports (with its look's finding) is not also an ended card.
   const told = new Set(all.filter((i) => i.kind === 'unknown').flatMap((i) => [i.target?.run, ...(i.target?.runs || [])]).filter(Boolean));

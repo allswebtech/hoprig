@@ -1,6 +1,6 @@
 {
   "name": "hoprig-skill",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "description": "Puts the Hoprig skill into an AI coding tool's skills folder (Claude Code, the shared agents folder, or one project), with a record of what it wrote, so an edited copy is never overwritten.",
   "keywords": [
     "hoprig",

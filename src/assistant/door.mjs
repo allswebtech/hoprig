@@ -22,7 +22,11 @@
 import { NAME_RE } from '../profiles.mjs';
 import { SECRET_START_MSG, isSecretFolder } from '../server/folders.mjs';
 import { NEVER_CLASSES, loadActs, rowAnswer, sourcePattern } from './acts.mjs';
-import { cardComputer, confirmedCard } from './confirmed.mjs';
+import { actRows, callOf, catalogRoutes, isReadRoute, methodOf, rowById, urlOf } from './catalog.mjs';
+import { INVERSE, inverseOf } from './inverse.mjs';
+import { herArgs } from './herbody.mjs';
+import { cardComputer, confirmedCard, lookRunning } from './confirmed.mjs';
+import { splitArgs } from './actsrun.mjs';
 
 const SEG = '[^/]+';
 const CHAT_ID = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}';
@@ -130,8 +134,11 @@ const WIRES = [
   // and is marked hers (byTia: the chat it creates, see src/chat/feature.mjs openChat).
   // "Lead model" and its ticks as Settings → Tia has them (src/assistant/chats.mjs); the part door checks her allowed
   // providers again for every part (src/models/others.mjs partGate).
-  r('POST /api/chats', '/api/chats', 'start_chat', (b, ctx, computer) => notInSecret(b, ctx, computer) || onlyKeys(['dir', 'tool', 'profile', 'sessionId', 'text', 'defaults', 'byTia', 'lead', 'others'])(b) || (b.defaults !== true ? 'a chat Tia starts takes Settings\' defaults (defaults: true)' : null)
+  r('POST /api/chats', '/api/chats', 'start_chat', (b, ctx, computer) => notInSecret(b, ctx, computer) || onlyKeys(['dir', 'tool', 'profile', 'sessionId', 'text', 'defaults', 'byTia', 'lead', 'others', 'model', 'effort', 'worktree'])(b) || (b.defaults !== true ? 'a chat Tia starts takes Settings\' defaults (defaults: true)' : null)
     || ('lead' in b && typeof b.lead !== 'boolean' ? 'lead is true or false' : null)
+    || ('worktree' in b && typeof b.worktree !== 'boolean' ? 'worktree is true or false' : null)
+    || ('model' in b && !(typeof b.model === 'string' && /^[A-Za-z0-9][A-Za-z0-9._:/@+[\]-]{0,119}$/.test(b.model)) ? 'model is a model name' : null)
+    || ('effort' in b && !['low', 'medium', 'high', 'xhigh', 'max'].includes(b.effort) ? 'effort is low, medium, high, xhigh or max' : null)
     || ('others' in b && !(Array.isArray(b.others) && b.others.length <= 10 && b.others.every((n) => typeof n === 'string' && NAME_RE.test(n))) ? 'others is a list of provider names' : null)),
   // Her message says it is hers (byTia: true): a message from anyone else takes her mark off the chat.
   r('POST /api/chats/<id>/send', `/api/chats/${CHAT_ID}/send`, 'send_to_chat (text)', (b) => onlyKeys(['text', 'byTia'])(b) || (b.byTia !== true ? 'a message Tia sends says it is hers (byTia: true)' : null)),
@@ -332,6 +339,46 @@ export function deriveDoor(rows, wires = WIRES) {
   };
 }
 const DOOR = deriveDoor(loadActs().rows);
+/** The routes of the catalog (catalog.mjs), asked at every call: a read (inside a look) or a change (on a confirmed card). */
+const CATALOG = catalogRoutes().map((e) => ({ ...e, read: isReadRoute(e.row) }));
+/**
+ * The rows a step of a confirmed PLAN card may run at their own route even when a tool of hers also reaches them: every route
+ * row that changes something, is no never class and answers alone or card. A plan card is one tap for all its steps; the route of
+ * each is bound to the step's own address and body (cardBinds), so no other request passes on it.
+ */
+const PLAN_ROUTES = actRows().filter((r) => r.kind === 'route' && r.facts && r.facts.never === 'none' && ['alone', 'card'].includes(rowAnswer(r)) && methodOf(r) !== 'GET')
+  .map((row) => ({ row, re: sourcePattern(row.source), method: methodOf(row), read: false }));
+/** The acts of a confirmed card of do_act (one act) or plan_acts (its steps) that name this row, with the arguments. */
+const actsOf = (c, row) => (c.tool === 'do_act' ? (c.input.act === row.id ? [{ args: c.input.args || {}, computer: cardComputer(c) }] : [])
+  : c.tool === 'plan_acts' && Array.isArray(c.input.steps) ? [
+    ...c.input.steps.filter((s) => s && s.act === row.id).map((s) => { const { computer, rest } = splitArgs(s.args); return { args: herArgs(row, rest), computer }; }),
+    // The way back of a step the card showed (inverse.mjs), for the same values and computer: a plan takes its own step back.
+    ...c.input.steps.filter((s) => s && INVERSE[s.act] && INVERSE[s.act].act === row.id).map((s) => { const { computer, rest } = splitArgs(s.args); const back = inverseOf(rowById(s.act), rest, null); return back ? { args: back.args, computer } : null; }).filter(Boolean),
+  ] : []);
+/** Whether the confirmed card `c` is the act of this row with arguments that make exactly this address and this body. */
+function cardBinds(c, row, method, p, body, computer) {
+  return actsOf(c, row).some(({ args, computer: there }) => {
+    try {
+      const call = callOf(row, args);
+      return there === computer && call.method === method && call.path === p && JSON.stringify(call.body ?? null) === JSON.stringify(body ?? null);
+    } catch {
+      return false;
+    }
+  });
+}
+/** Whether a wait of the confirmed plan card `c` is this read: the fact's row, its computer and its query, exactly as shown. */
+function waitBinds(c, row, url) {
+  const steps = Array.isArray(c.input.steps) ? c.input.steps : [];
+  return steps.some((s) => s && s.wait && s.wait.fact === row.id && (() => {
+    try {
+      const { computer, rest } = splitArgs(s.wait.args);
+      const call = callOf(row, rest);
+      return `${computer ? `/m/${computer}` : ''}${urlOf(call)}` === url;
+    } catch {
+      return false;
+    }
+  })());
+}
 /** Every route her tools use. */
 export const ALLOW = DOOR.ALLOW;
 export const WIRE_PROBLEMS = DOOR.problems;
@@ -398,6 +445,35 @@ function target(url) {
 export function checkRoute(method, url, body, ctx) {
   const { computer, p } = target(url);
   const never = neverClassOf(p, method);
+  // The catalog (catalog.mjs): a read route of the acts file with no tool of hers passes only inside a look; a route that
+  // changes something and that no tool of hers reaches passes only as the act of a card the owner confirmed, for exactly this
+  // act and these arguments (the address and the body are made again from the card's input). A route of a never class is
+  // refused above all this: the only class that gives way here is "owner", the rows of this very list.
+  if (!never || never === 'owner') {
+    const hit = CATALOG.find((e) => e.method === method && e.re.test(p));
+    // A read inside a look is this computer's: a read on another computer is a card of his (answerFor), never a look.
+    if (hit && hit.read && lookRunning() && !computer) return { method, route: p, computer, tool: 'look' };
+    const c = confirmedCard();
+    // A wait that the confirmed plan card showed reads exactly that fact on exactly that computer, as HER read (no owner mark:
+    // that computer's own rules judge it), only while the plan runs. A look of hers never reaches another computer.
+    if (c && c.tool === 'plan_acts' && hit && hit.read && waitBinds(c, hit.row, url)) return { method, route: p, computer, tool: 'plan_acts wait' };
+    // His tap on her card is HIS act at the route: the request is carried out as the person's own press (owner: true), for
+    // exactly this act and these values (the address and the body are made again from the card's input).
+    if (c) {
+      const own = (hit ? [hit] : c.tool === 'plan_acts' ? PLAN_ROUTES.filter((e) => e.method === method && e.re.test(p)) : [])
+        .find((e) => cardBinds(c, e.row, method, p, body, computer));
+      // The owner's press is this computer's only: on another computer the request keeps her own mark there, so that computer's
+      // never gate and its secret-folder refusal judge it (the card was made with this computer's paths only).
+      if (own) {
+        // The card binds the step's values; her own tool's body rule still holds for it (a chat start takes Settings' defaults, a
+        // group is only her dry run, a setup fix sends only its own fields): what her tool refuses, a plan step refuses too.
+        const entry = ALLOW.find((e) => e.method === method && e.re.test(p));
+        const why = entry && entry.body ? entry.body(body, ctx, computer) : null;
+        if (why) throw refuse(why);
+        return { method, route: p, computer, tool: c.tool, owner: !computer };
+      }
+    }
+  }
   if (never) throw refuse(`${method} ${p} is the owner's own step, not Tia's${never === 'owner' ? '' : ` (${never})`}`);
   const entry = ALLOW.find((e) => e.method === method && e.re.test(p));
   if (!entry) throw refuse(`${method} ${p} is not a route Tia's tools use`);
@@ -420,8 +496,8 @@ export function checkRoute(method, url, body, ctx) {
 export function gatedDispatch(ctx, method, url, body) {
   const { computer, p } = target(url);
   if (!(computer && method === 'POST' && p === '/api/settings' && carries(body))) {
-    checkRoute(method, url, body, ctx);
-    return ctx.dispatch(method, url, body);
+    const ok = checkRoute(method, url, body, ctx);
+    return ctx.dispatch(method, url, body, ok.owner === true ? { owner: true } : undefined);
   }
   return (async () => {
     const r = await gatedDispatch(ctx, 'GET', `/m/${computer}/api/settings`, undefined);

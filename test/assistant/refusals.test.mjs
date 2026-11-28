@@ -8,6 +8,7 @@ import { CardStore } from '../../src/assistant/cards.mjs';
 import { createAssistantCore } from '../../src/assistant/core.mjs';
 import { JobStore } from '../../src/assistant/jobs.mjs';
 import { Skills } from '../../src/assistant/skills.mjs';
+import { tapped } from './tapped.mjs';
 import { FakeOps, baseState } from './fake-dashboard.mjs';
 
 const API = '/home/owner/projects/api';
@@ -28,7 +29,8 @@ function setup() {
 
 test('start_chat whose first message the dashboard did not send (a terminal or another chat runs it): "opened", not "started", and what to do next', async () => {
   for (const why of ['a terminal session runs this conversation', 'another chat runs this conversation right now']) {
-    const { call, ops } = setup();
+    const { call: plain, ops, core } = setup();
+    const call = tapped(core, plain);
     const open = ops.startChat.bind(ops);
     ops.startChat = async (a) => ({ ...(await open(a)), sent: false, why }); // the chat reads along; nothing runs in it
     await call('list_projects', { folder: API });
@@ -58,20 +60,22 @@ test('a start or a move the dashboard refuses with 409: her result is its senten
     };
     await call('list_projects', { folder: API });
     await call('list_sessions', {});
-    const r = await call(tool, args);
+    // A start of an earlier conversation is a card: the dashboard refuses it when the owner taps, and what she is told is its sentence.
+    const viaCard = tool !== 'switch_account';
+    const r = await (viaCard ? tapped(core, call) : call)(tool, args);
     assert.equal(r.isError, true, `${tool}: ${r.text}`);
     assert.ok(r.text.includes(sentence.replace(/\.$/, '')), `${tool}: the dashboard's own words (${r.text})`);
-    assert.match(r.text, / Next: \S/, `${tool}: a next step`);
+    if (!viaCard) assert.match(r.text, / Next: \S/, `${tool}: a next step`);
     assert.doesNotMatch(r.text, /Started|now continues on|\bat [A-Za-z]+\.mjs:\d|Error: Error|\[object/, `${tool}: no start, no move, no raw error`);
   }
 });
 
 test('start_session on a conversation that a chat runs: nothing started, that chat named, a next step', async () => {
-  const { call, ops } = setup();
+  const { call: plain, ops, core } = setup();
   ops.s.sessions.push({ computer: 'this', name: `chat:${CONV}`, kind: 'chat', chatId: CONV, status: 'working', profile: { name: 'sub', label: 'Main', kind: 'subscription' }, cwd: API, title: 'Refactor', lastMessage: '', note: '', limit: null, sessionId: CONV, statusAt: Date.now(), created: 1_700_000_009_000 });
-  await call('list_projects', { folder: API });
+  await plain('list_projects', { folder: API });
   const before = ops.s.sessions.length;
-  const r = await call('start_session', { folder: API, account: 'sub', mode: 'resume', conversation: CONV, message: 'go on' });
+  const r = await tapped(core, plain)('start_session', { folder: API, account: 'sub', mode: 'resume', conversation: CONV, message: 'go on' });
   assert.equal(r.isError, false, r.text);
   assert.match(r.text, new RegExp(`Nothing was started: this conversation already runs in the chat chat:${CONV}.*the first message was not sent\\. Read it there \\(read_session\\), or ask the owner`));
   assert.equal(ops.s.sessions.length, before);

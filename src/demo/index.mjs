@@ -609,6 +609,8 @@ async function seed(home, { secondary, password }) {
     autoSwitch: { enabled: true, order: ['max', 'api'], returnToPreferred: true, prompt: 'Continue from where you stopped.' },
     // Tia thinks on the subscription: Auto mode's order holds the API account, and her paid thinking needs a daily
     // cap that the demo leaves unset, so on "Automatic" she would answer every message with the cap notice.
+    // She acts by herself, as the owner has let her (the Operator page switch): her seeded start runs, only the move waits.
+    operator: { acts: true },
     assistant: { enabled: true, level: 'work', accounts: ['auto', 'max', 'team', 'api'], runsOn: 'max' },
     server: {
       backend: 'pty', host: '127.0.0.1', roots: [projects],

@@ -59,7 +59,7 @@ test('Tia\'s page tools go through the page\'s own routes', { timeout: 120_000, 
   const { createServer } = await import('../../src/server/server.mjs');
   const { stateDir } = await import('../../src/paths.mjs');
   const setupRuns = [];
-  saveConfig({ launcher: [process.execPath, FAKE_SESSION], server: { backend: 'pty', roots: [work], passwordHash: await hashPassword('pw-for-tests') }, assistant: { enabled: true, level: 'work' } });
+  saveConfig({ launcher: [process.execPath, FAKE_SESSION], server: { backend: 'pty', roots: [work], passwordHash: await hashPassword('pw-for-tests') }, assistant: { enabled: true, level: 'work' }, operator: { acts: true } });
   writeProfile('sub', { label: 'Main' });
   const app = createServer({
     watch: false, dashboardFile: false,
@@ -128,9 +128,10 @@ test('Tia\'s page tools go through the page\'s own routes', { timeout: 120_000, 
   r = await call('list_projects', {});
   assert.equal(r.isError, false, r.text);
   assert.match(r.text, /"project":"shop"/);
+  // a sync cannot be taken back: a card, and on his tap it runs
   r = await call('manage_project', { action: 'sync', project: 'shop' });
-  assert.equal(r.isError, false, r.text);
-  assert.match(r.text, /need a decision: they were NOT done/);
+  assert.match(r.text, /Waiting for the owner's OK.*cannot be put back/s);
+  assert.equal((await confirm(r.text)).status, 200);
 
   // Automations: a schedule through its card, then the list says it the page's way.
   r = await call('manage_automation', { action: 'add_schedule', time: '08:15', folder: path.join(projects, 'shop'), account: 'sub', in: 'chat', text: 'run the tests' });

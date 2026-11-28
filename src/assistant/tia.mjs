@@ -38,10 +38,23 @@ export const DEFAULTS = Object.freeze({ enabled: false, level: 'work', accounts:
 const MODEL_RE = /^[A-Za-z0-9][A-Za-z0-9._:/@+\-[\]]{0,119}$/; // as src/server/endpoint.mjs
 const NAME_RE = /^[a-z0-9][a-z0-9_-]{0,31}$/;
 
+/**
+ * The ONE reader of "may she act alone": the Operator page's switch "Tia acts by herself" (config operator.acts), and no other key.
+ * An older file may still hold assistant.actAlone: it is never read, so two stored answers cannot differ.
+ */
+export const actsAlone = (config) => !!config && typeof config === 'object' && !!config.operator && typeof config.operator === 'object' && config.operator.acts === true;
+
+/** Her stored settings as resolveTia reads them: the assistant part of the config, with her right to act alone from the one switch. */
+export function tiaRaw(config) {
+  const a = config && typeof config === 'object' ? config.assistant : null;
+  const base = a && typeof a === 'object' && !Array.isArray(a) ? a : {};
+  return { ...base, actAlone: actsAlone(config) };
+}
+
 /** Plain sentences shown under every option in Settings → Tia. */
 export const HELP = {
   enabled: `Turn ${ASSISTANT_NAME} on or off (off at first; she is experimental). Off hides her tab and stops everything she watches.`,
-  level: `How far ${ASSISTANT_NAME} may go on her own: "Ask me" — you tap OK for everything she types into a session; "Do the work" — she runs the job herself; in a Claude Code chat she started she allows by herself only looking and running the project's own tests (a short list); changing files, everything else and every OK of another coding tool come to you; in a terminal session she started she still answers its ordinary permission prompts, judged only by the text on its screen against a list of risky things (best effort), and sends you the risky ones; "Hands off" — as "Do the work", and she may also use the paid API providers you allowed without asking, within the daily limit for paid use (none at first, so each of those still asks you); only at this level, and within the same limit, do the Operator\'s limit rule and "Tia decides" move a session onto such a provider, type into a session on one, or think on one. On the Work page she always asks you first, at every level: starting a session on a task, accepting or sending back its result, dropping and removing a task.`,
+  level: `How far ${ASSISTANT_NAME} may go on her own: "Ask me" — you tap OK for everything she types into a session; "Do the work" — she runs the job herself; in a Claude Code chat she started she allows by herself only looking and running the project's own tests (a short list); changing files, everything else and every OK of another coding tool come to you; in a terminal session she started she still answers its ordinary permission prompts, judged only by the text on its screen against a list of risky things (best effort), and sends you the risky ones; "Hands off" — as "Do the work", and she may also use the paid API providers you allowed without asking, within the daily limit for paid use (none at first, so each of those still asks you); only at this level, and within the same limit, do the Operator\'s limit rule and "Tia decides" move a session onto such a provider, type into a session on one, or think on one. On the Work page she always asks you first, at every level: starting a session on a task, accepting or sending back its result, dropping and removing a task. Doing any of it without your tap also needs the switch "Tia acts by herself" (the Operator page); with it off, each change is a card.`,
   // One short line per level, shown above the full texts (those stay under "More").
   levelShort: {
     ask: 'She asks you before everything she types into a session.',
@@ -49,7 +62,7 @@ export const HELP = {
     handsoff: 'As "Do the work", and she may also use the paid providers you allowed, within your daily limit.',
   },
   levelAsk: 'You tap OK for everything she types into a session.',
-  levelWork: 'She runs the job herself: starts the session, picks the provider, answers its questions, checks the result. On the Work page she always asks you first, at every level: starting a session on a task, accepting or sending back its result, dropping and removing a task. In a Claude Code chat she started she allows by herself only looking and running the project\'s own tests (a short list); changing files, everything else and every OK of another coding tool come to you. In a terminal session she started she still answers its ordinary permission prompts, judged only by the text on its screen against a list of risky things (best effort), and sends you the risky ones.',
+  levelWork: 'She runs the job herself: starts the session, picks the provider, answers its questions, checks the result. On the Work page she always asks you first, at every level: starting a session on a task, accepting or sending back its result, dropping and removing a task. In a Claude Code chat she started she allows by herself only looking and running the project\'s own tests (a short list); changing files, everything else and every OK of another coding tool come to you. In a terminal session she started she still answers its ordinary permission prompts, judged only by the text on its screen against a list of risky things (best effort), and sends you the risky ones. Doing any of it without your tap also needs the switch "Tia acts by herself" (the Operator page); with it off, each change is a card.',
   levelHandsoff: 'As "Do the work", and she may also start or move sessions on the paid API providers you allowed, without asking, within the daily limit for paid use (none at first: then each of those asks you). Only at this level, and within the same limit, do the Operator\'s limit rule and "Tia decides" move a session onto such a provider, type into a session on one, or think on one; each counts against the limit. On the Work page she always asks you first, at every level: starting a session on a task, accepting or sending back its result, dropping and removing a task.',
   answersHers: `When the session of a Work task that ${ASSISTANT_NAME} started for you asks for an OK, she answers it herself, as she does in the other sessions she runs for a job: only to let it look inside the project or run the project's own checks, and never at "Ask me". Each answer is a line in Activity. Every other OK stays your card: changing files, money, a sign-in, a push or merge into a main branch, a release, anything sent out, a delete outside the project and administrator rights. Off until you turn it on; turning it off stops it at once.`,
   accounts: `The providers ${ASSISTANT_NAME} may start or move sessions on. She never uses one that is not ticked.`,

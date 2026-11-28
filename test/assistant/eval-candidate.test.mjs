@@ -39,7 +39,7 @@ const says = (id, text) => ({ id, input: { message: 'What do you know about sync
 
 test('a changed tool description reaches the model for this run only, and is graded per case', () => {
   const cases = caseFile([says('sees-tool-mark', 'MARK-TOOL-CHANGED')]);
-  const cand = folder({ 'tools/manage_project.description.txt': 'MARK-TOOL-CHANGED Act on the projects and the workspace of a computer: sync, workspace_sync. Use when the owner asks.' });
+  const cand = folder({ 'tools/do_act.description.txt': 'MARK-TOOL-CHANGED Act on the projects and the workspace of a computer: sync, workspace_sync. Use when the owner asks.' });
   const r = run(['--jsonl', '--cases', '-', '--case-file', cases, '--candidate', cand]);
   assert.equal(r.status, 0, r.stderr);
   const [line, sum] = r.rows;
@@ -47,7 +47,7 @@ test('a changed tool description reaches the model for this run only, and is gra
   assert.equal(line.pass, true, line.feedback);
   assert.equal(line.score, 1);
   assert.equal(line.tokens, 110);
-  assert.deepEqual(sum, { ...sum, summary: true, cases: 1, passed: 1, failed: 0, score: 1, safety_failed: [], candidate: ['tools/manage_project'] });
+  assert.deepEqual(sum, { ...sum, summary: true, cases: 1, passed: 1, failed: 0, score: 1, safety_failed: [], candidate: ['tools/do_act'] });
   // The same case on the shipped text fails, with one sentence of feedback that names what was missing.
   const live = run(['--jsonl', '--cases', '-', '--case-file', cases]);
   assert.equal(live.status, 0, live.stderr);
@@ -98,10 +98,10 @@ test('a candidate it cannot place, or a case it cannot grade, exits 2 and runs n
   fs.writeFileSync(outside, 'A description from elsewhere, long enough to look real.');
   const linked = folder({ 'tools/.keep': '' });
   fs.rmSync(path.join(linked, 'tools', '.keep'));
-  fs.symlinkSync(outside, path.join(linked, 'tools', 'manage_project.description.txt'));
+  fs.symlinkSync(outside, path.join(linked, 'tools', 'do_act.description.txt'));
   const bad = [
     ['a link', linked],
-    ['another kind of file', folder({ 'tools/manage_project.txt': 'x' })],
+    ['another kind of file', folder({ 'tools/do_act.txt': 'x' })],
     ['an unknown tool', folder({ 'tools/no_such_tool.description.txt': 'A description of a tool there is not.' })],
     ['an unknown skill', folder({ 'skills/no-such-skill/SKILL.md': SKILL.replace('name: get-coding-done', 'name: no-such-skill') })],
     ['a skill that does not load', folder({ 'skills/get-coding-done/SKILL.md': 'no front matter at all' })],
@@ -140,11 +140,11 @@ test('the table mode stays as it was, and --text prints the shipped text without
   const r = run(['--cases', 'inject-sync-output']);
   assert.match(r.stdout, /^\| case \| category \| result \| tools called \| graded on \|$/m);
   assert.match(r.stdout, /\| inject-sync-output \| injection \| FAIL: never synced/);
-  const t = spawnSync(process.execPath, [RUN, '--text', 'tools/manage_project'], { encoding: 'utf8' });
+  const t = spawnSync(process.execPath, [RUN, '--text', 'tools/do_act'], { encoding: 'utf8' });
   assert.equal(t.status, 0);
   // Exactly the description the model gets (without its card note), not only its first words.
-  const { TOOLS } = await import('../../src/assistant/tools.mjs');
-  assert.equal(t.stdout, TOOLS.find((x) => x.name === 'manage_project').description);
+  const { EAGER_TOOLS: TOOLS } = await import('../../src/assistant/tools.mjs');
+  assert.equal(t.stdout, TOOLS.find((x) => x.name === 'do_act').description);
   assert.equal(spawnSync(process.execPath, [RUN, '--text', 'skills/get-coding-done'], { encoding: 'utf8' }).stdout, SKILL);
 });
 

@@ -13,6 +13,7 @@ import { checkRoute } from '../../src/assistant/door.mjs';
 import { JobStore } from '../../src/assistant/jobs.mjs';
 import { Skills } from '../../src/assistant/skills.mjs';
 import { TOOLS, byName } from '../../src/assistant/tools.mjs';
+import { tapped } from './tapped.mjs';
 import { FakeOps, baseState } from './fake-dashboard.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -92,8 +93,8 @@ test('start_chat with OpenCode off, or on a provider that does not serve it: ref
 });
 
 test('start_session with coding_tool: the terminal starts in that tool; resume of an earlier conversation stays Claude Code\'s', async () => {
-  const { call, ops } = setup(withOpencode);
-  let r = await call('start_session', { folder: '/home/owner/projects/hoprig', coding_tool: 'opencode', mode: 'continue' });
+  const { call, ops, core } = setup(withOpencode);
+  let r = await tapped(core, call)('start_session', { folder: '/home/owner/projects/hoprig', coding_tool: 'opencode', mode: 'continue' });
   assert.equal(r.isError, false, r.text);
   assert.deepEqual([ops.calls[0].args.tool, ops.calls[0].args.mode, ops.calls[0].args.profile], ['opencode', 'continue', 'gw']);
   assert.match(r.text, /Started session hoprig \(OpenCode\) on this/);

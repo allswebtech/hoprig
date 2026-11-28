@@ -14,15 +14,18 @@
 //   list      a few items, each with one step; "Show all" opens the page that has them
 //   numbers   usage, limits and load: figures put in by code, with their unit and their time
 //   result    done or failed: what changed, where to see it, Undo where the tool has one
+//   plan      several acts as one plan: every step with its state, run by code after one tap (follows its subject)
 //   needs     items of the attention list with the recommended step                    (follows its subject)
 //   open      one page of the dashboard (open_screen)
 import crypto from 'node:crypto';
 import { stripped } from './fence.mjs';
 import { looksSecret, redact } from './secrets.mjs';
 
-export const KINDS = Object.freeze(['confirm', 'form', 'choice', 'status', 'progress', 'list', 'numbers', 'result', 'needs', 'open']);
+export const KINDS = Object.freeze(['confirm', 'form', 'choice', 'status', 'progress', 'list', 'numbers', 'result', 'needs', 'plan', 'open']);
 /** The kinds that follow their subject while they are in view (web/tiacards.js). */
-export const DYNAMIC = Object.freeze(['status', 'progress', 'needs']);
+export const DYNAMIC = Object.freeze(['status', 'progress', 'needs', 'plan']);
+export const PLAN_STEP_STATES = Object.freeze(['waiting', 'running', 'holding', 'done', 'failed', 'undone', 'undo-failed', 'skipped']);
+export const PLAN_STATES = Object.freeze(['running', 'done', 'failed', 'stopped', 'gone']);
 export const STATES = Object.freeze(['starting', 'working', 'waiting', 'asks', 'limit', 'ended', 'shell', 'online', 'offline', 'unknown', 'gone']);
 export const RUN_STATES = Object.freeze(['working', 'waiting', 'done', 'stuck', 'stopped', 'failed', 'limit', 'unknown', 'gone']);
 export const UNITS = Object.freeze(['%', 'sessions', 'load', 'tasks']);
@@ -57,6 +60,7 @@ const obj = (spec, opt = false) => (v) => (v === undefined || v === null ? opt
 const step = obj({ label: str(40), href: href(false) }, true);
 // `term`: the terminal's own id, which a rename keeps, so a card follows the session and not its name. `created`: when
 // it was made (a card without `term` checks it, so a new session that took the old name is not taken for its own).
+const planStep = obj({ label: str(120), state: oneOf(PLAN_STEP_STATES), note: str(160, true) });
 const subject = (types) => obj({ type: oneOf(types), computer: str(32), id: str(80), created: time(), term: str(40, true) });
 
 /** Every kind's fields (besides kind, id and at). confirm is cards.mjs's own record; form rides on it (`form`). */
@@ -74,6 +78,7 @@ export const SHAPES = Object.freeze({
   list: obj({ title: str(120), items: list(obj({ label: str(120), sub: str(120, true), state: oneOf(STATES, true), href: href() }), 0, 8), total: int(0, 1_000_000), all: step }),
   numbers: obj({ title: str(120), rows: list(obj({ label: str(60), value: num(), unit: oneOf(UNITS), of: num(true), note: str(80, true) }), 1, 8), asOf: time(false) }),
   result: obj({ ok: bool(), title: str(160), changed: list(str(160), 0, 6), see: step, undo: bool(true) }),
+  plan: obj({ subject: subject(['plan']), title: str(120), steps: list(planStep, 2, 12), state: oneOf(PLAN_STATES), started: time(), ended: time(), note: str(200, true), step }),
   needs: obj({
     items: list(obj({
       id: str(40), rev: str(12), subject: str(80), kind: str(20), facts: list(str(100), 0, 4), why: str(160, true), since: str(30, true),

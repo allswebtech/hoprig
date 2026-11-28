@@ -78,3 +78,34 @@ test('a journal written by hand that names a process group ends nothing: it is c
   }
   assert.deepEqual(t.trapped(), []);
 });
+
+test('a read through the assistant door answers the state and finishes nothing; the page finishes the cut', async () => {
+  const { shipFeature } = await import('../../src/ship/feature.mjs');
+  const deli = path.join(t.projects, 'bakery');
+  const slow = `${mark('b-start')}; setTimeout(() => { ${mark('b-end')} }, 1500)`;
+  t.repo(deli, { 'project.json': JSON.stringify({ check: [['node', '-e', '0']], live: { update: [['node', '-e', slow]], verify: [['node', '-e', '0']], back: [['node', '-e', '0']] } }) });
+  t.branch(deli, 'work/menu', { 'menu.txt': 'menu\n' }, 'A menu');
+  const r = await putTogether(deli, { name: 'two', branches: ['work/menu'] });
+  allow(deli, 'check', readCheck(r.dir).check);
+  await runCheck(deli, r.dir, { busy: idle });
+  allow(deli, 'live', readLive(r.dir).live);
+  const gitDir = await gitFolder(deli);
+  const child = spawn(process.execPath, [CHILD, deli, r.id], { stdio: 'ignore' });
+  const named = () => { const j = readJournal(gitDir); return j && j.running; };
+  for (let i = 0; i < 300 && !(order().includes('b-start') && named()); i++) await sleep(25);
+  child.kill('SIGKILL');
+  await new Promise((res) => child.on('exit', res));
+  for (let i = 0; i < 200 && !order().includes('b-end'); i++) await sleep(25);
+  await sleep(300);
+  let by = 'self';
+  const ctx = { config: () => ({}), caller: () => by, readJson: async () => ({}), backend: { list: async () => [] } };
+  const f = shipFeature(ctx, { projectsDir: () => t.projects, busy: idle });
+  const [, re, handler] = f.routes.find(([m, x]) => m === 'GET' && x.test('/api/ship/p/bakery'));
+  const url = '/api/ship/p/bakery';
+  await handler({ method: 'GET', url, headers: { host: '127.0.0.1' } }, re.exec(url));
+  assert.ok(readJournal(gitDir), 'her read left the cut go-live as it was');
+  assert.equal(readLast(deli), null, 'and closed nothing');
+  by = 'page';
+  await handler({ method: 'GET', url, headers: { host: '127.0.0.1' } }, re.exec(url));
+  assert.equal(readLast(deli).outcome, 'update-cut', 'the page finishes it');
+});

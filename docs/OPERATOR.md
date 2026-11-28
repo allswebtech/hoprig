@@ -409,7 +409,7 @@ page on GitHub.
 
 ## What Tia can do, and what she cannot
 
-Every act of Hoprig is one row of `src/assistant/inventory.json`: 394 in all (45 commands, 322 changes in the dashboard, 7 skills). Tia does 122 of them with a tool of hers, 7 more by another route of the same effect, and 265 are not hers. A test holds the file to the code: a new command or route without a row fails it.
+Every act of Hoprig is one row of `src/assistant/inventory.json`: 395 in all (45 commands, 323 changes in the dashboard, 7 skills). Tia does 122 of them with a tool of hers, 6 more by another route of the same effect, and 267 are not hers. A test holds the file to the code: a new command or route without a row fails it.
 
 ### What she does
 
@@ -545,7 +545,6 @@ Every act of Hoprig is one row of `src/assistant/inventory.json`: 394 in all (45
 | `POST /api/pcsetup/clone` | manage_project get | Cloning repositories into the projects folder is what her get action does by name. |
 | `POST /api/pcsetup/tool` | manage_computer update | Installing a coding tool from Setup is what her update action does, with its card. |
 | `POST /api/pcsetup/project/start` | start_chat | A new project's first session is a chat she can start in its folder, with the brief as its message. |
-| `POST /api/onboarding/run` | manage_computer set_up | Get started runs the same setup of this computer as her set_up action, with its card. |
 | `POST /api/onboarding/install-claude` | manage_computer update | Installing Claude Code is her update action, with its card. |
 | `POST /api/system/processes/end` | manage_computer end_process | The desktop's Task manager ends a process the same way her end_process action does, with its card. |
 | `POST /api/pcsetup/project/command/start` | start_chat | A new project's first session is a chat she can start in its folder, with the brief as its message. |
@@ -564,7 +563,7 @@ Every act of Hoprig is one row of `src/assistant/inventory.json`: 394 in all (45
 - `POST /api/providers/<id>/mend`: A provider's model map decides which paid model its sessions use.
 - `POST /api/providers/<id>/map`: Turning a provider's model map on or off decides which paid model its sessions use.
 
-**A sign-in, a password, a key or a token, and who may control this computer** (86):
+**A sign-in, a password, a key or a token, and who may control this computer** (87):
 
 - `hoprig add`: Adding a provider handles its key or its sign-in.
 - `hoprig rm`: Removing a provider deletes the file that holds its key or sign-in.
@@ -618,6 +617,7 @@ Every act of Hoprig is one row of `src/assistant/inventory.json`: 394 in all (45
 - `POST /api/accounts/claude-login/logout`: Adding, testing, naming or removing a provider handles its key or its sign-in.
 - `POST /api/accounts/claude-login/code`: Adding, testing, naming or removing a provider handles its key or its sign-in.
 - `POST /api/accounts/claude-login/cancel`: Adding, testing, naming or removing a provider handles its key or its sign-in.
+- `POST /api/onboarding/run`: Its one command signs in to Claude in a terminal: the owner own step.
 - `POST /api/workspace/git/identity`: Signing in to GitHub, the commit name and the brain's repository are your own steps.
 - `POST /api/workspace/git/signin`: Signing in to GitHub, the commit name and the brain's repository are your own steps.
 - `POST /api/workspace/git/signin/cancel`: Signing in to GitHub, the commit name and the brain's repository are your own steps.
@@ -742,7 +742,7 @@ Every act of Hoprig is one row of `src/assistant/inventory.json`: 394 in all (45
 - `POST /api/chats/<id>/settings`: A chat's permission mode, model and effort are your choice in its page.
 - `POST /api/settings/bypass/everything`: Accepting the mode that allows every permission, also what Hoprig would hold, switches a safety rule off.
 
-**Raising her own rights (her settings, her cards, her jobs, a shell without a card)** (25):
+**Raising her own rights (her settings, her cards, her jobs, a shell without a card)** (26):
 
 - `hoprig box`: Running a command in the box asks no one, which would raise her rights; run_command shows the exact command on a card.
 - `POST /api/shells`: A plain shell runs whatever is typed, and her one command goes through run_command's card instead.
@@ -753,6 +753,7 @@ Every act of Hoprig is one row of `src/assistant/inventory.json`: 394 in all (45
 - `POST /api/assistant/client-token`: Her settings, her token, her jobs and the taps on her cards are yours, or she would raise her own rights.
 - `POST /api/assistant/client-token/revoke`: Her settings, her token, her jobs and the taps on her cards are yours, or she would raise her own rights.
 - `POST /api/assistant/views/<id>/undo`: Undo on one of her result cards is your tap; she takes her own last act back with manage_work undo.
+- `POST /api/assistant/undo`: Undo in her Activity is your press: she only does alone what it can put back, and she cannot press it herself.
 - `POST /api/skillhub/fit/choice`: Whether skills that fit a project's technology go in by themselves is your switch on its Skills page; her token is refused on it.
 - `POST /api/chats/<id>/shell`: A chat's shell runs a command with no card, which would raise her rights.
 - `POST /api/chats/<id>/shell/stop`: A chat's shell runs a command with no card, which would raise her rights.

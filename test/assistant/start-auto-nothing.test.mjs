@@ -24,7 +24,7 @@ function stateWith(autoSwitch, allowed) {
     { name: 'sub', label: 'Main', kind: 'subscription', inUse: 0, limited: null, usage: null },
     { name: 'key', label: 'Shop key', kind: 'api', paid: true, inUse: 0, limited: null, usage: null },
   ];
-  s.assistant = { enabled: true, level: 'work', accounts: allowed };
+  s.assistant = { enabled: true, actAlone: true, level: 'work', accounts: allowed };
   Object.assign(s.autoSwitch, { enabled: true, ...autoSwitch });
   return s;
 }

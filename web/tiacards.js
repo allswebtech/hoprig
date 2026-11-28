@@ -190,8 +190,28 @@ function needsBody(c, now, checking, x) {
   ];
 }
 
-const BODY = { status: statusBody, progress: progressBody, needs: needsBody, list: listBody };
-const LABEL = { status: (c) => `Now: ${c.title}`, progress: (c) => `Progress: ${c.title}`, needs: () => 'What needs you', list: (c) => c.title };
+// A plan (plans.mjs): every step with where it is, in the look of a progress card. The tap that starts it is on the confirm card.
+export const PLAN_WORDS = { running: 'Running', done: 'Done', failed: 'Stopped: a step failed', stopped: 'Stopped', gone: 'Gone' };
+const STEP_WORDS = { waiting: 'to come', running: 'now', holding: 'waiting', done: 'done', failed: 'failed', undone: 'taken back', 'undo-failed': 'not taken back', skipped: 'not run' };
+const PLAN_PILL = { running: 'working', done: 'waiting', failed: 'limit', stopped: 'limit', gone: 'limit' };
+function planBody(c, now, checking) {
+  const end = c.ended || null;
+  const doneN = c.steps.filter((s) => s.state === 'done').length;
+  return [
+    h('div.tia-c-head', h('span.tia-c-icon', icon('tasks', { size: 18 })), h('h3.tia-c-title', c.title),
+      checking ? h('span.tia-c-sub', 'Checking…') : h(`span.pill.st-${PLAN_PILL[c.state] || 'starting'}.tia-c-pill`, h('span.dot'), PLAN_WORDS[c.state] || c.state)),
+    h('ol.tia-c-steps', { 'aria-label': `${doneN} of ${c.steps.length} steps done` }, c.steps.map((s) => h(`li.${['running', 'holding'].includes(s.state) ? 'now' : s.state === 'done' ? 'done' : ['failed', 'undo-failed'].includes(s.state) ? 'bad' : s.state === 'undone' ? 'undone' : 'todo'}`,
+      h('span.tia-c-tick', { 'aria-hidden': 'true' }, s.state === 'done' ? icon('check', { size: 13 }) : ['failed', 'undo-failed'].includes(s.state) ? icon('alert', { size: 13 }) : s.state === 'undone' ? icon('undo', { size: 13 }) : null),
+      h('span', s.label, h('span.tia-c-sub', ` (${STEP_WORDS[s.state] || s.state})`), s.note ? h('span.tia-c-sub.tia-c-stepnote', ` ${s.note}`) : null)))),
+    c.note && !checking ? h('p.tia-c-note', c.note) : null,
+    h('p.tia-c-sub.tia-c-since', checking ? 'Reading what is so now.' : c.state === 'gone' ? 'It is no longer there.'
+      : c.started ? (end ? `Took ${span(end - c.started)}, ended ${clock(end)}` : `${span(now - c.started)} so far`) : ' '),
+    c.state === 'gone' ? null : h('div.tia-c-foot', pageLink(c.step.href, c.step.label)),
+  ];
+}
+
+const BODY = { status: statusBody, progress: progressBody, plan: planBody, needs: needsBody, list: listBody };
+const LABEL = { status: (c) => `Now: ${c.title}`, progress: (c) => `Progress: ${c.title}`, plan: (c) => `Plan: ${c.title}`, needs: () => 'What needs you', list: (c) => c.title };
 // The kinds that follow the page's own poller (fromStore); the others are read again through the views route.
 const POLLED = new Set(['status', 'list']);
 
@@ -318,7 +338,7 @@ async function tick() {
     }
   }
   // Read again: the cards on screen whose subject can still change (a job or run that ended stays as it ended).
-  const ids = [...live.values()].filter((x) => !POLLED.has(x.card.kind) && x.visible && !(x.card.kind === 'progress' && ENDED.has(x.card.state) && !x.checking)).map((x) => x.card.id);
+  const ids = [...live.values()].filter((x) => !POLLED.has(x.card.kind) && x.visible && !(['progress', 'plan'].includes(x.card.kind) && ENDED.has(x.card.state) && !x.checking)).map((x) => x.card.id);
   if (!ids.length || asking) return;
   asking = true;
   try {
@@ -432,7 +452,7 @@ export function cardElement(c, opts = {}) {
     case 'numbers': return numbersCard(c);
     case 'choice': return choiceCard(c, { answer: opts.answer || (async () => false) });
     case 'result': return resultCard(c, opts);
-    case 'status': case 'progress': case 'needs': return followCard(c);
+    case 'status': case 'progress': case 'plan': case 'needs': return followCard(c);
     default: return null;
   }
 }

@@ -95,6 +95,7 @@ import { learnFeature } from '../skillhub/learnfeature.mjs';
 import { fieldFeature } from '../field/feature.mjs';
 import { proposalsFeature } from '../skillhub/proposals.mjs';
 import { improveFeature } from '../assistant/improvefeature.mjs';
+import { WatchStore } from '../assistant/watches.mjs';
 import { workspaceFeature } from '../workspace/feature.mjs';
 import { leaveFeature } from '../workspace/leavefeature.mjs';
 import { projectsIn, workspaceDir } from '../workspace/layout.mjs';
@@ -262,6 +263,8 @@ export function createServer(opts = {}) {
   // A request the server makes to itself for the owner (ctx.dispatch, Tia's tools) carries this mark; no request
   // from the network can, so it counts as the owner's own login and its own site.
   const INTERNAL = Symbol('hoprig.internal');
+  // The owner's own press: set only by the door, on the one request of an act whose card he confirmed (its address and body are the card's).
+  const OWNER = Symbol('hoprig.owner-press');
   const CARD = Symbol('hoprig.confirmed-card'); // the card of Tia's the owner confirmed, on a request its act makes
   const authed = (req) => req[INTERNAL] === true || sessions.valid(parseCookies(req.headers.cookie)[COOKIE], passwordTag(), req.headers && req.headers.host);
   // What a feature gets (see the header). state() and readJson are declared further down; they are called later.
@@ -274,12 +277,12 @@ export function createServer(opts = {}) {
     state: () => state(),
     originOk: (req) => req[INTERNAL] === true || originOk(req, proxyOpts()),
     // Who sent a request: 'self' (ctx.dispatch, Tia's door), 'computer' (another dashboard's bearer token) or 'page'.
-    caller: (req) => (req[INTERNAL] === true ? 'self' : trusted(req) ? 'computer' : 'page'),
+    caller: (req) => (req[INTERNAL] === true ? (req[OWNER] === true ? 'page' : 'self') : trusted(req) ? 'computer' : 'page'),
     // Run `method path` with a JSON `body` through the very same handling a page request gets (features, routes,
     // validators, the relay to another computer at /m/<name>/…) on the owner's behalf. Resolves { status, json }.
     // ONLY Tia's door (src/assistant/door.mjs: an allowlist of routes) may call it — no other feature: it acts as the
     // owner on any route. A test (test/assistant/door.test.mjs) checks the source for other callers.
-    dispatch: (method, url, body) => dispatch(method, url, body),
+    dispatch: (method, url, body, as) => dispatch(method, url, body, as),
     // Where THIS server listens ({ address, port } once listening, else null): a feature that tells a program of its own
     // where the dashboard is (Tia's MCP server) takes it from here, never from a default port another dashboard may hold.
     listening: () => {
@@ -333,6 +336,8 @@ export function createServer(opts = {}) {
   const gateway = gatewayFeature(ctx, { hub: machines.machines.hub, ...opts.gateway });
   const hubprov = hubprovFeature(ctx, { machines: machines.machines, ...opts.hubprov });
   const chat = chatFeature(ctx, opts.chat);
+  // The owner's watches: ONE store, Tia's watch_work writes it and the operator's attention loop evaluates it and tells him.
+  const watches = (opts.operator && opts.operator.watches) || new WatchStore({ notify: (text) => ctx.notify({ force: true, status: 'waiting', session: 'tia', title: 'Hoprig', message: text }) });
   // "Use other providers": a Lead chat's one tool. Work's runs and these parts share the computer's slots.
   let work = null;
   const parts = partDoor({ chat, config: cfg, readJson: (req) => readJson(req), aloneRunning: () => (work && work.sched && work.sched.running ? work.sched.running() : 0), ...opts.parts });
@@ -351,7 +356,7 @@ export function createServer(opts = {}) {
     handsOffFeature(ctx, opts.handsOff), // Hands-off: the project's and the session's switch, the project's note
     herRightsFeature(ctx, opts.herrights), // Settings → Tia: the owner's choice of Tia's administrator-rights level (off, ask, full), per computer
     herSigninFeature(ctx, opts.hersignin), // Settings → Tia: the owner's choice of which credentials file signs her sessions in to the git server
-    assistantFeature(ctx, { hub: machines.machines.hub, chat, ...opts.assistant }), // Tia; first, so her own token is checked before the machines gate
+    assistantFeature(ctx, { hub: machines.machines.hub, chat, watches, ...opts.assistant }), // Tia; first, so her own token is checked before the machines gate
     parts, // a Lead chat's part token (src/models/partdoor.mjs): answered here only, before the machines gate
     gateway, // /gateway/…: a gateway shared with a gateway key (before the machines gate, which takes any bearer as its own)
     hubprov, // the hub's providers on the owner's other computers: /hubp (the relay) and /hub/p (a session's address), before the machines gate for the same reason
@@ -386,7 +391,7 @@ export function createServer(opts = {}) {
       stop: async (name) => { await sessionOr404(name); await backend.kill(name); },
       nudge: async (name, text) => { await sessionOr404(name); await deck.sendToTool(name, text, { enter: true }); }, // only while the coding tool is in front (typing.mjs)
       start: (o) => { const a = features.find((f) => f.name === 'automation')?.automation; if (!a) throw new HttpError(503, 'automations are not running'); return a.deck.start(o); }, // a rule reopens a session whose coding tool died: the very start a restart makes
-    }, asks: asksAdapter({ chat }), rooms: () => rooms.keeper.view(), work: () => work.looks, ...opts.operator }),
+    }, asks: asksAdapter({ chat }), rooms: () => rooms.keeper.view(), work: () => work.looks, watches, ...opts.operator }),
     rooms, // GET /api/operator/rooms: each computer's room for new work; the switch "Look at my other computers too"
     shipFeature(ctx, { chat, assistant: () => features.find((f) => f.name === 'assistant'), ...opts.ship }), // Work → Go live: put finished task branches together, check them, go live on the owner's tap
   ];
@@ -1283,7 +1288,7 @@ export function createServer(opts = {}) {
   }
 
   /** ctx.dispatch: one in-process request through handle(), answered into memory. */
-  function dispatch(method, url, body) {
+  function dispatch(method, url, body, as) {
     return new Promise((resolve) => {
       const data = body === undefined ? null : Buffer.from(JSON.stringify(body));
       const req = Readable.from(data ? [data] : []);
@@ -1293,6 +1298,7 @@ export function createServer(opts = {}) {
         socket: { remoteAddress: '127.0.0.1' },
       });
       req[INTERNAL] = true;
+      if (as && as.owner === true) req[OWNER] = true;
       const card = confirmedCard();
       if (card) req[CARD] = card;
       const chunks = [];

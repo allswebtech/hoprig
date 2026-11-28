@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // A stand-in for Claude Code as the eval's engine (no model, no provider): it starts the MCP server named in
 // --mcp-config as Claude Code would, reads the tool list and the system prompt it was given, and answers each turn
-// with what a model would have read: the description of manage_project, the procedures line of get-coding-done and
+// with what a model would have read: the description of do_act, the procedures line of get-coding-done and
 // the first line of the prompt's Style section.
 // When the message says "cart" it also stages the Work start card for the cart task. FAKE_EVAL_LOG: one line per start.
 // FAKE_EVAL_COST: what each turn costs (default 0.001); above the turn's --max-budget-usd it ends at that limit
@@ -63,7 +63,7 @@ async function turn(text) {
   if (/cart/i.test(text)) await call('manage_work', { action: 'list', project: 'shop' });
   if (/cart/i.test(text)) await call('manage_work', { action: 'start', task: 'fix-the-cart-total', brief: 'Fix the cart total in shop; run its tests; push nothing.', kind: 'code' });
   else await call('list_sessions', {});
-  const desc = (tools.find((t) => t.name === 'manage_project') || {}).description || '';
+  const desc = (tools.find((t) => t.name === 'do_act') || {}).description || '';
   const proc = (system.split('\n').find((l) => l.startsWith('- get-coding-done:')) || '').slice(0, 300);
   // The first line of the prompt's Style section, and whether the safety section is there as shipped.
   const lines = system.split('\n');

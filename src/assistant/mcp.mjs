@@ -43,7 +43,7 @@ export async function handleMessage(msg, client, given = HOPRIG) {
           protocolVersion: PROTOCOL_VERSIONS.includes(asked) ? asked : PROTOCOL_VERSIONS[0],
           capabilities: { tools: { listChanged: false } },
           serverInfo: { ...SERVER_INFO, name: catalog.name },
-          instructions: catalog.instructions,
+          ...(catalog.instructions ? { instructions: catalog.instructions } : {}),
         },
       };
     }
@@ -70,8 +70,9 @@ export async function handleMessage(msg, client, given = HOPRIG) {
 }
 
 /** Serve on a pair of streams until the input ends. Resolves when done. */
-export function serveMcp({ input = process.stdin, output = process.stdout, client, catalog: given = HOPRIG, toolsJson = null }) {
-  const catalog = toolsJson ? { ...given, toolsJson } : given;
+// own: the dashboard's own Tia: her system text holds the same rule as the server note, so she is not sent it (bytes of every first request).
+export function serveMcp({ input = process.stdin, output = process.stdout, client, catalog: given = HOPRIG, toolsJson = null, own = false }) {
+  const catalog = { ...given, ...(toolsJson ? { toolsJson } : {}), ...(own ? { instructions: '' } : {}) };
   return new Promise((resolve) => {
     let buf = '';
     let pending = Promise.resolve();

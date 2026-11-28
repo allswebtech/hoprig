@@ -24,7 +24,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { BASE_PROMPT } from './prompt.mjs';
 import { BUILTIN_DIR, Skills } from './skills.mjs';
-import { byName, TOOL_NAMES } from './tools.mjs';
+import { EAGER_NAMES, byName, TOOL_NAMES } from './tools.mjs';
 import { PART_MIN_USD } from './spend.mjs';
 import { familyOf, PRICES } from '../operator/prices.mjs';
 import { frontMatterProblems, liveText, proposalsDir } from '../skillhub/proposals.mjs';
@@ -73,7 +73,7 @@ const builtIn = () => new Skills({ dirs: [{ dir: BUILTIN_DIR, source: 'built-in'
 export function liveTarget(t) {
   if (!t || typeof t.name !== 'string') return null;
   if (t.kind === 'prompt') return SECTION_TARGETS.includes(t.name) ? promptSection(t.name) : null;
-  if (t.kind === 'tool') return byName.has(t.name) ? liveText('tool', t.name) : null;
+  if (t.kind === 'tool') return EAGER_NAMES.includes(t.name) ? liveText('tool', t.name) : null;
   if (t.kind === 'skill') return builtIn().get(t.name) ? liveText('skill', t.name) : null;
   return null;
 }

@@ -59,7 +59,7 @@ test('Tia and Work in the real dashboard: her door, an act and its undo, the sta
   const { createServer } = await import('../../src/server/server.mjs');
   saveConfig({
     server: { backend: 'pty', roots: [w.home], passwordHash: await hashPassword('pw-for-tests') },
-    assistant: { enabled: true, level: 'work' }, sessionDefaults: { permissionMode: 'default' },
+    assistant: { enabled: true, level: 'work' }, operator: { acts: true }, sessionDefaults: { permissionMode: 'default' },
     work: { place: 'project', project: 'shop', path: 'docs/plans', ownerId: 'alex' },
     addons: closedGateways(), // the shipped gateway's port is the test's own, never the default
   });

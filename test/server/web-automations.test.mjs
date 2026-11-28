@@ -121,6 +121,12 @@ test('a confirm card asks in plain words with the accounts\' display names, the 
   const chat = plainCard({ tool: 'start_chat', input: { folder: '/p/landing-page', account: 'max', message: 'Add a toggle' }, lines: [] }, { accounts: ACCOUNTS });
   assert.equal(chat.question, 'Start a session in the App in landing-page on Claude Max?', 'Claude Code alone: a chat is its chat');
   assert.equal(chat.quote, 'Add a toggle');
+  // What she set on a start is drawn before the tap, in plain words (the details only hold the conversation line).
+  const set = plainCard({ tool: 'start_chat', input: { folder: '/p/landing-page', account: 'max', message: 'Add a toggle', model: 'opus', effort: 'high', worktree: true, watch: 'fails' }, lines: [] }, { accounts: ACCOUNTS });
+  for (const w of ['Model: opus.', 'Effort: high.', 'In a copy of the folder of its own.', 'Tells you when it fails.']) assert.ok(set.notes.includes(w), `${w} in ${JSON.stringify(set.notes)}`);
+  assert.deepEqual(plainCard({ tool: 'start_chat', input: { folder: '/p/landing-page', account: 'max', watch: 'needs-me' }, lines: [] }, { accounts: ACCOUNTS }).notes, ['Tells you when it needs you.']);
+  assert.deepEqual(plainCard({ tool: 'start_chat', input: { folder: '/p/landing-page', account: 'max', watch: 'ends' }, lines: [] }, { accounts: ACCOUNTS }).notes, ['Tells you when it ends.']);
+  assert.deepEqual(chat.notes, [], 'nothing set, nothing added');
   const C = 'chat:44444444-4444-4444-8444-444444444444';
   assert.equal(plainCard({ tool: 'send_to_chat', input: { session: C, text: 'run the tests' }, lines: [] }).question, 'Send this to a session in the App?', 'never its id');
   const chats = [{ name: C, kind: 'chat', title: 'Fix the login', cwd: '/w/shop' }];

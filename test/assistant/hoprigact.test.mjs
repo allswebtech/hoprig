@@ -202,8 +202,12 @@ test('Undo: an act of another conversation, from the last 7 days, can be undone 
   const entry = t.audit.recent().find((e) => e.tool === 'hoprig_act' && e.outcome === 'done');
   const list = await t.call({ act: 'list', word: 'undo' }, { conversation: 'tuesday' });
   assert.match(list.text, new RegExp(String(entry.at)));
+  // Undoing is the owner's press (Activity has the button): her own undo-act is a card, even with the switch on.
   const undone = await t.call({ act: 'undo-act', item: String(entry.at) }, { conversation: 'tuesday' });
   assert.equal(undone.isError, false, undone.text);
+  assert.ok(undone.card, 'a card');
+  assert.equal(t.writes('mends.release').length, 0, 'nothing before his tap');
+  assert.equal((await t.core.confirm(undone.card.id)).ok, true);
   assert.equal(t.writes('mends.release').length, 1, 'the hold was released');
   // Once undone it is not offered again, and an act 8 days old is not offered at all.
   const again = await t.call({ act: 'undo-act', item: String(entry.at) }, { conversation: 'wednesday' });

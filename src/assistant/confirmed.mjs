@@ -13,3 +13,11 @@ export const confirmedCard = () => store.getStore() || null;
 
 /** The computer a card names, as the door names it: null for this computer. */
 export const cardComputer = (c) => (c && c.input && c.input.computer && c.input.computer !== 'this' ? c.input.computer : null);
+
+// The look that is running now (look.mjs): a read route of the catalog passes her door only inside it, so no other call of
+// hers reads one. It carries nothing: a read changes nothing, and what it keeps is cut by catalog.mjs keep().
+const looks = new AsyncLocalStorage();
+/** Run `fn` as a read of the look tool. */
+export const runAsLook = (fn) => looks.run(true, fn);
+/** Whether a look is running now. */
+export const lookRunning = () => looks.getStore() === true;

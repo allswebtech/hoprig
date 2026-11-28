@@ -9,10 +9,11 @@
 //
 // A chat is "chat:<id>" among the sessions (list_sessions); a terminal session stays start_session's and
 // send_to_session's.
-import { PERMISSION_MODES } from '../config.mjs';
+import { EFFORTS, PERMISSION_MODES } from '../config.mjs';
 import { isSecretFolder } from '../server/folders.mjs';
 import { expandHome } from './commandplaces.mjs';
 import { bool, obj, ref, str } from './schema.mjs';
+import { MODEL_NAME } from './startoptions.mjs';
 import { ASSISTANT_NAME } from './tia.mjs';
 import { LOCAL } from './shown.mjs';
 import { UUID, account, codingTool, comp, computer, conversation, folder, job, said, session, short, providerNote, sessKey, startOf, statusOf, tool, toolError, toolName, aTool } from './toolkit.mjs';
@@ -49,9 +50,14 @@ export const start_chat = tool({
     job,
     conversation,
     fork_of: ref('session', str({ max: 41, pattern: CHAT, desc: 'A chat (chat:<id>) from list_sessions to fork: give its folder too.' })),
+    model: str({ max: 120, pattern: MODEL_NAME, desc: 'A model for this chat, only when the owner named one; else his defaults.' }),
+    effort: str({ enum: EFFORTS, desc: 'An effort for this chat, only when the owner named one; else his defaults.' }),
+    worktree: bool({ desc: 'true: the chat works in a worktree of its own, so its changes stay apart.' }),
+    watch: str({ enum: ['needs-me', 'ends', 'fails'], desc: 'Tell the owner (a push) when this chat needs him, ends or fails.' }),
     computer,
   }, { required: ['folder'] }),
   check(a) {
+    if (a.fork_of && ['model', 'effort', 'worktree'].some((k) => a[k] !== undefined)) throw toolError('a fork keeps its chat\'s own model and effort', 'leave model, effort and worktree out');
     // The credentials folder and the sign-in places are the owner's: no card is offered for a chat there (the dashboard refuses it for her too).
     if (comp(a) === LOCAL && typeof a.folder === 'string' && isSecretFolder(expandHome(a.folder))) throw toolError('that folder holds the owner\'s credentials or a sign-in: only the owner starts a chat there, from his own page', 'tell the owner; start the chat in a project folder');
     if (a.fork_of && ['conversation', 'message', 'goal', 'job', 'coding_tool'].some((k) => a[k] !== undefined)) throw toolError('a fork takes only its chat, its folder and the computer', 'leave conversation, message, goal, job and coding_tool out; send_to_chat writes the first message once the owner said yes');
@@ -71,15 +77,16 @@ export const start_chat = tool({
     return null;
   },
   // A fork copies the owner's conversation into a new chat: his yes first, at every level of hers.
-  policy: (a) => (a.fork_of ? { level: 'L2', why: 'a fork copies a conversation of the owner\'s into a new chat' } : null),
+  policy: (a) => (a.fork_of ? { level: 'L2', why: 'a fork copies a conversation of the owner\'s into a new chat' } : ['model', 'effort', 'worktree'].some((k) => a[k] !== undefined) ? { level: 'L2', why: 'a model, an effort or a worktree that is not his defaults is his yes first' } : null),
   async run(ops, a, ctx) {
     if (a.fork_of) {
       const r = await ops.forkChat({ computer: comp(a), id: chatIdOf(a.fork_of) });
       if (!UUID.test(String(r && r.id))) throw toolError('the computer answered without a chat id this dashboard can use', 'list_sessions shows whether a chat was opened; tell the owner');
       const name = `chat:${r.id}`;
+      const watched = a.watch && ctx.watches ? ctx.watches.add({ on: 'chat', target: name, when: a.watch, tell: 'push', hours: 24 }) : null;
       return {
-        summary: `Forked ${a.fork_of} into the new chat ${name} on ${comp(a)} under ${a.account}: it goes on from a copy of that conversation with its settings; the original stays as it was. Nothing runs in it until a message is sent (send_to_chat). It holds the owner's conversation, so every OK it asks for is his.`,
-        data: { session: name, computer: comp(a), fork_of: a.fork_of, account: a.account },
+        summary: `Forked ${a.fork_of} into the new chat ${name} on ${comp(a)} under ${a.account}: it goes on from a copy of that conversation with its settings; the original stays as it was. Nothing runs in it until a message is sent (send_to_chat).${watched && watched.watch ? ` A watch (${watched.watch.id}) tells the owner when it ${a.watch === 'needs-me' ? 'needs him' : a.watch === 'ends' ? 'ends' : 'fails'}.` : ''} It holds the owner's conversation, so every OK it asks for is his.`,
+        data: { session: name, computer: comp(a), fork_of: a.fork_of, account: a.account, watch_id: watched && watched.watch ? watched.watch.id : null },
         shown: { session: [sessKey(comp(a), name)] },
         audit: { fork_of: a.fork_of, session: name },
       };
@@ -90,7 +97,7 @@ export const start_chat = tool({
     const lead = !!tiaNow && tiaNow.lead === true;
     // Her ticks, only of providers she is allowed, never the chat's own.
     const others = lead ? (tiaNow.others || []).filter((n) => n !== a.account && tiaNow.allowed.includes(n)) : [];
-    const r = await startOf(ops.startChat({ computer: comp(a), folder: a.folder, profile: a.account, sessionId: a.conversation || null, text: a.message || null, ...(a.coding_tool ? { tool: a.coding_tool } : {}), ...(lead ? { lead: true, others } : {}) }), a.coding_tool);
+    const r = await startOf(ops.startChat({ computer: comp(a), folder: a.folder, profile: a.account, sessionId: a.conversation || null, text: a.message || null, ...(a.coding_tool ? { tool: a.coding_tool } : {}), ...(lead ? { lead: true, others } : {}), ...(a.model ? { model: a.model } : {}), ...(a.effort ? { effort: a.effort } : {}), ...(a.worktree === true ? { worktree: true } : {}) }), a.coding_tool);
     // The chat's id is the computer's answer: only one of the form a chat id has is used (in the summary, the name).
     if (!UUID.test(String(r && r.id))) throw toolError('the computer answered without a chat id this dashboard can use', 'list_sessions shows whether a chat was opened; tell the owner');
     const name = `chat:${r.id}`;
@@ -130,21 +137,28 @@ export const start_chat = tool({
     // on an earlier conversation is never hers (the safe side, her own earlier one too): its history holds the owner's
     // words, so its OKs stay his.
     const continued = !!a.conversation;
+    // A watch on the new chat (watches.mjs): a push when it needs him, ends or fails; no model turn.
+    const watched = a.watch && ctx.watches ? ctx.watches.add({ on: 'chat', target: name, when: a.watch, tell: 'push', hours: 24 }) : null;
     if (j) ctx.jobs.attach(j.id, { computer: comp(a), session: name, startedByTia: !continued, created, folder: a.folder });
     return {
-      summary: `${held ? 'Opened' : 'Started'} chat ${name} (${toolName(tool)}) on ${comp(a)} under ${a.account}${providerNote(ctx)}${continued ? ', continuing the earlier conversation' : ''}${sent}. It runs with the permission mode, model and effort of Settings → New-session defaults.${continued ? ' It continues an earlier conversation, so it is not yours: every OK it asks for is the owner\'s, and you cannot answer it.' : tool === 'claude' ? '' : ` Every OK it asks for is the owner's: you cannot answer the OKs of ${aTool(tool)} chat.`} The owner sees it on Home.${j ? ` Job ${j.id} watches it; you are woken when it waits, asks, hits a limit or ends.` : ' Not watched: give a goal or call watch_session.'}`,
-      data: { session: name, computer: comp(a), coding_tool: tool, account: a.account, account_label: ctx.accountLabel || null, account_why: ctx.accountWhy || null, job: j ? j.id : null, message_sent: a.message ? r.sent !== false : null, why_not_sent: whyNot },
+      summary: `${held ? 'Opened' : 'Started'} chat ${name} (${toolName(tool)}) on ${comp(a)} under ${a.account}${providerNote(ctx)}${continued ? ', continuing the earlier conversation' : ''}${sent}. It runs with the permission mode${a.model || a.effort ? '' : ', model and effort'} of Settings → New-session defaults${a.model || a.effort ? `, with ${[a.model && `model ${a.model}`, a.effort && `effort ${a.effort}`].filter(Boolean).join(' and ')} as asked` : ''}${a.worktree ? ', in a worktree of its own' : ''}.${watched && watched.watch ? ` A watch (${watched.watch.id}) tells the owner when it ${a.watch === 'needs-me' ? 'needs him' : a.watch === 'ends' ? 'ends' : 'fails'}.` : ''}${continued ? ' It continues an earlier conversation, so it is not yours: every OK it asks for is the owner\'s, and you cannot answer it.' : tool === 'claude' ? '' : ` Every OK it asks for is the owner's: you cannot answer the OKs of ${aTool(tool)} chat.`} The owner sees it on Home.${j ? ` Job ${j.id} watches it; you are woken when it waits, asks, hits a limit or ends.` : ' Not watched: give a goal or call watch_session.'}`,
+      data: { session: name, computer: comp(a), coding_tool: tool, ...(a.model ? { model: a.model } : {}), ...(a.effort ? { effort: a.effort } : {}), ...(a.worktree ? { worktree: true } : {}), watch_id: watched && watched.watch ? watched.watch.id : null, account: a.account, account_label: ctx.accountLabel || null, account_why: ctx.accountWhy || null, job: j ? j.id : null, message_sent: a.message ? r.sent !== false : null, why_not_sent: whyNot },
       shown: { session: [sessKey(comp(a), name)], ...(j ? { job: [j.id] } : {}) },
     };
   },
   cardLines: (a, b) => (a.fork_of ? [
     `Fork the chat "${b.title}" (${a.fork_of}) in ${a.folder} on ${comp(a)} under ${a.account}${b.kind === 'api' ? ' (paid API provider)' : ''}: a new chat goes on from a copy of its conversation, with its model, effort and permission mode; the original stays as it is`,
     'Nothing runs in it until a message is sent to it; it holds your conversation, so its OKs stay yours',
+    ...(a.watch ? [`Tells you when it ${a.watch === 'needs-me' ? 'needs you' : a.watch === 'ends' ? 'ends' : 'fails'}`] : []),
   ] : [
     `Start ${aTool(a.coding_tool || 'claude')} chat in ${a.folder} on ${comp(a)} under ${a.account}${b.kind === 'api' ? ' (paid API provider)' : ''}, as Settings → New-session defaults say`,
     ...(a.conversation ? [`Continuing conversation ${a.conversation}`] : []),
     ...(a.message ? [`First message: ${a.message}`] : []),
     ...(a.goal ? [`Goal: ${a.goal}`] : []),
+    ...(a.model ? [`Model: ${a.model}`] : []),
+    ...(a.effort ? [`Effort: ${a.effort}`] : []),
+    ...(a.worktree ? ['In a worktree of its own'] : []),
+    ...(a.watch ? [`Tells you when it ${a.watch === 'needs-me' ? 'needs you' : a.watch === 'ends' ? 'ends' : 'fails'}`] : []),
   ]),
   before: async (ops, a, ctx) => {
     if (!a.fork_of) return { account: a.account, kind: ctx.accountKind || null, tool: a.coding_tool || 'claude' };

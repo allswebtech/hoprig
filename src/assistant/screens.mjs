@@ -39,7 +39,7 @@ export function openAnswer(row, { computer } = {}) {
 export const open_screen = tool({
   name: 'open_screen',
   level: 'L1',
-  description: `A button that opens a dashboard page for the owner. Use it for what only he does: add a provider, sign it in or out, sign in with another Claude account at a usage limit, or change its key (providers), remove or pair a computer (computers), the password and sign-in devices (settings/security), notifications, how new sessions are allowed to act (settings/new-sessions), updates by themselves, the public link on (settings/public-link), another coding tool's sign-in, ${ASSISTANT_NAME}'s own settings (settings/tia); and to show him any page: a new session (new), the editor (code), the desktop (desktop/…).`,
+  description: `A button that opens a dashboard page for the owner. Use it for what only he does: add a provider, sign it in or out, sign in with another Claude account at a usage limit, or change its key, remove or pair a computer, the password and devices, notifications, how new sessions may act, updates, the public link, another coding tool's sign-in, ${ASSISTANT_NAME}'s own settings; and to show him any page.`,
   input: obj({ screen: str({ enum: SCREENS }), computer }, { required: ['screen'] }),
   async run(ops, a) {
     const link = linkOf(a.screen, a.computer);

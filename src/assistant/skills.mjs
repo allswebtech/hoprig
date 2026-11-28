@@ -106,6 +106,13 @@ function readDir(dir, source, problems) {
 
 const words = (s) => String(s).toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length > 2);
 
+/** The first sentence of a skill's description, at most 90 characters, cut at a word (the rest is read with the procedure). */
+const clause = (d) => {
+  const text = String(d).replace(/\s+/g, ' ').trim();
+  const first = (/^.*?[.!?](?=\s|$)/.exec(text) || [text])[0];
+  return first.length > 90 ? first.slice(0, 90).replace(/\s+\S*$/, '') : first;
+};
+
 export class Skills {
   /** dirs: [{ dir, source }] in find order. Defaults: the owner's folder, then the built-in pack. */
   constructor({ dirs = [{ dir: ownerSkillsDir(), source: 'owner' }, { dir: BUILTIN_DIR, source: 'built-in' }] } = {}) {
@@ -148,7 +155,8 @@ export class Skills {
 
   /** One line per skill for the system prompt (name and description), stable order. */
   index() {
-    return this.all.map((s) => `- ${s.name}: ${s.description.replace(/\s+/g, ' ')}`).join('\n');
+    // A name and the first clause of what it is for (the rest is read with the procedure): the index is paid for in every first request.
+    return this.all.map((s) => `- ${s.name}: ${clause(s.description)}`).join('\n');
   }
 
   /** Write a confirmed draft into the first (owner's) folder and load it. Only core.mjs calls this, on Confirm. */

@@ -106,7 +106,7 @@ export function baseState() {
     skills: { user: { skills: [{ name: 'tdd', source: 'catalog' }] }, settings: { weekly: false } },
     reviews: { 'pdf-tools': { id: 'r1', name: 'pdf-tools', description: 'Read PDFs.', source: { type: 'git', repo: 'acme/skills', path: 'pdf', commit: 'abcdef123' }, scope: { kind: 'user' }, files: [{ path: 'SKILL.md' }, { path: 'run.sh' }], findings: [{ severity: 'warn', rule: 'script', message: 'runs a shell script', file: 'run.sh' }], counts: { block: 0 }, skillMd: '# PDF tools\nUse pdftotext.' } },
     work: workState(), // Work: tasks, Today, runs (fake-work.mjs)
-    assistant: { enabled: true, level: 'work' }, // config.json "assistant" (src/assistant/tia.mjs); she is off by default, the tests turn her on
+    assistant: { enabled: true, level: 'work', actAlone: true }, // the owner switch Tia acts by herself is ON in the fake: a test of the switch off sets it (switch-census.test.mjs); config.json "assistant" (src/assistant/tia.mjs); she is off by default, the tests turn her on
   };
 }
 

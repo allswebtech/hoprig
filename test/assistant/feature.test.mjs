@@ -68,7 +68,7 @@ for (const kind of kinds) {
     const { createServer } = await import('../../src/server/server.mjs');
     const { createToken } = await import('../../src/machines/tokens.mjs');
     const { stateDir } = await import('../../src/paths.mjs');
-    saveConfig({ launcher: [process.execPath, FAKE_SESSION], server: { backend: kind, roots: [work], passwordHash: await hashPassword('pw-for-tests') }, assistant: { enabled: true, level: 'work' } });
+    saveConfig({ launcher: [process.execPath, FAKE_SESSION], server: { backend: kind, roots: [work], passwordHash: await hashPassword('pw-for-tests') }, assistant: { enabled: true, level: 'work' }, operator: { acts: true } });
     writeProfile('sub', { label: 'Main' });
     writeProfile('sub2', { label: 'Second' });
     writeProfile('api', { label: 'API', env: { ANTHROPIC_BASE_URL: 'http://127.0.0.1:9' } });

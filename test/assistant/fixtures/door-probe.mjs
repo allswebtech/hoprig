@@ -29,6 +29,35 @@ export const CARDS = [
   { id: 'c11', tool: 'manage_project', input: { action: 'sync' } },
 ];
 
+/**
+ * The cards of do_act the owner could confirm for a catalog route (src/assistant/catalog.mjs): for an address, one card per row
+ * that changes something and that the address belongs to, its arguments made from the address itself (the ids and the variant).
+ * Returns a function (method, url) -> cards. A route no tool of hers reaches passes only as exactly this act of a card.
+ */
+export async function catalogCards() {
+  const { catalogRoutes, isReadRoute } = await import('../../../src/assistant/catalog.mjs');
+  const entries = catalogRoutes().filter((e) => !isReadRoute(e.row));
+  return (method, url) => {
+    const computer = /^\/m\/alpha\//.test(url) ? 'alpha' : null;
+    const p = url.replace(/^\/m\/alpha/, '');
+    const out = [];
+    for (const e of entries) {
+      if (e.method !== method || !e.re.test(p)) continue;
+      const want = e.row.source.replace(/^[A-Z]+ /, '').split('/');
+      const have = p.split('/');
+      if (want.length !== have.length) continue;
+      const args = {};
+      let n = 0;
+      want.forEach((w, i) => {
+        if (w === '<id>') args[['target', 'target2', 'target3'][n++]] = have[i];
+        else if (w.startsWith('(')) args.variant = have[i];
+      });
+      out.push({ id: `a-${e.row.id}`, tool: 'do_act', input: { act: e.row.id, args, ...(computer ? { computer } : {}) } });
+    }
+    return out;
+  };
+}
+
 const ctx = () => ({
   config: () => ({ server: { roots: ['/x'] }, sessionDefaults: { permissionMode: 'default' }, assistant: { enabled: true, level: 'work', actAlone: true } }),
   settingsOf: () => ({ sessionDefaults: { permissionMode: 'default' } }),
@@ -47,9 +76,9 @@ export const variantsOf = (p) => {
  * { passes: [[method, path, card, bits]], classes: [[path, class]] }: `bits` has one character per body, 1 for yes.
  * `routes`: [{ method, paths: [sample paths] }]. `neverClassOf`: the door's class of a path, or null. `ALLOW`: the door's list.
  */
-export function probe({ checkRoute, neverClassOf, ALLOW }, routes) {
+export function probe({ checkRoute, neverClassOf, ALLOW }, routes, extra = () => []) {
   // Only a route with an entry that asks for a confirmed card is asked with the cards (it is the only one that looks at one).
-  const needsCard = (method, url) => ALLOW.some((e) => e.card && e.method === method && e.re.test(url.replace(/^\/m\/alpha/, '')));
+  const needsCard = (method, url) => extra(method, url).length > 0 || ALLOW.some((e) => e.card && e.method === method && e.re.test(url.replace(/^\/m\/alpha/, '')));
   const passes = [];
   const classes = new Map();
   const seen = new Set();
@@ -74,10 +103,11 @@ export function probe({ checkRoute, neverClassOf, ALLOW }, routes) {
           seen.add(k);
           // A card is kept only where it changes the answer (a route that does not look at it answers the same).
           let none = '';
-          [null, ...(needsCard(method, url) ? CARDS : [])].forEach((card, ci) => {
+          const cards = needsCard(method, url) ? [...CARDS, ...extra(method, url)] : [];
+          [null, ...cards].forEach((card, ci) => {
             const bits = BODIES.map((b) => (ask(method, url, b === null ? null : structuredClone(b), card) ? '1' : '0')).join('');
             if (ci === 0) none = bits;
-            if (ci === 0 ? bits.includes('1') : bits !== none) passes.push([method, url, ci, bits]);
+            if (ci === 0 ? bits.includes('1') : bits !== none) passes.push([method, url, card && card.id.startsWith('a-') ? card.id : ci, bits]);
           });
         }
       }

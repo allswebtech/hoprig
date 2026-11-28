@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import test from 'node:test';
 import { sandbox } from '../server/helpers.mjs';
-import { BODIES, CARDS, probe, variantsOf } from './fixtures/door-probe.mjs';
+import { BODIES, CARDS, catalogCards, probe, variantsOf } from './fixtures/door-probe.mjs';
 
 const BASE = JSON.parse(fs.readFileSync(new URL('./fixtures/door-base.json', import.meta.url), 'utf8'));
 const box = sandbox('actsdoor');
@@ -27,7 +27,7 @@ test('the door lets through exactly what the door before it let through, route b
   const app = createServer({ watch: false });
   try {
     const routes = [...A.changingRoutes(app), ...A.readRoutes(app)].map((r) => ({ method: r.method, paths: samples(r) }));
-    const now = probe({ checkRoute: D.checkRoute, neverClassOf: D.neverClassOf, ALLOW: D.ALLOW }, routes);
+    const now = probe({ checkRoute: D.checkRoute, neverClassOf: D.neverClassOf, ALLOW: D.ALLOW }, routes, await catalogCards());
     const asked = routes.reduce((n, r) => n + r.paths.length, 0) * variantsOf('/x').length;
     t.diagnostic(`${routes.length} routes, ${asked} addresses, ${BODIES.length} bodies, ${CARDS.length} cards: ${BASE.passes.length} answers yes at the base`);
     console.log(`DOOR SAME ${routes.length} routes, ${asked} addresses x ${BODIES.length} bodies x ${CARDS.length + 1} cards (none, or one confirmed); ${BASE.passes.length} answers yes at the base`);

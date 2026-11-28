@@ -10,6 +10,7 @@ import { createAssistantCore } from '../../src/assistant/core.mjs';
 import { JobStore } from '../../src/assistant/jobs.mjs';
 import { Skills } from '../../src/assistant/skills.mjs';
 import { SpendLedger } from '../../src/assistant/spend.mjs';
+import { tapped } from './tapped.mjs';
 import { FakeOps, baseState } from './fake-dashboard.mjs';
 
 const START = { action: 'start', task: 'fix-the-cart-total', brief: 'Make the cart total use the discount code. Do not push.', kind: 'code' };
@@ -174,7 +175,7 @@ test('switch on: his open chat joined to her Work job (start_chat with the job) 
   await s.core.call('list_sessions', {}, { conversation: 'w1' });
   await s.core.call('list_projects', { folder: '/home/owner/projects/shop' }, { conversation: 'w1' });
   const job = s.core.jobs.list()[0].id;
-  const st = await s.core.call('start_chat', { folder: '/home/owner/projects/shop', account: 'sub', conversation: conv, job }, { conversation: 'w1' });
+  const st = await tapped(s.core, (t, a, o) => s.core.call(t, a, o), 'w1')('start_chat', { folder: '/home/owner/projects/shop', account: 'sub', conversation: conv, job }, { conversation: 'w1' });
   assert.equal(st.isError, false, st.text);
   assert.ok(s.core.jobs.get(job).sessions.some((e) => e.session === name), 'the job watches his chat now');
   const before = s.ops.calls.length;

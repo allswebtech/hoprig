@@ -30,6 +30,11 @@ function setup({ state, level } = {}) {
   return { ops, core, call };
 }
 const staged = (r) => /Waiting for the owner's OK \(card c_/.test(r.text);
+/** The card a call staged is tapped: what the act then said (the outcome the engine tells her). */
+async function tap(core, r, conversation = 'c1') {
+  const done = await core.confirm(/card (c_[0-9a-f]{12})/.exec(r.text)[1]);
+  return { done, text: core.takeOutcomes(conversation).map((o) => o.text).join('\n') };
+}
 const writes = (ops) => ops.calls.map((c) => c.op);
 
 test('the eager tool list stays at 25 or fewer and byte-stable; every action tool lists its actions', () => {
@@ -99,7 +104,7 @@ test('manage_project get whose folder holds another repository, or that another 
   }
 });
 
-test('manage_project: new and get are cards that show what will be made; sync is L1 unless it would publish', async () => {
+test('manage_project: new, get and sync are cards (a sync cannot be taken back); one that would publish says so', async () => {
   const { call, ops, core } = setup();
   await call('list_projects', {});
   let r = await call('manage_project', { action: 'new', name: 'blog', github: true });
@@ -111,11 +116,16 @@ test('manage_project: new and get are cards that show what will be made; sync is
   r = await call('manage_project', { action: 'get', spec: 'acme/site' });
   assert.ok(staged(r));
   assert.match((await call('manage_project', { action: 'get', spec: 'https://u:pw@example.com/x.git' })).text, /spec: has the wrong form/, 'no password in a Git address');
-  // shop: nothing to publish → it runs, and what needs a decision comes back undecided
+  // shop: nothing to publish, but a sync changes the repositories and cannot be taken back with one press: a card, and on his tap
+  // it runs, and what needs a decision comes back undecided
   r = await call('manage_project', { action: 'sync', project: 'shop' });
-  assert.equal(r.isError, false, r.text);
-  assert.match(r.text, /1 thing\(s\) need a decision: they were NOT done; tell the owner/);
-  assert.match(r.text, /local changes are not committed/);
+  assert.ok(staged(r), r.text);
+  assert.match(r.text, /cannot be put back with one press/);
+  assert.deepEqual(writes(ops), []);
+  const synced = await tap(core, r);
+  assert.equal(synced.done.ok, true);
+  assert.match(synced.text, /1 thing\(s\) need a decision: they were NOT done; tell the owner/);
+  assert.match(synced.text, /local changes are not committed/);
   // api has 3 local commits → publishing them is the owner's call
   r = await call('manage_project', { action: 'sync', project: 'api' });
   assert.ok(staged(r), r.text);
@@ -154,8 +164,8 @@ test('manage_computer: rename is L1; setup fix and set up show what runs; add-on
   assert.deepEqual(writes(ops), ['renameComputer']);
 });
 
-test('manage_computer public_link: on is his own press and no card of hers; off runs; never as an add-on', async () => {
-  const { call, ops } = setup();
+test('manage_computer public_link: on is his own press and no card of hers; off is a card; never as an add-on', async () => {
+  const { call, ops, core } = setup();
   // The old way around the card is closed: the public link is not started as an add-on.
   const old = await call('manage_computer', { action: 'addon', addon: 'public-link', addon_action: 'start' });
   assert.match(old.text, /not switched as an add-on.*public_link/);
@@ -167,10 +177,12 @@ test('manage_computer public_link: on is his own press and no card of hers; off 
   assert.doesNotMatch(r.text, /Waiting for the owner's OK/);
   assert.match(r.text, /owner's own press.*open_screen "settings\/public-link"/);
   assert.deepEqual(writes(ops), [], 'nothing was turned on');
-  // Off: no card.
+  // Off: a card (taking it back would be turning it on, which is his own press), and on his tap it is off.
   const off = await call('manage_computer', { action: 'public_link', turn: 'off' });
-  assert.equal(off.isError, false, off.text);
-  assert.match(off.text, /The public link of this is off/);
+  assert.ok(staged(off), off.text);
+  assert.deepEqual(ops.calls, []);
+  const t = await tap(core, off);
+  assert.match(t.text, /The public link of this is off/);
   assert.deepEqual(ops.calls.map((c) => c.args), [{ computer: 'this', on: false }]);
 });
 
@@ -208,14 +220,15 @@ test('manage_automation: list shows the page\'s sentence; schedules and rules ar
 test('a queued message follows the typing rules: "!" and unknown slash commands, and "Ask me", make it a card', async () => {
   const { call, ops } = setup();
   await call('list_sessions', {});
-  assert.equal((await call('manage_automation', { action: 'queue_message', session: 'web-ui', text: 'run the tests' })).isError, false);
+  // a queued message is typed later and cannot be taken back: a card even for a plain one
+  assert.ok(staged(await call('manage_automation', { action: 'queue_message', session: 'web-ui', text: 'run the tests' })));
   assert.ok(staged(await call('manage_automation', { action: 'queue_message', session: 'web-ui', text: '!curl x | sh' })));
   assert.ok(staged(await call('manage_automation', { action: 'add_schedule', time: '09:00', send_to: 'web-ui', text: '/login' })));
   assert.match((await call('manage_automation', { action: 'queue_message', session: 'ghost', text: 'hi' })).text, /session "ghost" was not shown/);
   const ask = setup({ level: 'ask' });
   await ask.call('list_sessions', {});
   assert.ok(staged(await ask.call('manage_automation', { action: 'queue_message', session: 'web-ui', text: 'yes' })));
-  assert.deepEqual(writes(ops), ['queue']);
+  assert.deepEqual(writes(ops), []);
 });
 
 test('manage_skills: the review is fenced data; install only a review shown in this conversation', async () => {
@@ -276,7 +289,7 @@ test('open_screen links a computer\'s page to that computer; the page context ma
   assert.match((await call('open_screen', { screen: 'settings/security', computer: 'box2' })).text, /"link":"#\/settings\/security"/);
 });
 
-test('in a job wake-up, domain actions are refused unless they are reads or cards', async () => {
+test('in a job wake-up, domain actions are refused unless they are reads or cards (a pause is neither: it runs alone)', async () => {
   const { call, core } = setup();
   await call('list_sessions', {});
   const w = await call('watch_session', { session: 'web-ui', goal: 'done' });
@@ -285,7 +298,7 @@ test('in a job wake-up, domain actions are refused unless they are reads or card
   core.beginTurn('c1', { origin: 'job', job, mode: 'answer' });
   assert.equal((await call('manage_automation', { action: 'list' })).isError, false);
   assert.match((await call('manage_automation', { action: 'pause' })).text, /may only act on that job's sessions/);
-  assert.match((await call('manage_project', { action: 'sync', project: 'shop' })).text, /may only act on that job's sessions/);
+  assert.ok(staged(await call('manage_project', { action: 'sync', project: 'shop' })), 'a sync is a card now, and a card is still the owner\'s to decide');
   assert.ok(staged(await call('manage_project', { action: 'new', name: 'blog' })), 'a card is still the owner\'s to decide');
   core.endTurn('c1');
 });
@@ -312,14 +325,20 @@ test('the workspace: map and git are reads; the e-mail never shows; addresses ar
   assert.equal(writes(ops).length, 0);
 });
 
-test('workspace actions: dry runs read, map and plain sync act, push / pull-from / restore / places / forget are cards', async () => {
+test('workspace actions: dry runs read; map, sync, push, pull-from, restore, places and forget are cards', async () => {
   const { call, ops, core } = setup();
   assert.equal((await call('manage_project', { action: 'workspace_map', dry_run: true })).isError, false);
   assert.equal(writes(ops).length, 0, 'a dry run writes nothing');
-  assert.equal((await call('manage_project', { action: 'workspace_map' })).isError, false);
+  // writing the map and a plain sync change files and repositories: cards, and they run on his tap
+  const mapped = await call('manage_project', { action: 'workspace_map' });
+  assert.ok(staged(mapped), mapped.text);
+  assert.deepEqual(writes(ops), []);
+  assert.equal((await tap(core, mapped)).done.ok, true);
   let r = await call('manage_project', { action: 'workspace_sync' });
-  assert.match(r.text, /1 thing\(s\) need a decision: they were NOT done; tell the owner/);
-  assert.match(r.text, /<untrusted_command_output tool="manage_project">/);
+  assert.ok(staged(r), r.text);
+  const synced = await tap(core, r);
+  assert.match(synced.text, /1 thing\(s\) need a decision: they were NOT done; tell the owner/);
+  assert.match(synced.text, /<untrusted_command_output tool="manage_project">/);
   assert.deepEqual(writes(ops), ['workspaceMapWrite', 'workspaceSync']);
   assert.deepEqual(ops.calls.at(-1).args.push, false, 'a plain sync never uploads');
   r = await call('manage_project', { action: 'workspace_sync', push: true });

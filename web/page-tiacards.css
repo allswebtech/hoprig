@@ -88,6 +88,12 @@ a.tia-c-item:hover { background: var(--surface-2); }
 .tia-c-tick { flex: none; width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center; border: 2px solid var(--border-strong); box-sizing: border-box; }
 .tia-c-steps li.done .tia-c-tick { background: var(--ok-solid); border-color: var(--ok-solid); color: var(--on-solid); }
 .tia-c-steps li.now .tia-c-tick { border-color: var(--accent); }
+/* plan: the steps of a progress card, with a failed and a taken-back step */
+.tia-c-steps li.todo .tia-c-tick { opacity: .6; }
+.tia-c-steps li.bad { color: var(--text); }
+.tia-c-steps li.bad .tia-c-tick { background: var(--danger-solid, var(--warn)); border-color: var(--danger-solid, var(--warn)); color: var(--on-solid); }
+.tia-c-steps li.undone .tia-c-tick { border-color: var(--text-2); }
+.tia-c-steps li > span:last-child { min-width: 0; overflow-wrap: anywhere; }
 /* choice */
 .tia-c-choice { border-color: var(--accent); }
 .tia-c-options { display: flex; flex-wrap: wrap; gap: 8px; min-width: 0; }
