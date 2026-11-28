@@ -16,6 +16,8 @@ export const TOOL_WORDS = {
   manage_computer: 'change a computer', draft_skill: 'add a skill', read_brain: 'read the AI brain',
   manage_project: 'work on a project', manage_automation: 'change the automations', manage_skills: 'look after the skills', manage_procedures: 'look up how to do it',
   manage_work: 'look after your tasks', hoprig_act: 'look after Hoprig',
+  look: 'looked at the state', find_acts: 'looked up how to do it', do_act: 'do one act', plan_acts: 'do several acts in order',
+  start_work: 'start work', steer_work: 'act on running work', watch_work: 'watch and tell you',
 };
 // What she is doing right now (the line while she works).
 export const DOING = {
@@ -29,6 +31,8 @@ export const DOING = {
   manage_computer: 'changing a computer', draft_skill: 'writing a skill', read_brain: 'reading the AI brain',
   manage_project: 'working on a project', manage_automation: 'changing the automations', manage_skills: 'looking after the skills', manage_procedures: 'looking up how to do it',
   manage_work: 'looking at your tasks', hoprig_act: 'looking after Hoprig',
+  look: 'looking at the state', find_acts: 'looking up how to do it', do_act: 'doing an act', plan_acts: 'doing several acts',
+  start_work: 'starting work', steer_work: 'acting on running work', watch_work: 'setting up a watch',
 };
 // The chip once a call has an answer.
 export const DID = {
@@ -40,6 +44,7 @@ export const DID = {
   kill_process: 'ended a process', change_setting: 'changed a setting', run_command: 'ran a command', manage_computer: 'changed a computer', draft_skill: 'added a skill',
   manage_project: 'worked on a project', manage_automation: 'changed the automations', manage_skills: 'looked after the skills', manage_procedures: 'looked up how to do it',
   manage_work: 'looked after your tasks', hoprig_act: 'looked after Hoprig',
+  do_act: 'did an act', plan_acts: 'did several acts', start_work: 'started work', steer_work: 'acted on running work', watch_work: 'set up a watch',
 };
 
 /**

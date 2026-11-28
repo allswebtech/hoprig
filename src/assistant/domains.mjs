@@ -814,6 +814,7 @@ export const manage_automation = actionTool({
     add_schedule: {
       level: 'L2',
       need: ['time'],
+      how: 'to start a session give folder, account, text; to type into one give send_to, text',
       allow: scheduleFields.filter((k) => k !== 'time'),
       check: scheduleCheck,
       policy: (a, f, tia) => scheduleProvider(a, tia) || typedLevel(a.text, f, tia, 'L2'),
@@ -828,6 +829,7 @@ export const manage_automation = actionTool({
     change_schedule: {
       level: 'L2',
       need: ['schedule', 'time'],
+      how: 'send the whole schedule again, as add',
       allow: scheduleFields.filter((k) => k !== 'time'),
       check: scheduleCheck,
       policy: (a, f, tia) => scheduleProvider(a, tia) || typedLevel(a.text, f, tia, 'L2'),
@@ -1040,7 +1042,7 @@ export const manage_skills = actionTool({
         const v = reviewView(r);
         ctx.memo.set(at(comp(a), r.id), { ...v, kind: 'install' });
         // Named by what she asked for (a.spec, validated); the skill's own name is the downloaded text's, in the data.
-        return { summary: `Reviewed ${a.spec}: ${v.files.length} file(s), ${v.scan.length} scan finding(s)${v.blocked ? ', and it is BLOCKED (cannot be installed)' : ''}. Show the owner the findings before proposing install.`, data: v, review: { name: a.spec, text: `${r.description || ''}\n\n${r.skillMd || ''}` }, shown: { review: [at(comp(a), r.id)] } };
+        return { summary: `Reviewed ${a.spec}: ${v.files.length} file(s), ${v.scan.length} scan finding(s)${v.blocked ? ', and it is BLOCKED (cannot be installed)' : ''}. Show the owner the findings before proposing install.`, data: v, review: { name: a.spec, text: `${r.description || ''}\n\n${r.skillMd || ''}` }, shown: { review: [at(comp(a), r.id)] }, audit: { review: r.id } };
       },
     },
     update_review: {
@@ -1051,7 +1053,7 @@ export const manage_skills = actionTool({
         const r = await ops.skillUpdateReview({ computer: comp(a), name: a.skill, project: a.project });
         const v = reviewView(r);
         ctx.memo.set(at(comp(a), r.id), { ...v, kind: 'update' });
-        return { summary: `The update of ${a.skill}: ${v.files.length} file(s), ${v.scan.length} scan finding(s).`, data: { ...v, diff: r.diff ? short(JSON.stringify(r.diff), 4000) : null }, review: { name: a.skill, text: r.skillMd || '' }, shown: { review: [at(comp(a), r.id)] } };
+        return { summary: `The update of ${a.skill}: ${v.files.length} file(s), ${v.scan.length} scan finding(s).`, data: { ...v, diff: r.diff ? short(JSON.stringify(r.diff), 4000) : null }, review: { name: a.skill, text: r.skillMd || '' }, shown: { review: [at(comp(a), r.id)] }, audit: { review: r.id } };
       },
     },
     install: {

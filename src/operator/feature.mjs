@@ -38,6 +38,7 @@ import { elsewhereOf, endElsewhere, readElsewhere, setElsewhere } from './where-
 import { applyLookPatch, looks as lookPart } from './look.mjs';
 import { applyCorrectionsPatch, correctionCounts, forgetCorrections, noteCorrection, readCorrections, writeEvidence } from './corrections.mjs';
 import { replaceFile } from '../replacefile.mjs';
+import { WatchStore } from '../assistant/watches.mjs';
 import { createActivityLog } from '../automation/store.mjs';
 
 const TAP_KEEP_MS = 60_000;
@@ -165,7 +166,7 @@ const firstUnder = (root, dir) => {
  * session is moved to another provider and stopped (the server's own functions, passed in by server.mjs). `acts`:
  * the other acts (tests pass stand-ins).
  */
-export function operatorFeature(ctx, { sources = null, session = {}, acts = {}, now = Date.now, cacheMs, timeoutMs = 4000, accounts = null, keepLeftover, gateways = null, asks = asksAdapter(), turn, rooms = null, work = null, lookModel } = {}) {
+export function operatorFeature(ctx, { sources = null, session = {}, acts = {}, now = Date.now, cacheMs, timeoutMs = 4000, accounts = null, keepLeftover, gateways = null, asks = asksAdapter(), turn, rooms = null, work = null, lookModel, watches = null } = {}) {
   const fail = (status, message, details) => Object.assign(new ctx.HttpError(status, message), details ? { details } : {});
   const looks = () => readJson(path.join(dir(), 'looks.json'), { prev: null, current: null });
   const dismissedFile = () => path.join(dir(), 'dismissed.json');
@@ -174,6 +175,8 @@ export function operatorFeature(ctx, { sources = null, session = {}, acts = {}, 
   const nudgedFile = () => path.join(dir(), 'nudged.json');
   const nudged = (name, since) => readJson(nudgedFile(), {})[name] === since;
   const line = timeline();
+  // The owner's watches: one file of Hoprig's own state, shared with Tia's watch_work; a fired one pushes through the notification way.
+  const watching = watches || new WatchStore({ now, notify: (text) => ctx.notify?.({ force: true, status: 'waiting', session: 'tia', title: 'Hoprig', message: text }) });
   let port = null; // the port and address this dashboard answers on, as its own requests show them
   let address = null;
   // `gateways`: the add-ons the look checks (the demo's pretend one); by default the computer's own (gatewayAddons).
@@ -188,7 +191,7 @@ export function operatorFeature(ctx, { sources = null, session = {}, acts = {}, 
   // whether it went away, and a source of another kind that fails (on some systems one always does) changes nothing.
   const listOf = (board) => {
     const d = dismissed();
-    const l = attention(board, { now: now(), dismissed: d, decorate: (all) => decorate(all, board, { now: now(), nudged, card: (n) => asks.card(n), alone: (t) => (asks.alone ? asks.alone(t) : 'not wired') }) });
+    const l = attention(board, { now: now(), dismissed: d, watches: watching, decorate: (all) => decorate(all, board, { now: now(), nudged, card: (n) => asks.card(n), alone: (t) => (asks.alone ? asks.alone(t) : 'not wired') }) });
     const unread = new Set(board.watched.filter((w) => !w.ok && w.at).map((w) => w.source));
     const told = (id) => KIND_SOURCES[id.split('-')[0]]?.every((n) => !unread.has(n)) ?? false;
     const gone = [...d.keys()].filter((id) => !l.present.has(id) && told(id));
@@ -590,7 +593,7 @@ export function operatorFeature(ctx, { sources = null, session = {}, acts = {}, 
   ];
   // The Start-elsewhere hold's Undo (rooms.mjs): his rule leaves the overload item for the day.
   const elsewhereUndone = () => rx.undoneByHim('elsewhere', itemId('machine', 'load'), 'You ended "Start new work elsewhere" with Undo: the rule leaves it to you for today, or until you tap it.');
-  return { name: 'operator', routes, elsewhereUndone, forget: () => cache.forget(), machine: () => (src.machine ? src.machine() : null), list: async () => publicAttention(await list(), { limit: 20 }), reflex: rx, decide: dc, look: lk, looking: () => lookTick, deciding: () => looking, held: () => heldUntil(now()), close: () => unsubscribe?.() };
+  return { name: 'operator', routes, watches: watching, elsewhereUndone, forget: () => cache.forget(), machine: () => (src.machine ? src.machine() : null), list: async () => publicAttention(await list(), { limit: 20 }), reflex: rx, decide: dc, look: lk, looking: () => lookTick, deciding: () => looking, held: () => heldUntil(now()), close: () => unsubscribe?.() };
 }
 
 /** A result in a few words, for the timeline. */

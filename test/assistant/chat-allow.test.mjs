@@ -15,6 +15,7 @@ import { JobStore, planWakes } from '../../src/assistant/jobs.mjs';
 import { Skills } from '../../src/assistant/skills.mjs';
 import { fakeBin, fakeClaude } from '../setup/helpers.mjs';
 import { sandbox } from '../server/helpers.mjs';
+import { tapped } from './tapped.mjs';
 import { FakeOps, baseState, projectWork } from './fake-dashboard.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -25,7 +26,7 @@ const POSIX = { skip: process.platform === 'win32' && 'the stand-ins are POSIX' 
 
 function core(sessions = []) {
   const s = baseState();
-  s.assistant = { ...s.assistant, enabled: true, level: 'handsoff' };
+  s.assistant = { ...s.assistant, enabled: true, level: 'handsoff', actAlone: true };
   s.sessions.push(...sessions);
   const ops = new FakeOps(s);
   const c = createAssistantCore({
@@ -96,7 +97,7 @@ test('a job keeps following when she continues the same conversation in a new ch
   ops.s.sessions.splice(ops.s.sessions.indexOf(first), 1);
   ops.s.conversations['/home/owner/projects/api'].push({ id: first.chatId, at: Date.now(), title: 'go' });
   await call('list_projects', { folder: '/home/owner/projects/api' });
-  const again = await call('start_chat', { folder: '/home/owner/projects/api', account: 'sub', conversation: first.chatId, job });
+  const again = await tapped(c, call)('start_chat', { folder: '/home/owner/projects/api', account: 'sub', conversation: first.chatId, job });
   assert.equal(again.isError, false, again.text);
   const second = ops.s.sessions.find((x) => x.name === name);
   assert.ok(second.created > first.created);
@@ -161,7 +162,7 @@ async function dashboard(t, name, { level = 'handsoff', idleMs = 30_000 } = {}) 
   const { hashPassword } = await import('../../src/server/auth.mjs');
   const { stateDir } = await import('../../src/paths.mjs');
   const { createServer } = await import('../../src/server/server.mjs');
-  saveConfig({ launcher: [process.execPath, FAKE_SESSION], server: { backend: 'pty', roots: [work], passwordHash: await hashPassword('pw-for-tests') }, assistant: { enabled: true, level }, sessionDefaults: { permissionMode: 'default' } });
+  saveConfig({ launcher: [process.execPath, FAKE_SESSION], server: { backend: 'pty', roots: [work], passwordHash: await hashPassword('pw-for-tests') }, assistant: { enabled: true, level }, operator: { acts: true }, sessionDefaults: { permissionMode: 'default' } });
   writeProfile('sub', { label: 'Main' });
   const app = createServer({ watchTickMs: 300, dashboardFile: false, chat: { command: { command: process.execPath, args: [FAKE_CLAUDE] }, resolveEnv: async () => ({ ...process.env }), idleMs } });
   const base = `http://127.0.0.1:${(await app.listen(0, '127.0.0.1')).port}`;

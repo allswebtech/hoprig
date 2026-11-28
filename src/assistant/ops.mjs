@@ -15,6 +15,7 @@ import * as v from '../server/validate.mjs';
 import { withoutSecrets } from '../secretenv.mjs';
 import { endTree } from '../cmdtree.mjs';
 import { LOCAL } from './shown.mjs';
+import { tiaRaw } from './tia.mjs';
 
 export const OUTPUT_MAX = 64 * 1024;
 const JOB_WAIT_MS = 120_000;
@@ -135,6 +136,9 @@ export function createOps(o) {
   const WS_JOB = '/api/workspace/job';
 
   return {
+    // One route of the acts file's catalog (catalog.mjs), through the door like every other call: the door decides (a read inside a
+    // look, a change only on the owner's confirmed card).
+    routeCall: (c, method, p, body) => api(c, method, p, body),
     // ---- sessions ----
     async listSessions({ computer = null } = {}) {
       if (computer) return ((await get(computer, '/api/state')).sessions || []).map((s) => ({ ...s, computer }));
@@ -158,8 +162,8 @@ export function createOps(o) {
     // ---- chats (src/chat; a chat is "chat:<id>" among the sessions) ----
     // A chat on an earlier conversation is never hers (its history holds the owner's own words): she does not even ask
     // for the mark there, and the computer refuses it too (src/chat/feature.mjs openChat).
-    startChat: ({ computer, folder, profile, sessionId, text, tool, lead, others }) =>
-      post(computer, '/api/chats', { dir: dir(computer, folder), ...(tool ? { tool } : {}), profile, ...(sessionId ? { sessionId } : {}), ...(text ? { text } : {}), lead: lead === true, ...(lead && others && others.length ? { others } : {}), defaults: true, ...(sessionId ? {} : { byTia: true }) }).then((r) => {
+    startChat: ({ computer, folder, profile, sessionId, text, tool, lead, others, model, effort, worktree }) =>
+      post(computer, '/api/chats', { dir: dir(computer, folder), ...(tool ? { tool } : {}), profile, ...(sessionId ? { sessionId } : {}), ...(text ? { text } : {}), lead: lead === true, ...(lead && others && others.length ? { others } : {}), ...(model ? { model } : {}), ...(effort ? { effort } : {}), ...(worktree === true ? { worktree: true } : {}), defaults: true, ...(sessionId ? {} : { byTia: true }) }).then((r) => {
         ctx.poke?.();
         return r;
       }),
@@ -343,12 +347,10 @@ export function createOps(o) {
     changeSettings: ({ computer, patch }) => post(computer, '/api/settings', patch),
     // Each computer's room (src/operator/rooms.mjs) for where a start of hers goes: always this dashboard's own view.
     rooms: () => get(LOCAL, '/api/operator/rooms?start=1'),
+    // Her settings, with her right to act alone from the ONE switch (the Operator page, What Tia does by herself, "Tia acts by
+    // herself": tia.mjs actsAlone). Her small acts on Hoprig itself and every page that shows the right read the same value.
     async assistantSettings() {
-      const a = cfg().assistant;
-      // Her small acts on Hoprig itself (hoprigact.mjs) follow the ONE switch the owner has for what she does by herself:
-      // the Operator page, What Tia does by herself, "Tia acts by herself" (config operator.acts). No key of their own.
-      const base = a && typeof a === 'object' && !Array.isArray(a) ? a : {};
-      return { ...base, actAlone: cfg().operator?.acts === true };
+      return tiaRaw(cfg());
     },
 
     // ---- the owner ----

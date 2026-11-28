@@ -21,6 +21,7 @@ import os from 'node:os';
 import { allowsHerself } from './allowlist.mjs';
 import { FULL_ADMIN_PER_HOUR } from './herrights.mjs';
 import { ASSISTANT_NAME, riskyPermission } from './tia.mjs';
+import { aloneOf } from './takeback.mjs';
 import { toolName } from './toolkit.mjs';
 import { typedTextRisk } from './tools.mjs';
 
@@ -56,6 +57,22 @@ const paidWhy = (acc) => {
   if (acc.order && !acc.order.first && paid) return `Auto mode runs this session on ${paid[0]} first, which costs money`;
   return `when ${(acc.order && acc.order.first) || 'a provider'} reaches its limit, Auto mode may move this session to ${paid ? paid.join(' or ') : 'a provider billed by use'}, which costs money`;
 };
+// What only tells the owner, or ends her own job, changes nothing of his: free with his switch "Tia acts by herself" off too.
+const NO_SWITCH = new Set(['notify_owner', 'finish_job', 'open_screen']);
+/**
+ * The owner's switch "Tia acts by herself" over a decision: with it off, a call that would run at once (L1) is a card. With it on, a
+ * call runs at once only when it has a true way back (takeback.mjs: a rename, a watch, a held start, a plan's title) or changes
+ * nothing of his, or it is her own work on a session she started (takeback.mjs OWN_WORK, by the owner's level); every other act (a message
+ * sent into his session, a stop, a close, a provider switch) is a card even then.
+ * The rows of the catalog and hoprig_act decide it themselves (a card unless the switch is on); this holds every other tool.
+ * `a`: the call's input and `f` its facts (core.mjs always gives them).
+ */
+export function switchGate(tool, d, tia, a, f) {
+  if (!d || d.level !== 'L1' || NO_SWITCH.has(tool.name)) return d;
+  if (!(tia && tia.actAlone === true)) return { level: 'L2', why: `${ASSISTANT_NAME} may not act alone yet: the Operator page, What ${ASSISTANT_NAME} does by herself, ${ASSISTANT_NAME} acts by herself` };
+  if (a === undefined || aloneOf(tool.name, a, f)) return d;
+  return { level: 'L2', why: 'it cannot be put back with one press, so it is your tap, even while you let her act by herself' };
+}
 export function decideLevel(tool, a, f, tia) {
   const base = tool.levelOf ? tool.levelOf(a) : tool.level;
   if (base === 'L0') return { level: 'L0' };
@@ -63,6 +80,8 @@ export function decideLevel(tool, a, f, tia) {
   // hoprig_act: the level is levelFor on the facts of this call, the server's own (hoprigact.mjs decide); no other rule
   // of this file is about it. A message he spoke only raises it.
   if (name === 'hoprig_act') return tool.policy(a, f, tia);
+  // do_act: a card for every row the catalog runs itself (catalogtools.mjs policy); the rows of a tool of hers are that tool's call.
+  if (name === 'do_act') return tool.policy(a, f, tia);
   // An administrator command of hers (run_command with sudo): the owner's Tia administrator-rights level decides it
   // (herrights.mjs). The forms that could raise her rights — a shell or a login as administrator, the
   // account and sudoers tools, a set-user-id bit, Hoprig's own folders, a form the reader cannot break down — are

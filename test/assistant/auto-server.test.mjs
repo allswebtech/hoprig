@@ -68,6 +68,7 @@ test('under Auto with a paid key in its order, a start and a message into a chat
     server: { backend: 'pty', roots: [work], passwordHash: await hashPassword('pw-for-tests') },
     autoSwitch: { enabled: true, order: ['sub'] },
     assistant: { enabled: true, level: 'handsoff', accounts: ['auto', 'sub', 'api'] },
+    operator: { acts: true },
   });
   writeProfile('sub', { label: 'Main' });
   writeProfile('api', { label: 'API key', env: { ANTHROPIC_API_KEY: 'not-a-real-key-for-tests' } }); // billed by use

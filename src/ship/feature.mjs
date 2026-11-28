@@ -18,8 +18,8 @@
 //   POST /api/ship/limiter { run, seen }    set (run: a list of words) or clear (run: null) it; seen: the words as he
 //                                           was shown them, so his yes is for exactly those
 //
-// The owner's own page only: a bearer token of any kind (the assistant's, another computer's) and a request through
-// the assistant's door are refused. A project is named by its name, looked up in the workspace's projects; no path from
+// The owner's own page only for every act: a bearer token of any kind (the assistant's, another computer's) and a request
+// through the assistant's door are refused. The three reads (GET) also answer her door, so she can say the state. A project is named by its name, looked up in the workspace's projects; no path from
 // the browser is used and no full path is returned.
 //
 // By itself: at the dashboard's start and at each tick, only the open steps of this computer are finished
@@ -28,6 +28,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { bearerOf } from '../machines/tokens.mjs';
+import { fromHerDoor } from '../server/herdoor.mjs';
 import { tilde } from '../paths.mjs';
 import { listProjects, projectsIn } from '../workspace/layout.mjs';
 import { resolvePlace } from '../work/place.mjs';
@@ -55,6 +56,9 @@ export function shipFeature(ctx, opts = {}) {
   const ownerOnly = (req) => {
     if (bearerOf(req) !== null || (ctx.caller && ctx.caller(req) !== 'page')) throw fail(403, 'Go live is the owner\'s own page only');
   };
+  // A READ of the go-live state (the projects, one project, the limiter) is also Tia's, through her door: she says what is live
+  // and what waits. Every act of this page stays the owner's own press (ownerOnly), or a card he taps.
+  const readable = (req) => { if (!fromHerDoor(ctx, req)) ownerOnly(req); };
   const steps = new Map(); // project real path → the promise of the step this dashboard runs
 
   /** The project `name` of the workspace: { name, real, top } (top: its repository), or 404. */
@@ -206,13 +210,14 @@ export function shipFeature(ctx, opts = {}) {
 
   const routes = [
     ['GET', /^\/api\/ship$/, async (req) => {
-      ownerOnly(req);
+      readable(req);
       return { projects: listProjects(projectsDir()).filter((p) => p.git || p.parent).map((p) => p.name) };
     }],
     ['GET', /^\/api\/ship\/p\/([^/]+)$/, async (req, m) => {
-      ownerOnly(req);
+      readable(req);
       const pr = project(m[1]);
-      await finishCut(pr.real).catch(() => null); // the page is a look too: it finishes a step that was cut off
+      // The page is a look too: it finishes a step that was cut off. Her read (through her door) is only a read.
+      if (!fromHerDoor(ctx, req)) await finishCut(pr.real).catch(() => null);
       return view(pr);
     }],
     ['POST', /^\/api\/ship\/p\/([^/]+)\/together$/, async (req, m) => {
@@ -314,7 +319,7 @@ export function shipFeature(ctx, opts = {}) {
       return setAuto(pr.real, pr.name, b, readLive(blocksDir(pr.real, tg ? tg.dir : null)).live);
     }],
     ['GET', /^\/api\/ship\/limiter$/, async (req) => {
-      ownerOnly(req);
+      readable(req);
       const lim = limiterOf();
       return { run: lim.run, shown: lim.run ? showWords(lim.run) : null, confirmed: !!lim.run && lim.allowed };
     }],

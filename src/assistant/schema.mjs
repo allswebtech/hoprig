@@ -27,7 +27,7 @@ export function brief(text, max = 120) {
   return first.length > max ? `${first.slice(0, max - 1).replace(/\s+\S*$/, '')}…` : first;
 }
 
-/** A string. o: { min = 1, max, pattern (RegExp), enum, desc, oneLine } */
+/** A string. o: { min = 1, max, pattern (RegExp), enum, desc, oneLine, quiet } */
 export function str(o = {}) {
   const { min = 1, max = 500, pattern = null, desc = '', oneLine = false } = o;
   const json = { type: 'string' };
@@ -37,7 +37,8 @@ export function str(o = {}) {
     // The defaults (1 and 500) are not said: the check above still holds them, and the model needs no hint for them.
     if (min !== 1) json.minLength = min;
     if (max !== 500) json.maxLength = max;
-    if (pattern) json.pattern = pattern.source;
+    // quiet: an id the model copies from a result: the server still checks the pattern, the model is not sent it (bytes in every request).
+    if (pattern && !o.quiet) json.pattern = pattern.source;
   }
   return {
     json,
@@ -171,4 +172,37 @@ export function validate(schema, value) {
   const refs = [];
   const out = schema.check(value === undefined ? {} : value, '', refs);
   return { value: out, refs };
+}
+
+/**
+ * A field's form in the fewest words, for a model that must send it: the allowed values where they are few, "list of ..." for a
+ * list, a size only where it is large. `json` is the field's JSON Schema fragment (what str, int, arr and bool give).
+ */
+export function describe(json) {
+  if (!json || typeof json !== 'object') return 'any';
+  if (Array.isArray(json.enum)) return json.enum.length <= 10 ? json.enum.join('|') : `one of ${json.enum.length} fixed words`;
+  if (json.type === 'array') return `list of ${describe(json.items)}`;
+  if (json.type === 'integer') return `whole number${json.minimum !== undefined || json.maximum !== undefined ? ` ${json.minimum ?? 0} to ${json.maximum ?? '…'}` : ''}`;
+  if (json.type === 'boolean') return 'true|false';
+  if (json.type === 'object') return 'object';
+  if (json.type === 'string') {
+    // The first clause of its description, at most 28 characters cut at a word: what the text is, or its form (HH:MM).
+    const clause = json.description ? json.description.split(/[,(.]| or /)[0].trim() : '';
+    const hint = clause.length > 28 ? clause.slice(0, 28).replace(/\s+\S*$/, '') : clause;
+    return `text${hint ? `, ${hint}` : ''}`;
+  }
+  return 'any';
+}
+
+/**
+ * The right shape of the field a SchemaError names, as one next step: "send days as a list of sun|mon, for example [...]". Null
+ * when the path names no field of this schema.
+ */
+export function shapeNext(schema, path) {
+  const key = String(path || '').split(/[.[]/)[0];
+  const json = schema && schema.props && Object.hasOwn(schema.props, key) ? schema.props[key].json : null;
+  if (!json) return null;
+  const form = describe(json);
+  const example = json.type === 'array' && Array.isArray(json.items && json.items.enum) ? `, for example ${JSON.stringify(json.items.enum.slice(0, 2))}` : '';
+  return `send ${key} as ${form.startsWith('list') ? 'a ' : ''}${form}${example}`;
 }

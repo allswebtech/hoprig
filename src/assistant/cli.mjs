@@ -26,6 +26,6 @@ export async function main(command, args = []) {
   }
   // The dashboard's own Tia (her engine's config says so): the tool descriptions the owner accepted, where they apply.
   const toolsJson = process.env.HOPRIG_ASSISTANT_ACCEPTED === '1' ? (await import('./accepted.mjs')).tiaToolsJson() : null;
-  await serveMcp({ client: httpClient(clientSettings()), toolsJson });
+  await serveMcp({ client: httpClient(clientSettings()), toolsJson, own: process.env.HOPRIG_ASSISTANT_ACCEPTED === '1' });
   return 0;
 }

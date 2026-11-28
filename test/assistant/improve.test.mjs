@@ -75,15 +75,15 @@ test('a candidate that beats the baseline is written as one proposal file; at mo
 });
 
 test('the proposal file has the shape the Proposals page reads, with its numbers', async () => {
-  const turn = model((name, before) => (name === 'start_chat' ? reword('better')(name, before) : reword('tie')(name, before)));
-  const { r } = round({ turn, env: { STANDIN_TRACE: 'start_chat' } });
+  const turn = model((name, before) => (name === 'start_work' ? reword('better')(name, before) : reword('tie')(name, before)));
+  const { r } = round({ turn, env: { STANDIN_TRACE: 'start_work' } });
   const s = await r.run();
-  assert.deepEqual(s.tried.map((t) => `${t.kind}:${t.name}:${t.result}`), ['tool:start_chat:better', 'prompt:getting-work-done:not better', 'prompt:work:not better']);
+  assert.deepEqual(s.tried.map((t) => `${t.kind}:${t.name}:${t.result}`), ['tool:start_work:better', 'prompt:getting-work-done:not better', 'prompt:work:not better']);
   assert.equal(files().length, 1, 'exactly one file');
   const p = readProposal(s.proposals[0]);
   assert.equal(p.kind, 'tool');
-  assert.equal(p.name, 'start_chat');
-  assert.equal(p.before, liveTarget({ kind: 'tool', name: 'start_chat' }));
+  assert.equal(p.name, 'start_work');
+  assert.equal(p.before, liveTarget({ kind: 'tool', name: 'start_work' }));
   assert.match(p.after, /MARK:better$/);
   assert.deepEqual(p.numbers.whole, { before: { passed: 9, cases: 11 }, after: { passed: 11, cases: 11 } });
   assert.deepEqual(p.numbers.heldout, { before: { passed: 5, cases: 5 }, after: { passed: 5, cases: 5 } });
@@ -134,7 +134,7 @@ test('a section of her safety rules is never proposed, even when the model asks 
     assert.equal(t.result, 'refused');
     assert.match(t.why, /safety rules/);
   }
-  assert.ok(promptSection('how-far').includes('The owner chooses your level'), 'the shipped section is read, never changed');
+  assert.ok(promptSection('how-far').includes('Every act has one of four answers'), 'the shipped section is read, never changed');
 });
 
 test('an answer that carries an injection is refused by the threat scan', async () => {
@@ -153,7 +153,7 @@ test('an answer that carries an injection is refused by the threat scan', async 
   for (const t of s.tried) assert.match(t.why, /threat scan/);
   assert.throws(() => checkAnswer({ kind: 'prompt', name: 'style' }, promptSection('style'), 'not json'), /not one JSON object/);
   assert.throws(() => checkAnswer({ kind: 'prompt', name: 'style' }, promptSection('style'), JSON.stringify({ after: '## Style\nShort.' })), /heading/);
-  assert.throws(() => checkAnswer({ kind: 'tool', name: 'start_chat' }, 'x', JSON.stringify({ after: 'Too short.' })), /40 to 1024/);
+  assert.throws(() => checkAnswer({ kind: 'tool', name: 'start_work' }, 'x', JSON.stringify({ after: 'Too short.' })), /40 to 1024/);
 });
 
 test('money: a hold before every call, each settled by what it measured', async () => {

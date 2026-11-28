@@ -1,4 +1,4 @@
-# Hoprig 0.4.1: every command
+# Hoprig 0.4.2: every command
 
 Each command's own help, as the program prints it (`hoprig` and `hop` are the same command). Made by
 tools/build-skill.mjs at every build of the skill, so it matches this version.

@@ -54,7 +54,7 @@ test('no way for Tia, or any caller but the owner\'s page, to start a session or
   const { createServer } = await import('../../src/server/server.mjs');
   const { createToken } = await import('../../src/machines/tokens.mjs');
   const { SELF_HEADER, OWNER_PAGE_HEADER } = await import('../../src/machines/relay.mjs');
-  saveConfig({ launcher: [process.execPath, FAKE_SESSION], server: { backend: 'pty', roots: [top], passwordHash: await hashPassword('pw-for-tests') }, assistant: { enabled: true, level: 'full', accounts: ['sub'], dailyCapUsd: 5 }, sessionDefaults: { permissionMode: 'manual' } });
+  saveConfig({ launcher: [process.execPath, FAKE_SESSION], server: { backend: 'pty', roots: [top], passwordHash: await hashPassword('pw-for-tests') }, assistant: { enabled: true, level: 'full', accounts: ['sub'], dailyCapUsd: 5 }, operator: { acts: true }, sessionDefaults: { permissionMode: 'manual' } });
   // A provider that looks like a subscription: no per-token cost, so no card is asked for a start on it.
   writeProfile('sub', { label: 'Main', env: { CLAUDE_CODE_OAUTH_TOKEN: 'made-up-not-a-token' } });
   const app = createServer({ watchTickMs: 300, watch: true, dashboardFile: false, chat: { command: { command: process.execPath, args: [FAKE_CLAUDE] }, resolveEnv: async () => ({ ...process.env }), idleMs: 60_000 } });

@@ -13,7 +13,7 @@ import { binFile, stateDir } from '../paths.mjs';
 import { listProfiles, publicProfile, readProfile } from '../profiles.mjs';
 import { runningDashboard } from '../server/dashboardfile.mjs';
 import { readSettings } from '../automation/settings.mjs';
-import { resolveTia } from '../assistant/tia.mjs';
+import { resolveTia, tiaRaw } from '../assistant/tia.mjs';
 import { fenceData } from '../assistant/fence.mjs';
 import { ledger as keptLedger } from '../operator/money.mjs';
 import { partShare } from '../assistant/spend.mjs';
@@ -82,7 +82,7 @@ export function partDoor(o) {
   const facts = (rec) => {
     const cfg = o.config();
     const auto = getAutoSwitch();
-    const tia = rec.byTia ? resolveTia(cfg.assistant, { profiles: listProfiles().map(publicProfile), autoSwitch: auto }) : null;
+    const tia = rec.byTia ? resolveTia(tiaRaw(cfg), { profiles: listProfiles().map(publicProfile), autoSwitch: auto }) : null;
     // The computer's one measure of slots ("runs by themselves at once", as Work's runs): every session that runs by
     // itself here counts, Work's runs and these parts. A part being opened counts: its slot is taken before the await,
     // so two calls at once cannot both pass.

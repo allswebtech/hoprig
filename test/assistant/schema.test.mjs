@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { SchemaError, anyJson, arr, bool, int, obj, ref, str, validate } from '../../src/assistant/schema.mjs';
-import { MCP_TOOLS, TOOLS } from '../../src/assistant/tools.mjs';
+import { EAGER_TOOLS, MCP_TOOLS, TOOLS } from '../../src/assistant/tools.mjs';
 
 const fails = (schema, v, re) => assert.throws(() => validate(schema, v), (e) => e instanceof SchemaError && re.test(e.message));
 
@@ -56,15 +56,17 @@ test('anyJson: needs a value, refuses huge ones, returns a copy', () => {
 
 test('every tool schema is strict all the way down and refuses an unknown key', () => {
   const strict = (j, where) => {
+    // The fields of an act (args of look, do_act, plan_acts) are checked by the server against that act's own strict schema.
+    if (where.endsWith('.args')) return;
     if (j.type === 'object') {
       assert.equal(j.additionalProperties, false, `${where} must forbid extra keys`);
       for (const [k, v] of Object.entries(j.properties)) strict(v, `${where}.${k}`);
     }
     if (j.type === 'array') strict(j.items, `${where}[]`);
   };
-  for (const t of TOOLS) {
+  for (const t of [...TOOLS, ...EAGER_TOOLS]) {
     strict(t.input.json, t.name);
     assert.throws(() => validate(t.input, { __proto_pollution: 1 }), /unknown field/, t.name);
   }
-  assert.equal(MCP_TOOLS.length, TOOLS.length);
+  assert.equal(MCP_TOOLS.length, EAGER_TOOLS.length);
 });

@@ -14,7 +14,7 @@ import { stateDir } from '../paths.mjs';
 import { PATTERNS, RISKY, foldLooks } from '../skillhub/learnscan.mjs';
 import { scanText } from '../skillhub/scan.mjs';
 import { PROTECTED, sectionRefusal, shippedSection, systemPrompt } from './prompt.mjs';
-import { byName, mcpToolsJson } from './tools.mjs';
+import { EAGER_NAMES, byName, mcpToolsJson } from './tools.mjs';
 import { replaceFile } from '../replacefile.mjs';
 
 export const acceptedDir = () => path.join(stateDir(), 'assistant', 'accepted');
@@ -31,7 +31,7 @@ export const sha256 = (s) => crypto.createHash('sha256').update(String(s)).diges
 
 /** Hoprig's own text of a target, or null when it has none. */
 export function shippedText(kind, name) {
-  if (kind === 'tool') return byName.has(name) ? byName.get(name).description : null;
+  if (kind === 'tool') return EAGER_NAMES.includes(name) ? byName.get(name).description : null;
   if (kind === 'prompt') return PROTECTED.has(name) ? null : shippedSection(name);
   return null;
 }

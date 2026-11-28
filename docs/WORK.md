@@ -138,13 +138,13 @@ written (the file needs a tidy, two tasks share the id), the run is written all 
 
 ## Tia and Work
 
-Tia (README, "Tia") works with Work through one tool, `manage_work`, whose every action runs the page's own route, so
-the dashboard checks her as it checks the page:
+Tia (README, "Tia") works with Work through her catalogue of acts (she finds the act, then does it), and every act runs the
+page's own route, so the dashboard checks her as it checks the page:
 
 - **Reading** runs at once: Today (what needs you, what is to review, this week), the list (by project, who does it,
   status), one task with its runs, what a run left (its answer, commits and files), your plans, and one plan with its
   milestones and its tasks in the plan's own order, each with its state, date, who does it and what it waits for.
-- **Acting** runs at once and she says it in her reply: add a task, change its title, date, project, who does it and
+- **Acting** is a card while **Tia acts by herself** (Operator page) is off. While it is on, it runs at once, with **Undo** on its result card, and she says it in her reply: add a task, change its title, date, project, who does it and
   its note, mark it done or open it again. She can also put a task into a plan and milestone, move a task to another
   milestone, and change what it waits for. A change of a plan, or of a task in a plan, runs at once only when your own
   message in that turn names the plan or the task, and only when her level is not **Ask me**; otherwise you get a

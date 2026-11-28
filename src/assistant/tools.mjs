@@ -1,4 +1,7 @@
-// Tia's tool catalog: 24 tools, each a verb on a domain object, with one strict input schema, a
+// Tia's tools. The ARRAY a model gets is the closed list of ten (EAGER_TOOLS below: look, find_acts, do_act, plan_acts, start_work,
+// steer_work, watch_work, notify_owner, open_screen, run_command); the 24 tools of before (TOOLS) are kept as aliases: nothing that
+// names one breaks, each still answers as it did, none is in the array. The rest of this note is about the way each tool is made.
+// Her catalog: each a verb on a domain object, with one strict input schema, a
 // confirmation level, a one-line purpose written for the model, and a handler that calls the dashboard's
 // operations (`ops`, see OPS below). The catalog is built once and frozen, so tools/list is byte-identical on
 // every call and every turn (prompt cache).
@@ -38,6 +41,12 @@ import { list_projects, manage_automation, manage_computer, manage_project, mana
 import { open_screen } from './screens.mjs';
 import { read_attention } from './attention-tool.mjs';
 import { manage_work } from './worktool.mjs';
+import { do_act, find_acts } from './catalogtools.mjs';
+import { look, look_row, look_slow } from './looktool.mjs';
+import { start_work } from './starttool.mjs';
+import { steer_work } from './steertool.mjs';
+import { plan_acts, watch_work } from './h3seam.mjs';
+import { useTools } from './actinput.mjs';
 
 export { KEYS, SAFE_SLASH, ToolError, statusOf, toolError, typedTextRisk } from './toolkit.mjs';
 export { SETTINGS } from './owner-tools.mjs';
@@ -445,7 +454,7 @@ const notify_owner = tool({
     message: str({ max: 500, desc: 'One or two short sentences; with options, the question.' }),
     options: arr(str({ max: 60, pattern: OPTION, desc: 'One answer he can tap, in a few plain words.' }), { min: 2, max: 4, unique: true, desc: 'The answers he chooses from (2 to 4).' }),
     free: bool({ desc: 'With options: he may also type his own answer. Default false.' }),
-    session: ref('session', str({ max: 41, pattern: SESSION, desc: 'The session it is about, if any.' })),
+    session: ref('session', str({ max: 41, pattern: SESSION, quiet: true, desc: 'The session it is about, if any.' })),
     computer,
   }, { required: ['message'] }),
   check(a) {
@@ -482,8 +491,26 @@ export const TOOLS = Object.freeze([
   stop_session, switch_account, hoprig_act, run_command,
   manage_computer, manage_project, manage_automation, manage_skills, manage_work,
 ]);
-export const TOOL_NAMES = TOOLS.map((t) => t.name);
-export const byName = new Map(TOOLS.map((t) => [t.name, t]));
+/**
+ * The tools of her array, a closed list in this order (design 2.1): the same bytes on every turn. Everything else she can do is
+ * reached through find_acts, look, do_act and plan_acts (the rows of acts.json), or through an old name (TOOLS).
+ */
+export const EAGER_TOOLS = Object.freeze([look, find_acts, do_act, plan_acts, start_work, steer_work, watch_work, notify_owner, open_screen, run_command]);
+export const EAGER_NAMES = EAGER_TOOLS.map((t) => t.name);
+/** The tools only another tool reaches (a part of look): never named from outside. */
+export const INTERNAL_TOOLS = Object.freeze([look_row, look_slow]);
+/** The old names (TOOLS that are not in her array) and the tool that took the place of each. */
+export const ALIASES = Object.freeze({
+  list_sessions: 'look', read_session: 'look', list_projects: 'look', get_computer_status: 'look', read_attention: 'look', read_brain: 'look',
+  start_session: 'start_work', start_chat: 'start_work',
+  send_to_session: 'steer_work', send_to_chat: 'steer_work', stop_session: 'steer_work', switch_account: 'steer_work', finish_job: 'steer_work',
+  watch_session: 'watch_work',
+  hoprig_act: 'do_act', manage_procedures: 'do_act', manage_computer: 'do_act', manage_project: 'do_act', manage_automation: 'do_act', manage_skills: 'do_act', manage_work: 'do_act',
+});
+/** Every tool that answers a call: her array, the old names, the internal parts. */
+export const TOOL_NAMES = [...new Set([...EAGER_NAMES, ...TOOLS.map((t) => t.name), ...INTERNAL_TOOLS.map((t) => t.name)])];
+export const byName = new Map([...TOOLS, ...EAGER_TOOLS, ...INTERNAL_TOOLS].map((t) => [t.name, t]));
+useTools(byName); // find_acts names the inputs of the tool that reaches an act (actinput.mjs)
 /**
  * Old tool names a program outside (an MCP client, a skill of the owner's) may still call: each answers as the tool
  * it became, with one line that the name is old. They are not in TOOLS, so the model never sees them.
@@ -508,12 +535,12 @@ const mcpTool = (t, description = t.description) => Object.freeze({
   annotations: { readOnlyHint: t.level === 'L0', destructiveHint: t.level === 'L2', idempotentHint: t.level === 'L0', openWorldHint: false },
 });
 /** The MCP tool list: built once, so it is byte-identical on every call. */
-export const MCP_TOOLS = Object.freeze(TOOLS.map((t) => mcpTool(t)));
+export const MCP_TOOLS = Object.freeze(EAGER_TOOLS.map((t) => mcpTool(t)));
 export const MCP_TOOLS_JSON = JSON.stringify(MCP_TOOLS);
 /**
  * The tool list with some descriptions replaced (name → text), for the eval's run of a changed text only: the
  * schema, the level and the note of each tool stay as they are. Without replacements it is MCP_TOOLS_JSON.
  */
 export function mcpToolsJson(descriptions = new Map()) {
-  return descriptions.size ? JSON.stringify(TOOLS.map((t) => mcpTool(t, descriptions.get(t.name) ?? t.description))) : MCP_TOOLS_JSON;
+  return descriptions.size ? JSON.stringify(EAGER_TOOLS.map((t) => mcpTool(t, descriptions.get(t.name) ?? t.description))) : MCP_TOOLS_JSON;
 }

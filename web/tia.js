@@ -104,6 +104,7 @@ export function plainCard(card, { accounts = [], computerLabel = null, tools = 1
   let question;
   let quote = null;
   let quoteBy = null;
+  let steps = null;
   let target = null;
   const work = card.tool === 'manage_work' && card.view ? workCardWords(card.view, a, { provider: label, on }) : null;
   if (work) {
@@ -124,6 +125,11 @@ export function plainCard(card, { accounts = [], computerLabel = null, tools = 1
     question = `${cap(words)}?`;
     if (a.message) quote = a.message;
     if (a.goal) notes.push(`Done when: ${a.goal}.`);
+    // What she set besides: shown before the tap, in plain words (the same as the lines the model sees).
+    if (a.model) notes.push(`Model: ${a.model}.`);
+    if (a.effort) notes.push(`Effort: ${a.effort}.`);
+    if (a.worktree) notes.push('In a copy of the folder of its own.');
+    if (a.watch) notes.push(`Tells you when it ${a.watch === 'needs-me' ? 'needs you' : a.watch === 'ends' ? 'ends' : 'fails'}.`);
     // On an earlier conversation it is never hers (src/assistant/chats.mjs, tools.mjs): its OKs stay the owner's.
     if (continuesOf(a)) notes.push(`It goes on with that conversation's history, so every OK it asks for comes to you, not to ${NAME}.`);
   } else if (card.tool === 'send_to_session' && (a.continue || a.to_chat)) {
@@ -159,6 +165,12 @@ export function plainCard(card, { accounts = [], computerLabel = null, tools = 1
       question = `Run this command${on}${a.folder ? ` in ${a.folder}` : ''}?`;
       quote = a.command;
     }
+  } else if (card.tool === 'plan_acts') {
+    // A plan: every step in plain words with what it changes, one tap for all of them (the steps come from the rows).
+    const v = card.view && Array.isArray(card.view.steps) ? card.view : null;
+    question = `Do this plan${v && v.title ? `: ${v.title}` : ''}?`;
+    if (v) steps = v.steps.map((x) => `${x.what}. ${x.changes || ''}${x.wait ? ` Then it waits up to ${x.wait}.` : ''}`.replace(/\s+/g, ' ').trim());
+    notes.push('It stops at the first step that fails, and takes back the steps done, last first.');
   } else if (card.tool === 'draft_skill') {
     question = `Add the skill "${a.name}"?`;
   } else {
@@ -178,13 +190,13 @@ export function plainCard(card, { accounts = [], computerLabel = null, tools = 1
         : whyRaw ? `${NAME} asks because ${whyRaw.replace(/\.$/, '')}.`
           : `${NAME} asks before anything risky.`;
   // What the plain words above do not already say (other tools' own lines), for "Details".
-  const said = ['switch_account', 'start_session', 'start_chat', 'send_to_session', 'send_to_chat', 'press_key', 'run_command'].includes(card.tool);
+  const said = ['plan_acts', 'switch_account', 'start_session', 'start_chat', 'send_to_session', 'send_to_chat', 'press_key', 'run_command'].includes(card.tool);
   // The id of the conversation a start goes on with stays in Details: the question says only "an earlier conversation".
   // A Work card's quote (the brief, the session's report, the owner's words of a send-back) is not said twice there (the
   // send-back's words are their own line, the same value as the quote: her input is cleaned once, at the door).
   const details = said ? lines.filter((l) => l.startsWith('Continuing conversation '))
     : lines.filter((l) => l !== HIDDEN && !l.startsWith('Why a card: ') && !l.startsWith('The session asks: ') && !(work && l.startsWith('This task was added by another program, the Work token ')) && !(work && quote && (l.startsWith('Brief: ') || l.startsWith('The session wrote: ') || l === quote)));
-  return { question, quote, quoteBy, notes, why, details };
+  return { question, quote, quoteBy, notes, why, details, steps };
 }
 
 /**
@@ -217,7 +229,7 @@ const chatTitle = (s) => {
 /** The one kind of link a confirmed card may open: a sheet of the Workspace page, here or on another computer. */
 const SHEET_LINK = /^#(\/m\/[a-z0-9][a-z0-9_-]{0,31})?\/workspace\?(drop|group)=[^#\s]{1,600}$/;
 
-function cardView(card, decided) {
+export function cardView(card, decided) {
   const p = plainCard(card, placeOf(card));
   const left = h('span.badge.soft.tia-left');
   const result = h('p.tia-card-result', { role: 'status' });
@@ -276,6 +288,7 @@ function cardView(card, decided) {
     p.quote && p.quoteBy ? h('p.tia-card-text', p.quoteBy) : null,
     p.quote ? h('blockquote.tia-card-quote', p.quote) : null,
     form ? form.el : null,
+    p.steps ? h('ol.tia-card-steps', p.steps.map((x) => h('li', x))) : null,
     p.notes.length ? h('p.tia-card-text', p.notes.join(' ')) : null,
     h('p.tia-card-why', p.why, wait),
     p.details.length ? h('details.tia-card-details', h('summary', 'Details'), h('ul', p.details.map((l) => h('li', l)))) : null,
@@ -936,13 +949,27 @@ function viewTia({ frame, sub }) {
     // entries (her proposal, your answer, what came of it) as one row.
     fill(body, h('div.rows', activityRows(r.entries).map(({ e, at, steps, error }) => {
       const w = activityWords(e, placeAt(e.input && e.input.computer));
+      // An act she did alone can be taken back with one press (the server says which: e.undo), once.
+      const undo = e.undo === 'press'
+        ? h('span.tia-undo', btn('secondary small', { icon: 'undo', label: 'Undo', title: 'Take this back', onclick: async (ev) => {
+          ev.currentTarget.disabled = true;
+          try {
+            await api(`${A}/undo`, { at: e.at });
+            toast('Taken back');
+          } catch (x) {
+            toast(`${x.message}. Nothing was changed.`, { kind: 'error' });
+          }
+          if (alive) activityView();
+        } }))
+        : e.undo === 'done' ? h('span.row-sub', 'Taken back') : null;
       return h('div.row.static',
         h('span.row-icon', icon(e.actor === 'owner' ? 'user' : 'sparkle')),
         h('span.row-main',
           h('span.row-title.tia-wrap', `${e.actor === 'owner' ? 'You' : NAME}: ${w.what}`),
           h('span.row-sub.tia-wrap', `${stamp(at)} · ${steps.join(' · ')}${error ? ` · ${error}` : ''}`),
           w.detail ? h('span.row-sub.tia-wrap', cap(w.detail)) : null,
-          w.quote ? h('span.row-sub.tia-wrap', `“${w.quote.length > 160 ? `${w.quote.slice(0, 159)}…` : w.quote}”`) : null));
+          w.quote ? h('span.row-sub.tia-wrap', `“${w.quote.length > 160 ? `${w.quote.slice(0, 159)}…` : w.quote}”`) : null,
+          undo));
     })));
   }
 

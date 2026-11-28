@@ -8,7 +8,7 @@
 // time are one), never on a timer alone: a look with nothing new makes no call. Past a budget of calls or tokens no
 // call is made and the item is his, with one line that names the budget.
 
-import { autoLeftOut, chooseAccount, resolveTia } from '../assistant/tia.mjs';
+import { autoLeftOut, chooseAccount, resolveTia, tiaRaw } from '../assistant/tia.mjs';
 import { claudeTurn } from '../skillhub/learnlook.mjs';
 import { CHEAPEST } from '../skillhub/learnset.mjs';
 import { readOperator, ruleFor, ruleOn } from './rules.mjs';
@@ -41,7 +41,7 @@ export const DECIDE_EFFORT = 'low';
  * → { provider, paid?, cap? } | { error }.
  */
 export function pickProvider(cfg, acc, l = ledger()) {
-  const all = resolveTia(cfg.assistant, acc);
+  const all = resolveTia(tiaRaw(cfg), acc);
   // Auto mode with nothing left in the order the router really uses cannot serve a call: it is not picked, the call
   // goes on to another provider she may use, and with none the reason is the router's own.
   const autoOut = all.allowed.includes('auto') ? autoLeftOut(acc) : null;
@@ -223,7 +223,7 @@ export function decider({ ctx, rx, dir, now = Date.now, accounts, asks, turn = c
       // token). Below "Hands off", or when the limit has no room, such a step is not offered, and an item left with no step is his with
       // the line that names why, with no call (the door would refuse the step anyway: a call would buy nothing).
       const acc = (await accounts()) || { profiles: [] };
-      const tia = resolveTia(ctx.config().assistant, acc);
+      const tia = resolveTia(tiaRaw(ctx.config()), acc);
       const ps = paidStep(it, acc, steps);
       const pt = paidTyping(it, board, acc);
       // A stuck session's nudge not given yet comes before its stop (the prompt says so, and so do his notes): when money
@@ -404,7 +404,7 @@ export function decider({ ctx, rx, dir, now = Date.now, accounts, asks, turn = c
     // A next provider billed by use is money: below "Hands off" never hers, at "Hands off" only inside the daily limit
     // for paid use (held right before the engine is told to do it). It is left out of the steps when it may not be done.
     const acc = (await accounts()) || { profiles: [] };
-    const tia = resolveTia(cfg.assistant, acc);
+    const tia = resolveTia(tiaRaw(cfg), acc);
     const ps = paidStep(item, acc);
     const money = ps ? (tia.level !== 'handsoff' ? `${ps.to} is paid per use, and Tia moves a task there only at "Hands off" (Settings → Tia)` : room(ps.what, tia.dailyCapUsd)) : null;
     const moneyWays = ps && tia.level !== 'handsoff' ? ['tia-settings'] : null; // the place `money` names

@@ -31,6 +31,8 @@ export class AuditLog {
     if (card) entry.card = card;
     if (error) entry.error = maskForAudit(String(error)).slice(0, 300);
     if (result && typeof result === 'object') entry.result = maskForAudit(result);
+    // Activity's Undo names an entry by its time: two acts with a way back never share one.
+    if (entry.result && entry.result.undo) while (this.memory.some((x) => x.at === entry.at && x.result && x.result.undo)) entry.at += 1;
     this.memory.push(entry);
     if (this.memory.length > 500) this.memory.shift();
     if (this.file) {

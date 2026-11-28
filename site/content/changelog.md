@@ -7,6 +7,26 @@ description: What changed in each version of Hoprig, newest first, in plain word
 
 Each version of Hoprig, newest first. Hoprig installs from the main branch of its repository; `hop update` brings the newest version, and **Settings → Version and updates** shows it in the dashboard.
 
+## 0.4.2 (28 November 2026)
+
+This version is about Tia, the assistant inside Hoprig. She now has one catalogue of everything Hoprig can do and ten tools to use it, she can start and watch work for you, and what she does by herself is only what one press of **Undo** takes back. Nothing she does is new in what it may touch: money, sign-ins, keys and deleting work stay yours.
+
+### What changes when you update
+
+- **Tia can find any act of Hoprig and do it.** She looks up how an act is done, reads what she needs (sessions, computers, providers, projects, Work, the state of a folder), and then makes one card for one act, or one card for a plan of several acts in order. A read never needs a card. She cannot show you the text of a diff; she says what changed in a folder (the git state), not the lines.
+- **She starts work with the settings you would choose.** A start of a chat or a terminal can carry a model, an effort, a copy of the folder of its own, and a watch that tells you when the work fails, ends or needs you. The card shows each setting in a sentence of its own before you tap. A fork of a chat gets the watch she was asked for. A watch on a schedule is not something she can set up yet, and there is no plan mode.
+- **A card you confirm runs as your own press.** What the card showed is what runs: every value is shown whole, and a long text is not cut on the card. A read of the catalogue on another computer is a card of yours; a look at this computer is not.
+- **A plan card says what each step does.** The steps are a numbered list, one line each, with what each step changes. Each step says whether it can be taken back, and a wait on another computer is shown whole: what it waits for, on which computer and for how long. A plan stops at the first step that fails and takes back the steps done, last first, but only where a real way back exists; a step that cannot be taken back is said to be so on the card, before the tap. A running plan is one card with its steps, where each says to come, now, waiting, done, failed or taken back.
+- **She watches work and tells you.** She can keep a watch on work, list her watches and remove one; a watch that fires tells you once, as a push or as a row for you.
+- **Acting alone is one switch.** **Tia acts by herself** on the Operator page (What Tia does by herself) is the only switch. While it is off, every change she makes is a card, a watch too. While it is on, she does by herself only what one press takes back, such as a name she gives a chat, a session or a computer, a watch, a hold, or a pause of automations, and her own work on sessions she started (starting new work, writing to it, stopping it, moving it to another provider); everything else, such as a message into a session of yours, a stop of your work or a copy of yours, is still a card.
+- **An act she did alone has Undo.** Tia's Activity shows **Undo** under an act she did alone and that can be taken back; one press puts the state back, once, and the line then says **Taken back**. It leaves a later change of yours alone: if the chat was renamed again, or the session is gone, nothing is overwritten. Only you press it; she cannot.
+- **Some things she never does, she opens the screen for.** Signing in or out, keys, the credentials folder, opening this computer to the internet, adding a computer, deleting work, her own rights and sharing providers are your own steps: she says so and opens the page. A sign-in run of the setup is never a card of hers either, and a role, a tenant, a price or an administrator field is never sent through an act of the catalogue.
+- **She acts only on what she was shown.** A target of an act, a session, a chat, a computer, a provider, must be one she was shown or one you typed, and the chat or the session open in the App counts as shown: when you say "this chat" she means that one, and she can rename it. Continuing, resuming or forking an earlier conversation is always a card.
+- **She reads two more things.** She reads the git state of a folder, and she says why the gateway is slow from what its router already measured, in one sentence. The go-live page is a read for her; every act on it stays your own press.
+- **The demo shows her acting alone.** In the built-in demo the switch is on, her seeded start runs by itself and one card waits for your tap.
+- **Her first request is smaller.** Her instructions and the fields of her tools are shorter.
+- **What was mended.** A card of a start shows the model, the effort, the copy and the watch she set. A wrong input to an act now says its shape (type, what is needed, which values) so she mends it at once. A card relayed from another computer keeps the mark that it is hers.
+
 ## 0.4.1 (28 November 2026)
 
 This version puts the pages back as they were before 0.4.0, keeps what the changes of 0.4.0 did well, and gives Providers a first screen that says who can work. What is not a look stays, with the few controls it needs placed into the old pages.

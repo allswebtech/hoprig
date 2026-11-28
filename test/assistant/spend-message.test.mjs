@@ -14,7 +14,7 @@ const FOLDER = '/home/owner/projects/api';
 
 function setup({ cap = 10, clock = { t: new Date(2026, 10, 18, 12, 0).getTime() } } = {}) {
   const s = baseState();
-  s.assistant = { enabled: true, level: 'handsoff', accounts: ['sub', 'api'], dailyCapUsd: cap };
+  s.assistant = { enabled: true, actAlone: true, level: 'handsoff', accounts: ['sub', 'api'], dailyCapUsd: cap };
   const ops = new FakeOps(s);
   const now = () => clock.t;
   const spend = new SpendLedger({ file: null, now });

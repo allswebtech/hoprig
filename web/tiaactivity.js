@@ -89,6 +89,14 @@ const RULE = {
 /** A Work task in Activity: "Fix the cart total" by the title its entry kept, else its id. */
 const taskName = (a, r) => (said(r && r.title) ? `"${said(r.title)}"` : a.task || '');
 const ACTIONS = {
+  // Her ten tools (src/assistant/tools.mjs): the ones with an action say each in words.
+  steer_work: {
+    send: (a, p) => `write to ${p.chat(a.target)}`, key: (a, p) => `press ${a.key || 'a key'} in ${p.chat(a.target)}`, answer: (a, p) => `${ANSWER[a.answer === 'yes' ? 'allow' : 'deny']} ${p.chat(a.target)} asks`,
+    rename: (a, p) => `rename ${p.chat(a.target)}${said(a.name) ? ` to ${a.name}` : ''}`, continue: (a, p) => `send the carry-on message to ${p.chat(a.target)}`,
+    to_chat: (a, p) => `move ${p.chat(a.target)} into the App`, to_terminal: (a, p) => `open ${p.chat(a.target)} as a terminal`, close: (a, p) => `close ${p.chat(a.target)}`,
+    stop: (a, p) => `stop ${p.chat(a.target)}`, switch_provider: (a, p) => `move ${p.chat(a.target)} to ${p.provider(a.provider)}`, end_job: (a) => (a.outcome === 'stuck' ? 'finish a job as stuck' : 'finish a job as done'),
+  },
+  watch_work: { add: () => 'watch something and tell you', list: () => 'look at what she watches', remove: () => 'stop watching something' },
   manage_computer: {
     add: (a) => `add the computer ${a.ssh_target || ''}`.trim(),
     rename: (a) => `rename a computer${said(a.label) ? ` to "${a.label}"` : ''}`,
@@ -209,6 +217,9 @@ const ANSWER = { allow: 'allow what', allow_always: 'allow, and not ask again in
 
 /** The other tools: the words, the detail line, the quoted text. */
 const TOOLS = {
+  start_work: (a, p) => (a.fork_of ? { what: `fork ${p.chat(a.fork_of)}` } : { what: startWords({ kind: a.kind === 'terminal' ? 'terminal' : 'chat', tool: a.tool, folder: a.folder, named: p.tools > 1, continues: continuesOf(a) }), goal: a.goal, quote: a.message }),
+  do_act: (a) => ({ what: 'do one act of the dashboard', quote: a.why }),
+  plan_acts: (a) => ({ what: said(a.title) ? `do the plan "${a.title}"` : 'do several acts in order', quote: a.why }),
   start_session: (a, p) => ({ what: startWords({ kind: 'terminal', tool: a.coding_tool, folder: a.folder, continues: continuesOf(a) }), goal: a.goal, quote: a.message }),
   start_chat: (a, p) => (a.fork_of ? { what: `fork ${p.chat(a.fork_of)}` } : { what: startWords({ kind: 'chat', tool: a.coding_tool, folder: a.folder, named: p.tools > 1, continues: continuesOf(a) }), goal: a.goal, quote: a.message }),
   send_to_session: (a, p) => (a.name !== undefined ? { what: `rename ${p.chat(a.session)}${said(a.name) ? ` to ${a.name}` : ''}` } : a.key !== undefined ? { what: `press ${a.key} in ${p.chat(a.session)}` } : { what: `type into ${p.chat(a.session)}`, quote: a.text }),
@@ -254,6 +265,8 @@ const TOOLS = {
   tia_settings: tiaSettingsWords,
   client_token: () => ({ what: 'make a token for your own Claude Code' }),
   stop_job: () => ({ what: 'stop a job' }),
+  // The owner's press of Undo on one of her acts (src/assistant/undo.mjs).
+  undo: () => ({ what: 'take one of her acts back' }),
 };
 
 /**

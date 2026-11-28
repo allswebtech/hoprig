@@ -18,13 +18,14 @@ const PAID = ['startSession', 'startChat', 'sendText', 'sendToChat', 'switchAcco
 
 function setup({ cap = null, clock = { t: new Date(2026, 10, 18, 22, 0).getTime() }, ledgerFile = null } = {}) {
   const s = baseState();
-  s.assistant = { enabled: true, level: 'handsoff', accounts: ['sub', 'api'], ...(cap === null ? {} : { dailyCapUsd: cap }) };
+  s.assistant = { enabled: true, actAlone: true, level: 'handsoff', accounts: ['sub', 'api'], ...(cap === null ? {} : { dailyCapUsd: cap }) };
   const ops = new FakeOps(s);
   const now = () => clock.t;
   const core = createAssistantCore({
     ops, now, cards: new CardStore({ now }), audit: new AuditLog({ file: null, now }), jobs: new JobStore({ dir: null, now }),
     spend: new SpendLedger({ file: ledgerFile, now }),
   });
+  core.jobs.markStarted('this', 'web-ui', 1_700_000_002_000); // hers: a message into one of his is a card whatever the provider
   const call = (tool, args) => core.call(tool, args, { conversation: 'c1' });
   const reached = () => ops.calls.filter((c) => PAID.includes(c.op)).length;
   return { ops, core, call, reached, clock };
@@ -98,8 +99,9 @@ test('the cap is the owner\'s setting: bounded, shown with what she may do; she 
   assert.match((await call('change_setting', { key: 'tia_daily_cap', value: 1000 })).text, /invalid input|must be one of/);
 });
 
-// A queued message is typed into the session when it next waits: into a paid session it spends as a message does.
-test('a queued message into a session on a paid provider counts against the cap: a card with no cap, a hold inside it', async () => {
+// A queued message is typed into the session when it next waits and cannot be taken back: it is a card, cap or none, and
+// nothing is queued or held before his tap.
+test('a queued message into a session on a paid provider is a card, with a cap or none, and holds nothing before his tap', async () => {
   for (const level of ['handsoff', 'work']) {
     const { ops, core, call } = setup();
     ops.s.assistant.level = level;
@@ -108,20 +110,18 @@ test('a queued message into a session on a paid provider counts against the cap:
     await call('list_sessions', {});
     const r = await call('manage_automation', { action: 'queue_message', session: 'web-ui', text: 'run the tests' });
     assert.ok(r.card, `${level}: ${r.text}`);
-    assert.match(r.card.lines.join('\n'), /no daily limit for paid use is set/);
+    assert.match(r.card.lines.join('\n'), /cannot be put back with one press/);
     assert.equal(ops.calls.filter((c) => c.op === 'queue').length, 0, `${level}: the queue was written with no cap`);
     assert.deepEqual(core.spend.today(), { spent: 0, held: 0 });
   }
   const { ops, core, call } = setup({ cap: HOLD_USD });
   ops.s.sessions.find((x) => x.name === 'web-ui').profile = { name: 'api', label: 'API key', kind: 'api' };
   await call('list_sessions', {});
-  assert.ok(!(await call('manage_automation', { action: 'queue_message', session: 'web-ui', text: 'run the tests' })).card);
-  assert.equal(core.spend.today().held, HOLD_USD);
-  const past = await call('manage_automation', { action: 'queue_message', session: 'web-ui', text: 'and the lint' });
-  assert.match(past.card.lines.join('\n'), /limit for paid use of \$0\.50 is reached/);
-  assert.equal(ops.calls.filter((c) => c.op === 'queue').length, 1);
-  // Clearing the queue spends nothing.
-  assert.ok(!(await call('manage_automation', { action: 'queue_clear', session: 'web-ui' })).card);
+  assert.ok((await call('manage_automation', { action: 'queue_message', session: 'web-ui', text: 'run the tests' })).card);
+  assert.equal(core.spend.today().held, 0, 'nothing is held before his tap');
+  assert.equal(ops.calls.filter((c) => c.op === 'queue').length, 0);
+  // Clearing the queue spends nothing, and cannot be taken back: a card too.
+  assert.ok((await call('manage_automation', { action: 'queue_clear', session: 'web-ui' })).card);
 });
 
 // A retry of the same start is answered from the first one: no second hold, no second start, also when both come at

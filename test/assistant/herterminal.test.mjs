@@ -75,7 +75,7 @@ test('a terminal session she starts is hers: held below Full and signed in with 
     claudeBin,
     usage: false,
     server: { backend: 'pty', roots: [work], passwordHash: await hashPassword('pw-for-tests'), herGitSignin: { file: 'tia-token', at: 1 } },
-    assistant: { enabled: true, level: 'handsoff', accounts: ['work', 'backup'], dailyCapUsd: 5 },
+    assistant: { enabled: true, level: 'handsoff', accounts: ['work', 'backup'], dailyCapUsd: 5 }, operator: { acts: true },
     sessionDefaults: { permissionMode: 'default' },
   });
   writeProfile('work', { label: 'Work', env: { ANTHROPIC_API_KEY: 'sk-test-not-real' } });

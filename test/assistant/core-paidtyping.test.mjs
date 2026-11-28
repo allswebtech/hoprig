@@ -14,12 +14,14 @@ import { FakeOps, baseState } from './fake-dashboard.mjs';
 
 function setup(cap = null) {
   const s = baseState();
-  s.assistant = { enabled: true, level: 'handsoff', accounts: ['sub', 'acct'], ...(cap === null ? {} : { dailyCapUsd: cap }) };
+  s.assistant = { enabled: true, actAlone: true, level: 'handsoff', accounts: ['sub', 'acct'], ...(cap === null ? {} : { dailyCapUsd: cap }) };
   // The list (/api/state) marks the sign-in billed by use; the session's card has only its public profile.
   s.profiles.push({ name: 'acct', label: 'Account', kind: 'login', paid: true, inUse: 1, limited: null, usage: null });
   s.sessions.find((x) => x.name === 'web-ui').profile = { name: 'acct', label: 'Account', kind: 'login', paid: false };
   const ops = new FakeOps(s);
   const core = createAssistantCore({ ops, cards: new CardStore(), audit: new AuditLog({ file: null }), jobs: new JobStore({ dir: null }), spend: new SpendLedger({ file: null }) });
+  // the terminal is hers: typing into one of his is a card whatever the provider (it cannot be taken back)
+  core.jobs.markStarted('this', 'web-ui', 1_700_000_002_000);
   const call = (tool, args) => core.call(tool, args, { conversation: 'c1' });
   const typed = () => ops.calls.filter((c) => c.op === 'sendText' || c.op === 'queue').length;
   return { core, call, typed };

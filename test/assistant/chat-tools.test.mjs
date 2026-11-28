@@ -16,6 +16,7 @@ import { decideLevel } from '../../src/assistant/policy.mjs';
 import { Skills } from '../../src/assistant/skills.mjs';
 import { byName, TOOLS } from '../../src/assistant/tools.mjs';
 import { sandbox } from '../server/helpers.mjs';
+import { tapped } from './tapped.mjs';
 import { FakeOps, baseState, projectWork } from './fake-dashboard.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -38,7 +39,7 @@ function workFolder(t) {
 
 function setup({ level = 'work', cards = [chatCard()] } = {}) {
   const s = baseState();
-  s.assistant = { ...s.assistant, enabled: true, level };
+  s.assistant = { ...s.assistant, enabled: true, level, actAlone: true };
   s.sessions.push(...cards);
   const ops = new FakeOps(s);
   const core = createAssistantCore({
@@ -73,19 +74,16 @@ test('a new name for a terminal session (send_to_session name) types nothing: no
   assert.equal(core.cards.pending().length, 1);
 });
 
-test('send_to_chat on a chat Tia did not start: an OK is a card, saying no and stopping run at once', async () => {
+test('send_to_chat on a chat Tia did not start: an OK, saying no and stopping are all cards (they cannot be taken back)', async () => {
   const { call, ops } = setup();
   await call('list_sessions', {});
   const s = `chat:${ID}`;
   assert.ok(staged(await call('send_to_chat', { session: s, answer: 'allow' })), 'not hers: allow needs the owner');
   assert.ok(staged(await call('send_to_chat', { session: s, text: 'yes, go on' })), 'text into a chat that waits for an OK: the owner');
   assert.deepEqual(writes(ops), []);
-  let r = await call('send_to_chat', { session: s, answer: 'deny' });
-  assert.equal(r.isError, false, r.text);
-  assert.deepEqual(ops.calls.at(-1), { op: 'answerChat', args: { computer: 'this', id: ID, request: 'req-1', allow: false, always: false } }, 'the request is the open one, looked up by the dashboard');
-  r = await call('send_to_chat', { session: s, stop: true });
-  assert.equal(r.isError, false, r.text);
-  assert.equal(ops.calls.at(-1).op, 'stopChat');
+  assert.ok(staged(await call('send_to_chat', { session: s, answer: 'deny' })), 'an answer cannot be taken back: his tap, with the switch on too');
+  assert.ok(staged(await call('send_to_chat', { session: s, stop: true })), 'a stop cannot be taken back');
+  assert.deepEqual(writes(ops), [], 'nothing before a tap');
 });
 
 test('send_to_chat answers only the OK that was judged: a card goes stale, and a run does not answer, when another one opened meanwhile', async () => {
@@ -111,7 +109,7 @@ test('send_to_chat answers only the OK that was judged: a card goes stale, and a
 });
 
 test('send_to_chat refuses what does not fit: two things at once, a terminal session, an OK that is not open, a question', async () => {
-  const { call, ops } = setup({ cards: [chatCard(), chatCard({ name: 'chat:55555555-5555-4555-8555-555555555555', chatId: '55555555-5555-4555-8555-555555555555', status: 'waiting', note: '', ask: null }), chatCard({ name: 'chat:66666666-6666-4666-8666-666666666666', chatId: '66666666-6666-4666-8666-666666666666', note: 'Claude asks you a question', ask: { request: 'q', type: 'question' } })] });
+  const { call, ops } = setup({ cards: [chatCard(), chatCard({ name: 'chat:55555555-5555-4555-8555-555555555555', chatId: '55555555-5555-4555-8555-555555555555', byTia: true, status: 'waiting', note: '', ask: null }), chatCard({ name: 'chat:66666666-6666-4666-8666-666666666666', chatId: '66666666-6666-4666-8666-666666666666', byTia: true, note: 'Claude asks you a question', ask: { request: 'q', type: 'question' } })] });
   await call('list_sessions', {});
   assert.match((await call('send_to_chat', { session: `chat:${ID}`, text: 'x', stop: true })).text, /exactly one of text, answer, stop: true, name, close: true or terminal: true/);
   assert.match((await call('send_to_chat', { session: 'web-ui', text: 'x' })).text, /is not a chat.*send_to_session/s);
@@ -354,7 +352,7 @@ test('start_chat on a conversation the owner has open: his chat is returned as h
   const { call, ops, core } = setup({ cards: [chatCard({ cwd: '/home/owner/projects/api', permissionMode: 'bypassPermissions', ask: { request: 'o1', type: 'permission', tool: 'Bash', known: true, subject: 'npm test', owner: false } })] });
   ops.s.conversations['/home/owner/projects/api'].push({ id: ID, at: Date.now(), title: 'Fix the footer' });
   await call('list_projects', { folder: '/home/owner/projects/api' });
-  const r = await call('start_chat', { folder: '/home/owner/projects/api', account: 'sub', conversation: ID, message: 'go on', goal: 'footer fixed' });
+  const r = await tapped(core, call)('start_chat', { folder: '/home/owner/projects/api', account: 'sub', conversation: ID, message: 'go on', goal: 'footer fixed' });
   assert.equal(r.isError, false, r.text);
   assert.match(r.text, /already open in chat chat:4444.*which you did not start.*its own permission mode.*bypassPermissions.*NOT sent/s);
   assert.doesNotMatch(r.text, /Settings → New-session defaults/, 'not said where it is not so');
@@ -368,7 +366,7 @@ test('start_chat on an earlier conversation that no chat has open: a new chat, b
   const { call, ops, core } = setup({ cards: [] });
   const CONV = '33333333-3333-4333-8333-333333333333'; // an earlier conversation of the fake's folder
   await call('list_projects', { folder: '/home/owner/projects/api' });
-  const r = await call('start_chat', { folder: '/home/owner/projects/api', account: 'sub', conversation: CONV, message: 'go on', goal: 'tests pass' });
+  const r = await tapped(core, call)('start_chat', { folder: '/home/owner/projects/api', account: 'sub', conversation: CONV, message: 'go on', goal: 'tests pass' });
   assert.equal(r.isError, false, r.text);
   assert.match(r.text, /continuing the earlier conversation.*It continues an earlier conversation, so it is not yours: every OK it asks for is the owner's, and you cannot answer it\./s);
   const start = ops.calls.find((c) => c.op === 'startChat');
@@ -488,7 +486,7 @@ test('in the real dashboard: Tia starts a chat, answers its OK, writes to it, an
   const { hashPassword } = await import('../../src/server/auth.mjs');
   const { stateDir } = await import('../../src/paths.mjs');
   const { createServer } = await import('../../src/server/server.mjs');
-  saveConfig({ server: { backend: 'pty', roots: [work], passwordHash: await hashPassword('pw-for-tests') }, assistant: { enabled: true, level: 'work' }, sessionDefaults: { permissionMode: 'manual' } });
+  saveConfig({ server: { backend: 'pty', roots: [work], passwordHash: await hashPassword('pw-for-tests') }, assistant: { enabled: true, level: 'work' }, operator: { acts: true }, sessionDefaults: { permissionMode: 'manual' } });
   writeProfile('sub', { label: 'Main' });
   const app = createServer({
     watchTickMs: 300, dashboardFile: false,
@@ -559,7 +557,7 @@ test('in the real dashboard: "hers" is the chat Tia started, not its id: it hold
   const { hashPassword } = await import('../../src/server/auth.mjs');
   const { stateDir } = await import('../../src/paths.mjs');
   const { createServer } = await import('../../src/server/server.mjs');
-  saveConfig({ server: { backend: 'pty', roots: [work], passwordHash: await hashPassword('pw-for-tests') }, assistant: { enabled: true, level: 'work' }, sessionDefaults: { permissionMode: 'default' } });
+  saveConfig({ server: { backend: 'pty', roots: [work], passwordHash: await hashPassword('pw-for-tests') }, assistant: { enabled: true, level: 'work' }, operator: { acts: true }, sessionDefaults: { permissionMode: 'default' } });
   writeProfile('sub', { label: 'Main' });
   let app;
   let call;
@@ -647,7 +645,7 @@ test('in the real dashboard: a message the owner sends into her chat (the page, 
   const { hashPassword } = await import('../../src/server/auth.mjs');
   const { stateDir } = await import('../../src/paths.mjs');
   const { createServer } = await import('../../src/server/server.mjs');
-  saveConfig({ server: { backend: 'pty', roots: [work], passwordHash: await hashPassword('pw-for-tests') }, assistant: { enabled: true, level: 'work' }, sessionDefaults: { permissionMode: 'default' } });
+  saveConfig({ server: { backend: 'pty', roots: [work], passwordHash: await hashPassword('pw-for-tests') }, assistant: { enabled: true, level: 'work' }, operator: { acts: true }, sessionDefaults: { permissionMode: 'default' } });
   writeProfile('sub', { label: 'Main' });
   let app;
   let call;
@@ -713,15 +711,17 @@ test('in the real dashboard: a message the owner sends into her chat (the page, 
   await idle(id);
   assert.equal((await cardOf(id)).byTia, false);
   assert.equal(record(id).byTia, undefined, 'not in its record');
-  assert.match((await sheAnswers(id, 'd.txt')).text, /Waiting for the owner's OK.*did not start/s);
-  assert.equal(await status(id), 'attention', 'not answered');
-  const d = (await cardOf(id)).ask;
-  assert.equal((await owner('POST', `/api/chats/${id}/answer`, { request: d.request, allow: false, always: false })).status, 200);
-  await idle(id);
+  // It is his now: a message into it is a card, even with the switch on (a message cannot be taken back), and nothing is typed.
+  const intoHis = async (file) => {
+    await call('list_sessions', {});
+    return call('send_to_chat', { session: `chat:${id}`, text: `run ls ${file}` });
+  };
+  assert.match((await intoHis('d.txt')).text, /Waiting for the owner's OK.*cannot be put back/s);
+  assert.equal(await status(id), 'waiting', 'nothing was typed');
   await app.close();
   await start();
   assert.equal((await cardOf(id)).byTia, false, 'still his after a restart');
-  assert.match((await sheAnswers(id, 'e.txt')).text, /Waiting for the owner's OK.*did not start/s);
+  assert.match((await intoHis('e.txt')).text, /Waiting for the owner's OK.*cannot be put back/s);
   assert.ok(!(await ran(id, 'd.txt')) && !(await ran(id, 'e.txt')));
 
   // A schedule of the owner's that writes into her chat (the chat feature's send, as src/automation does) does the same.
@@ -748,7 +748,7 @@ test('in the real dashboard: in her own chat, every call her rules cannot judge 
   const { hashPassword } = await import('../../src/server/auth.mjs');
   const { stateDir } = await import('../../src/paths.mjs');
   const { createServer } = await import('../../src/server/server.mjs');
-  saveConfig({ server: { backend: 'pty', roots: [work], passwordHash: await hashPassword('pw-for-tests') }, assistant: { enabled: true, level: 'handsoff' }, sessionDefaults: { permissionMode: 'default' } });
+  saveConfig({ server: { backend: 'pty', roots: [work], passwordHash: await hashPassword('pw-for-tests') }, assistant: { enabled: true, level: 'handsoff' }, operator: { acts: true }, sessionDefaults: { permissionMode: 'default' } });
   writeProfile('sub', { label: 'Main' });
   const app = createServer({ watchTickMs: 300, dashboardFile: false, chat: { command: { command: process.execPath, args: [FAKE_CLAUDE] }, resolveEnv: async () => ({ ...process.env }), idleMs: 30_000 } });
   const base = `http://127.0.0.1:${(await app.listen(0, '127.0.0.1')).port}`;
@@ -854,6 +854,30 @@ test('start_chat fork_of: a card at Hands off too, on the chat\'s own provider a
   assert.equal(done.ok, true, JSON.stringify(done));
   assert.deepEqual(ops.calls.filter((c) => c.op === 'forkChat').map((c) => c.args), [{ computer: 'this', id: ID }]);
   assert.ok(!writes(ops).includes('startChat'), 'a fork opens no other chat');
+});
+
+test('start_chat fork_of with a watch: the watch is added for the forked chat too', async () => {
+  const { WatchStore } = await import('../../src/assistant/watches.mjs');
+  const s = baseState();
+  s.assistant = { ...s.assistant, enabled: true, level: 'work', actAlone: true };
+  s.sessions.push(chatCard({ status: 'waiting', ask: null, note: '' }));
+  const ops = new FakeOps(s);
+  const watches = new WatchStore({ file: null });
+  const core = createAssistantCore({ ops, now: Date.now, cards: new CardStore({ now: Date.now }), audit: new AuditLog({ file: null, now: Date.now }), jobs: new JobStore({ dir: null, now: Date.now }), watches, skills: new Skills({ dirs: [{ dir: BUILTIN, source: 'built-in' }] }) });
+  const call = (tool, args) => core.call(tool, args, { conversation: 'c1' });
+  await call('list_sessions', {});
+  const r = await call('start_chat', { folder: '/home/owner/projects/web', fork_of: `chat:${ID}`, watch: 'fails' });
+  assert.ok(staged(r), r.text);
+  assert.equal(watches.list().length, 0, 'nothing watched before his yes');
+  const done = await core.confirm(core.cards.pending()[0].id);
+  assert.equal(done.ok, true, JSON.stringify(done));
+  const [w] = watches.list();
+  assert.ok(w, 'the fork has its watch');
+  assert.equal(w.on, 'chat');
+  assert.equal(w.when, 'fails');
+  const forked = ops.calls.find((c) => c.op === 'forkChat');
+  assert.ok(forked);
+  assert.match(w.target, /^chat:[0-9a-f-]{36}$/);
 });
 
 test('her door: a fork of a chat takes no field', () => {

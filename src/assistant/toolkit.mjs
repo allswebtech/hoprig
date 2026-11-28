@@ -34,12 +34,12 @@ export const countOf = (v) => (Array.isArray(v) ? v.length : 0);
 /** A number a computer gave, for a summary: a finite number or "?". */
 export const saidNum = (v) => (typeof v === 'number' && Number.isFinite(v) ? String(v) : '?');
 
-export const computer = ref('computer', str({ max: 32, pattern: COMPUTER, desc: `Computer name from get_computer_status, never a session's name; omit for this computer ("${LOCAL}").` }));
-export const session = ref('session', str({ max: 41, pattern: SESSION, desc: 'Session name exactly as list_sessions showed it.' }));
-export const account = str({ max: 32, pattern: ACCOUNT, desc: 'Provider name from get_computer_status providers, or "auto" while Auto mode is on.' });
-export const job = ref('job', str({ max: 12, pattern: /^j_[0-9a-f]{10}$/, desc: 'Job id from start_session, start_chat, watch_session or list_sessions.' }));
-export const conversation = ref('conversation', str({ max: 36, pattern: UUID, desc: 'Conversation id from list_projects with folder.' }));
-export const folder = str({ max: 1024, pattern: ABS, oneLine: true, desc: 'Absolute folder path (or ~/...) inside the folders the dashboard allows.' });
+export const computer = ref('computer', str({ max: 32, pattern: COMPUTER, quiet: true, desc: 'A computer from look computers; omit for this one.' }));
+export const session = ref('session', str({ max: 41, pattern: SESSION, quiet: true, desc: 'A session name as look showed it.' }));
+export const account = str({ max: 32, pattern: ACCOUNT, quiet: true, desc: 'A provider from look providers, or "auto".' });
+export const job = ref('job', str({ max: 12, pattern: /^j_[0-9a-f]{10}$/, quiet: true, desc: 'A job id as a result showed it.' }));
+export const conversation = ref('conversation', str({ max: 36, pattern: UUID, quiet: true, desc: 'A conversation id from look projects.' }));
+export const folder = str({ max: 1024, pattern: ABS, oneLine: true, quiet: true, desc: 'Absolute folder path (~/ allowed).' });
 
 // The coding tools this version offers (src/codetools/offered.mjs, the one switch), by their names in the page.
 export const CODING_TOOL_NAMES = Object.freeze({ claude: 'Claude Code', opencode: 'OpenCode', codex: 'Codex' });

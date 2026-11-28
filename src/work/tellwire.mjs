@@ -41,13 +41,13 @@ const readSample = () => {
 export function tiaWorder({ cfg, log, ledger = null }) {
   return async (t) => {
     const c = cfg() || {};
-    const { resolveTia } = await import('../assistant/tia.mjs');
+    const { resolveTia, tiaRaw } = await import('../assistant/tia.mjs');
     const { listProfiles, publicProfile } = await import('../profiles.mjs');
     const { getAutoSwitch } = await import('../autoswitch.mjs');
     // A stored sign-in on a key billed by use counts as billed by use (routerstate.mjs billedLogin), as on the page.
     const { billedLogin } = await import('../routerstate.mjs');
     const accounts = { profiles: listProfiles().map((p) => ({ ...publicProfile(p), ...(billedLogin(p) ? { paid: true } : {}) })), autoSwitch: getAutoSwitch() };
-    const tia = resolveTia(c.assistant, accounts);
+    const tia = resolveTia(tiaRaw(c), accounts);
     if (!tia.enabled || !tia.runsOn) return null;
     const { paidName } = await import('../assistant/spend.mjs');
     const { ledger: keptLedger } = await import('../operator/money.mjs');

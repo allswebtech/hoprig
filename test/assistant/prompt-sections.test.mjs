@@ -16,7 +16,7 @@ test('the prompt built from its sections is the shipped prompt, byte for byte', 
   assert.equal(buildPrompt(new Map()), SAVED);
   assert.equal(systemPrompt(), SAVED);
   assert.equal(systemPrompt('', new Map()), SAVED);
-  assert.equal(systemPrompt('- a: b'), `${SAVED}\n\n## Your procedures (manage_procedures action find reads one)\n- a: b`);
+  assert.equal(systemPrompt('- a: b'), `${SAVED}\n\n## Your procedures (find_acts finds one, look reads it)\n- a: b`);
 });
 
 test('the sections by id, in order; the safety ones are protected', () => {

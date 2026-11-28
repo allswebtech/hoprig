@@ -3,6 +3,7 @@ import { add, h } from '/lib.js';
 import { cardElement, setSource } from '/tiacards.js';
 import { messageView } from '/tiamsg.js';
 import { formFields } from '/tiacards.js';
+import { cardView } from '/tia.js';
 
 const q = new URLSearchParams(location.search);
 if (q.get('theme')) document.documentElement.dataset.theme = q.get('theme');
@@ -23,6 +24,7 @@ setSource({
   now: () => Date.now(),
 });
 const g = document.getElementById('g');
+const only = q.get('only');
 const section = (t) => add(g, h('h2.g', t));
 const card = (c) => add(g, h('div.tia-row.tia.tia-cardrow', cardElement({ id: id(), at: now, ...c })));
 let before = null;
@@ -87,4 +89,14 @@ card({ kind: 'needs', items: [need(1), need(2, { act: { id: 'stop', label: 'End 
 section('Open');
 card({ kind: 'open', label: 'Open Providers', href: '#/providers' });
 card({ kind: 'open', label: 'Open Settings → Tia', href: '#/settings/tia' });
+const planStep = (label, state, note) => ({ label, state, ...(note ? { note } : {}) });
+const plan = (state, steps, extra = {}) => ({ kind: 'plan', subject: { type: 'plan', computer: 'this', id: 'p_0123456789' }, title: 'Put the shop live', steps, state, started: now - 95_000, step: { label: 'Open the jobs', href: '#/tia/jobs' }, ...extra });
+const shopSteps = ['Save the shop work', 'Check the shop builds', 'Put the shop live'];
+section('Plan of three steps: waiting for the tap, running at step two, done, failed at step two with its undo');
+add(g, h('div.tia-row.tia.tia-cardrow', cardView({ id: 'c_plan1', tool: 'plan_acts', input: { title: 'Put the shop live', steps: [] }, lines: [], status: 'pending', createdAt: now, expiresAt: now + 20 * 60_000,
+  view: { title: 'Put the shop live', why: '', steps: [{ n: 1, what: shopSteps[0], changes: 'Saves the work to its branch.' }, { n: 2, what: shopSteps[1], changes: 'Changes nothing; it runs the build.', wait: '10 min' }, { n: 3, what: shopSteps[2], changes: 'Puts the shop on the internet.' }] } }, () => {})));
+card(plan('running', [planStep(shopSteps[0], 'done'), planStep(shopSteps[1], 'running'), planStep(shopSteps[2], 'waiting')]));
+card(plan('done', shopSteps.map((l) => planStep(l, 'done')), { ended: now - 20_000 }));
+card(plan('failed', [planStep(shopSteps[0], 'undone'), planStep(shopSteps[1], 'failed', 'The build did not pass.'), planStep(shopSteps[2], 'skipped')], { ended: now - 20_000, note: 'Stopped at step 2. Step 1 was taken back.' }));
+if (only === 'plan') { const at = [...g.children].findIndex((x) => x.textContent.startsWith('Plan of three steps')); for (const x of [...g.children].slice(0, at)) x.remove(); }
 document.body.dataset.ready = '1';

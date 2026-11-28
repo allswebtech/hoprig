@@ -24,6 +24,8 @@ export const FIRST_CALL = {
   task: 'manage_work action today or list',
   run: 'manage_work action task',
   plan: 'manage_work action plans',
+  act: 'find_acts',
+  target: 'look (the list act of what you mean) or find_acts, or ask which one he means',
 };
 
 /** The local computer is always known: tools default to it. */
@@ -59,8 +61,24 @@ export class ShownIds {
 
   has(conv, kind, id) {
     if (kind === 'computer' && id === LOCAL) return true;
+    if (kind === 'target') return this.seen(conv, id);
     const set = this.#kinds(conv).get(kind);
     return !!set && set.has(String(id));
+  }
+
+  /**
+   * Whether this value (a session, a project, a provider, a computer, a task ...) was shown in this conversation in any
+   * kind, by a tool result (idsIn) or typed by the owner (wordsOf); a "computer|name" pair counts by each of its parts.
+   */
+  seen(conv, id) {
+    const v = String(id);
+    if (v === LOCAL) return true;
+    const kinds = this.#kinds(conv);
+    for (const set of kinds.values()) {
+      if (set.has(v)) return true;
+      for (const x of set) if (x.includes('|') && x.split('|').includes(v)) return true;
+    }
+    return false;
   }
 
   /** The first ref that was not shown, or null. refs: [{ kind, value, path }] from schema.validate. */
@@ -68,3 +86,27 @@ export class ShownIds {
     return refs.find((r) => !this.has(conv, r.kind, r.value)) || null;
   }
 }
+
+// ---- the ids a tool result shows, and the words the owner types ----
+const ID_KEYS = /^(id|name|session|project|provider|task|run|chat|job|computer|machine|plan|account|profile|folder|dir|branch|schedule|skill|addon|gateway|target)$/;
+const ID_LIST = /^(ids|names|sessions|projects|providers|tasks|computers|chats|jobs|profiles|accounts)$/;
+const ID_SHAPE = /^[A-Za-z0-9][A-Za-z0-9._:@-]{0,79}$/;
+
+/** { target: [...] }: the id-like values in the structured fields of a tool result (never the text of a screen or a file). */
+export function idsIn(data) {
+  const out = new Set();
+  const walk = (v, depth) => {
+    if (depth > 7 || out.size >= 400 || !v || typeof v !== 'object') return;
+    if (Array.isArray(v)) { for (const x of v.slice(0, 200)) walk(x, depth + 1); return; }
+    for (const [k, x] of Object.entries(v)) {
+      if (typeof x === 'string' && ID_KEYS.test(k) && ID_SHAPE.test(x)) out.add(x);
+      else if (Array.isArray(x) && ID_LIST.test(k)) for (const y of x.slice(0, 200)) { if (typeof y === 'string' && ID_SHAPE.test(y)) out.add(y); else walk(y, depth + 1); }
+      else walk(x, depth + 1);
+    }
+  };
+  walk(data, 0);
+  return { target: [...out] };
+}
+
+/** The words of a message the owner typed that can be an id (at most 200): what he wrote himself counts as shown. */
+export const wordsOf = (text) => [...new Set(String(text || '').slice(0, 20_000).match(/[A-Za-z0-9][A-Za-z0-9._:@-]{1,79}/g) || [])].slice(0, 200);

@@ -52,7 +52,7 @@ test('below Full the terminal route refuses an OpenCode session of hers through 
     usage: false,
     codingTools: ['claude', 'opencode'],
     server: { backend: 'pty', roots: [work], passwordHash: await hashPassword('pw-for-tests') },
-    assistant: { enabled: true, level: 'handsoff', accounts: ['gw'], dailyCapUsd: 5 },
+    assistant: { enabled: true, level: 'handsoff', accounts: ['gw'], dailyCapUsd: 5 }, operator: { acts: true },
   });
   writeProfile('gw', { label: 'Gateway', api: ['messages', 'models'], env: { ANTHROPIC_BASE_URL: 'http://127.0.0.1:9', ANTHROPIC_AUTH_TOKEN: 'gw-token-of-the-test' } });
 

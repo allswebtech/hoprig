@@ -69,6 +69,22 @@ export function runProgress(r, computer = LOCAL) {
   };
 }
 
+/** A plan (plans.mjs) → a plan card's fields: every step with its state, the time, and what happened when it stopped. */
+export function planFields(plan) {
+  const started = ms(plan.startedAt);
+  const ended = plan.state !== 'running' ? ms(plan.endedAt) : undefined;
+  return {
+    subject: { type: 'plan', computer: LOCAL, id: plan.id },
+    title: shortText(plan.title, 120) || 'A plan',
+    steps: plan.steps.slice(0, 12).map((s) => ({ label: shortText(s.what || s.act, 120), state: s.state, ...(s.note && ['failed', 'undo-failed'].includes(s.state) ? { note: shortText(s.note, 160) } : {}) })),
+    state: plan.state === 'staged' ? 'running' : plan.state,
+    ...(started ? { started } : {}),
+    ...(ended ? { ended } : {}),
+    ...(plan.note && plan.state !== 'running' ? { note: shortText(plan.note, 200) } : {}),
+    step: { label: 'Open the jobs', href: '#/tia/jobs' },
+  };
+}
+
 /** A computer of the hub list → a status card's fields. */
 export function computerStatus(m) {
   return {
@@ -200,6 +216,8 @@ export function cardOf(name, a, result, ctx) {
       // The kind it was read with is kept for the card (core.mjs refreshViews reads it again with that kind).
       return { kind: 'needs', fields: { items: needsItems(raw.items, raw.acts), total: raw.total, all: { label: 'Show all', href: '#/operator' } }, hidden: { kind: a.kind && a.kind !== 'all' ? a.kind : null } };
     }
+    case 'plan_acts':
+      return result.cardData && result.cardData.plan ? { kind: 'plan', fields: planFields(result.cardData.plan) } : null;
     case 'manage_work':
       return workCard(a, result, ctx);
     case 'open_screen':

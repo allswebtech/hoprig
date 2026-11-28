@@ -30,13 +30,14 @@ import { stateDir } from '../paths.mjs';
 import { runningDashboard } from '../server/dashboardfile.mjs';
 import { AuditLog } from './audit.mjs';
 import { CONVERSATION_HEADER, tokenFile } from './client.mjs';
+import { dashboardActs } from './actsrun.mjs';
 import { VIEW_LINE, createAssistantCore } from './core.mjs';
 import { DYNAMIC } from './cardkinds.mjs';
 import { Engine } from './engine.mjs';
 import { createOps, runShell as realRunShell } from './ops.mjs';
 import { tiaPrompt } from './accepted.mjs';
 import { loadMachines } from '../machines/store.mjs';
-import { ASSISTANT_NAME, DEFAULTS as TIA_DEFAULTS, HELP, LEVELS, cleanTiaPatch, resolveTia, savedTiaChoice, servesTool, tiaChoices } from './tia.mjs';
+import { ASSISTANT_NAME, DEFAULTS as TIA_DEFAULTS, HELP, LEVELS, cleanTiaPatch, resolveTia, savedTiaChoice, servesTool, tiaChoices, tiaRaw } from './tia.mjs';
 import { KEY_NOTE, maskInput } from './secrets.mjs';
 import { keepSample } from '../work/tellwire.mjs';
 import { readUsage, recordUsage, summarizeUsage, turnUsage, usageFile } from './usage.mjs';
@@ -104,7 +105,24 @@ export function contextLine(x) {
   if (!page) return '';
   const sub = typeof x.sub === 'string' && /^[A-Za-z0-9._~ /-]{1,80}$/.test(x.sub) ? x.sub : null;
   const computer = typeof x.computer === 'string' && /^[A-Za-z0-9 ._@()-]{1,40}$/.test(x.computer) ? x.computer : null;
-  return `[The owner is looking at the dashboard page "${page}"${sub ? ` (${sub})` : ''}${computer ? ` of the computer "${computer}"` : ''}.]\n`;
+  const here = hereOf(x);
+  const where = computer ? ` of the computer "${computer}"` : '';
+  // The chat or session open in the App: "this chat", "this session" and "here" are THAT one, never her own conversation.
+  if (here) return `[The owner is looking at the ${here.what} "${here.name}" in the App${where}. His words "this ${here.what}", "this session", "here" and "it" mean it, not this conversation with you; its name is a pick you may use.]\n`;
+  return `[The owner is looking at the dashboard page "${page}"${sub ? ` (${sub})` : ''}${where}.]\n`;
+}
+
+const CHAT_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+const TERMINAL_NAME = /^[A-Za-z0-9_][A-Za-z0-9_.-]{0,39}$/;
+/**
+ * The chat or terminal session the owner has open in the App, from what the page says (its route: #/chat/<id>, #/s/<name>):
+ * { what: 'chat' | 'session', name } or null. Only these two shapes pass; it is a pick she may use (core.shown), made by the page.
+ */
+export function hereOf(x) {
+  if (!x || typeof x !== 'object' || typeof x.sub !== 'string') return null;
+  if (x.page === 'chat' && CHAT_UUID.test(x.sub)) return { what: 'chat', name: `chat:${x.sub}` };
+  if (x.page === 's' && TERMINAL_NAME.test(x.sub)) return { what: 'session', name: x.sub };
+  return null;
 }
 
 const BODY_MAX = 64 * 1024;
@@ -171,7 +189,8 @@ export function assistantFeature(ctx, o = {}) {
   // What she spends on providers billed by use, kept in the state folder so a restart keeps the day's sum (spend.mjs).
   const spend = (o.core && o.core.spend) || new SpendLedger({ ...(o.now ? { now: o.now } : {}) });
   const startedAt = Date.now(); // when this dashboard started: a card made earlier cannot be known here
-  const core = createAssistantCore({ ops, ...(o.now ? { now: o.now } : {}), ...(o.core || {}), spend });
+  // What a plan's step runs through and the owner's watches (the one store the operator's attention loop also evaluates).
+  const core = createAssistantCore({ ops, ...(o.now ? { now: o.now } : {}), acts: dashboardActs(ops), ...(o.watches ? { watches: o.watches } : {}), ...(o.core || {}), spend });
   const audit = core.audit || new AuditLog();
   const HttpError = ctx.HttpError;
   const hubComputers = () => {
@@ -185,6 +204,8 @@ export function assistantFeature(ctx, o = {}) {
     const a = ctx.config().assistant;
     return a && typeof a === 'object' && !Array.isArray(a) ? a : {};
   };
+  // Her stored settings as every reader of them sees them: her right to act alone is the Operator switch (tia.mjs actsAlone).
+  const rawTia = () => tiaRaw(ctx.config());
   // Off until the owner turns her on (she costs money): the same default Settings → Tia shows (resolveTia).
   const enabled = () => ({ ...TIA_DEFAULTS, ...raw() }).enabled !== false;
   let serverToken = null;
@@ -256,7 +277,7 @@ export function assistantFeature(ctx, o = {}) {
   async function readiness() {
     if (!enabled()) return { ok: false, problem: `${ASSISTANT_NAME} is turned off. Turn her on in Settings → ${ASSISTANT_NAME}.` };
     const accounts = await accountsNow();
-    const tia = resolveTia(raw(), accounts);
+    const tia = resolveTia(rawTia(), accounts);
     // Her tools reach this dashboard only at its own address: without it nothing is started (never a default port).
     // Not known at start (the server was not listening yet): asked again now.
     if (!(address || (address = ownAddress()))) return { ok: false, problem: `${ASSISTANT_NAME} cannot reach her tools: this dashboard did not say where it listens. Restart the dashboard; if it keeps happening, check that its state folder can be written.` };
@@ -412,7 +433,7 @@ export function assistantFeature(ctx, o = {}) {
   // ---- settings view ----
   async function settingsView() {
     const accounts = await accountsNow();
-    const tia = resolveTia(raw(), accounts);
+    const tia = resolveTia(rawTia(), accounts);
     const usage = summarizeUsage(readUsage());
     const c = raw().clientToken;
     return {
@@ -420,7 +441,7 @@ export function assistantFeature(ctx, o = {}) {
       // The saved choice holds only names Save accepts back (savedTiaChoice), or the page could not be saved.
       settings: { ...tia, ...savedTiaChoice(raw(), accounts) },
       // What "Automatic" picks now, also while he chose a provider himself: the page names it in that choice.
-      automatic: (({ runsOn, subsLimited }) => ({ runsOn, subsLimited }))(resolveTia({ ...raw(), runsOn: null }, accounts)),
+      automatic: (({ runsOn, subsLimited }) => ({ runsOn, subsLimited }))(resolveTia({ ...rawTia(), runsOn: null }, accounts)),
       levels: LEVELS,
       help: HELP,
       // Only the providers she can use (tiaChoices); `thinks`: she can run on it (it serves Claude Code).
@@ -489,6 +510,9 @@ export function assistantFeature(ctx, o = {}) {
       // The computer the owner is looking at counts as shown to Tia: the page said it, not a screen or a file.
       const cc = b.context && typeof b.context.computer === 'string' && /^[a-z0-9][a-z0-9_-]{0,31}$/.test(b.context.computer) ? b.context.computer : null;
       if (cc) core.shown.add(c.id, { computer: [cc] });
+      // The chat or session open in the App counts as shown too: "rename this chat" can name it without a look.
+      const here = hereOf(b.context);
+      if (here) core.shown.add(c.id, { session: [`${cc || 'this'}|${here.name}`], target: [here.name] });
       // The page marks a message the owner spoke (spoken: true): the server only raises levels from it, never lowers one.
       turn(c, `${contextLine(b.context)}${text}`, { spoken: b.spoken === true });
       return { conversation: c.id };
@@ -569,7 +593,16 @@ export function assistantFeature(ctx, o = {}) {
     }],
     ['GET', /^\/api\/assistant\/audit$/, async (req, m, q) => {
       ownerOnly(req);
-      return { entries: audit.recent(Math.max(1, Math.min(500, Number(q.get('n')) || 100))).reverse() };
+      return { entries: core.undoMarks(audit.recent(Math.max(1, Math.min(500, Number(q.get('n')) || 100))).reverse()) };
+    }],
+    // Undo on her Activity: the owner's press, for an act she did alone; once (undo.mjs).
+    ['POST', /^\/api\/assistant\/undo$/, async (req) => {
+      ownerOnly(req);
+      const b = await ctx.readJson(req);
+      if (!Number.isSafeInteger(b.at)) throw new HttpError(400, 'at: the time of the entry, as Activity gives it');
+      const r = await core.undoAct(b.at);
+      if (!r.ok) throw Object.assign(new HttpError(r.code === 'failed' ? 409 : 404, r.error), { details: { code: r.code } });
+      return { ok: true, summary: r.summary };
     }],
     ['GET', /^\/api\/assistant\/settings$/, async (req) => {
       ownerOnly(req);
@@ -589,7 +622,7 @@ export function assistantFeature(ctx, o = {}) {
       // Her ticks ("Use other providers") only among the providers she may use, as the save leaves them: a tick on one
       // she may not use is refused, and a tick left on one the owner unticks from her list goes (it never comes back by
       // itself when he allows that provider again).
-      const allowedAfter = resolveTia({ ...raw(), ...patch }, accounts).allowed;
+      const allowedAfter = resolveTia({ ...rawTia(), ...patch }, accounts).allowed;
       if (patch.others) {
         const out = patch.others.find((n) => !allowedAfter.includes(n));
         if (out) throw new HttpError(400, `"${out}" is not a provider she may use: tick it under "Providers she may use" first`);

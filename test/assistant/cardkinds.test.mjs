@@ -22,7 +22,7 @@ function setup(edit = (s) => s) {
 }
 
 test('the kinds are a closed list; a card of another kind, with a stray field or a wrong type is refused', () => {
-  assert.deepEqual([...KINDS], ['confirm', 'form', 'choice', 'status', 'progress', 'list', 'numbers', 'result', 'needs', 'open']);
+  assert.deepEqual([...KINDS], ['confirm', 'form', 'choice', 'status', 'progress', 'list', 'numbers', 'result', 'needs', 'plan', 'open']);
   const ok = makeCard('open', { label: 'Open Providers', href: '#/providers' });
   assert.ok(ok && validCard(ok));
   assert.equal(makeCard('html', { label: 'x', href: '#/' }), null, 'no kind outside the list');

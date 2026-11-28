@@ -687,3 +687,17 @@ test('a status card says what the session asks from its exact card, with the ser
   assert.equal(at({}).note, 'Claude needs your attention', 'no exact card: the note as before');
   assert.equal(at({ askCard: { kind: 'question', questions: [{ question: 'Use KEY=sk-ant-api03-abcdefghijklmnop?' }] } }).note, 'Use KEY=***?', 'masked as any note');
 });
+
+test('a plan card shows every step with where it is, a failed step with its note and a taken-back step, as text', () => {
+  const plan = (state, steps, extra = {}) => texts(cardElement({ kind: 'plan', id: 'v_0000000000a1', at: Date.now(), subject: { type: 'plan', computer: 'this', id: 'p_0123456789' }, title: 'Put the shop live', steps, state, started: Date.now() - 90_000, step: { label: 'Open the jobs', href: '#/tia/jobs' }, ...extra })).join('');
+  const running = plan('running', [{ label: 'Save the work', state: 'done' }, { label: 'Check the shop', state: 'running' }, { label: '<b>Go live</b>', state: 'waiting' }]);
+  assert.match(running, /Running/);
+  assert.match(running, /Save the work \(done\)/);
+  assert.match(running, /Check the shop \(now\)/);
+  assert.match(running, /<b>Go live<\/b> \(to come\)/, 'a step is text, never markup');
+  const failed = plan('failed', [{ label: 'Save the work', state: 'undone' }, { label: 'Check the shop', state: 'failed', note: 'The check did not pass.' }], { note: 'Stopped at step 2; step 1 was taken back.', ended: Date.now() });
+  assert.match(failed, /Stopped: a step failed/);
+  assert.match(failed, /Save the work \(taken back\)/);
+  assert.match(failed, /The check did not pass\./);
+  assert.match(failed, /Stopped at step 2; step 1 was taken back\./);
+});
